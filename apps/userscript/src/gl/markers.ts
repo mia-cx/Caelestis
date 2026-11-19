@@ -12,7 +12,6 @@ import {
   registerProfileMemorySource,
 } from '../profile.js'
 import { getState } from '../settings.js'
-import { toRgbUnit } from '../templates/appearance.js'
 import {
   displayTemplates,
   isTemplateVisible,
@@ -27,13 +26,8 @@ import { holdTilePixels } from '../tile-pixels.js'
 import { selectedColour } from '../wplace-paint.js'
 import { prefersReducedMotion } from './appearance-transition.js'
 import { LAYER_IDS } from './layer-stack.js'
-import { batchMarkerWork } from './marker-batching.js'
-import {
-  markerDensityMemoryBytes,
-  markerSampleRate,
-  visibleListPoints,
-  visibleSourceRect,
-} from './marker-density.js'
+import { markerDensityMemoryBytes, visibleListPoints, visibleSourceRect } from './marker-density.js'
+import { budgetMarkers, markerStyles } from './marker-frame.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { worldRenderScene } from './render-scene.js'
 
@@ -214,34 +208,12 @@ const drawVisible = (
       if (covers(template, tile) && !accounting.ensure(tile.tile)) deferred = true
     }
   }
-  const { markerBudget, onlySelectedColour } = getState()
+  const renderBudget = getState().markerBudget
   const moving = getMap()?.isMoving() === true
-  const renderBudget = markerBudget
   const profiling = isProfileEnabled()
-  const mismatchSelection = onlySelectedColour ? selected : -1
   for (const { template, appearance, mismatchFade, selectedFades } of wanted) {
     const accounting = pixelAccounting.read(template)
-    const mismatchStyle: MarkerStyle = {
-      size: appearance.markerSize,
-      thickness: 2,
-      colour: toRgbUnit(appearance.markerColour),
-      // One switch above both: off means every marker is drawn the same, and the fade and the second
-      // colour keep their values for whenever it goes back on.
-      otherColour:
-        !appearance.dimOthers || appearance.otherColour === null
-          ? null
-          : toRgbUnit(appearance.otherColour),
-      otherOpacity: appearance.dimOthers ? appearance.otherOpacity : 1,
-      selected: mismatchSelection,
-    }
-    const selectedStyle: MarkerStyle = {
-      size: appearance.selectedMarkerSize,
-      thickness: 2,
-      colour: toRgbUnit(appearance.selectedMarkerColour),
-      otherColour: null,
-      otherOpacity: 1,
-      selected: -1,
-    }
+    const styles = markerStyles(appearance, WORLD_TEMPLATE_SURFACE, selected >= 0 ? selected : null)
     for (const tile of tiles) {
       if (!covers(template, tile)) continue
       for (const selectedFade of selectedFades) {
@@ -252,7 +224,7 @@ const drawVisible = (
           selectedWork.push({
             tile,
             marks,
-            style: selectedStyle,
+            style: styles.selected,
             fade: selectedFade.fade * peek.opacity,
           })
         }
@@ -264,7 +236,7 @@ const drawVisible = (
           mismatchWork.push({
             tile,
             marks: tileAccounting.markers,
-            style: mismatchStyle,
+            style: styles.mismatch,
             fade: mismatchFade * peek.opacity,
           })
         }
@@ -273,20 +245,18 @@ const drawVisible = (
   }
   const points = (work: readonly { readonly marks: { readonly length: number } }[]): number =>
     work.reduce((total, one) => total + one.marks.length, 0)
-  const estimatedVisiblePoints = (work: readonly Work[]): number =>
-    work.reduce(
-      (total, { marks, tile }) =>
-        total +
-        visibleListPoints(
-          marks,
-          visibleSourceRect(tile, gl.drawingBufferWidth, gl.drawingBufferHeight),
-        ),
-      0,
-    )
+  const { selectedSampleRate, mismatchSampleRate, batches } = budgetMarkers(
+    selectedWork,
+    mismatchWork,
+    ({ marks, tile }) =>
+      visibleListPoints(
+        marks,
+        visibleSourceRect(tile, gl.drawingBufferWidth, gl.drawingBufferHeight),
+      ),
+    renderBudget,
+  )
   const selectedSourcePoints = points(selectedWork)
   const mismatchSourcePoints = points(mismatchWork)
-  const selectedSampleRate = markerSampleRate(estimatedVisiblePoints(selectedWork), renderBudget)
-  const mismatchSampleRate = markerSampleRate(estimatedVisiblePoints(mismatchWork), renderBudget)
   const expectedSelectedPoints = Math.round(selectedSourcePoints * selectedSampleRate)
   const expectedMismatchPoints = Math.round(mismatchSourcePoints * mismatchSampleRate)
   const reportWorkload = (
@@ -330,19 +300,13 @@ const drawVisible = (
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
   gl.disable(gl.DEPTH_TEST)
 
-  // The selected colour is a guide; a real mismatch is the error signal and wins where they meet.
-  const selectedDraws = batchMarkerWork(selectedWork)
-  const mismatchDraws = batchMarkerWork(mismatchWork)
-  const drawBatches = selectedDraws.length + mismatchDraws.length
   const drawnPoints = profiling ? expectedSelectedPoints + expectedMismatchPoints : 0
   count('marker:draw batches before batching', selectedWork.length + mismatchWork.length)
-  count('marker:draw batches after batching', drawBatches)
+  count('marker:draw batches after batching', batches.length)
   let submittedPoints = 0
-  for (const one of selectedDraws)
-    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, selectedSampleRate)
-  for (const one of mismatchDraws)
-    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
-  reportWorkload(drawBatches, drawnPoints, submittedPoints)
+  for (const one of batches)
+    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, one.sampleRate)
+  reportWorkload(batches.length, drawnPoints, submittedPoints)
 
   if (deferred) retryDeferredScan(now)
 }

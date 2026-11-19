@@ -18,8 +18,7 @@ import {
   recordProfileWorkload,
   registerProfileMemorySource,
 } from '../profile.js'
-import { getState, onlySelectedColourFor } from '../settings.js'
-import { toRgbUnit } from '../templates/appearance.js'
+import { getState } from '../settings.js'
 import {
   displayTemplatesForSurface,
   isTemplateDraft,
@@ -48,8 +47,9 @@ import {
   trackArtboardTiles,
   watchArtboardDraftMarks,
 } from './artboard-pixels.js'
-import { batchMarkerWork, type MarkerBatch } from './marker-batching.js'
-import { markerSampleRate, visibleListPoints, visibleSourceRect } from './marker-density.js'
+import type { MarkerBatch } from './marker-batching.js'
+import { visibleListPoints, visibleSourceRect } from './marker-density.js'
+import { budgetMarkers, markerStyles } from './marker-frame.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { movingOverlayTapCap } from './minify-quality.js'
 import { RenderScene, type SceneTemplate } from './render-scene.js'
@@ -768,33 +768,13 @@ class ArtboardRenderer {
     for (const id of this.markerWork.keys()) if (!residentIds.has(id)) this.markerWork.delete(id)
     const selectedLayers: MarkerLayer[] = []
     const mismatchLayers: MarkerLayer[] = []
-    const state = getState()
     for (const { rendered, mismatchFade, selectedFades } of markerScene.templates) {
       // A moving template's markers belong to where it was, so it shows none until it rests.
       if (rendered.fade <= 0 || placing.has(rendered.template.id)) continue
-      const appearance = rendered.appearance
       const indexed = this.markerWork.get(rendered.template.id)
       if (indexed === undefined) continue
       const { work } = indexed
-      const mismatchStyle: MarkerStyle = {
-        size: appearance.markerSize,
-        thickness: 2,
-        colour: toRgbUnit(appearance.markerColour),
-        otherColour:
-          !appearance.dimOthers || appearance.otherColour === null
-            ? null
-            : toRgbUnit(appearance.otherColour),
-        otherOpacity: appearance.dimOthers ? appearance.otherOpacity : 1,
-        selected: onlySelectedColourFor(this.surface) && selected !== null ? selected : -1,
-      }
-      const selectedStyle: MarkerStyle = {
-        size: appearance.selectedMarkerSize,
-        thickness: 2,
-        colour: toRgbUnit(appearance.selectedMarkerColour),
-        otherColour: null,
-        otherOpacity: 1,
-        selected: -1,
-      }
+      const styles = markerStyles(rendered.appearance, this.surface, selected)
       for (const selectedFade of selectedFades) {
         const selectedWork = work.selected.find(({ index }) => index === selectedFade.index)
         if (selectedWork === undefined) continue
@@ -803,7 +783,7 @@ class ArtboardRenderer {
             batch,
             tile: this.markerTile(batch),
             marks: batchMarkList(batch),
-            style: selectedStyle,
+            style: styles.selected,
             fade: selectedFade.fade,
           })
         }
@@ -813,27 +793,16 @@ class ArtboardRenderer {
           batch,
           tile: this.markerTile(batch),
           marks: batchMarkList(batch),
-          style: mismatchStyle,
+          style: styles.mismatch,
           fade: mismatchFade,
         })
     }
-    const visiblePoints = (layers: readonly MarkerLayer[]) =>
-      layers.reduce(
-        (total, layer) => total + visibleArtboardMarkerPoints(layer.batch, this.geometry, viewport),
-        0,
-      )
-    const selectedSampleRate = markerSampleRate(visiblePoints(selectedLayers), state.markerBudget)
-    const mismatchSampleRate = markerSampleRate(visiblePoints(mismatchLayers), state.markerBudget)
-    const markerLayers: RenderMarker[] = [
-      ...batchMarkerWork(selectedLayers).map((layer) => ({
-        ...layer,
-        sampleRate: selectedSampleRate,
-      })),
-      ...batchMarkerWork(mismatchLayers).map((layer) => ({
-        ...layer,
-        sampleRate: mismatchSampleRate,
-      })),
-    ]
+    const { batches: markerLayers } = budgetMarkers(
+      selectedLayers,
+      mismatchLayers,
+      (layer) => visibleArtboardMarkerPoints(layer.batch, this.geometry, viewport),
+      getState().markerBudget,
+    )
     const minifyTapCap = moving ? movingOverlayTapCap(templates.length) : SETTLED_TAP_CAP
     const outlineAllowance = Math.floor(TEMPLATE_UPLOAD_PIXELS_PER_FRAME / 2)
     const frame = {
