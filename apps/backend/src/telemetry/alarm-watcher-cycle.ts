@@ -43,9 +43,10 @@ export const runAlarmWatcherCycle = async (
     await wakeup.setAlarm(
       report.pending > 0 ? Math.max(dueAt, decidedAt + ALARM_BATCH_DELAY_MILLISECONDS) : dueAt,
     )
-  } catch {
+  } catch (error) {
     // Cloudflare gives a throwing alarm only a bounded retry series. Keep the durable D1 probe
     // and own an indefinite, paced retry instead of stranding it until the next six-hour cron.
+    console.error('alarm watcher cycle failed; retrying', error)
     await wakeup.setAlarm(Date.now() + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
   }
 }
