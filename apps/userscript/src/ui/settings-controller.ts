@@ -259,8 +259,19 @@ const updateServerToken = async (url: string, token: string): Promise<void> => {
     const outcome = await connectServer(url, token)
     switch (outcome.kind) {
       case 'connected':
+      case 'full':
         expandedServers.delete(url)
         settingsMessages.delete(url)
+        break
+      case 'already':
+      case 'superseded':
+        settingsMessages.delete(url)
+        break
+      case 'busy':
+        settingsMessages.set(
+          url,
+          `${outcome.disconnecting ? 'Still disconnecting' : 'Still connecting'}. Try again in a moment.`,
+        )
         break
       case 'refused':
         settingsMessages.set(
