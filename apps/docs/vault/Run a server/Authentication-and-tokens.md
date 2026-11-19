@@ -48,7 +48,7 @@ This token is managed through the deployment, not the token list. Change or remo
 
 In Docker, the backend registers the configured read token on first startup. For Cloudflare, create a **Read** token and store it in the frontend Worker.
 
-Use a different value from `ADMIN_TOKEN`. The backend refuses to start while `CAELESTIS_READ_TOKEN` names a revoked token. To rotate it, create a new **Read** token and set `CAELESTIS_READ_TOKEN` to its value. In Docker, both applications read it from `.env`, so recreate both with `docker compose up -d`. Revoke the old token only after the dashboard loads with the new one.
+Use a different value from `ADMIN_TOKEN`. The backend refuses to start while `CAELESTIS_READ_TOKEN` names a revoked token. To rotate it, create a new **Read** token and set `CAELESTIS_READ_TOKEN` to its value. In Docker, both applications read it from `.env`, so recreate both with `docker compose up -d`, adding any `-f` overlays your stack uses. Revoke the old token only after the dashboard loads with the new one. If the backend already stopped on a revoked token, set `CAELESTIS_READ_TOKEN` to another active **Read** token and recreate both.
 
 Anyone who can reach the dashboard can view what it serves. Protect the frontend separately if you want a private site.
 
