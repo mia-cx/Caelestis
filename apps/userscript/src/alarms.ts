@@ -9,7 +9,7 @@ import { isPaintOpen } from './wplace-paint.js'
 const ACKNOWLEDGED_KEY = 'caelestis.acknowledged-alarms.v1'
 const MAX_ACKNOWLEDGED = 1_024
 
-export const alarmFingerprint = (serverUrl: string, alarm: Alarm): string =>
+const alarmFingerprint = (serverUrl: string, alarm: Alarm): string =>
   `${serverUrl}\u0000${alarm.id}\u0000${alarm.kind}`
 
 const readAcknowledged = (): Set<string> => {

@@ -5,7 +5,6 @@ let running: Build = 'userscript'
 
 export const runningBuild = (): Build => running
 
-/** Whether some copy of Caelestis runs on this page. */
 export const isPageClaimed = (): boolean =>
   (pageWindow() as unknown as Record<string, unknown>)[CLAIM_PROPERTY] !== undefined
 
