@@ -12,7 +12,7 @@ Stop application writes and take a matching database-and-object backup. Save the
 
 ## Docker from source
 
-In the checkout, stop the applications with their usual Compose files.
+In the checkout, stop the applications. Add the `-f` files your stack uses, such as a database or S3 overlay, to every `docker compose` command below. Without them, the applications restart with the default stores.
 
 ~~~sh
 docker compose stop backend frontend

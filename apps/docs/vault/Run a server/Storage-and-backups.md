@@ -79,14 +79,15 @@ umask 077
 backup_dir="backups/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$backup_dir"
 docker compose run --rm --no-deps -T --entrypoint tar backend \
-  -C /data -cf - . > "$backup_dir/data.tar"
+  -C /data -cf - . > "$backup_dir/data.tar" &&
 docker compose run --rm --no-deps -T --entrypoint tar backend \
-  -C /objects -cf - . > "$backup_dir/objects.tar"
-git rev-parse HEAD > "$backup_dir/source-commit.txt"
-docker compose images > "$backup_dir/images.txt"
+  -C /objects -cf - . > "$backup_dir/objects.tar" &&
+git rev-parse HEAD > "$backup_dir/source-commit.txt" &&
+docker compose images > "$backup_dir/images.txt" &&
+echo "Backup complete: $backup_dir"
 ~~~
 
-Inspect both tar archives before restarting the applications.
+Continue only if **Backup complete** printed. Otherwise an archive failed and may be partial. Inspect both tar archives before restarting the applications.
 
 ~~~sh
 tar -tf "$backup_dir/data.tar"

@@ -2,7 +2,7 @@
 title: Dashboard
 ---
 
-Browse shared artwork and watch its progress without opening Wplace. Visit your group's dashboard or [the official dashboard](https://caelest.is). Opening a saved link on caelestis.mia.cx carries your server, token and view settings to caelest.is. Open `/docs` on any dashboard to reach these guides.
+Browse shared artwork and watch its progress without opening Wplace. Visit your group's dashboard or [the official dashboard](https://caelest.is). Opening a saved link on caelestis.mia.cx carries your server, token and view settings to caelest.is. Anything you already saved on caelest.is takes precedence, and the server and token move only together. Open `/docs` on any dashboard to reach these guides.
 
 ## Find the artwork
 

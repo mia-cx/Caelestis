@@ -52,7 +52,7 @@ In **Colours**, toggle palette swatches to show or hide those colours in the ove
 
 1. Open Wplace's paint drawer and select a swatch. You can also use Wplace's picker on a template pixel. Caelestis briefly draws its exact colour under the picker. Wplace selects the swatch itself.
 2. Check the remaining count in the palette. Middle-click a swatch to visit remaining pixels of that colour.
-3. Hold Shift while painting to restrict the brush to unfinished pixels that need that colour. With Shift+Space, the brush waits where it would cross a skipped pixel.
+3. Hold Shift while painting to restrict the brush to unfinished pixels that need that colour. With Shift+Space, the brush waits where it would cross a skipped pixel, unless [**Paint past skipped pixels**](Settings-and-shortcuts#dangerous-settings) is on.
 
 ![Wplace's picker used on a template strawberry, with the template's orange selected in the palette.](images/painting/native-colour-pick.png)
 

@@ -20,7 +20,7 @@ An administrator connection also shows [access-token management](Authentication-
 
 **Middle-click colour order** chooses whether colour navigation visits unpainted or mismatched pixels first. It uses the template under the viewport centre, or the nearest template when the centre is empty.
 
-Hold Shift with Space to paint unfinished pixels of the selected colour. The brush waits at a skipped pixel until the path from there is clear.
+Hold Shift with Space to paint unfinished pixels of the selected colour. By default, the brush waits at a skipped pixel until the path from there is clear. **Paint past skipped pixels** under [Dangerous settings](#dangerous-settings) keeps it painting.
 
 ## Notifications
 

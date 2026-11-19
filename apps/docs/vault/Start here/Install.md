@@ -15,7 +15,7 @@ Install Caelestis in the browser you use for Wplace. The extension and the users
 
 ![The Caelestis button in the Wplace map controls.](images/install/open-panel.png)
 
-Browser stores approve updates separately. **Export .png** and the switches under **Dangerous settings** require Caelestis 1.1.0 or later.
+Browser stores approve updates separately. **Export .png**, template colours in Wplace's picker and the switches under **Dangerous settings** require Caelestis 1.1.0 or later.
 
 The Chrome Web Store listing is in review. Edge has no store listing. Use the userscript below in either browser.
 
