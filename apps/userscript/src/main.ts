@@ -20,10 +20,8 @@ import {
   onMapFrame,
   onViewChange,
   redraw,
-  repaint,
   requestMapFrame,
   screenProjection,
-  viewportCentre,
 } from './map-view.js'
 import { installPaintTargetGuard, syncPaintTargetMap } from './paint-target-guard.js'
 import { installPaintPaletteProgress, refreshPaintPaletteFocus } from './palette-decoration.js'
@@ -48,7 +46,7 @@ import { installTilePixelCapture } from './tile-capture-scope.js'
 import { install as installTileCapture } from './tile-transform.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
 import { renderOverlayControls } from './ui/overlay-menu.js'
-import { installPanel, openInviteFromLocation, refreshTemplateTreeFocus } from './ui/panel.js'
+import { installPanel, openInviteFromLocation } from './ui/panel.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
 import { loadAccount } from './wplace-account.js'
 import { observeAccountCharges } from './wplace-charges.js'
@@ -133,7 +131,6 @@ export const installFeatures = (): void => {
   step('paint watcher', installPaintWatcher)
   step('paint palette progress', installPaintPaletteProgress)
   onMapFrame(refreshPaintPaletteFocus, 'Paint palette focus')
-  onViewChange(refreshTreeFocus, 'Template tree focus')
   // Middle-click picking, answered from the template when the template is what you can see.
   step('held keys', installHeldKeyTracker)
   step('paint target guard', installPaintTargetGuard)
@@ -153,7 +150,7 @@ export const installFeatures = (): void => {
   step('overlay layer', attachOverlayLayer)
   step('alliance overlay layer', installAllianceOverlayLayer)
   onMapFrame((frame) => {
-    if (currentSurface().kind === 'world') renderOverlayControls(repaint, frame.canvas)
+    if (currentSurface().kind === 'world') renderOverlayControls(frame.canvas)
   }, 'Overlay controls')
   step('map view', installMapView)
   onLocalChange(redraw)
@@ -184,24 +181,6 @@ const installPaintWatcher = (): void => {
     if (!isPaintOpen()) clearDraftPixels()
     redraw()
   })
-}
-
-let lastTreeFocusCentre: { readonly x: number; readonly y: number } | null | undefined
-
-/** The panel's focused row follows the view; on the world map, only when its centre moves. */
-const refreshTreeFocus = (): void => {
-  if (currentSurface().kind === 'world') {
-    const centre = viewportCentre()
-    if (
-      lastTreeFocusCentre !== undefined &&
-      (centre === null
-        ? lastTreeFocusCentre === null
-        : lastTreeFocusCentre?.x === centre.x && lastTreeFocusCentre.y === centre.y)
-    )
-      return
-    lastTreeFocusCentre = centre
-  }
-  refreshTemplateTreeFocus()
 }
 
 /** Where this tab is looking and drafting, for the other painters; and their tags for us. */

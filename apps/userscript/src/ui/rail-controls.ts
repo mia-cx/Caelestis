@@ -1,7 +1,6 @@
 import type { CaelestisRailControl, RailControlIntent } from '@caelestis/ui/elements'
 import { isCaptureModeActive, isClaimModeActive, stopClaimMode } from '../claim-editor.js'
 import { claimAvailability, openClaimTool } from '../claims.js'
-import { redraw } from '../map-view.js'
 import { getState, onStateChange, setState } from '../settings.js'
 import { shortcutHint } from '../shortcuts.js'
 import { applyWplaceTheme } from './theme.js'
@@ -44,7 +43,6 @@ export const presenceModeButton = (): CaelestisRailControl => {
     if (intent.id !== 'presence') return
     setState({ showPresence: !getState().showPresence })
     syncPresenceModeState()
-    redraw()
   })
   syncPresenceModeState()
   return button
@@ -115,7 +113,6 @@ export const mismatchModeButton = (): CaelestisRailControl => {
     const appearance = getState().appearance
     setState({ appearance: { ...appearance, markMismatch: !appearance.markMismatch } })
     syncMismatchModeState()
-    redraw()
   })
   syncMismatchModeState()
   return button

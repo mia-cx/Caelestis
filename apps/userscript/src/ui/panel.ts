@@ -28,6 +28,7 @@ import { onAllianceManifestChange } from '../alliance-server-sync.js'
 import {
   type ActiveAllianceSurface,
   activeAllianceSurface,
+  currentSurface,
   onActiveAllianceSurfaceChange,
 } from '../alliance-surface.js'
 import {
@@ -69,7 +70,7 @@ import { log } from '../debug.js'
 import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboard-pixels.js'
 import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { consumeInvite } from '../invite.js'
-import { redraw } from '../map-view.js'
+import { onViewChange, redraw, viewportCentre } from '../map-view.js'
 import { MARKER_BUDGET_OPTIONS } from '../marker-budget.js'
 import { runningBuild } from '../page-claim.js'
 import { onPresenceChange } from '../presence-client.js'
@@ -1366,8 +1367,26 @@ const buildActiveTree = (): void => {
   )
 }
 
+let lastFocusCentre: { readonly x: number; readonly y: number } | null | undefined
+
+/** The focused row follows the view; on the world map, only when its centre moves. */
+const followViewFocus = (): void => {
+  if (currentSurface().kind === 'world') {
+    const centre = viewportCentre()
+    if (
+      lastFocusCentre !== undefined &&
+      (centre === null
+        ? lastFocusCentre === null
+        : lastFocusCentre?.x === centre.x && lastFocusCentre.y === centre.y)
+    )
+      return
+    lastFocusCentre = centre
+  }
+  refreshTemplateTreeFocus()
+}
+
 /** Move the focused-row marker without rebuilding the full template tree. */
-export const refreshTemplateTreeFocus = (): void => {
+const refreshTemplateTreeFocus = (): void => {
   if (!panelOpen() || currentView() !== 'tree' || activeTreeAdapter === null) return
   const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
   if (panel === null) return
@@ -1783,6 +1802,7 @@ export const installPanel = (): void => {
     }),
   )
   installRailStateSync()
+  onViewChange(followViewFocus, 'Template tree focus')
   positionChargeForecast()
   log('install', 'rail installed beside wplace’s')
 

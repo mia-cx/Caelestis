@@ -31,7 +31,7 @@ import {
 } from '../application/update-template-artwork.js'
 import type { ScreenProjection } from '../coordinates.js'
 import { log, warn } from '../debug.js'
-import { screenProjection } from '../map-view.js'
+import { redraw, repaint, screenProjection } from '../map-view.js'
 import {
   admittedServerContentsFor,
   deleteTemplate as deleteTemplateOnServer,
@@ -1648,13 +1648,14 @@ const openOverlayMenu = (id: string, rerender: () => void): void => {
   log('install', `overlay menu opened for ${id}`)
 }
 
-export const toggleOverlayMenu = (id: string, rerender: () => void): void => {
+/** Open or close the menu for one template, from the keyboard. */
+export const toggleOverlayMenu = (id: string): void => {
   if (openFor === id) {
     closeOverlayMenu()
     handBack(id)
-    rerender()
+    redraw()
   } else {
-    openOverlayMenu(id, rerender)
+    openOverlayMenu(id, redraw)
   }
 }
 
@@ -1877,7 +1878,8 @@ const cornerOnScreen = (
  * wplace's to rename, and guessing it wrong would sweep every control away on a frame that painted
  * the overlay perfectly well.
  */
-export const renderOverlayControls = (rerender: () => void, mapCanvas: HTMLCanvasElement): void => {
+export const renderOverlayControls = (mapCanvas: HTMLCanvasElement): void => {
+  const rerender = repaint
   lastRerender = rerender
   const catalog = localTemplates()
   const templates = catalog.filter((template) =>

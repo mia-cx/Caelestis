@@ -15,7 +15,6 @@ import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/
 import { isClaimModeActive } from './claim-editor.js'
 import { openClaimTool } from './claims.js'
 import { getMap } from './map-handle.js'
-import { redraw } from './map-view.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
 import { cycleFocusedColour, navigateFocusedSelectedColour } from './palette-navigation.js'
 import {
@@ -225,7 +224,7 @@ export const installKeyboardShortcuts = (
       run: () => {
         const focused = focusedTemplate()
         if (focused === null) return false
-        toggleOverlayMenu(focused.id, redraw)
+        toggleOverlayMenu(focused.id)
         return true
       },
     },
