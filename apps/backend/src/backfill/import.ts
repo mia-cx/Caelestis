@@ -15,6 +15,7 @@ import {
   TILE_SIZE,
   type TileCoord,
   templatesInFolderSubtree,
+  tileKey,
   uuidV7,
 } from '@caelestis/shared'
 import type { ArchiveStatus } from '../archive/store.js'
@@ -33,7 +34,6 @@ import {
   type BackfillStorage,
 } from './port.js'
 
-/** A wakeup that continues a running job almost at once. */
 const NEXT_STEP_DELAY_MILLISECONDS = 100
 /** Armed before each step's reads, so a transient failure cannot strand the job. */
 const RETRY_STEP_DELAY_MILLISECONDS = 60_000
@@ -78,6 +78,13 @@ interface StoredJob extends Partial<Omit<StoredPlan, 'jobId' | 'weekly' | 'bases
   readonly mismatched?: number | readonly number[]
   readonly incomplete?: boolean | readonly boolean[]
 }
+
+/** A template object stores its job with the basis it imports; a folder object with its templates. */
+const isTemplateJob = (summary: StoredJob['summary']): summary is BackfillJob => 'basis' in summary
+const templateJob = (summary: StoredJob['summary'] | null): BackfillJob | null =>
+  summary !== null && isTemplateJob(summary) ? summary : null
+const folderJob = (summary: StoredJob['summary'] | null): FolderBackfillJob | null =>
+  summary !== null && !isTemplateJob(summary) ? summary : null
 
 /** Tile reads no template needs any more, passed over in one wakeup before it yields. */
 const MAX_SKIPS_PER_STEP = 1_000
@@ -130,7 +137,6 @@ interface Candidate {
 }
 
 const suffix = (id: number): string => String(id).padStart(10, '0')
-const tileKey = (tile: TileCoord): string => `${tile.x}/${tile.y}`
 const tilePrefix = (version: string, tile: TileCoord): string => `tile:${version}:${tileKey(tile)}:`
 const cutoff = (template: TemplateRecord, now: number): number =>
   Math.floor(
@@ -268,9 +274,13 @@ export class TemplateBackfill implements BackfillImporter {
   }
 
   private sinkFor(summary: StoredJob['summary']): (templateId: string) => BackfillSink {
-    if ('basis' in summary) return () => this.local
+    if (isTemplateJob(summary)) return () => this.local
     if (this.templates === undefined) throw new Error('Folder backfill needs template state.')
     return this.templates
+  }
+
+  private async current(): Promise<StoredJob['summary'] | null> {
+    return (await this.storage.get<StoredJob>('job'))?.summary ?? null
   }
 
   /** Compare one archived tile with the template's artwork on it, as live telemetry would. */
@@ -291,16 +301,12 @@ export class TemplateBackfill implements BackfillImporter {
     return { correct, mismatched: wrong }
   }
 
-  /** This template object's own import, or null. */
   async job(): Promise<BackfillJob | null> {
-    const summary = (await this.storage.get<StoredJob>('job'))?.summary
-    return summary !== undefined && 'basis' in summary ? summary : null
+    return templateJob(await this.current())
   }
 
-  /** This folder object's import, or null. */
   async folderJob(): Promise<FolderBackfillJob | null> {
-    const summary = (await this.storage.get<StoredJob>('job'))?.summary
-    return summary !== undefined && 'templateIds' in summary ? summary : null
+    return folderJob(await this.current())
   }
 
   async preview(templateId: string): Promise<BackfillPreview> {
@@ -328,13 +334,25 @@ export class TemplateBackfill implements BackfillImporter {
     }
   }
 
-  /** Record the bases and plan, then the running job that names them. */
-  private async begin<J extends BackfillJob | FolderBackfillJob>(
-    summary: J,
-    bases: readonly BackfillBasis[],
-    snapshots: readonly ArchiveSnapshot[],
-    tiles: readonly TileCoord[],
+  /**
+   * Resume a running job rather than replace it. Otherwise plan one, then record its bases and
+   * plan before the running job that names them.
+   */
+  private async begin<J extends StoredJob['summary']>(
+    held: J | null,
+    plan: () => Promise<{
+      readonly bases: readonly BackfillBasis[]
+      readonly snapshots: readonly ArchiveSnapshot[]
+      readonly summary: (progress: BackfillProgress) => J
+    }>,
   ): Promise<J> {
+    if (held?.status === 'running') {
+      await this.storage.setAlarm(this.now() + NEXT_STEP_DELAY_MILLISECONDS)
+      return held
+    }
+    const { bases, snapshots, summary: summaryOf } = await plan()
+    const tiles = planTimelapseTiles(bases.map((basis) => basis.bbox))
+    const summary = summaryOf(progress(snapshots, tiles))
     const sink = this.sinkFor(summary)
     for (const basis of bases)
       await sink(basis.templateId).put([[`basis:${basis.versionId}`, basis]])
@@ -353,20 +371,18 @@ export class TemplateBackfill implements BackfillImporter {
   }
 
   async start(templateId: string, versionId: string, fromSnapshot: number): Promise<BackfillJob> {
-    const held = await this.job()
-    if (held?.status === 'running') {
-      await this.storage.setAlarm(this.now() + NEXT_STEP_DELAY_MILLISECONDS)
-      return held
-    }
-    const preview = await this.preview(templateId)
-    if (preview.basis.versionId !== versionId)
-      throw new BackfillError('Template artwork changed. Reopen the backfill form.', 409)
-    if (!preview.snapshots.some((snapshot) => snapshot.id === fromSnapshot))
-      throw new BackfillError('Choose an available snapshot.')
-    const snapshots = preview.snapshots.filter((snapshot) => snapshot.id >= fromSnapshot)
-    const tiles = planTimelapseTiles([preview.basis.bbox])
-    const summary = { ...progress(snapshots, tiles), basis: preview.basis }
-    return this.begin(summary, [preview.basis], snapshots, tiles)
+    return this.begin(await this.job(), async () => {
+      const preview = await this.preview(templateId)
+      if (preview.basis.versionId !== versionId)
+        throw new BackfillError('Template artwork changed. Reopen the backfill form.', 409)
+      if (!preview.snapshots.some((snapshot) => snapshot.id === fromSnapshot))
+        throw new BackfillError('Choose an available snapshot.')
+      return {
+        bases: [preview.basis],
+        snapshots: preview.snapshots.filter((snapshot) => snapshot.id >= fromSnapshot),
+        summary: (started) => ({ ...started, basis: preview.basis }),
+      }
+    })
   }
 
   /**
@@ -378,34 +394,33 @@ export class TemplateBackfill implements BackfillImporter {
     versionIds: readonly string[],
     fromSnapshot: number,
   ): Promise<FolderBackfillJob> {
-    const held = await this.folderJob()
-    if (held?.status === 'running') {
-      await this.storage.setAlarm(this.now() + NEXT_STEP_DELAY_MILLISECONDS)
-      return held
-    }
-    const candidates = await this.folder(nodeId)
-    const shown = new Set(versionIds)
-    if (
-      shown.size !== candidates.length ||
-      candidates.some((candidate) => !shown.has(candidate.basis.versionId))
-    )
-      throw new BackfillError('Folder contents or artwork changed. Reopen the backfill form.', 409)
-    const end = Math.max(...candidates.map((candidate) => candidate.end))
-    const snapshots = (await this.archive.snapshots()).filter(
-      (snapshot) => snapshot.at <= end && snapshot.id >= fromSnapshot,
-    )
-    const from = snapshots[0]
-    if (from?.id !== fromSnapshot) throw new BackfillError('Choose an available snapshot.')
-    // Templates whose native history already starts by then have nothing to import.
-    const bases = candidates
-      .filter((candidate) => candidate.end >= from.at)
-      .map((candidate) => candidate.basis)
-    const tiles = planTimelapseTiles(bases.map((basis) => basis.bbox))
-    const summary = {
-      ...progress(snapshots, tiles),
-      templateIds: bases.map((basis) => basis.templateId),
-    }
-    return this.begin(summary, bases, snapshots, tiles)
+    return this.begin(await this.folderJob(), async () => {
+      const candidates = await this.folder(nodeId)
+      const shown = new Set(versionIds)
+      if (
+        shown.size !== candidates.length ||
+        candidates.some((candidate) => !shown.has(candidate.basis.versionId))
+      )
+        throw new BackfillError(
+          'Folder contents or artwork changed. Reopen the backfill form.',
+          409,
+        )
+      const end = Math.max(...candidates.map((candidate) => candidate.end))
+      const snapshots = (await this.archive.snapshots()).filter(
+        (snapshot) => snapshot.at <= end && snapshot.id >= fromSnapshot,
+      )
+      const from = snapshots[0]
+      if (from?.id !== fromSnapshot) throw new BackfillError('Choose an available snapshot.')
+      // Templates whose native history already starts by then have nothing to import.
+      const bases = candidates
+        .filter((candidate) => candidate.end >= from.at)
+        .map((candidate) => candidate.basis)
+      return {
+        bases,
+        snapshots,
+        summary: (started) => ({ ...started, templateIds: bases.map((basis) => basis.templateId) }),
+      }
+    })
   }
 
   /** Keys sort the same way on every adapter, so `startAfter` resumes a page exactly. */
@@ -450,13 +465,11 @@ export class TemplateBackfill implements BackfillImporter {
   }
 
   async cancel(): Promise<BackfillJob | null> {
-    const summary = await this.stop()
-    return summary !== null && 'basis' in summary ? summary : null
+    return templateJob(await this.stop())
   }
 
   async cancelFolder(): Promise<FolderBackfillJob | null> {
-    const summary = await this.stop()
-    return summary !== null && 'templateIds' in summary ? summary : null
+    return folderJob(await this.stop())
   }
 
   async history(versionId: string, tile?: TileCoord): Promise<ArchiveHistory> {
@@ -502,7 +515,7 @@ export class TemplateBackfill implements BackfillImporter {
     if (await this.sql.archiveOperationActive({ fresh: true })) return
     const plan = await this.readPlan(held)
     if (plan === null) return
-    const bases = plan.bases ?? ('basis' in held.summary ? [held.summary.basis] : [])
+    const bases = plan.bases ?? (isTemplateJob(held.summary) ? [held.summary.basis] : [])
     const { covers, last } = this.layoutOf(plan, bases)
     const sink = this.sinkFor(held.summary)
 
