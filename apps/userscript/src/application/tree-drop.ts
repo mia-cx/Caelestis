@@ -12,8 +12,7 @@ import {
   serverTemplateKey,
   serverTemplateTreeKey,
 } from '../tree-keys.js'
-import { confirmDestructive } from '../ui/confirm.js'
-import { toast } from '../ui/toast.js'
+import { requestConfirmation, showToast } from '../ui/notification-host.js'
 import { busyRefusal } from './template-busy.js'
 import {
   copyLocalTemplateToServer,
@@ -72,7 +71,7 @@ export const moveBranch = async (
     )
     if (!moved.ok) {
       optimistic?.rollback()
-      toast(moved.message, 'error')
+      showToast(moved.message, 'error')
       rerender()
       return null
     }
@@ -84,7 +83,7 @@ export const moveBranch = async (
 
   const sourceName = sourceServer === null ? 'Local' : serverLabel(sourceServer)
   const destinationName = destination.kind === 'local' ? 'Local' : serverLabel(destination.server)
-  const confirmed = await confirmDestructive({
+  const confirmed = await requestConfirmation({
     title: `Move this folder to ${destinationName}?`,
     body: `Everything inside it is copied to ${destinationName} first, and only then removed from ${sourceName}.`,
     ...(sourceServer === null
@@ -99,9 +98,9 @@ export const moveBranch = async (
       ? { kind: 'local', folderId: sourceId }
       : { kind: 'server', server: sourceServer, nodeId: sourceId }
 
-  toast('Moving…')
+  showToast('Moving…')
   const result = await transplant(source, destination, rerender, surface)
-  toast(result.message, result.tone)
+  showToast(result.message, result.tone)
   rerender()
   if (!result.ok || result.destinationId === undefined) return null
   return destination.kind === 'server'
@@ -127,16 +126,16 @@ export const copyServerTemplateToLocal = async (
   if (source === undefined) return null
   const drawn = templateById(serverTemplateKey(found.serverUrl, found.template.id, surface))
   if (drawn === undefined || drawn.serverVersion !== found.template.version) {
-    toast('That template has not finished loading yet — try again in a moment.', 'warning')
+    showToast('That template has not finished loading yet — try again in a moment.', 'warning')
     return null
   }
   if (!canCopyAsLocalTemplate(drawn)) {
-    toast('Wrapped server templates cannot be moved into Local yet.', 'warning')
+    showToast('Wrapped server templates cannot be moved into Local yet.', 'warning')
     return null
   }
 
   const sourceName = serverLabel(source)
-  const confirmed = await confirmDestructive({
+  const confirmed = await requestConfirmation({
     title: `Move “${found.template.name}” into Local?`,
     body: `It is copied into this browser first, and only then removed from ${sourceName}.`,
     note: `Everyone connected to ${sourceName} will stop seeing it.`,
@@ -145,7 +144,7 @@ export const copyServerTemplateToLocal = async (
   if (!confirmed) return null
 
   const result = await moveServerTemplateToLocal(source, found.template, drawn, folderId, rerender)
-  toast(result.message, result.tone)
+  showToast(result.message, result.tone)
   rerender()
   return result.destinationId === undefined ? null : localTemplateKey(result.destinationId)
 }
@@ -189,12 +188,12 @@ export const dropOnServerNode = async (
     // gesture.
     const busy = busyRefusal(local, 'copying it')
     if (busy !== null) {
-      toast(busy, 'warning')
+      showToast(busy, 'warning')
       return null
     }
     const result = await copyLocalTemplateToServer(local, server, nodeId, rerender)
-    if (result.ok) toast(`Uploaded “${local.name}” to ${serverLabel(server)}.`)
-    else toast(result.message, result.retryable === true ? 'warning' : 'error')
+    if (result.ok) showToast(`Uploaded “${local.name}” to ${serverLabel(server)}.`)
+    else showToast(result.message, result.retryable === true ? 'warning' : 'error')
     return result.ok ? serverTemplateTreeKey(server, result.id) : null
   }
 
@@ -212,7 +211,7 @@ export const dropOnServerNode = async (
     )
     if (!result.ok) {
       optimistic?.rollback()
-      toast(result.message, 'error')
+      showToast(result.message, 'error')
       rerender()
       return null
     }
@@ -226,7 +225,7 @@ export const dropOnServerNode = async (
   if (source === undefined) return null
   const sourceName = serverLabel(source)
   const destinationName = serverLabel(server)
-  const confirmed = await confirmDestructive({
+  const confirmed = await requestConfirmation({
     title: `Move “${found.template.name}” to ${destinationName}?`,
     body: `It will be uploaded to ${destinationName} and removed from ${sourceName}.`,
     note: `Everyone connected to ${sourceName} will stop seeing it.`,
@@ -238,7 +237,7 @@ export const dropOnServerNode = async (
   // server's own chunks — so a cross-server move needs no second download.
   const drawn = templateById(serverTemplateKey(found.serverUrl, templateId, surface))
   if (drawn === undefined) {
-    toast('That template has not finished loading yet — try again in a moment.', 'warning')
+    showToast('That template has not finished loading yet — try again in a moment.', 'warning')
     return null
   }
   const result = await moveServerTemplateToServer(
@@ -249,7 +248,7 @@ export const dropOnServerNode = async (
     drawn,
     rerender,
   )
-  toast(result.message, result.tone)
+  showToast(result.message, result.tone)
   return result.destinationId === undefined
     ? null
     : serverTemplateTreeKey(server, result.destinationId)

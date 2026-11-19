@@ -25,8 +25,7 @@ import {
   templatePixels,
 } from '../templates/local-store.js'
 import { movingId } from '../templates/move.js'
-import { confirmDestructive } from '../ui/confirm.js'
-import { toast } from '../ui/toast.js'
+import { requestConfirmation, showToast } from '../ui/notification-host.js'
 
 const pending = new Set<string>()
 const confirming = new Set<string>()
@@ -119,7 +118,7 @@ export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): 
   while (trigger?.shadowRoot?.activeElement) trigger = trigger.shadowRoot.activeElement
   confirming.add(id)
   void (async () => {
-    const confirmed = await confirmDestructive({
+    const confirmed = await requestConfirmation({
       title: `Use canvas artwork for “${template.name}”?`,
       body:
         'Merge committed canvas artwork with the current template. Current mismatches will be treated as correct in the new canonical version. ' +
@@ -137,10 +136,10 @@ export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): 
     const update = updateArtwork(id, captureCurrentArtwork)
     rerender()
     await update
-    toast('Saved a new template version from the committed artwork.')
+    showToast('Saved a new template version from the committed artwork.')
   })()
     .catch((error: unknown) =>
-      toast(error instanceof Error ? error.message : String(error), 'error'),
+      showToast(error instanceof Error ? error.message : String(error), 'error'),
     )
     .finally(() => {
       confirming.delete(id)
@@ -154,7 +153,7 @@ export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): 
  */
 export const requestTemplateAreaUpdate = (id: string, rerender: () => void): void => {
   if (currentSurface().kind !== 'world') {
-    toast('Area updates work on the world canvas. Leave the alliance canvas first.', 'warning')
+    showToast('Area updates work on the world canvas. Leave the alliance canvas first.', 'warning')
     return
   }
   const started = startCaptureMode({
@@ -178,7 +177,7 @@ export const requestTemplateAreaUpdate = (id: string, rerender: () => void): voi
         pixels = `${changed.toLocaleString()} ${changed === 1 ? 'pixel' : 'pixels'}`
         let trigger = document.activeElement
         while (trigger?.shadowRoot?.activeElement) trigger = trigger.shadowRoot.activeElement
-        const confirmed = await confirmDestructive({
+        const confirmed = await requestConfirmation({
           title: `Update ${pixels} of “${template.name}”?`,
           body:
             'Committed canvas artwork replaces the template inside your selection. ' +
@@ -199,9 +198,9 @@ export const requestTemplateAreaUpdate = (id: string, rerender: () => void): voi
       } finally {
         rerender()
       }
-      toast(`Updated ${pixels} from the canvas.`)
+      showToast(`Updated ${pixels} from the canvas.`)
       return null
     },
   })
-  if (!started) toast('Leave claim mode, then update the template.', 'warning')
+  if (!started) showToast('Leave claim mode, then update the template.', 'warning')
 }

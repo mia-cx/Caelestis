@@ -9,7 +9,10 @@ import {
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // The confirmation dialog is the author's answer; each test gives it.
-vi.mock('../src/ui/confirm.js', () => ({ confirmDestructive: vi.fn(async () => true) }))
+vi.mock('../src/ui/notification-host.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ui/notification-host.js')>()),
+  requestConfirmation: vi.fn(async () => true),
+}))
 
 // Wplace's account, which a test can hold back to load after the studio opens.
 const account = vi.hoisted(() => ({
@@ -31,7 +34,7 @@ import {
 import type { ImportedTemplate } from '../src/templates/import.js'
 import { processRecipe } from '../src/templates/import.js'
 import { templateDraft } from '../src/templates/local-store.js'
-import { confirmDestructive } from '../src/ui/confirm.js'
+import { requestConfirmation } from '../src/ui/notification-host.js'
 import { celesteRoom, firstDifference, warmUp } from './celeste.js'
 
 /** Open the studio on the Celeste room and wait for its first result. */
@@ -587,12 +590,12 @@ describe('template studio', () => {
     handleTemplateStudioIntent({ type: 'scale', scale: 2 })
     await ready()
 
-    vi.mocked(confirmDestructive).mockResolvedValueOnce(false)
+    vi.mocked(requestConfirmation).mockResolvedValueOnce(false)
     handleTemplateStudioIntent({ type: 'save' })
-    await vi.waitFor(() => expect(confirmDestructive).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(requestConfirmation).toHaveBeenCalledOnce())
     // A declined save leaves the studio free to ask again; one that went ahead would still be saving.
     handleTemplateStudioIntent({ type: 'save' })
-    await vi.waitFor(() => expect(confirmDestructive).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(requestConfirmation).toHaveBeenCalledTimes(2))
     await vi.waitFor(() => expect(save).toHaveBeenCalledOnce())
     expect(saved(save)).toMatchObject({
       name: 'Prologue',

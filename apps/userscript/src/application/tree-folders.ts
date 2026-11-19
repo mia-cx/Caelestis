@@ -9,7 +9,7 @@ import { createNode, listServerNodes } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import { getState, type LocalFolder, MAX_LOCAL_FOLDERS, setState } from '../settings.js'
 import { LOCAL_ROOT_KEY, localFolderIdOf, localFolderKey, nodeTreeKey } from '../tree-keys.js'
-import { toast } from '../ui/toast.js'
+import { showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree.js'
 import { startRenaming } from '../ui/tree-state.js'
 import { refreshEditedSurface, serverNodesFailure } from './tree-server.js'
@@ -84,7 +84,7 @@ export const createFolder = async (
     const taken = takenLocalFolderNames(getState().localFolders, parentId, surface)
     const folder = createLocalFolder(parentId, freeFolderName(taken), surface)
     if (folder === null) {
-      toast(
+      showToast(
         `Could not save that folder. Local supports up to ${MAX_LOCAL_FOLDERS.toLocaleString()}.`,
         'error',
       )
@@ -95,14 +95,14 @@ export const createFolder = async (
     return
   }
   if (server === null) {
-    toast('Nothing to create a folder in here.', 'warning')
+    showToast('Nothing to create a folder in here.', 'warning')
     return
   }
   // No dialog: pick a free name, create it, and drop straight into renaming it. Asking for a name
   // before the thing exists is a question with no context; renaming one that is on screen is not.
   const listed = await listServerNodes(server, undefined, surface)
   if (listed.status !== 'ok') {
-    toast(serverNodesFailure(listed), 'error')
+    showToast(serverNodesFailure(listed), 'error')
     return
   }
   // Asking took a round trip, and the panel was usable throughout it. Writing to a server the user
@@ -116,7 +116,7 @@ export const createFolder = async (
   expandForNewChild(target.key)
   const result = await createNode(server, name, nodeId, undefined, surface)
   if (!result.ok) {
-    toast(result.message, 'error')
+    showToast(result.message, 'error')
     await refreshEditedSurface(server, surface, rerender)
     return
   }

@@ -24,7 +24,7 @@ import { commitState, getState, type ServerConnection } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'
 import { serverTemplateTreeKey } from '../tree-keys.js'
 import { accountIdentity, loadAccount } from '../wplace-account.js'
-import { toast } from './toast.js'
+import { showToast } from './notification-host.js'
 import type { TreeTarget } from './tree.js'
 
 const workClient = (
@@ -217,7 +217,7 @@ export const claimTemplate = async (
   await loadAccount()
   const actor = accountIdentity()
   if (!isWorkIdentity(actor)) {
-    toast('Sign in to Wplace before claiming a template.', 'warning')
+    showToast('Sign in to Wplace before claiming a template.', 'warning')
     return
   }
   const surface = target.surface ?? WORLD_TEMPLATE_SURFACE
@@ -241,7 +241,7 @@ export const claimTemplate = async (
         localClaims: release ? remaining : [...remaining, { templateId, claimant: actor }],
       })
     ) {
-      toast('Could not save the local claim.', 'error')
+      showToast('Could not save the local claim.', 'error')
       return
     }
     changed()
@@ -261,7 +261,7 @@ export const claimTemplate = async (
       const collection = await client.list()
       if (signal.aborted) return
       if (!collection.canClaim || (person !== undefined && !collection.canPlan)) {
-        toast(
+        showToast(
           person === undefined
             ? 'A report or admin token is required to claim templates on this server.'
             : 'An admin token is required to assign claims.',
@@ -298,7 +298,7 @@ export const claimTemplate = async (
     }
     changed()
   } catch (error) {
-    if (!signal.aborted) toast(error instanceof Error ? error.message : String(error), 'error')
+    if (!signal.aborted) showToast(error instanceof Error ? error.message : String(error), 'error')
   }
 }
 

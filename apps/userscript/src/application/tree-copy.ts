@@ -4,7 +4,7 @@ import { listServerNodes, type ServerNodesResult } from '../server-api.js'
 import { serverLabel } from '../server-connections.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { templateById } from '../templates/local-store.js'
-import { toast } from '../ui/toast.js'
+import { showToast } from '../ui/notification-host.js'
 import { plural } from './plural.js'
 import { serverDestinations } from './server-destinations.js'
 import { busyRefusal } from './template-busy.js'
@@ -45,7 +45,7 @@ export const copyToServer = async (
     (server) => server.isAdmin && (onlyServerUrl === undefined || server.url === onlyServerUrl),
   )
   if (targets.length === 0) {
-    toast('No server here accepts uploads — you need an admin code on one.', 'warning')
+    showToast('No server here accepts uploads — you need an admin code on one.', 'warning')
     return
   }
 
@@ -88,7 +88,7 @@ export const copyToServer = async (
   }
   if (setupController.signal.aborted) {
     if (!setupCancelled && isOperationOpen(setupId)) {
-      toast(
+      showToast(
         setupTimedOut
           ? 'Finding server folders took too long. Try Copy again.'
           : 'Copy setup stopped because a server connection changed.',
@@ -119,7 +119,7 @@ export const copyToServer = async (
   }
   if (options.length === 0) {
     closeOperation(setupId)
-    toast(
+    showToast(
       unreachable > 0
         ? 'Could not ask any of those servers where their folders are.'
         : notAdmitted > 0
@@ -163,7 +163,7 @@ export const copyToServer = async (
         // This dialog stays open while the map is used, so a placement may have started since.
         const busy = busyRefusal(template, 'copying it')
         if (busy !== null) {
-          toast(busy, 'warning')
+          showToast(busy, 'warning')
           return
         }
         updateOperation(id, { label: 'Encoding…', pending: true })
@@ -188,7 +188,7 @@ export const copyToServer = async (
           if (!result.ok && result.cancelled === true) return
           if (!result.ok && result.missing === true) {
             closeOperation(id)
-            toast(result.message, 'error')
+            showToast(result.message, 'error')
             return
           }
           if (!result.ok && result.retryable === true) {
@@ -197,12 +197,12 @@ export const copyToServer = async (
               pending: false,
               cancellable: true,
             })
-            toast(result.message, 'warning')
+            showToast(result.message, 'warning')
             return
           }
           closeOperation(id)
-          if (result.ok) toast(`Copied “${template.name}” to ${serverLabel(server)}.`)
-          else toast(result.message, 'error')
+          if (result.ok) showToast(`Copied “${template.name}” to ${serverLabel(server)}.`)
+          else showToast(result.message, 'error')
         })
       },
     },

@@ -59,7 +59,7 @@ import {
 } from '../templates/studio-recipe.js'
 import { MAX_TEMPLATE_NAME_LENGTH } from '../templates/template-record.js'
 import { presetColours } from '../ui/colours.js'
-import { confirmDestructive } from '../ui/confirm.js'
+import { requestConfirmation } from '../ui/notification-host.js'
 import { isPanelOpen, togglePanel } from '../ui/panel.js'
 import { applyWplaceTheme } from '../ui/theme.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
@@ -1185,7 +1185,7 @@ const save = async (): Promise<void> => {
   if (loadingSource || processing.state !== 'ready') return
   if (result.opaque === 0 || name.trim() === '') return
   if (current.kind === 'replace') {
-    const confirmed = await confirmDestructive({
+    const confirmed = await requestConfirmation({
       title: `Replace “${current.name}”?`,
       body: `This image becomes its new version for everyone on ${current.server}.`,
       note: 'Earlier versions stay in its history.',

@@ -18,7 +18,7 @@ import {
 import { type MoveReservation, reserveMove } from '../templates/move.js'
 import { centreOf, navigateTo } from '../templates/navigate.js'
 import { localFolderIdOf } from '../tree-keys.js'
-import { toast } from '../ui/toast.js'
+import { showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree.js'
 import { importTemplatesToServer } from './import-to-server.js'
 import { openTemplateStudio } from './template-studio.js'
@@ -48,7 +48,7 @@ export const importTemplate = async (
 ): Promise<void> => {
   const notice = hiddenNotice(target)
   if (notice !== null) {
-    toast(notice, 'warning')
+    showToast(notice, 'warning')
     return
   }
   const picker = document.createElement('input')
@@ -79,7 +79,7 @@ export const createFromImage = (
 ): void => {
   const notice = hiddenNotice(target)
   if (notice !== null) {
-    toast(notice, 'warning')
+    showToast(notice, 'warning')
     return
   }
   const opened = openTemplateStudio(
@@ -92,7 +92,7 @@ export const createFromImage = (
     },
     image,
   )
-  if (!opened) toast('Finish the current placement or template, then try again.', 'warning')
+  if (!opened) showToast('Finish the current placement or template, then try again.', 'warning')
 }
 
 /** Template files carry their own placement; anything else is an image for the studio. */
@@ -112,16 +112,16 @@ const importTemplateFile = async (
     return true
   }
   try {
-    toast(`Reading ${file.name}…`)
+    showToast(`Reading ${file.name}…`)
     const imported = await importFile(file, centre)
     if (imported.length === 0) {
-      toast('Nothing importable in that file.', 'error')
+      showToast('Nothing importable in that file.', 'error')
       return false
     }
     return await importTemplateData(imported, target, rerender, surface, null)
   } catch (error) {
     const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')
-    toast(`Could not import “${file.name}”: ${reason}.`, 'error')
+    showToast(`Could not import “${file.name}”: ${reason}.`, 'error')
     return false
   }
 }
@@ -176,15 +176,15 @@ const importTemplateData = async (
     }
     signal?.throwIfAborted()
     rerender()
-    if (failed.length > 0) toast(failed.join('. '), 'error')
+    if (failed.length > 0) showToast(failed.join('. '), 'error')
     if (!admitted.includes(first.id)) return false
 
     if (placed) {
-      toast(`Created ${first.name} — ${first.width}x${first.height}`)
+      showToast(`Created ${first.name} — ${first.width}x${first.height}`)
       return true
     }
     const moved = first.moved
-    toast(
+    showToast(
       `Imported ${first.name} — ${first.width}x${first.height}` +
         (moved > 0 ? `, ${moved.toLocaleString()} pixels quantised` : ''),
     )
@@ -195,7 +195,7 @@ const importTemplateData = async (
       if (reservation === null || !reservation.start(first.id, rerender)) {
         for (const template of imported) await removeLocalTemplate(template.id)
         rerender()
-        toast('Another placement started. Finish it, then import this image again.', 'warning')
+        showToast('Another placement started. Finish it, then import this image again.', 'warning')
         return false
       }
     } else {
@@ -223,11 +223,11 @@ const importTemplateData = async (
 export const captureTemplate = (target: TreeTarget, rerender: () => void): void => {
   const notice = hiddenNotice(target)
   if (notice !== null) {
-    toast(notice, 'warning')
+    showToast(notice, 'warning')
     return
   }
   if (currentSurface().kind !== 'world') {
-    toast('Capture works on the world canvas. Leave the alliance canvas first.', 'warning')
+    showToast('Capture works on the world canvas. Leave the alliance canvas first.', 'warning')
     return
   }
   const started = startCaptureMode({
@@ -254,7 +254,7 @@ export const captureTemplate = (target: TreeTarget, rerender: () => void): void 
           })
           signal.throwIfAborted()
           download(png, `${name}.png`)
-          toast(`Downloaded ${name}.png.`)
+          showToast(`Downloaded ${name}.png.`)
           return null
         }
         const template: ImportedTemplate = {
@@ -284,5 +284,5 @@ export const captureTemplate = (target: TreeTarget, rerender: () => void): void 
       }
     },
   })
-  if (!started) toast('Leave claim mode, then capture.', 'warning')
+  if (!started) showToast('Leave claim mode, then capture.', 'warning')
 }

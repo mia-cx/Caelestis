@@ -11,11 +11,11 @@ const MOVEMENT_KEYS = new Set([
 
 const POINTER_ENDINGS = ['pointerup', 'pointercancel', 'lostpointercapture'] as const
 
-export interface RangeGestureOptions {
+interface RangeGestureOptions {
   readonly afterSettle?: () => void
 }
 
-export interface RangeGestures {
+interface RangeGestures {
   readonly bind: (
     input: HTMLInputElement,
     settle: () => void,

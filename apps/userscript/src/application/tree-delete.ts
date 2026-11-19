@@ -13,8 +13,7 @@ import {
 } from '../templates/local-store.js'
 import { stopMoveForDeletion } from '../templates/move.js'
 import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
-import { confirmDestructive } from '../ui/confirm.js'
-import { toast } from '../ui/toast.js'
+import { requestConfirmation, showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree.js'
 import { plural } from './plural.js'
 import { refreshEditedSurface } from './tree-server.js'
@@ -30,7 +29,7 @@ const askToDelete = (
   note: string,
   restoreFocusTo: HTMLElement | null,
 ): Promise<boolean> =>
-  confirmDestructive({
+  requestConfirmation({
     // Their shape: the heading asks, the body names the thing and says what happens to it.
     title: `Delete ${kind}?`,
     body: `${name} will be permanently removed.`,
@@ -60,12 +59,12 @@ const deleteLocalTemplate = async (
   // known to have succeeded; a failed delete restores exactly the preview the user was moving.
   const stoppedMove = stopMoveForDeletion(templateId)
   const failed = (): void => {
-    toast(`Could not delete “${target.name}”.`, 'error')
+    showToast(`Could not delete “${target.name}”.`, 'error')
     if (
       stoppedMove !== null &&
       !stoppedMove.reservation.start(templateId, rerender, stoppedMove.origin)
     ) {
-      toast(`Could not restore placement for “${target.name}”.`, 'error')
+      showToast(`Could not restore placement for “${target.name}”.`, 'error')
     }
   }
   try {
@@ -89,7 +88,7 @@ const deleteLocalFolder = async (
   rerender: () => void,
   restoreFocusTo: HTMLElement | null,
 ): Promise<void> => {
-  const confirmed = await confirmDestructive({
+  const confirmed = await requestConfirmation({
     title: `Delete “${target.name}”?`,
     body: 'The folder will be removed.',
     // Say where things go, because "delete" on a container reads as "delete what is inside it".
@@ -105,12 +104,12 @@ const deleteLocalFolder = async (
   const parentId = getState().localFolders.find((f) => f.id === folderId)?.parentId ?? null
   const children = templateIdsInLocalFolder(folderId)
   if (!(await setTemplatesFolder(children, parentId))) {
-    toast(`Could not move everything out of “${target.name}”, so the folder was kept.`, 'error')
+    showToast(`Could not move everything out of “${target.name}”, so the folder was kept.`, 'error')
     rerender()
     return
   }
   if (!removeLocalFolder(folderId)) {
-    toast(`Everything was moved out, but “${target.name}” could not be deleted.`, 'error')
+    showToast(`Everything was moved out, but “${target.name}” could not be deleted.`, 'error')
     rerender()
     return
   }
@@ -133,7 +132,7 @@ const deleteServerFolder = async (
 ): Promise<void> => {
   const holding = await countNodeSubtree(target.server, nodeId)
   if (holding === null) {
-    toast(`Could not count what is inside “${target.name}”, so the folder was kept.`, 'error')
+    showToast(`Could not count what is inside “${target.name}”, so the folder was kept.`, 'error')
     return
   }
   const inside =
@@ -150,7 +149,7 @@ const deleteServerFolder = async (
           .filter((part) => part !== '')
           .join(' and ')
 
-  const confirmed = await confirmDestructive({
+  const confirmed = await requestConfirmation({
     title: `Delete “${target.name}”?`,
     body:
       contents === null
@@ -169,7 +168,7 @@ const deleteServerFolder = async (
   // Cascade only where there is something to cascade. An empty folder deletes as it always did, so
   // a server that does not know the flag still answers.
   const result = await deleteNodeOnServer(target.server, nodeId, inside === null ? null : holding)
-  if (!result.ok) toast(result.message, 'error')
+  if (!result.ok) showToast(result.message, 'error')
   await refreshEditedSurface(target.server, surfaceOf(target), rerender)
 }
 
@@ -192,7 +191,7 @@ export const deleteTreeRow = async (
   const { server } = target
   if (server !== null && target.templateId !== undefined) {
     if (target.templateVersion === undefined || target.templateUpdatedAt === undefined) {
-      toast('That template revision is no longer available. Refresh and try again.', 'warning')
+      showToast('That template revision is no longer available. Refresh and try again.', 'warning')
       return
     }
     const confirmed = await askToDelete(
@@ -208,12 +207,12 @@ export const deleteTreeRow = async (
       version: target.templateVersion,
       updatedAt: target.templateUpdatedAt,
     })
-    if (!result.ok) toast(result.message, 'error')
+    if (!result.ok) showToast(result.message, 'error')
     await refreshEditedSurface(server, surfaceOf(target), rerender)
     return
   }
   if (server === null || target.nodeId === null) {
-    toast('Nothing to delete here yet.', 'warning')
+    showToast('Nothing to delete here yet.', 'warning')
     return
   }
   await deleteServerFolder({ ...target, server }, target.nodeId, rerender, restoreFocusTo)

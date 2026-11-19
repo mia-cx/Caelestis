@@ -13,7 +13,7 @@ import {
 } from '../templates/local-store.js'
 import type { MoveReservation } from '../templates/move.js'
 import { movingId } from '../templates/move.js'
-import { toast } from '../ui/toast.js'
+import { showToast } from '../ui/notification-host.js'
 import { authoringOf } from './template-authoring.js'
 import { refreshEditedSurface } from './tree-server.js'
 
@@ -80,14 +80,14 @@ const uploadAdmitted = async (
 
   const serverName = server.info?.name ?? server.url
   if (uploaded > 0) {
-    toast(
+    showToast(
       uploaded === 1
         ? `Imported template into ${serverName}.`
         : `Imported ${uploaded} templates into ${serverName}.`,
     )
   }
   if (failures.length > 0) {
-    toast(`Kept in Local: ${failures.join('. ')}`, 'error')
+    showToast(`Kept in Local: ${failures.join('. ')}`, 'error')
   }
 }
 
@@ -116,7 +116,7 @@ export const importTemplatesToServer = async (
 ): Promise<boolean> => {
   if (!server.isAdmin) {
     reservation?.release()
-    toast('This server needs an admin code before it can accept templates.', 'warning')
+    showToast('This server needs an admin code before it can accept templates.', 'warning')
     return false
   }
 
@@ -127,7 +127,7 @@ export const importTemplatesToServer = async (
   }
   const needsPlacement = first.source === 'image' && !placed
   if (needsPlacement && reservation === null) {
-    toast('Finish the current placement, then import this image again.', 'warning')
+    showToast('Finish the current placement, then import this image again.', 'warning')
     return false
   }
 
@@ -146,7 +146,7 @@ export const importTemplatesToServer = async (
     }
     signal?.throwIfAborted()
     rerender()
-    if (failures.length > 0) toast(failures.join('. '), 'error')
+    if (failures.length > 0) showToast(failures.join('. '), 'error')
     if (!admitted.includes(first.id)) {
       for (const id of admitted) await unstageLocalTemplate(id)
       return false
@@ -161,10 +161,13 @@ export const importTemplatesToServer = async (
       if (started !== true) {
         for (const templateId of admitted) await removeLocalTemplate(templateId)
         rerender()
-        toast('Another placement started. Import the image again when it is finished.', 'warning')
+        showToast(
+          'Another placement started. Import the image again when it is finished.',
+          'warning',
+        )
         return false
       }
-      toast(`Place “${first.name}”, then Apply to upload it.`, 'warning')
+      showToast(`Place “${first.name}”, then Apply to upload it.`, 'warning')
       return true
     }
 

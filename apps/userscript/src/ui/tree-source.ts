@@ -59,7 +59,7 @@ export interface TreeItem {
 }
 
 /** A row and the folder it is listed in; `null` is the source's top level. */
-export interface TreeEntry {
+interface TreeEntry {
   readonly parentId: string | null
   readonly item: TreeItem
 }

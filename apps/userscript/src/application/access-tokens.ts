@@ -13,9 +13,7 @@ import {
   sameServerConnection,
 } from '../server-connections.js'
 import type { ServerConnection } from '../settings.js'
-import { confirmDestructive } from '../ui/confirm.js'
-import { showOneTimeSecret } from '../ui/notification-host.js'
-import { toast } from '../ui/toast.js'
+import { requestConfirmation, showOneTimeSecret, showToast } from '../ui/notification-host.js'
 
 /**
  * The tokens a server will accept, for the admin who can change them.
@@ -201,7 +199,7 @@ const reloadAccessTokens = (
     else if (state.cached === undefined) state.status = 'error'
     else {
       state.status = 'ready'
-      toast('Could not refresh the token list — showing the last result.', 'error')
+      showToast('Could not refresh the token list — showing the last result.', 'error')
     }
     notify(state)
   })
@@ -251,7 +249,7 @@ export const loadMoreAccessTokens = (server: ServerConnection, onChange: () => v
   void fetchTokens(server, cursor).then((page) => {
     if (connections.get(server.url) !== state) return
     state.loadingMore = false
-    if (page === null) toast('Could not load more tokens — try again.', 'error')
+    if (page === null) showToast('Could not load more tokens — try again.', 'error')
     notify(state)
   })
 }
@@ -298,7 +296,7 @@ export const revokeServerAccessToken = (
   const state = connectionState(server)
   if (state.revoking.has(tokenHash)) return
   void (async () => {
-    const sure = await confirmDestructive({
+    const sure = await requestConfirmation({
       title: 'Delete this token?',
       body: `${label} will stop working immediately.`,
       note: 'Anyone using it will lose access to this server. This cannot be undone.',
@@ -311,7 +309,7 @@ export const revokeServerAccessToken = (
     const result = await revokeAccessToken(server, tokenHash)
     if (connections.get(server.url) !== state) return
     state.revoking.delete(tokenHash)
-    if (!result.ok) toast(result.message, 'error')
+    if (!result.ok) showToast(result.message, 'error')
     reloadAccessTokens(server, onChange, true)
   })()
 }

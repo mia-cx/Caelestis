@@ -87,8 +87,8 @@ import {
 } from '../templates/move.js'
 import { isPaintOpen } from '../wplace-paint.js'
 import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
-import { confirmDestructive } from './confirm.js'
-import { CLEAR_OF_RAIL, GAP, RAIL_BUTTON } from './metrics.js'
+import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
+import { PANEL_ID, requestConfirmation } from './notification-host.js'
 import {
   overlayAppearanceState,
   type AppearanceUpdater as Updater,
@@ -97,7 +97,6 @@ import { type OverlayFailureKey as FailureKey, overlayFailures } from './overlay
 import { allianceRailTop } from './panel-scope.js'
 import { createRangeGestures } from './range-gestures.js'
 import { applyWplaceTheme } from './theme.js'
-import { PANEL_ID } from './toast.js'
 import { findWplaceRightControls, onWplaceLayoutChange } from './wplace-rail.js'
 
 /**
@@ -136,10 +135,6 @@ const BUTTON_PREFIX = 'caelestis-overlay-button-'
 /** Below the panel's z-30: while the drawer is open it is the focused surface and should win. */
 const BUTTON_Z = '28'
 const MENU_Z = '29'
-/** Match the map rail exactly, so this trigger belongs to the same control family. */
-const MENU_BUTTON_SIZE = RAIL_BUTTON
-const RAIL_GAP = GAP
-const VIEWPORT_EDGE = 8
 /** As tall as the menu is ever allowed to want to be, before the room beside its gear is counted. */
 const NATURAL_MAX_HEIGHT = '70vh'
 const NATURAL_WIDTH = 'min(19.5rem, calc(100vw - 1rem))'
@@ -166,21 +161,18 @@ const localControlsRightEdge = (): number => {
   const wplaceControls = findWplaceRightControls()?.getBoundingClientRect()
   let railEdge =
     wplaceControls !== undefined && wplaceControls.width > 0
-      ? Math.min(fallbackRailEdge, wplaceControls.left - RAIL_GAP)
+      ? Math.min(fallbackRailEdge, wplaceControls.left - GAP)
       : fallbackRailEdge
   const allianceRail = document.getElementById('caelestis-alliance-rail')?.getBoundingClientRect()
   if (allianceRail !== undefined && allianceRail.width > 0) {
-    railEdge = Math.min(railEdge, allianceRail.left - RAIL_GAP)
+    railEdge = Math.min(railEdge, allianceRail.left - GAP)
   }
   const panel =
     document.getElementById('caelestis-alliance-panel') ?? document.getElementById(PANEL_ID)
   // A closing panel has already given its room back; measuring it would pin controls against a
   // box that is sliding away and then snap them once it is removed.
   if (panel === null || panel.dataset.state === 'closing') return railEdge
-  return Math.max(
-    VIEWPORT_EDGE + MENU_BUTTON_SIZE,
-    Math.min(railEdge, panel.getBoundingClientRect().left - RAIL_GAP),
-  )
+  return Math.max(EDGE + RAIL_BUTTON, Math.min(railEdge, panel.getBoundingClientRect().left - GAP))
 }
 
 /** The world controls' right edge, or null once something it was read from may have moved. */
@@ -432,8 +424,8 @@ const overlayRailControl = (
   element.model = model
   Object.assign(element.style, {
     position: 'fixed',
-    width: `${MENU_BUTTON_SIZE}px`,
-    height: `${MENU_BUTTON_SIZE}px`,
+    width: `${RAIL_BUTTON}px`,
+    height: `${RAIL_BUTTON}px`,
     zIndex: BUTTON_Z,
   })
   applyWplaceTheme(element)
@@ -1361,7 +1353,7 @@ const requestDelete = (id: string, rerender: () => void): void => {
   }
   if (confirming.has(id)) return
   confirming.add(id)
-  void confirmDestructive({
+  void requestConfirmation({
     title: isServerTemplate(current) ? 'Delete published template?' : 'Delete template?',
     body: `${current.name} will be permanently removed.`,
     note: isServerTemplate(current)
@@ -1656,8 +1648,6 @@ const openOverlayMenu = (id: string, rerender: () => void): void => {
   log('install', `overlay menu opened for ${id}`)
 }
 
-export const isOverlayMenuOpen = (id: string): boolean => openFor === id
-
 export const toggleOverlayMenu = (id: string, rerender: () => void): void => {
   if (openFor === id) {
     closeOverlayMenu()
@@ -1930,26 +1920,26 @@ const worldControlViewport = (): ControlViewport => ({
   clipRight: window.innerWidth,
   clipBottom: window.innerHeight,
   left: 4,
-  top: VIEWPORT_EDGE,
+  top: EDGE,
   right: worldControlsRightEdge(),
-  bottom: window.innerHeight - VIEWPORT_EDGE,
+  bottom: window.innerHeight - EDGE,
 })
 
 const allianceControlViewport = (stage: HTMLElement): ControlViewport | null => {
   const box = stage.getBoundingClientRect()
-  const safeTop = box.top + allianceRailTop(stage, VIEWPORT_EDGE, GAP)
+  const safeTop = box.top + allianceRailTop(stage, EDGE, GAP)
   const viewport = {
     clipLeft: Math.max(0, box.left),
     clipTop: Math.max(0, box.top),
     clipRight: Math.min(window.innerWidth, box.right),
     clipBottom: Math.min(window.innerHeight, box.bottom),
     left: Math.max(4, box.left + 4),
-    top: Math.max(VIEWPORT_EDGE, safeTop),
+    top: Math.max(EDGE, safeTop),
     right: Math.min(localControlsRightEdge(), box.right - 4),
-    bottom: Math.min(window.innerHeight - VIEWPORT_EDGE, box.bottom - VIEWPORT_EDGE),
+    bottom: Math.min(window.innerHeight - EDGE, box.bottom - EDGE),
   }
-  return viewport.right - viewport.left >= MENU_BUTTON_SIZE &&
-    viewport.bottom - viewport.top >= MENU_BUTTON_SIZE
+  return viewport.right - viewport.left >= RAIL_BUTTON &&
+    viewport.bottom - viewport.top >= RAIL_BUTTON
     ? viewport
     : null
 }
@@ -2134,7 +2124,7 @@ const renderControls = (
         continue
       }
       const rail = placementRailFor(template.id, host)
-      const railHeight = MENU_BUTTON_SIZE * 2 + RAIL_GAP
+      const railHeight = RAIL_BUTTON * 2 + GAP
       if (viewport.bottom - viewport.top < railHeight) {
         removePlacementRail(template.id)
         continue
@@ -2143,10 +2133,7 @@ const renderControls = (
         Math.max(corner.y, viewport.top),
         Math.max(viewport.top, viewport.bottom - railHeight),
       )
-      const railLeft = Math.min(
-        Math.max(corner.x + 6, viewport.left),
-        viewport.right - MENU_BUTTON_SIZE,
-      )
+      const railLeft = Math.min(Math.max(corner.x + 6, viewport.left), viewport.right - RAIL_BUTTON)
       const finishing = isFinishing()
       rail.apply.model = {
         id: 'placement-apply',
@@ -2161,7 +2148,7 @@ const renderControls = (
         disabled: finishing,
       }
       positionFloatingControl(rail.apply, railLeft, railTop)
-      positionFloatingControl(rail.cancel, railLeft, railTop + MENU_BUTTON_SIZE + RAIL_GAP)
+      positionFloatingControl(rail.cancel, railLeft, railTop + RAIL_BUTTON + GAP)
       continue
     }
     removePlacementRail(template.id)
@@ -2198,7 +2185,7 @@ const renderControls = (
             ? 5
             : 3
         : 0
-    const railHeight = MENU_BUTTON_SIZE + actionCount * (MENU_BUTTON_SIZE + RAIL_GAP)
+    const railHeight = RAIL_BUTTON + actionCount * (RAIL_BUTTON + GAP)
     if (viewport.bottom - viewport.top < railHeight) {
       if (openFor === template.id && menuNode !== null) {
         endGestures()
@@ -2263,10 +2250,7 @@ const renderControls = (
       Math.max(corner.y, viewport.top),
       Math.max(viewport.top, viewport.bottom - railHeight),
     )
-    const buttonLeft = Math.min(
-      Math.max(corner.x + 6, viewport.left),
-      viewport.right - MENU_BUTTON_SIZE,
-    )
+    const buttonLeft = Math.min(Math.max(corner.x + 6, viewport.left), viewport.right - RAIL_BUTTON)
     positionFloatingControl(button, buttonLeft, buttonTop)
 
     if (openFor !== template.id) continue
@@ -2372,11 +2356,7 @@ const renderControls = (
     }
     if (menuNode === null) continue
     for (const [index, action] of railActions.entries()) {
-      positionFloatingControl(
-        action,
-        buttonLeft,
-        buttonTop + (index + 1) * (MENU_BUTTON_SIZE + RAIL_GAP),
-      )
+      positionFloatingControl(action, buttonLeft, buttonTop + (index + 1) * (RAIL_BUTTON + GAP))
     }
     // Measured when it is built, when its content expands, and when the viewport changes under it.
     //
@@ -2394,9 +2374,9 @@ const renderControls = (
       menuBox = { width: box.width, height: box.height }
       measuredFor = { width: window.innerWidth, height: window.innerHeight }
     }
-    const menuLeftEdge = Math.max(VIEWPORT_EDGE, viewport.left)
-    const rightSpace = viewport.right - (buttonLeft + MENU_BUTTON_SIZE + RAIL_GAP)
-    const leftSpace = buttonLeft - RAIL_GAP - menuLeftEdge
+    const menuLeftEdge = Math.max(EDGE, viewport.left)
+    const rightSpace = viewport.right - (buttonLeft + RAIL_BUTTON + GAP)
+    const leftSpace = buttonLeft - GAP - menuLeftEdge
     const openRight = menuBox.width <= rightSpace || rightSpace >= leftSpace
     const sideRoom = Math.max(0, openRight ? rightSpace : leftSpace)
     const appliedWidth = Math.min(menuBox.width, sideRoom)
@@ -2404,8 +2384,8 @@ const renderControls = (
     // Grow out of the gear: the side it hangs from is the side it scales toward.
     menuNode.style.transformOrigin = openRight ? 'left top' : 'right top'
     menuNode.style.left = openRight
-      ? `${buttonLeft + MENU_BUTTON_SIZE + RAIL_GAP}px`
-      : `${buttonLeft - RAIL_GAP - appliedWidth}px`
+      ? `${buttonLeft + RAIL_BUTTON + GAP}px`
+      : `${buttonLeft - GAP - appliedWidth}px`
     const appliedHeight = Math.min(menuBox.height, viewport.bottom - viewport.top)
     menuNode.style.maxHeight = `${appliedHeight}px`
     menuNode.style.top = `${Math.min(

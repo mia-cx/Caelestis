@@ -16,7 +16,7 @@ import {
   templateAsPng,
   templateById,
 } from '../templates/local-store.js'
-import { toast } from '../ui/toast.js'
+import { showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree.js'
 import { claimFolderPublication, setFolderTemplatesPublished } from './folder-publication.js'
 import { plural } from './plural.js'
@@ -71,14 +71,14 @@ export const moveServerTemplate = async (
   const surface = surfaceOf(target)
   const listed = await listServerNodes(server, undefined, surface)
   if (listed.status !== 'ok') {
-    toast(serverNodesFailure(listed), 'error')
+    showToast(serverNodesFailure(listed), 'error')
     return
   }
   const destinations = serverDestinations(listed.nodes).filter(
     (destination) => destination.nodeId !== target.nodeId,
   )
   if (destinations.length === 0) {
-    toast('There is nowhere else to put it.', 'warning')
+    showToast('There is nowhere else to put it.', 'warning')
     return
   }
 
@@ -104,7 +104,7 @@ export const moveServerTemplate = async (
             nodeId: value === '' ? null : value,
           })
           closeOperation(id)
-          if (!result.ok) toast(result.message, 'error')
+          if (!result.ok) showToast(result.message, 'error')
           void refreshEditedSurface(server, surface, rerender)
         })
       },
@@ -149,7 +149,7 @@ export const replaceServerArtwork = async (
           (candidate) => candidate.width === wanted.width && candidate.height === wanted.height,
         )
   if (sources.length === 0) {
-    toast(
+    showToast(
       wanted === null
         ? 'Import the new artwork into Local first, and place it where it belongs.'
         : `Replacing this needs a Local template that is exactly ${wanted.width}x${wanted.height}.`,
@@ -177,36 +177,36 @@ export const replaceServerArtwork = async (
         // while the map was in use, and the template may have been moved, renamed or redrawn since.
         const source = templateById(value)
         if (source === undefined) {
-          toast('That template is no longer here.', 'error')
+          showToast('That template is no longer here.', 'error')
           closeOperation(id)
           return
         }
         const busy = busyRefusal(source, 'replacing from it')
         if (busy !== null) {
-          toast(busy, 'warning')
+          showToast(busy, 'warning')
           return
         }
         updateOperation(id, { label: 'Encoding…', pending: true })
         void runWhileBusy(`template:replace:${templateId}`, async () => {
           const png = await templateAsPng(source)
           if (png === null) {
-            toast('Could not encode that template.', 'error')
+            showToast('Could not encode that template.', 'error')
             closeOperation(id)
             return
           }
           const carried = await transferAuthoring(source)
           if ('message' in carried) {
-            toast(carried.message, 'error')
+            showToast(carried.message, 'error')
             closeOperation(id)
             return
           }
           if (!isCurrentTemplate(source) || templateBusy(source.id, 'placing')) {
-            toast(`“${source.name}” changed while it was being encoded — try again.`, 'warning')
+            showToast(`“${source.name}” changed while it was being encoded — try again.`, 'warning')
             return
           }
           if (cancelled || !isOperationOpen(id)) return
           if (!isCurrentServerConnection(server)) {
-            toast('That server was disconnected or replaced.', 'warning')
+            showToast('That server was disconnected or replaced.', 'warning')
             closeOperation(id)
             return
           }
@@ -222,8 +222,8 @@ export const replaceServerArtwork = async (
             authoring: carried.authoring,
           })
           closeOperation(id)
-          if (result.ok) toast(`Replaced the artwork for “${target.name}”.`)
-          else toast(result.message, 'error')
+          if (result.ok) showToast(`Replaced the artwork for “${target.name}”.`)
+          else showToast(result.message, 'error')
           const reconciliation = refreshEditedSurface(server, surface, rerender)
           if (!result.ok && result.ambiguous === true) await reconciliation
           else void reconciliation
@@ -248,7 +248,7 @@ export const replaceFromImage = async (
   const current = serverTemplateAt(server.url, templateId, surface)
   const installed = templateById(installedId)
   if (current === null || installed === undefined) {
-    toast('This template has not finished loading. Try again in a moment.', 'warning')
+    showToast('This template has not finished loading. Try again in a moment.', 'warning')
     return
   }
   const carried = await transferAuthoring(installed)
@@ -264,7 +264,7 @@ export const replaceFromImage = async (
       origin: { x: installed.originX, y: installed.originY },
       save: async (template) => {
         if (!isCurrentServerConnection(server)) {
-          toast('That server was disconnected or replaced.', 'warning')
+          showToast('That server was disconnected or replaced.', 'warning')
           return false
         }
         const png = new Blob(
@@ -286,16 +286,16 @@ export const replaceFromImage = async (
         if (!result.ok && result.ambiguous === true) await reconciliation
         else void reconciliation
         if (!result.ok) {
-          toast(result.message, 'error')
+          showToast(result.message, 'error')
           return false
         }
-        toast(`Replaced the artwork for “${target.name}”.`)
+        showToast(`Replaced the artwork for “${target.name}”.`)
         return true
       },
     },
     authoring === null ? undefined : { image: authoring.source, name: target.name },
   )
-  if (!opened) toast('Finish the current placement or template, then try again.', 'warning')
+  if (!opened) showToast('Finish the current placement or template, then try again.', 'warning')
 }
 
 /**
@@ -314,7 +314,7 @@ export const patchServerTemplate = async (
   const { server, templateId } = target
   if (server === null || templateId === undefined) return
   const result = await patchTemplate(server, templateId, patch)
-  if (!result.ok) toast(result.message, 'error')
+  if (!result.ok) showToast(result.message, 'error')
   await refreshEditedSurface(server, surfaceOf(target), rerender)
 }
 
@@ -329,14 +329,14 @@ export const setServerFolderPublished = async (
   const surface = surfaceOf(target)
   const releasePublication = claimFolderPublication(server.url)
   if (releasePublication === null) {
-    toast('Another folder on that server is already changing publication state.', 'warning')
+    showToast('Another folder on that server is already changing publication state.', 'warning')
     return
   }
   try {
     if (surface.kind === 'world') {
       const refreshed = await refreshCurrentNodes(server, rerender, true)
       if (refreshed?.status !== 'admitted') {
-        toast(
+        showToast(
           refreshed?.message ?? 'That server was disconnected before the folder could change.',
           'error',
         )
@@ -348,19 +348,19 @@ export const setServerFolderPublished = async (
     }
     const current = serverByUrl(server.url)
     if (current === undefined) {
-      toast('That server was disconnected before the folder could change.', 'error')
+      showToast('That server was disconnected before the folder could change.', 'error')
       return
     }
     const rows = rowsForSurface(current, surface)
     const templates =
       rows === undefined ? null : templatesInFolderSubtree(rows.nodes, rows.templates, nodeId)
     if (templates === null) {
-      toast(`Could not read what is inside “${target.name}”.`, 'error')
+      showToast(`Could not read what is inside “${target.name}”.`, 'error')
       return
     }
     const wanted = templates.filter((template) => template.published !== published).length
     if (wanted === 0) {
-      toast(
+      showToast(
         templates.length === 0
           ? `There are no templates in “${target.name}”.`
           : `Everything in “${target.name}” is already ${published ? 'published' : 'unpublished'}.`,
@@ -368,7 +368,7 @@ export const setServerFolderPublished = async (
       return
     }
 
-    toast(`${published ? 'Publishing' : 'Unpublishing'} ${plural(wanted, 'template')}…`)
+    showToast(`${published ? 'Publishing' : 'Unpublishing'} ${plural(wanted, 'template')}…`)
     const result = await setFolderTemplatesPublished(templates, published, (template) =>
       retryOptimisticMutation(async () => {
         if (!isCurrentServerConnection(current))
@@ -383,12 +383,12 @@ export const setServerFolderPublished = async (
     if (isCurrentServerConnection(current)) await refreshEditedSurface(current, surface, rerender)
     else rerender()
     if (result.failures.length === 0) {
-      toast(
+      showToast(
         `${published ? 'Published' : 'Unpublished'} ${plural(result.succeeded, 'template')} in “${target.name}”.`,
       )
       return
     }
-    toast(
+    showToast(
       `${result.succeeded} of ${result.requested} templates changed; ${result.failures.length} could not be ${published ? 'published' : 'unpublished'}.`,
       'error',
     )

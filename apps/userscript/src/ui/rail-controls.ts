@@ -6,9 +6,9 @@ import { getState, onStateChange, setState } from '../settings.js'
 import { shortcutHint } from '../shortcuts.js'
 import { applyWplaceTheme } from './theme.js'
 
-export const MISMATCH_MODE_ID = 'caelestis-mismatch-mode'
-export const CLAIM_TOOL_ID = 'caelestis-claim-tool-mode'
-export const PRESENCE_MODE_ID = 'caelestis-presence-mode'
+const MISMATCH_MODE_ID = 'caelestis-mismatch-mode'
+const CLAIM_TOOL_ID = 'caelestis-claim-tool-mode'
+const PRESENCE_MODE_ID = 'caelestis-presence-mode'
 
 /**
  * Keep the rail's stateful buttons current with persisted state: their pressed states and the key

@@ -30,7 +30,7 @@ import { presenceServers, presenceView } from './presence-client.js'
 import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
 import { activeServerToken } from './server-connections.js'
 import { isServerTemplate, localTemplates, type PlacedTemplate } from './templates/local-store.js'
-import { toast } from './ui/toast.js'
+import { showToast } from './ui/notification-host.js'
 
 /**
  * Region claims as one feature: whether claiming is possible right now, the claim editor's host,
@@ -129,7 +129,7 @@ const editorHost: ClaimEditorHost = {
   save: async (ids, documents) => {
     const result = await claimRouter().saveAll(ids, documents)
     if (result.error === null && documents.length > 0)
-      toast(
+      showToast(
         `Saved your regions: ${documentName({ items: documents.flatMap((document) => document.items) })}.`,
       )
     return result
@@ -147,7 +147,7 @@ export const openClaimTool = (tool?: ClaimTool, rerender?: () => void): boolean 
   if (rerender !== undefined) rerenders.add(rerender)
   const availability = claimAvailability()
   if (!availability.ready) {
-    toast(availability.reason, 'error')
+    showToast(availability.reason, 'error')
     return false
   }
   startClaimMode(tool)

@@ -5,12 +5,15 @@ import { type ServerConnection, setScopeVisible } from '../src/settings.js'
 import * as store from '../src/templates/local-store.js'
 import { abort, movingId } from '../src/templates/move.js'
 import { serverTemplateKey } from '../src/tree-keys.js'
-import { toast } from '../src/ui/toast.js'
+import { showToast } from '../src/ui/notification-host.js'
 import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
 
 vi.mock('../src/claim-editor.js', () => ({ startCaptureMode: () => false }))
 vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
-vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn() }))
+vi.mock('../src/ui/notification-host.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ui/notification-host.js')>()),
+  showToast: vi.fn(),
+}))
 
 import { openContextMenu } from '../src/application/tree-menu.js'
 import {
@@ -73,7 +76,7 @@ afterEach(async () => {
   setScopeVisible(MANIFEST_ONLY_KEY, true)
   await abort()
   for (const placed of store.localTemplates()) await store.removeLocalTemplate(placed.id)
-  vi.mocked(toast).mockClear()
+  vi.mocked(showToast).mockClear()
 })
 
 describe('hidden templates and folders', () => {
@@ -83,7 +86,7 @@ describe('hidden templates and folders', () => {
 
     choose(`local:${id}`, 'Move')
 
-    expect(toast).toHaveBeenCalledWith('“Target” is hidden. Show it first.', 'warning')
+    expect(showToast).toHaveBeenCalledWith('“Target” is hidden. Show it first.', 'warning')
     expect(movingId()).toBeNull()
     expect(store.templateById(id)?.visible).toBe(false)
   })
@@ -95,7 +98,7 @@ describe('hidden templates and folders', () => {
 
     choose(`local:${id}`, 'Move')
 
-    expect(toast).toHaveBeenCalledWith(
+    expect(showToast).toHaveBeenCalledWith(
       '“Target” is in a hidden folder. Show the folder first.',
       'warning',
     )
@@ -130,7 +133,7 @@ describe('hidden templates and folders', () => {
       actionId: item.id,
     })
 
-    expect(toast).toHaveBeenCalledWith('“Pending” is hidden. Show it first.', 'warning')
+    expect(showToast).toHaveBeenCalledWith('“Pending” is hidden. Show it first.', 'warning')
     expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 
@@ -141,7 +144,7 @@ describe('hidden templates and folders', () => {
 
     choose(`lf:${inner}`, 'Import template')
 
-    expect(toast).toHaveBeenCalledWith(
+    expect(showToast).toHaveBeenCalledWith(
       '“Inner” is in a hidden folder. Show the folder first.',
       'warning',
     )

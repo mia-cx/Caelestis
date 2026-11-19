@@ -12,7 +12,7 @@ import {
 } from '../presence-client.js'
 import { presenceCss } from '../presence-colour.js'
 import { navigateTo } from '../templates/navigate.js'
-import { toast } from './toast.js'
+import { showToast } from './notification-host.js'
 
 /**
  * The Painters drawer: everyone presence knows about, with a Fly to that goes to where they were
@@ -112,9 +112,9 @@ export const clearClaim = async (id: string, changed: () => void): Promise<void>
   changed()
   try {
     const error = await claimRouter().remove(id)
-    if (error !== null) toast(error, 'error')
+    if (error !== null) showToast(error, 'error')
   } catch (error) {
-    toast(error instanceof Error ? error.message : 'Could not clear the claim. Retry.', 'error')
+    showToast(error instanceof Error ? error.message : 'Could not clear the claim. Retry.', 'error')
   } finally {
     clearing.delete(id)
     changed()
@@ -148,7 +148,7 @@ const flyToRect = (rect: PresenceRect): void =>
 export const flyToPainter = (sessionId: string): boolean => {
   const rect = painterLocation(presenceView(), sessionId)
   if (rect === null) {
-    toast('That painter is no longer here.', 'error')
+    showToast('That painter is no longer here.', 'error')
     return false
   }
   flyToRect(rect)
@@ -163,7 +163,7 @@ export const flyToClaim = (id: string): boolean => {
   const { mine, others } = knownClaims(presenceView())
   const region = [...mine, ...others].find((held) => held.id === id)
   if (region === undefined) {
-    toast('That claim is no longer here.', 'error')
+    showToast('That claim is no longer here.', 'error')
     return false
   }
   flyToRect(region.rect)

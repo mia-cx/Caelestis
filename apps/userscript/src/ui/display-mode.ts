@@ -1,7 +1,7 @@
 import { warn } from '../debug.js'
 import { storedValue, storeValue } from '../stored-values.js'
 
-export type TemplateDisplayMode = 'tree' | 'grid'
+type TemplateDisplayMode = 'tree' | 'grid'
 
 // Keep presentation outside the catalog record, which other open tabs also write.
 const STORAGE_KEY = 'caelestis.template-display-mode'

@@ -16,7 +16,7 @@ interface Refusal {
   attempts: number
 }
 
-export interface RenderedFailure {
+interface RenderedFailure {
   readonly key: OverlayFailureKey
   readonly message: string
   /** True only once per raised refusal, so rebuilt alert nodes do not repeat themselves. */

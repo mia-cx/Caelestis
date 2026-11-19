@@ -1,5 +1,6 @@
 import {
   type AlarmKind,
+  defaultTemplateSort,
   sameTemplateSurface,
   type TemplateSurface,
   templateFilterCount,
@@ -85,6 +86,7 @@ import { loadTemplateThumbnail, templateThumbnail } from '../templates/thumbnail
 import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
 import { nodeTreeKey, serverTemplateKey, serverTemplateTreeKey } from '../tree-keys.js'
 import { templateDisplayMode } from './display-mode.js'
+import { showToast } from './notification-host.js'
 import {
   emptyProgress,
   freshestColourProgress,
@@ -92,8 +94,6 @@ import {
   sumColourProgress,
   sumProgress,
 } from './progress.js'
-import { DEFAULT_SORT, isReorderable } from './sort.js'
-import { toast } from './toast.js'
 import {
   MAX_RENDERED_ROWS,
   orderedTreeItems as orderedItems,
@@ -196,7 +196,7 @@ export interface TreeCallbacks {
   ) => Promise<string | null>
 }
 
-const reportTreeError = (message: string): void => toast(message, 'error')
+const reportTreeError = (message: string): void => showToast(message, 'error')
 
 /** A row's preview art: the cached thumbnail, or a loader for one scrolled into view. */
 const previewArt = (template: PlacedTemplate) => ({
@@ -283,7 +283,7 @@ const renameTarget = async (
     return
   }
   if (target.server === null || target.nodeId === null) {
-    toast('There is nothing to rename here.', 'warning')
+    showToast('There is nothing to rename here.', 'warning')
     rerender()
     return
   }
@@ -614,7 +614,7 @@ const buildTree = <Result>(
       categories.filter((item) => item.key !== 'local'),
       rank,
       undefined,
-      DEFAULT_SORT,
+      defaultTemplateSort('custom'),
     ).map((item) => item.key),
   ]
   const needle = query.trim().toLocaleLowerCase()
@@ -1539,7 +1539,7 @@ const treeIcon = (name: TreeRowOptions['kind']): TreeRowModel['icon'] =>
   name === 'folder' || name === 'server' ? name : 'image'
 
 const canReorderRow = (row: TreeRowOptions): boolean =>
-  row.key !== 'local' && (row.kind === 'server' || isReorderable(getState().sort))
+  row.key !== 'local' && (row.kind === 'server' || getState().sort.field === 'custom')
 
 const actionIcon = (name: string): TreeActionModel['icon'] => {
   switch (name) {

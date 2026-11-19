@@ -11,6 +11,7 @@ import {
   type ShortcutOverrides,
   type SimulatedInputSwitches,
   type TemplateFilters,
+  type TemplateSortOrder,
   type TemplateSurface,
   templateSurface,
   templateSurfaceKey,
@@ -30,7 +31,6 @@ import {
   normaliseAppearance,
 } from './templates/appearance.js'
 import { remapPaletteColours, remapStoredAppearance } from './templates/palette-migration.js'
-import { DEFAULT_SORT, type SortOrder } from './ui/sort.js'
 
 /**
  * Everything the panel remembers between sessions.
@@ -112,7 +112,7 @@ export interface State {
   readonly collapsed: readonly string[]
   /** Panel width in pixels, dragged by the handle on its left edge. */
   readonly panelWidth: number
-  readonly sort: SortOrder
+  readonly sort: TemplateSortOrder
   readonly filters: TemplateFilters
   /** Palette indices deliberately hidden. Empty means every colour draws. */
   readonly hiddenColours: readonly number[]
@@ -253,7 +253,9 @@ const decodeServers = (stored: unknown): ServerConnection[] => {
   return servers
 }
 
-const decodeSort = (stored: unknown): SortOrder => {
+const DEFAULT_SORT = defaultTemplateSort('custom')
+
+const decodeSort = (stored: unknown): TemplateSortOrder => {
   const sort = isRecord(stored) ? stored : {}
   return isTemplateSortField(sort.field) && sort.field !== 'custom'
     ? {

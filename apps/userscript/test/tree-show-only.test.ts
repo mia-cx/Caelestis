@@ -2,12 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
 import { setScopeVisible } from '../src/settings.js'
 import * as store from '../src/templates/local-store.js'
-import { toast } from '../src/ui/toast.js'
+import { showToast } from '../src/ui/notification-host.js'
 import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
 
 vi.mock('../src/claim-editor.js', () => ({ startCaptureMode: () => false }))
 vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
-vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn() }))
+vi.mock('../src/ui/notification-host.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ui/notification-host.js')>()),
+  showToast: vi.fn(),
+}))
 
 import { openContextMenu } from '../src/application/tree-menu.js'
 import {
@@ -101,7 +104,7 @@ describe('show only this', () => {
         false,
       ]),
     )
-    expect(toast).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalled()
 
     // A hidden subfolder keeps its own arrangement for when it is switched back on.
     setLocalFolderVisible(nested, true)
@@ -145,7 +148,7 @@ describe('show only this', () => {
     chooseShowOnly(`local:${target}`)
 
     await vi.waitFor(() =>
-      expect(toast).toHaveBeenCalledWith('Could not change visibility for “Target”.', 'error'),
+      expect(showToast).toHaveBeenCalledWith('Could not change visibility for “Target”.', 'error'),
     )
   })
 })

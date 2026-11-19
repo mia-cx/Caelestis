@@ -9,7 +9,7 @@ import { beginMove } from '../templates/move.js'
 import { exportFilename, templateAsWplace } from '../templates/wplace-export.js'
 import { localTemplateIdOf, serverTemplateKey } from '../tree-keys.js'
 import { openBackfill } from '../ui/backfill.js'
-import { toast } from '../ui/toast.js'
+import { showToast } from '../ui/notification-host.js'
 import type { TreeTarget } from '../ui/tree.js'
 import { startRenaming } from '../ui/tree-state.js'
 import { canClaimTemplate, claimTemplate, hasOwnTemplateClaim } from '../ui/work.js'
@@ -46,30 +46,30 @@ const exportTemplate = async (target: TreeTarget, format: 'wplace' | 'png'): Pro
       : null)
   const template = id === null ? undefined : templateById(id)
   if (template === undefined) {
-    toast('That template has not finished loading yet.', 'warning')
+    showToast('That template has not finished loading yet.', 'warning')
     return
   }
   // A template that was never placed has no origin to export yet.
   if (!template.everPlaced || templateBusy(template.id, 'placing')) {
-    toast(`Finish placing “${template.name}” before exporting it.`, 'warning')
+    showToast(`Finish placing “${template.name}” before exporting it.`, 'warning')
     return
   }
 
-  toast(`Preparing “${template.name}”…`)
+  showToast(`Preparing “${template.name}”…`)
   try {
     const file =
       format === 'png'
         ? await templateAsPng(template)
         : await templateAsWplace(template, await authoringOf(template))
     if (file === null) {
-      toast(`“${template.name}” changed while it was being exported. Try again.`, 'warning')
+      showToast(`“${template.name}” changed while it was being exported. Try again.`, 'warning')
       return
     }
     download(file, exportFilename(template.name, format))
-    toast(`Exported “${template.name}”.`)
+    showToast(`Exported “${template.name}”.`)
   } catch (error) {
     warn('install', `could not export ${template.name}`, String(error))
-    toast(`Could not export “${template.name}”.`, 'error')
+    showToast(`Could not export “${template.name}”.`, 'error')
   }
 }
 
@@ -99,7 +99,7 @@ export const openContextMenu = (
     if (artworkId === null) return
     const notice = hiddenNotice(target, templateById(artworkId))
     if (notice === null) edit(artworkId)
-    else toast(notice, 'warning')
+    else showToast(notice, 'warning')
   }
   const updateArtwork = whenDrawn((id) => requestTemplateArtworkUpdate(id, rerender))
   // Area updates select with the capture editor, which only works over the world canvas.
@@ -139,7 +139,7 @@ export const openContextMenu = (
           label: 'Show only this',
           run: () =>
             void showOnly().then((saved) => {
-              if (!saved) toast(`Could not change visibility for “${target.name}”.`, 'error')
+              if (!saved) showToast(`Could not change visibility for “${target.name}”.`, 'error')
               rerender()
             }),
         }
@@ -157,7 +157,7 @@ export const openContextMenu = (
             const server = target.server
             if (server === null) return
             void dismissTemplateAlarm(server, alarm.templateId, alarm.id).then((result) => {
-              if (!result.ok) toast(result.message, 'error')
+              if (!result.ok) showToast(result.message, 'error')
               requestServerSync('manual', 'telemetry-alarms', server)
               rerender()
             })
@@ -316,7 +316,7 @@ export const openContextMenu = (
                   // mid-delete, and when it has gone. Dropping that answer made the menu entry do
                   // nothing at all, with no placement and no explanation.
                   if (!beginMove(id, rerender))
-                    toast(
+                    showToast(
                       'Finish the placement already in progress, then move this one.',
                       'warning',
                     )

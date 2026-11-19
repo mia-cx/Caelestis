@@ -8,7 +8,7 @@ import { activeAllianceSurface } from '../alliance-surface.js'
 import type { ServerTemplate } from '../server-manifest.js'
 import { previewOriginFor, templateById } from '../templates/local-store.js'
 import { centreOf, centreOfBounds, navigateTo } from '../templates/navigate.js'
-import { toast } from '../ui/toast.js'
+import { showToast } from '../ui/notification-host.js'
 
 /** Frame one manifest row even when its pixels have not reached the local catalog yet. */
 export const goToServerTemplate = (
@@ -47,7 +47,7 @@ export const goToLocalTemplate = (templateId: string): void => {
     return
   }
   if (template.source === 'image' && !template.everPlaced) {
-    toast(`“${template.name}” has not been placed yet.`, 'warning')
+    showToast(`“${template.name}” has not been placed yet.`, 'warning')
     return
   }
   navigateTo(centreOf(template))

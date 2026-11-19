@@ -48,9 +48,6 @@ export class PanelSessions {
   }
 }
 
-export const panelScopeForSurface = (surface: TemplateSurface): PanelScope =>
-  surface.kind === 'world' ? 'world' : 'alliance'
-
 export const alliancePanelTitle = (surface: TemplateSurface): string => {
   switch (surface.kind) {
     case 'alliance-headquarters':

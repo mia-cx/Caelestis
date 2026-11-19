@@ -127,17 +127,21 @@ import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-p
 import { onWplacePatchChange } from '../wplace-switches.js'
 import { positionChargeForecast } from './charge-forecast.js'
 import { activeColourPreset, type ColourPresetId, hiddenForPreset } from './colours.js'
-import { confirmDestructive } from './confirm.js'
 import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
-import { mountNotificationsIn, showToast, syncToastPlacement } from './notification-host.js'
+import {
+  mountNotificationsIn,
+  PANEL_ID,
+  requestConfirmation,
+  showToast,
+  syncToastPlacement,
+} from './notification-host.js'
 import {
   glideOverlayControls,
   invalidateOverlayControlsEdge,
   refreshOverlayMenu,
 } from './overlay-menu.js'
-import { panelWidthAfterMount } from './panel-geometry.js'
 import { canvasWritesTouchArtboard } from './panel-progress.js'
 import {
   AllianceDrawerInset,
@@ -159,9 +163,7 @@ import {
   syncMismatchModeState,
   syncPresenceModeState,
 } from './rail-controls.js'
-import { progressChangesCanReorder } from './sort.js'
 import { applyWplaceTheme } from './theme.js'
-import { PANEL_ID, toast } from './toast.js'
 import {
   isTreeDragActive,
   type TemplateTreeAdapter,
@@ -251,7 +253,6 @@ let panelHost: HTMLElement | null = null
 let allianceStage: HTMLElement | null = null
 const allianceDrawerInset = new AllianceDrawerInset()
 let allianceRailObserver: MutationObserver | null = null
-const panelOpenListeners = new Set<() => void>()
 const worldTreeVisibleListeners = new Set<() => void>()
 
 const currentView = (): PanelView => panelSessions.view()
@@ -756,7 +757,8 @@ const updateServerToken = async (url: string, token: string): Promise<void> => {
   refreshSettings()
   try {
     const next = await probeServer(url, token)
-    if (next.superseded === true || !stillConnected(server)) return
+    // The panel stays usable during the probe; a server disconnected meanwhile must not come back.
+    if (next.superseded === true || !isCurrentServerConnection(server)) return
     if (next.status === 'connected') {
       cancelDestinationAdmissions(url)
       if (upsertServer(next)) claimRouter().connect(next)
@@ -793,7 +795,7 @@ export const openInviteFromLocation = async (): Promise<void> => {
       if (replacing) cancelDestinationAdmissions(server.url)
       claimRouter().connect(server)
     },
-    notify: (message, tone) => toast(message, tone),
+    notify: (message, tone) => showToast(message, tone),
     isBusy: (url) =>
       pendingServers.has(url) || disconnectingServerUrls.has(url) || addServerPending,
   })
@@ -807,7 +809,7 @@ const moveSettings = async (
   const other = otherBuild()
   if (other === null) return
   const importing = direction === 'import-from-other-build'
-  const confirmed = await confirmDestructive({
+  const confirmed = await requestConfirmation({
     title: importing ? `Import from the ${other}?` : `Send to the ${other}?`,
     body: importing
       ? `Your servers and settings here are replaced with the ${other}'s. Wplace then reloads.`
@@ -1188,8 +1190,9 @@ const refreshTreeProgress = (): void => {
   if (tree || claimed) panel.model = panelModel(currentPanelWidth(panel))
 }
 
+/** The panel's laid-out width; a freshly connected element has no box yet, so its model's. */
 const currentPanelWidth = (panel: CaelestisPanel): number =>
-  panelWidthAfterMount(panel.getBoundingClientRect().width, panel.model.width)
+  panel.getBoundingClientRect().width || panel.model.width
 
 /** Wplace adapter around the shared panel shell. View contents migrate in the following slices. */
 const buildSveltePanel = (): CaelestisPanel => {
@@ -1302,7 +1305,7 @@ const buildSveltePanel = (): CaelestisPanel => {
           rerenderTree()
         } else if (intent.intent.type === 'display-mode') {
           if (!setTemplateDisplayMode(intent.intent.mode))
-            toast('Could not save the template view.', 'error')
+            showToast('Could not save the template view.', 'error')
           rerenderTree()
         } else if (intent.intent.type === 'filter') {
           setState({ filters: intent.intent.filters })
@@ -1321,30 +1324,6 @@ const buildSveltePanel = (): CaelestisPanel => {
   })
   return panel
 }
-
-/**
- * The element that actually scrolls in a view, which is not always the view.
- *
- * The tree keeps its toolbar fixed and scrolls a child, so reading `scrollTop` off the view root
- * read zero every time and the position was never restored — in the one view long enough for that
- * to matter. A view whose root is its own scroller is unmarked and answers itself.
- */
-/**
- * How many destinations a chooser will render.
- *
- * A server may legally answer with `MAX_TREE_NODES` folders, and building a hundred thousand
- * `<option>` elements synchronously locks the tab for as long as it takes. A dropdown stopped being
- * a usable way to pick long before this many anyway; past it the answer is to type a path, not to
- * scroll one.
- */
-/**
- * Whether this connection is still in the list.
- *
- * Asked after any await that precedes a write, because the panel stays usable while a slow server
- * is being talked to. Disconnecting during a token probe used to put the removed server back, since
- * `upsertServer` cannot tell "update this row" from "add this row".
- */
-const stillConnected = (server: ServerConnection): boolean => isCurrentServerConnection(server)
 
 /**
  * Whichever tree is currently on screen.
@@ -1396,13 +1375,6 @@ export const refreshTemplateTreeFocus = (): void => {
   if (panel.model.tree?.focusedKey === focusedKey) return
   panel.model = panelModel(currentPanelWidth(panel))
 }
-
-/**
- * What the splitter reports to assistive technology.
- *
- * Module-level because the bounds come from the viewport: a window resize moves them, and that
- * handler lives outside the builder that made the handle.
- */
 
 const showView = (view: PanelView): void => {
   if (panelSurface.kind !== 'world' && view === 'settings') return
@@ -1470,7 +1442,6 @@ const setOpen = (next: boolean): void => {
   claimedTreeStale = true
   showView(currentView())
   void primeFromCache(rerenderTree)
-  for (const listener of panelOpenListeners) listener()
   redraw()
   syncToastPlacement(currentPanelId())
 }
@@ -1552,11 +1523,6 @@ export const isWorldTemplatePresented = (server: ServerConnection, templateId: s
     (entry) => entry.type === 'row' && entry.key === serverTemplateTreeKey(server, templateId),
   ) ??
     false)
-
-export const onPanelOpen = (listener: () => void): (() => void) => {
-  panelOpenListeners.add(listener)
-  return () => panelOpenListeners.delete(listener)
-}
 
 export const onWorldTemplateTreeVisible = (listener: () => void): (() => void) => {
   worldTreeVisibleListeners.add(listener)
@@ -1777,7 +1743,7 @@ const colourModeButton = (): CaelestisRailControl => {
 
 const COLOUR_MODE_ID = 'caelestis-colour-mode'
 
-export const syncColourModeState = (): void => {
+const syncColourModeState = (): void => {
   const button = document.getElementById(COLOUR_MODE_ID) as CaelestisRailControl | null
   if (button === null) return
   button.model = colourRailModel()
@@ -1793,7 +1759,7 @@ export const syncColourModeState = (): void => {
 export const installPanel = (): void => {
   void ensureLocalTags()
     .then(refreshView)
-    .catch(() => toast('Could not load local tags. Reload the page to try again.', 'error'))
+    .catch(() => showToast('Could not load local tags. Reload the page to try again.', 'error'))
   panelSessions.select('world')
   panelHost = document.body
   void refreshStoredServers(refreshView)
@@ -1906,7 +1872,8 @@ export const installPanel = (): void => {
     frameQueue(() => {
       if (currentView() !== 'tree') return
       // Sorted by progress, a tick can reorder rows, so only a rebuild is correct.
-      if (progressChangesCanReorder(getState().sort)) {
+      const { field } = getState().sort
+      if (field === 'progress' || field === 'mismatched') {
         refreshView()
         return
       }
