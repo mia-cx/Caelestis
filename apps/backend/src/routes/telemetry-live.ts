@@ -97,10 +97,6 @@ export const createTelemetryLiveRoutes = (
   const isServed = (c: Context): boolean =>
     parseWholeNumber(c.req.query('season')) === currentSeason
 
-  /**
-   * Check the upgrade, authenticate the credential its subprotocol carries, check the season, then
-   * connect.
-   */
   const upgrade =
     (
       presence: boolean,

@@ -66,7 +66,7 @@ const invalidBucket = (bucket: TelemetryBucket): string | null => {
 export const assertValidBuckets = (buckets: readonly TelemetryBucket[]): void => {
   for (const bucket of buckets) {
     const reason = invalidBucket(bucket)
-    if (reason !== null) throw new Error(`appendBuckets rejected ${bucket.templateId}: ${reason}`)
+    if (reason !== null) throw new Error(`appendAndFold rejected${bucket.templateId}: ${reason}`)
   }
 }
 

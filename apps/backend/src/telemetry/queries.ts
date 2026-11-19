@@ -569,7 +569,6 @@ const currentSeasonTileVisible = (
     return candidates.some(({ templateId, versionId }) => current.has(`${templateId}:${versionId}`))
   })
 
-/** An explicit resolution reads only that legacy tier. */
 export const readTileHistory = (input: {
   readonly season: number
   readonly tile: TileCoord

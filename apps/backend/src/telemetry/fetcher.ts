@@ -31,18 +31,6 @@ import {
   mirrorTile,
 } from './ingest.js'
 
-/**
- * The server's own tile mirror, run every `ALARM_SCAN_INTERVAL_SECONDS`.
- *
- * Userscript reports keep template tiles fresh while anyone is painting; this keeps them from
- * going dark when nobody is, and collects enough surroundings to centre each template in a 16:9
- * timelapse. Context tiles are server-owned and never gate on template coverage.
- *
- * Deduplication happens at three layers, which is why overlapping templates cost nothing extra:
- * the complete plan is a set keyed by tile (two templates sharing a tile fetch it once), the blob
- * store is content-addressed (identical bytes from anywhere store once), and a tile whose hash
- * matches the latest accepted observation is skipped without writing history at all.
- */
 export const FETCHER_DISPLAY_NAME = 'Caelestis tile fetcher'
 
 /** The fetcher's synthetic reporter account. No paint event ever carries it, so no leaderboard row. */
@@ -170,6 +158,18 @@ const mirror = async (
     run.sinks,
   )
 
+/**
+ * The server's own tile mirror, run every `ALARM_SCAN_INTERVAL_SECONDS`.
+ *
+ * Userscript reports keep template tiles fresh while anyone is painting; this keeps them from
+ * going dark when nobody is, and collects enough surroundings to centre each template in a 16:9
+ * timelapse. Context tiles are server-owned and never gate on template coverage.
+ *
+ * Deduplication happens at three layers, which is why overlapping templates cost nothing extra:
+ * the complete plan is a set keyed by tile (two templates sharing a tile fetch it once), the blob
+ * store is content-addressed (identical bytes from anywhere store once), and a tile whose hash
+ * matches the latest accepted observation is skipped without writing history at all.
+ */
 export const fetchCanvasTiles = async (
   ports: FetcherStores,
   options: {
@@ -336,7 +336,6 @@ export const fetchAlarmFollowUps = async (
   let pending = probes.length - selectedProbes.length
   let remaining = MAX_FETCH_TILES_PER_RUN
   const retryAt = millis(now * 1_000 + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
-  /** Move a probe that could not finish behind other due work. */
   const defer = async (probe: AlarmProbe) => {
     await ports.sql.deferAlarmProbe(probe.templateId, probe.alarmId, probe.dueAt, retryAt)
     failed++

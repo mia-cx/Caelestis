@@ -45,7 +45,6 @@ const TEMPLATE_IDS_ERROR = `templateIds must be 1..${MAX_IDS_PER_READ} comma-sep
 const RANGE_ERROR = 'from and to must be Unix seconds with from < to'
 const MAX_RESOLUTION_ERROR = `maxResolution must be at least ${LADDER_RESOLUTIONS[0]}`
 
-/** Comma-separated template ids, validated per id and bounded by the port's read cap. */
 const parseTemplateIds = (value: string | undefined): string[] | null => {
   if (value === undefined || value.length === 0) return null
   const ids = value.split(',')
@@ -82,7 +81,6 @@ const parseRange = (
 const optionalWholeNumber = (value: string | undefined): number | undefined | null =>
   value === undefined ? undefined : parseWholeNumber(value)
 
-/** Validate an optional `maxResolution`: absent, at least the finest ladder tier, or null. */
 const parseMaxResolution = (c: Context): number | undefined | null => {
   const maxResolution = optionalWholeNumber(c.req.query('maxResolution'))
   return maxResolution !== null &&
@@ -104,7 +102,6 @@ export const createTelemetryReadRoutes = (
 ) => {
   const routes = new Hono()
   const read = requireScopeEffect(runtime, auth, 'read')
-  /** The `season` query, or the current season when absent; null when malformed. */
   const seasonOf = (c: Context): number | null =>
     c.req.query('season') === undefined
       ? options.currentSeason

@@ -82,7 +82,6 @@ export interface TileObservationCommitRequest {
   readonly now: Millis
   readonly observation: TileObservation
   readonly statuses: readonly TemplateTileStatusRecord[]
-  /** Whether the observation enters raw tile history. */
   readonly recordHistory: boolean
   /** A server fetch outranks a reporter's row even when a client clock put it in the future. */
   readonly authoritative: boolean
