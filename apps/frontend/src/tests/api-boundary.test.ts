@@ -218,7 +218,7 @@ const seedArchive = async (backend: Awaited<ReturnType<typeof createTestBackend>
   const chunk = await encodeIndexedPng(1, 1, new Uint8Array([1]))
   const chunkHash = await sha256Hex(chunk)
   await backend.blobs.put('chunks', chunkHash, chunk)
-  await backend.sql.insertTemplateVersion({
+  await backend.sql.createTemplate({
     templateId: archiveTemplateId,
     versionId: archiveVersionId,
     surface: WORLD_TEMPLATE_SURFACE,
@@ -374,7 +374,7 @@ describe('frontend API client against the built backend', () => {
     const original = await backend.sql.readTemplateVersion(archiveVersionId)
     if (original === null) throw new Error('Missing archive artwork')
     const replacementId = '01890f3e-7b2c-7abc-8def-012345678913'
-    await backend.sql.insertTemplateVersion({
+    await backend.sql.addTemplateVersion({
       ...original,
       versionId: replacementId,
       createdAt: millis((fixtureNow + 300) * 1_000),
