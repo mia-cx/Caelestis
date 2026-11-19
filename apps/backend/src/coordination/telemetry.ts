@@ -1,6 +1,6 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
 import { ArchiveOperationActiveError } from '../archive/errors.js'
-import type { ArchiveStatus } from '../archive/store.js'
+import type { ArchiveStatus } from '../archive/fence.js'
 import {
   addCounters,
   COUNTER_IDEMPOTENCY_RETENTION_SECONDS,

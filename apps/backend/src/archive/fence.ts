@@ -47,9 +47,19 @@ export const openProcessWrites = (connection: SqlConnection, operationId: string
   writesThrough(connection).closedBy.delete(operationId)
 }
 
-export const archiveGate = (connection: SqlConnection) => {
+/** Whether an archive operation holds the server, as every store bundle answers it. */
+export interface ArchiveStatus {
+  /**
+   * Whether a server archive export or import currently holds the server. The answer is cached for
+   * at most a second unless `fresh` asks for a read. Writes never depend on the cache: each one
+   * fails inside its own transaction while the gate is closed.
+   */
+  archiveOperationActive(options?: { readonly fresh?: boolean }): Promise<boolean>
+}
+
+export const archiveGate = (connection: SqlConnection): ArchiveStatus['archiveOperationActive'] => {
   let cached: { readonly active: boolean; readonly until: number } | undefined
-  return async (options: { readonly fresh?: boolean } = {}): Promise<boolean> => {
+  return async (options = {}) => {
     if (writesThrough(connection).closedBy.size > 0) return true
     const at = Date.now()
     if (!options.fresh && cached !== undefined && cached.until > at) return cached.active

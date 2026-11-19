@@ -26,6 +26,23 @@ export const operationHolds = (operation: ArchiveOperationRow) => ({
   values: sameOperation(operation),
 })
 
+/** Create `operation` as the one row, which closes the gate; fails while another row exists. */
+export const insertOperation = (
+  connection: SqlConnection,
+  operation: ArchiveOperationRow,
+): SqlStatement =>
+  connection
+    .prepare(
+      'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, ?, ?, ?, ?, ?)',
+    )
+    .bind(
+      operation.kind,
+      operation.operationId,
+      operation.startedAt,
+      operation.position,
+      operation.stateJson,
+    )
+
 /** Replace exactly `from` with `stateJson` at `position`; changes nothing once `from` is stale. */
 export const advanceOperation = (
   connection: SqlConnection,

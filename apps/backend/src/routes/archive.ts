@@ -1,6 +1,7 @@
 import { Hono, type MiddlewareHandler } from 'hono'
 import { ArchiveOperationActiveError } from '../archive/errors.js'
 import { exportPage, finishExport, startExport } from '../archive/export.js'
+import type { ArchiveStatus } from '../archive/fence.js'
 import type { ArchiveHost } from '../archive/port.js'
 import {
   activateRestore,
@@ -9,7 +10,6 @@ import {
   beginRestore,
   discardRestore,
 } from '../archive/restore.js'
-import type { ArchiveStatus } from '../archive/store.js'
 import { ARCHIVE_NEXT_HEADER } from '../archive/wire.js'
 import { errorResponse } from '../runtime/hono.js'
 import { readBoundedText } from './body.js'

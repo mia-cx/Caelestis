@@ -20,6 +20,7 @@ import {
   quoted,
   TABLE_DISCARD_ORDER,
   type TableStep,
+  TEMPLATES_TABLE,
   UNARCHIVED_TABLES,
 } from './format.js'
 import {
@@ -620,7 +621,7 @@ const discardRestoreHeld = async (
         // outlives its row, and later steps can no longer discover the ids through the table.
         if (progress.templates === undefined) {
           const ids = await host.connection
-            .prepare('SELECT "id" FROM "templates" ORDER BY "id"')
+            .prepare(`SELECT "id" FROM "${TEMPLATES_TABLE}" ORDER BY "id"`)
             .all<{ id: string }>()
           next = {
             step: progress.step,

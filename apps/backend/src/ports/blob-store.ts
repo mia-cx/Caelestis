@@ -10,7 +10,17 @@
  * tiles, derived products, archives, and operator branding. Tile garbage collection never scans
  * the other namespaces.
  */
-export type BlobNamespace = 'chunks' | 'sources' | 'tiles' | 'derived' | 'archives' | 'branding'
+/** Archives carry the namespaces in this order: append a new one, never insert it. */
+export const BLOB_NAMESPACES = [
+  'branding',
+  'chunks',
+  'sources',
+  'archives',
+  'tiles',
+  'derived',
+] as const
+
+export type BlobNamespace = (typeof BLOB_NAMESPACES)[number]
 
 export interface BlobListPage {
   /** Keys relative to the requested namespace, in the object store's stable listing order. */

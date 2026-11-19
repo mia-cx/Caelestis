@@ -19,6 +19,7 @@ import {
   quoted,
   TABLE_EXPORT_ORDER,
   type TableStep,
+  TEMPLATES_TABLE,
 } from './format.js'
 import {
   changedError,
@@ -352,7 +353,7 @@ const exportPageHeld = async (
           (
             await host.connection
               .prepare(
-                `SELECT "id" FROM "templates"${typeof cursor.after === 'string' ? ' WHERE "id" > ?' : ''} ORDER BY "id" LIMIT 1`,
+                `SELECT "id" FROM "${TEMPLATES_TABLE}"${typeof cursor.after === 'string' ? ' WHERE "id" > ?' : ''} ORDER BY "id" LIMIT 1`,
               )
               .bind(...(typeof cursor.after === 'string' ? [cursor.after] : []))
               .first<{ id: string }>()

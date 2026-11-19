@@ -17,7 +17,7 @@ import {
   templatesInFolderSubtree,
   uuidV7,
 } from '@caelestis/shared'
-import type { ArchiveStatus } from '../archive/store.js'
+import type { ArchiveStatus } from '../archive/fence.js'
 import type { NodeStore } from '../nodes/store.js'
 import type { BlobStore } from '../ports/index.js'
 import { classifyChunk, readTargetChunk } from '../telemetry/classification.js'

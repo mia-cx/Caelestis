@@ -3,6 +3,7 @@ import { getTableColumns, getTableName } from 'drizzle-orm'
 import { getTableConfig, type SQLiteColumn, type SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/counter-tables.js'
 import * as schema from '../db/schema.js'
+import { BLOB_NAMESPACES } from '../ports/blob-store.js'
 import { ArchiveError } from './errors.js'
 
 /**
@@ -166,19 +167,17 @@ export const UNARCHIVED_TABLES: readonly string[] = [
   schema.archiveLease,
 ].map(getTableName)
 
+/** The table whose ids the backfill steps walk. */
+export const TEMPLATES_TABLE = getTableName(schema.templates)
+
 /**
- * Object-store prefixes the server owns, social previews included. Bytes and metadata travel;
- * provider etags and upload times do not.
+ * Object-store prefixes the server owns: every blob namespace, in its declared order, then the
+ * social previews `@caelestis/social` writes. Bytes and metadata travel; provider etags and upload
+ * times do not. Archives record this list, so a new namespace is appended, never inserted.
  */
-export const ARCHIVE_OBJECT_PREFIXES = [
-  'branding/',
-  'chunks/',
-  'sources/',
-  'archives/',
-  'tiles/',
-  'derived/',
-  'social/',
-] as const
+export const ARCHIVE_OBJECT_PREFIXES: readonly string[] = [...BLOB_NAMESPACES, 'social'].map(
+  (namespace) => `${namespace}/`,
+)
 
 export const archiveTable = (name: string): ArchiveTable | undefined =>
   ARCHIVE_TABLES.find((table) => table.name === name)

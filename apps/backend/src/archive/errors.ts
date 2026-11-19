@@ -6,15 +6,18 @@ export const ARCHIVE_RETRY_AFTER_SECONDS = 60
 /** An archive problem the administrator can act on. Nothing has been activated when it is thrown. */
 export class ArchiveError extends Error {
   override readonly name = 'ArchiveError'
+  /** When a refused request may be retried unchanged. */
+  readonly retryAt: number | undefined
+  /** A stable reason a client may branch on; the message is for people. */
+  readonly code: typeof ARCHIVE_LEASE_BUSY | undefined
   constructor(
     message: string,
     readonly status: 400 | 409 | 413 | 422 = 422,
-    /** When a refused request may be retried unchanged. */
-    readonly retryAt?: number,
-    /** A stable reason a client may branch on; the message is for people. */
-    readonly code?: typeof ARCHIVE_LEASE_BUSY,
+    options: { readonly retryAt?: number; readonly code?: typeof ARCHIVE_LEASE_BUSY } = {},
   ) {
     super(message)
+    this.retryAt = options.retryAt
+    this.code = options.code
   }
 }
 

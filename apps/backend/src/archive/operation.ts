@@ -7,6 +7,7 @@ import {
   acquireArchiveLease,
   advanceOperation,
   deleteOperation,
+  insertOperation,
   operationHolds,
   readArchiveOperation,
   releaseArchiveLease,
@@ -81,12 +82,9 @@ export const changedError = () =>
 
 /** The archive lease was already taken when this request asked. Distinct from `changedError`. */
 export const leaseBusyError = () =>
-  new ArchiveError(
-    'Another archive request is running. Retry shortly.',
-    409,
-    undefined,
-    ARCHIVE_LEASE_BUSY,
-  )
+  new ArchiveError('Another archive request is running. Retry shortly.', 409, {
+    code: ARCHIVE_LEASE_BUSY,
+  })
 
 /** The call reached its deadline; whatever it wrote outside the database stays idempotent. */
 export class ArchiveLeaseDeadline extends ArchiveError {
@@ -164,18 +162,7 @@ export const holdServer = async (
     stateJson: JSON.stringify(state),
   }
   try {
-    await host.connection
-      .prepare(
-        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, ?, ?, ?, ?, ?)',
-      )
-      .bind(
-        kind,
-        operation.operationId,
-        operation.startedAt,
-        operation.position,
-        operation.stateJson,
-      )
-      .run()
+    await insertOperation(host.connection, operation).run()
   } catch (cause) {
     if ((await readArchiveOperation(host.connection)) !== null)
       throw new ArchiveError('Another archive operation is in progress.', 409)
@@ -278,5 +265,7 @@ export const archiveReadyAt = (host: ArchiveHost, startedAt: number): number =>
 export const assertSettled = (host: ArchiveHost, startedAt: number): void => {
   const readyAt = archiveReadyAt(host, startedAt)
   if (Date.now() < readyAt)
-    throw new ArchiveError('Cached gate reads are still expiring. Retry shortly.', 409, readyAt)
+    throw new ArchiveError('Cached gate reads are still expiring. Retry shortly.', 409, {
+      retryAt: readyAt,
+    })
 }

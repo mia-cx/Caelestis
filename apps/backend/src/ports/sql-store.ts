@@ -1,4 +1,4 @@
-import type { ArchiveStatus } from '../archive/store.js'
+import type { ArchiveStatus } from '../archive/fence.js'
 import type { AccessTokenStore } from '../auth/store.js'
 import type { NodeStore } from '../nodes/store.js'
 import type { ServerSettingsStore } from '../server/store.js'
