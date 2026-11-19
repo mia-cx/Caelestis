@@ -25,12 +25,7 @@ import {
   type SceneItemId,
   setHoveredSceneItems,
 } from './presence-scene.js'
-import {
-  measureProfileDetail,
-  recordProfileCounter,
-  recordProfileWorkload,
-  registerProfileMemorySource,
-} from './profile.js'
+import { measureProfileDetail, recordProfileCounter, recordProfileWorkload } from './profile.js'
 import { getState } from './settings.js'
 import { isDrawingTiles } from './tile-frame.js'
 import { MAP_CANVAS } from './wplace-dom.js'
@@ -88,9 +83,9 @@ interface ClaimPieces {
 /** Pieces of each display union, per mask identity, so hovering costs a lookup. */
 const pieces = new Map<string, ClaimPieces>()
 
-registerProfileMemorySource('Presence component labels', () =>
-  [...pieces.values()].reduce((bytes, entry) => bytes + entry.components.labels.byteLength, 0),
-)
+/** What the claim pieces' component labels hold in memory, for the profile. */
+export const presenceLabelMemoryBytes = (): number =>
+  [...pieces.values()].reduce((bytes, entry) => bytes + entry.components.labels.byteLength, 0)
 
 const piecesFor = (id: string, pixels: RegionShapePixels): ClaimPieces => {
   const held = pieces.get(id)

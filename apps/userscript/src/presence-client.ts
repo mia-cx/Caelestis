@@ -124,9 +124,6 @@ const changed = (): void => {
   notifyListeners(listeners, 'presence listener failed')
 }
 
-// The view merges claims too, so every claim change is a presence change.
-onClaimsChange(changed)
-
 /** Runs after any peer, region, or connection change. */
 export const onPresenceChange = (listener: () => void): void => {
   listeners.push(listener)
@@ -589,6 +586,8 @@ const onVisibility = (): void => {
 export const installPresence = (): void => {
   if (installed) return
   installed = true
+  // The view merges claims too, so every claim change is a presence change.
+  onClaimsChange(changed)
   onStateChange(() => {
     reconcile()
     scheduleAll()

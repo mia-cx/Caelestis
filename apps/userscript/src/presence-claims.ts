@@ -10,7 +10,6 @@ import {
   sameTemplateSurface,
   unionRect,
 } from '@caelestis/shared'
-import { registerProfileMemorySource } from './profile.js'
 import type { State } from './settings.js'
 
 export interface DisplayClaim {
@@ -135,6 +134,6 @@ export const displayClaims = (
   return retained
 }
 
-registerProfileMemorySource('Presence region masks', () =>
-  retained.reduce((bytes, claim) => bytes + claim.pixels.mask.byteLength, 0),
-)
+/** What the last displayed claims' masks hold in memory, for the profile. */
+export const presenceMaskMemoryBytes = (): number =>
+  retained.reduce((bytes, claim) => bytes + claim.pixels.mask.byteLength, 0)
