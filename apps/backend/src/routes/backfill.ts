@@ -1,14 +1,11 @@
-import { isSha256Hex, isUuidV7 } from '@caelestis/shared'
-import { Context as Services } from 'effect'
+import { isSha256Hex, isUuidV7, parseTileKey } from '@caelestis/shared'
+import { Effect, Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
-import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
 import { type BackfillClients, type BackfillReply, folderBackfillName } from '../backfill/port.js'
 import { mergeD1Usage } from '../metrics/request-metrics.js'
-import {
-  type BackendRuntime,
-  BlobStoreService,
-  SqlStoreService,
-} from '../runtime/backend-runtime.js'
+import { type BackendRuntime, BlobStoreService } from '../runtime/backend-runtime.js'
+import { runBackendHttp } from '../runtime/hono.js'
+import { readVisibleVersion } from '../templates/use-cases.js'
 
 const respond = <T>(c: Context, result: BackfillReply<T>): Response => {
   mergeD1Usage(result.usage)
@@ -16,13 +13,8 @@ const respond = <T>(c: Context, result: BackfillReply<T>): Response => {
 }
 
 /** Admin-only preview/start/status/cancel for one server template, or every one below a folder. */
-export const createBackfillAdminRoutes = (
-  runtime: BackendRuntime,
-  auth: AuthOptions,
-  clients?: BackfillClients,
-) => {
+export const createBackfillAdminRoutes = (clients: BackfillClients | undefined) => {
   const routes = new Hono()
-  routes.use('/*', requireScopeEffect(runtime, auth, 'admin'))
   const clientFor = (id: string) => {
     if (clients === undefined) throw new Error('Backfill is unavailable')
     return clients(id)
@@ -102,43 +94,34 @@ export const createBackfillAdminRoutes = (
   return routes
 }
 
-/** Sparse reads share template visibility rules; PNGs remain outside live tile GC. */
-export const createArchiveRoutes = (
+/**
+ * Backfilled canvas history, read through templates. Sparse reads share template visibility rules;
+ * PNGs remain outside live tile GC.
+ */
+export const createCanvasHistoryRoutes = (
   runtime: BackendRuntime,
-  auth: AuthOptions,
-  clients?: BackfillClients,
+  clients: BackfillClients | undefined,
 ) => {
   const routes = new Hono()
-  const sql = Services.get(runtime.context, SqlStoreService)
   const blobs = Services.get(runtime.context, BlobStoreService)
-  routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
   routes.get('/templates/:templateId', async (c) => {
     const id = c.req.param('templateId')
     if (!isUuidV7(id)) return c.json({ error: 'Invalid template ID.' }, 400)
-    const template = await sql.readTemplate(id)
-    if (template === null || (c.get('caller').scope !== 'admin' && !template.published))
-      return c.json({ error: 'Template not found.' }, 404)
-    const version = c.req.query('version') ?? template.currentVersionId
-    if (version === null || !isUuidV7(version))
-      return c.json({ error: 'Invalid template version.' }, 400)
-    const record = await sql.readTemplateVersion(version)
-    if (record?.templateId !== id) return c.json({ error: 'Template version not found.' }, 404)
-    const x = c.req.query('x'),
-      y = c.req.query('y')
-    if (
-      (x === undefined) !== (y === undefined) ||
-      (x !== undefined &&
-        (!/^\d+$/.test(x) || !/^\d+$/.test(y ?? '') || Number(x) > 2047 || Number(y) > 2047))
+    const x = c.req.query('x')
+    const y = c.req.query('y')
+    const tile = x === undefined && y === undefined ? undefined : parseTileKey(`${x}/${y}`)
+    if (tile === null) return c.json({ error: 'Invalid tile coordinates.' }, 400)
+    const history = Effect.flatMap(
+      readVisibleVersion(id, c.req.query('version'), c.get('caller').canSeeDrafts),
+      (version) =>
+        Effect.promise(async () =>
+          clients === undefined ? null : clients(id).history(version, tile),
+        ),
     )
-      return c.json({ error: 'Invalid tile coordinates.' }, 400)
-    if (clients === undefined)
-      return c.json({ source: 'eralyon', basis: null, samples: [], frames: [] })
-    return respond(
-      c,
-      await clients(id).history(
-        version,
-        x === undefined ? undefined : { x: Number(x), y: Number(y) },
-      ),
+    return runBackendHttp(c, runtime, history, (reply) =>
+      reply === null
+        ? c.json({ source: 'eralyon', basis: null, samples: [], frames: [] })
+        : respond(c, reply),
     )
   })
   routes.get('/tiles/:hash', async (c) => {

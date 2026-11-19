@@ -260,6 +260,20 @@ describe('public server branding', () => {
     },
   )
 
+  it('refuses an endless upload without Content-Length once it passes the limit', async () => {
+    const { app } = harness()
+    const endless = new ReadableStream<Uint8Array>({
+      pull: (controller) => controller.enqueue(new Uint8Array(64 * 1024)),
+    })
+    const response = await app.request('/v1/admin/server/assets/logo', {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${token}` },
+      body: endless,
+      duplex: 'half',
+    } as RequestInit)
+    expect(response.status).toBe(413)
+  })
+
   it('rejects empty bodies, unsupported containers, and unknown kinds', async () => {
     const { app, upload, remove } = harness()
     expect((await upload('logo', new Uint8Array())).status).toBe(400)

@@ -6,7 +6,6 @@ import {
   parseWholeNumber,
 } from '@caelestis/shared'
 import { Hono } from 'hono'
-import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
 import {
   countNodeSubtree,
   createNode,
@@ -46,10 +45,8 @@ const parseSeason = (value: unknown): number | null =>
  */
 const slug = nodeSlug
 
-export const createNodeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => {
+export const createNodeRoutes = (runtime: BackendRuntime) => {
   const routes = new Hono()
-
-  routes.use('/*', requireScopeEffect(runtime, auth, 'admin'))
 
   routes.post('/', async (c) => {
     const body: unknown = await c.req.json().catch(() => null)

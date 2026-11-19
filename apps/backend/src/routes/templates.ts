@@ -4,13 +4,11 @@ import {
   MAX_NAME_LENGTH,
   MAX_TEMPLATE_SOURCE_BYTES,
   millis,
-  parseInteger,
   parseTemplateRecipe,
   parseWholeNumber,
   type TemplateRecipe,
 } from '@caelestis/shared'
-import { Hono } from 'hono'
-import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
+import { type Context, Hono } from 'hono'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import type { TemplateAuthoringInput } from '../templates/store.js'
@@ -46,10 +44,23 @@ const authoringParts = async (
   return { authoring: { source: new Uint8Array(await source.arrayBuffer()), recipe: parsed } }
 }
 
-export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions) => {
-  const routes = new Hono()
+/** The multipart form both upload routes take: a `png` file part and optional authoring parts. */
+const readTemplateUpload = async (c: Context) => {
+  if (!c.req.header('content-type')?.toLowerCase().startsWith('multipart/form-data'))
+    return { error: 'content-type must be multipart/form-data' }
+  const body = await c.req.parseBody().catch(() => null)
+  if (body === null) return { error: 'invalid multipart body' }
+  const { png, source, recipe } = body
+  if (!(png instanceof File)) return { error: 'png must be a file part' }
+  const parts = await authoringParts(source, recipe)
+  if ('error' in parts) return parts
+  return { body, png: new Uint8Array(await png.arrayBuffer()), ...parts }
+}
 
-  routes.use('/*', requireScopeEffect(runtime, auth, 'admin'))
+const INVALID_ID = 'id must be a canonical lowercase UUIDv7'
+
+export const createTemplateRoutes = (runtime: BackendRuntime) => {
+  const routes = new Hono()
 
   routes.delete('/:templateId/alarms/:alarmId', async (c) => {
     const templateId = c.req.param('templateId')
@@ -63,80 +74,36 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
   })
 
   routes.post('/', async (c) => {
-    if (!c.req.header('content-type')?.toLowerCase().startsWith('multipart/form-data')) {
-      return c.json({ error: 'content-type must be multipart/form-data' }, 400)
-    }
-
-    const body = await c.req.parseBody().catch(() => null)
-    if (body === null) return c.json({ error: 'invalid multipart body' }, 400)
-
-    const {
-      png,
-      nodeId: rawNodeId,
-      season: rawSeason,
-      name,
-      originX,
-      originY,
-      surfaceKind,
-      allianceId,
-      source,
-      recipe,
-    } = body
-    if (!(png instanceof File)) return c.json({ error: 'png must be a file part' }, 400)
-    const parts = await authoringParts(source, recipe)
-    if ('error' in parts) return c.json({ error: parts.error }, 400)
-    const nodeId = rawNodeId === undefined ? null : rawNodeId
+    const upload = await readTemplateUpload(c)
+    if ('error' in upload) return c.json({ error: upload.error }, 400)
+    const { body, png, ...parts } = upload
+    const nodeId = body.nodeId ?? null
     if (nodeId !== null && !isUuidV7(nodeId)) {
       return c.json({ error: 'nodeId must be a canonical lowercase UUIDv7 or omitted' }, 400)
     }
-    const season = rawSeason === undefined ? undefined : parseWholeNumber(rawSeason)
-    if (season === null || (season === undefined && nodeId === null)) {
-      return c.json({ error: 'season must be a non-negative integer for a root template' }, 400)
-    }
-    if (typeof name !== 'string' || !isValidName(name)) {
+    if (typeof body.name !== 'string' || !isValidName(body.name)) {
       return c.json({ error: 'name must be 1..256 characters' }, 400)
     }
-
-    const surface = parseSurface(surfaceKind, allianceId)
+    const surface = parseSurface(body.surfaceKind, body.allianceId)
     if (surface === null) {
       return c.json(
         { error: 'surfaceKind must be world or an alliance surface with a positive allianceId' },
         400,
       )
     }
-    const parsedOriginX =
-      surface.kind === 'world' ? parseWholeNumber(originX) : parseInteger(originX)
-    const parsedOriginY =
-      surface.kind === 'world' ? parseWholeNumber(originY) : parseInteger(originY)
-    if (parsedOriginX === null || parsedOriginY === null) {
-      return c.json(
-        {
-          error:
-            surface.kind === 'world'
-              ? 'originX and originY must be non-negative integers'
-              : 'originX and originY must be integers',
-        },
-        400,
-      )
-    }
-
-    const caller = c.get('caller')
     return runBackendHttp(
       c,
       runtime,
       createTemplate({
         surface,
-        ...(season === undefined ? {} : { season }),
+        season: body.season,
         nodeId,
-        name,
-        // Always a digest, bootstrap included — `templates_created_with_token_check` requires 64 hex
-        // characters, so the old `'bootstrap'` literal could not have been stored.
-        createdWithToken: caller.tokenHash,
-        // No wplace session on this route: an admin uploads with a token and nothing else. The
-        // column is nullable precisely so authorship does not have to invent an account.
-        originX: parsedOriginX,
-        originY: parsedOriginY,
-        png: new Uint8Array(await png.arrayBuffer()),
+        name: body.name,
+        // Always a digest, bootstrap included: `templates_created_with_token_check` requires one.
+        createdWithToken: c.get('caller').tokenHash,
+        originX: body.originX,
+        originY: body.originY,
+        png,
         ...parts,
       }),
       (result) => c.json(result, 201),
@@ -147,39 +114,24 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
    * Replace a template's pixels, keeping its identity.
    *
    * A separate route from `POST /` rather than a flag on it, because the two take different inputs:
-   * a new template needs somewhere to live and something to be called, and a new version needs
-   * neither — it inherits both from the template it belongs to. Folding them together would mean a
-   * `nodeId` that is required on one path and ignored on the other.
-   *
-   * Origin is per version on purpose: moving a template on the canvas is a new slicing, so it is a
-   * new version rather than an edit.
+   * a new template needs somewhere to live and something to be called, and a new version inherits
+   * both from the template it belongs to.
    */
   routes.post('/:id/versions', async (c) => {
     const templateId = c.req.param('id')
-    if (!isUuidV7(templateId)) {
-      return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
-    }
-    if (!c.req.header('content-type')?.toLowerCase().startsWith('multipart/form-data')) {
-      return c.json({ error: 'content-type must be multipart/form-data' }, 400)
-    }
-
-    const body = await c.req.parseBody().catch(() => null)
-    if (body === null) return c.json({ error: 'invalid multipart body' }, 400)
-
-    const { png, originX, originY, source, recipe } = body
-    if (!(png instanceof File)) return c.json({ error: 'png must be a file part' }, 400)
-    const parts = await authoringParts(source, recipe)
-    if ('error' in parts) return c.json({ error: parts.error }, 400)
-    const caller = c.get('caller')
+    if (!isUuidV7(templateId)) return c.json({ error: INVALID_ID }, 400)
+    const upload = await readTemplateUpload(c)
+    if ('error' in upload) return c.json({ error: upload.error }, 400)
+    const { body, png, ...parts } = upload
     return runBackendHttp(
       c,
       runtime,
       replaceTemplateVersion({
         templateId,
-        createdWithToken: caller.tokenHash,
-        originX,
-        originY,
-        png: new Uint8Array(await png.arrayBuffer()),
+        createdWithToken: c.get('caller').tokenHash,
+        originX: body.originX,
+        originY: body.originY,
+        png,
         ...parts,
       }),
       (result) => c.json(result, 201),
@@ -189,15 +141,12 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
   /**
    * Rename, move, publish or unpublish — anything that leaves the pixels alone.
    *
-   * A patch of nothing is rejected rather than treated as a no-op. It is always a mistake on the
-   * caller's side (a typo'd field name, a body that failed to serialise), and answering 200 to it
-   * would report success for a request that changed nothing.
+   * A patch of nothing is rejected rather than treated as a no-op: it is always a mistake on the
+   * caller's side, and answering 200 would report success for a request that changed nothing.
    */
   routes.patch('/:id', async (c) => {
     const templateId = c.req.param('id')
-    if (!isUuidV7(templateId)) {
-      return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
-    }
+    if (!isUuidV7(templateId)) return c.json({ error: INVALID_ID }, 400)
     const body: unknown = await c.req.json().catch(() => null)
     if (typeof body !== 'object' || body === null) return c.json({ error: 'invalid body' }, 400)
     const { name, nodeId, published, timelapseFrozen, finished } = body as {
@@ -214,24 +163,12 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
     if (nodeId !== undefined && nodeId !== null && !isUuidV7(nodeId)) {
       return c.json({ error: 'nodeId must be a canonical lowercase UUIDv7 or null' }, 400)
     }
-    if (published !== undefined && typeof published !== 'boolean') {
-      return c.json({ error: 'published must be a boolean' }, 400)
-    }
-    if (timelapseFrozen !== undefined && typeof timelapseFrozen !== 'boolean') {
-      return c.json({ error: 'timelapseFrozen must be a boolean' }, 400)
-    }
-    if (finished !== undefined && typeof finished !== 'boolean') {
-      return c.json({ error: 'finished must be a boolean' }, 400)
-    }
-    if (finished === true && timelapseFrozen === false) {
-      return c.json({ error: 'a finished template must keep its timelapse frozen' }, 400)
+    for (const [field, value] of Object.entries({ published, timelapseFrozen, finished })) {
+      if (value !== undefined && typeof value !== 'boolean')
+        return c.json({ error: `${field} must be a boolean` }, 400)
     }
     if (
-      name === undefined &&
-      nodeId === undefined &&
-      published === undefined &&
-      timelapseFrozen === undefined &&
-      finished === undefined
+      [name, nodeId, published, timelapseFrozen, finished].every((value) => value === undefined)
     ) {
       return c.json(
         {
@@ -259,13 +196,10 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
 
   routes.delete('/:id', async (c) => {
     const templateId = c.req.param('id')
-    if (!isUuidV7(templateId)) {
-      return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
-    }
-    const expectedVersionQuery = c.req.query('expectedVersion')
-    const expectedUpdatedAtQuery = c.req.query('expectedUpdatedAt')
-    const parsedUpdatedAt = parseWholeNumber(expectedUpdatedAtQuery)
-    if (expectedVersionQuery === undefined && expectedUpdatedAtQuery === undefined) {
+    if (!isUuidV7(templateId)) return c.json({ error: INVALID_ID }, 400)
+    const expectedVersion = c.req.query('expectedVersion')
+    const expectedUpdatedAt = c.req.query('expectedUpdatedAt')
+    if (expectedVersion === undefined && expectedUpdatedAt === undefined) {
       // Released movers cannot identify the revision they copied. Accepting their unguarded cleanup
       // would let a replacement published during that copy be deleted, so fail safely and retain the
       // source until the revision-aware userscript is installed.
@@ -274,45 +208,43 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
         428,
       )
     }
-    if (!isUuidV7(expectedVersionQuery) || parsedUpdatedAt === null) {
+    const updatedAt = parseWholeNumber(expectedUpdatedAt)
+    if (!isUuidV7(expectedVersion) || updatedAt === null) {
       return c.json(
         { error: 'expectedVersion and expectedUpdatedAt must identify the confirmed revision' },
         400,
       )
     }
-    const expected = {
-      versionId: expectedVersionQuery as string,
-      updatedAt: millis(parsedUpdatedAt),
-    }
-    return runBackendHttp(c, runtime, deleteTemplate(templateId, expected), () => c.body(null, 204))
+    return runBackendHttp(
+      c,
+      runtime,
+      deleteTemplate(templateId, { versionId: expectedVersion, updatedAt: millis(updatedAt) }),
+      () => c.body(null, 204),
+    )
   })
 
   return routes
 }
 
-const createBlobRoutes = (
+/**
+ * Content-addressed PNGs: template chunks, original template sources (addressed by the
+ * `source.sha256` their recipes name), and mirrored canvas tiles.
+ */
+export const createBlobRoutes = (
   runtime: BackendRuntime,
-  auth: AuthOptions,
   namespace: 'chunks' | 'sources' | 'tiles',
-) => {
-  const routes = new Hono()
-
-  routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
-
-  routes.get('/:hash', async (c) => {
+) =>
+  new Hono().get('/:hash', async (c) => {
     const hash = c.req.param('hash')
     if (!isSha256Hex(hash)) return c.json({ error: `invalid ${namespace} hash` }, 400)
-
     return runBackendHttp(
       c,
       runtime,
-      readBlob(namespace, hash, c.get('caller').scope === 'admin'),
+      readBlob(namespace, hash, c.get('caller').canSeeDrafts),
       (bytes) =>
-        // `private`, because this route is behind a read scope. `public` invites any standards-compliant
-        // shared cache to store the response and hand it to a later request that carries no
-        // Authorization at all — so one authorised fetch would make a blob readable by anyone who knows
-        // its hash. Both namespaces are immutable and content-addressed, so a client may still cache one
-        // forever; what it may not do is cache it on someone else's behalf.
+        // `private`, because this route is behind a read scope: a shared cache must not hand one
+        // authorised fetch to a later request that carries no Authorization. Every namespace is
+        // immutable and content-addressed, so a client may still cache one forever itself.
         c.body(new Uint8Array(bytes), 200, {
           'content-type': 'image/png',
           'cache-control': 'private, max-age=31536000, immutable',
@@ -320,21 +252,9 @@ const createBlobRoutes = (
     )
   })
 
-  return routes
-}
-
-export const createChunkRoutes = (runtime: BackendRuntime, auth: AuthOptions) =>
-  createBlobRoutes(runtime, auth, 'chunks')
-
-/** Original template PNGs, addressed by the `source.sha256` their recipes name. */
-export const createSourceRoutes = (runtime: BackendRuntime, auth: AuthOptions) =>
-  createBlobRoutes(runtime, auth, 'sources')
-
 /** The recipe behind a template version, so a client can export or re-edit its authoring inputs. */
-export const createRecipeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => {
-  const routes = new Hono()
-  routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
-  routes.get('/:versionId', async (c) => {
+export const createRecipeRoutes = (runtime: BackendRuntime) =>
+  new Hono().get('/:versionId', async (c) => {
     const versionId = c.req.param('versionId')
     if (!isUuidV7(versionId)) {
       return c.json({ error: 'versionId must be a canonical lowercase UUIDv7' }, 400)
@@ -342,18 +262,9 @@ export const createRecipeRoutes = (runtime: BackendRuntime, auth: AuthOptions) =
     return runBackendHttp(
       c,
       runtime,
-      readTemplateRecipe(versionId, c.get('caller').scope === 'admin'),
+      readTemplateRecipe(versionId, c.get('caller').canSeeDrafts),
       (result) =>
         // Versions are immutable, so their recipes are too.
         c.json(result, 200, { 'cache-control': 'private, max-age=31536000, immutable' }),
     )
   })
-  return routes
-}
-
-/**
- * Mirrored canvas tiles, served exactly like template chunks: the timelapse endpoint answers with
- * hashes, and this is where a frontend exchanges one for its pixels.
- */
-export const createTileRoutes = (runtime: BackendRuntime, auth: AuthOptions) =>
-  createBlobRoutes(runtime, auth, 'tiles')

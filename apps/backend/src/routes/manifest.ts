@@ -1,6 +1,5 @@
 import { parseWholeNumber, type ServerInfo } from '@caelestis/shared'
 import { Hono } from 'hono'
-import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
 import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
@@ -9,12 +8,9 @@ import { parseSurface } from './params.js'
 
 export const createManifestRoutes = (
   runtime: BackendRuntime,
-  auth: AuthOptions,
   options: { readonly server: ServerInfo; readonly currentSeason: number },
 ) => {
   const routes = new Hono()
-
-  routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
 
   routes.get('/', async (c) => {
     const season =
@@ -43,7 +39,7 @@ export const createManifestRoutes = (
         server: options.server,
         season,
         surface,
-        includeUnpublished: c.get('caller').scope === 'admin',
+        includeUnpublished: c.get('caller').canSeeDrafts,
         ifNoneMatch: candidates,
         // Only the deployed season owns a bounded Durable Object projection. Historical season
         // reads remain authoritative without materializing attacker-selected shards.

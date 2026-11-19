@@ -5,45 +5,29 @@ import {
   MAX_RASTER_BITS,
   MAX_REGION_ITEMS,
   parseWholeNumber,
-  templateSurface,
+  satisfiesScope,
   type WorkMutation,
 } from '@caelestis/shared'
 import { RegionClaimRequest } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
 import { Hono } from 'hono'
-import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
+import { requireScope } from '../auth/middleware.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { deleteRegion, listRegions, putRegion } from '../work/regions.js'
 import { listWork, mutateWork, workHistory } from '../work/use-cases.js'
+import { readBoundedText } from './body.js'
+import { parseSurface } from './params.js'
 
-// Keep the existing document budget plus room for every item's largest packed mask.
-const MAX_REGION_REQUEST_LENGTH =
-  16_384 + MAX_REGION_ITEMS * Math.ceil(Math.ceil(MAX_RASTER_BITS / 8) / 3) * 4
+/** A work or region document without its masks. */
+const MAX_DOCUMENT_BYTES = 16_384
+/** The document budget plus room for every item's largest packed mask. */
+const MAX_REGION_REQUEST_BYTES =
+  MAX_DOCUMENT_BYTES + MAX_REGION_ITEMS * Math.ceil(Math.ceil(MAX_RASTER_BITS / 8) / 3) * 4
 
-/** Bound bytes before buffering or decoding, including requests without Content-Length. */
-const readRegionBody = async (request: Request, limit: number): Promise<string | null> => {
-  if (Number(request.headers.get('content-length')) > limit) return null
-  if (request.body === null) return ''
-  const reader = request.body.getReader()
-  const decoder = new TextDecoder()
-  let length = 0
-  let text = ''
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) return text + decoder.decode()
-      length += value.byteLength
-      if (length > limit) {
-        await reader.cancel()
-        return null
-      }
-      text += decoder.decode(value, { stream: true })
-    }
-  } finally {
-    reader.releaseLock()
-  }
-}
+/** The drawing scope a work request names in its query. */
+const querySurface = (request: { query(name: string): string | undefined }) =>
+  parseSurface(request.query('surface'), request.query('allianceId'))
 
 const parseMutation = (body: unknown): WorkMutation | null => {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null
@@ -72,24 +56,36 @@ const parseMutation = (body: unknown): WorkMutation | null => {
   return null
 }
 
-/** Shared coordination routes. Read-only frontend proxy credentials never authorize mutations. */
-export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => {
+/** Parse a bounded JSON body, or say why it was refused. */
+const readJson = async (
+  request: Request,
+  limit: number,
+  tooLarge: string,
+): Promise<{ readonly body: unknown } | { readonly error: string; readonly status: 400 | 413 }> => {
+  const text = await readBoundedText(request, limit)
+  if (text === null) return { error: tooLarge, status: 413 }
+  try {
+    return { body: JSON.parse(text) }
+  } catch {
+    return { error: 'Invalid JSON', status: 400 }
+  }
+}
+
+/**
+ * Shared coordination routes, under a `read` mount. Read-only frontend proxy credentials never
+ * authorize mutations, which require `report`.
+ */
+export const createWorkRoutes = (runtime: BackendRuntime) => {
   const routes = new Hono()
-  routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
   routes.get('/regions', async (c) => {
     const season = parseWholeNumber(c.req.query('season'))
-    const allianceId = c.req.query('allianceId')
-    const surface = templateSurface(
-      c.req.query('surface') ?? 'world',
-      allianceId === undefined ? null : parseWholeNumber(allianceId),
-    )
+    const surface = querySurface(c.req)
     const templateId = c.req.query('templateId')
     const actorId = c.req.query('painterId')
     if (
       season === null ||
       surface === null ||
       (actorId !== undefined && parseWholeNumber(actorId) === null) ||
-      (allianceId !== undefined && parseWholeNumber(allianceId) === null) ||
       (templateId !== undefined && !isUuidV7(templateId))
     )
       return c.json({ error: 'Invalid drawing scope or template ID' }, 400)
@@ -105,26 +101,17 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
       (snapshot) => c.json(snapshot),
     )
   })
-  routes.put('/regions/:id', requireScopeEffect(runtime, auth, 'report'), async (c) => {
+  routes.put('/regions/:id', requireScope('report'), async (c) => {
     const id = c.req.param('id')
     const season = parseWholeNumber(c.req.query('season'))
-    const allianceId = c.req.query('allianceId')
-    const surface = templateSurface(
-      c.req.query('surface') ?? 'world',
-      allianceId === undefined ? null : parseWholeNumber(allianceId),
-    )
-    if (
-      !isUuidV7(id) ||
-      season === null ||
-      surface === null ||
-      (allianceId !== undefined && parseWholeNumber(allianceId) === null)
-    )
+    const surface = querySurface(c.req)
+    if (!isUuidV7(id) || season === null || surface === null)
       return c.json({ error: 'Invalid region ID or drawing scope' }, 400)
-    const text = await readRegionBody(c.req.raw, MAX_REGION_REQUEST_LENGTH)
-    if (text === null) return c.json({ error: 'Region request is too large' }, 413)
+    const read = await readJson(c.req.raw, MAX_REGION_REQUEST_BYTES, 'Region request is too large')
+    if ('error' in read) return c.json({ error: read.error }, read.status)
     let request: Schema.Schema.Type<typeof RegionClaimRequest>
     try {
-      request = Schema.decodeUnknownSync(RegionClaimRequest)(JSON.parse(text))
+      request = Schema.decodeUnknownSync(RegionClaimRequest)(read.body)
     } catch {
       return c.json({ error: 'Invalid region request' }, 400)
     }
@@ -135,17 +122,12 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
       (region) => c.json(region),
     )
   })
-  routes.delete('/regions/:id', requireScopeEffect(runtime, auth, 'report'), async (c) => {
+  routes.delete('/regions/:id', requireScope('report'), async (c) => {
     const id = c.req.param('id')
     if (!isUuidV7(id)) return c.json({ error: 'Invalid region ID' }, 400)
-    const text = await readRegionBody(c.req.raw, 16_384)
-    if (text === null) return c.json({ error: 'Region request is too large' }, 413)
-    let body: unknown
-    try {
-      body = JSON.parse(text)
-    } catch {
-      return c.json({ error: 'Invalid JSON' }, 400)
-    }
+    const read = await readJson(c.req.raw, MAX_DOCUMENT_BYTES, 'Region request is too large')
+    if ('error' in read) return c.json({ error: read.error }, read.status)
+    const { body } = read
     if (
       typeof body !== 'object' ||
       body === null ||
@@ -170,23 +152,20 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
   })
   routes.get('/', async (c) => {
     const season = parseWholeNumber(c.req.query('season'))
-    const surface = templateSurface(
-      c.req.query('surface') ?? 'world',
-      parseWholeNumber(c.req.query('allianceId')),
-    )
+    const surface = querySurface(c.req)
     if (season === null || surface === null) return c.json({ error: 'Invalid drawing scope' }, 400)
-    const scope = c.get('caller').scope
+    const caller = c.get('caller')
     const after = c.req.query('after') ?? ''
     if (after !== '' && !isUuidV7(after)) return c.json({ error: 'Invalid work cursor' }, 400)
     return runBackendHttp(
       c,
       runtime,
-      listWork(season, surface, after, scope === 'admin'),
+      listWork(season, surface, after, caller.canSeeDrafts),
       ({ items, nextCursor }) =>
         c.json({
           items,
-          canPlan: scope === 'admin',
-          canClaim: scope !== 'read',
+          canPlan: satisfiesScope(caller.scope, 'admin'),
+          canClaim: satisfiesScope(caller.scope, 'report'),
           nextCursor,
         }),
     )
@@ -201,29 +180,19 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
     return runBackendHttp(
       c,
       runtime,
-      workHistory(id, before, c.get('caller').scope === 'admin'),
+      workHistory(id, before, c.get('caller').canSeeDrafts),
       (activity) => c.json(activity),
     )
   })
-  routes.put('/:id', requireScopeEffect(runtime, auth, 'report'), async (c) => {
+  routes.put('/:id', requireScope('report'), async (c) => {
     const id = c.req.param('id')
     const season = parseWholeNumber(c.req.query('season'))
-    const surface = templateSurface(
-      c.req.query('surface') ?? 'world',
-      parseWholeNumber(c.req.query('allianceId')),
-    )
+    const surface = querySurface(c.req)
     if (!isUuidV7(id) || season === null || surface === null)
       return c.json({ error: 'Invalid work ID or drawing scope' }, 400)
-    // Bound text before parsing so an authenticated client cannot submit an unbounded document.
-    const body = await c.req.text()
-    if (body.length > 16_384) return c.json({ error: 'Work request is too large' }, 413)
-    let decoded: unknown
-    try {
-      decoded = JSON.parse(body)
-    } catch {
-      return c.json({ error: 'Invalid JSON' }, 400)
-    }
-    const mutation = parseMutation(decoded)
+    const read = await readJson(c.req.raw, MAX_DOCUMENT_BYTES, 'Work request is too large')
+    if ('error' in read) return c.json({ error: read.error }, read.status)
+    const mutation = parseMutation(read.body)
     if (mutation === null) return c.json({ error: 'Invalid work action, identity, or fields' }, 400)
     return runBackendHttp(
       c,

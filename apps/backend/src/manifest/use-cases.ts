@@ -1,8 +1,8 @@
 import type { Manifest, ServerInfo, TemplateSurface } from '@caelestis/shared'
 import { Effect } from 'effect'
-import { resolveServerInfoEffect } from '../routes/server.js'
 import { type SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
+import { resolveServerInfo } from '../server/use-cases.js'
 import { assembleManifestEffect } from './assemble.js'
 import type { ManifestProjectionRead } from './read-model.js'
 
@@ -16,9 +16,9 @@ export interface ReadManifestInput {
 /** Resolve mutable server metadata and assemble the matching visibility-scoped manifest. */
 export const readManifest = (
   input: ReadManifestInput,
-): Effect.Effect<Manifest, StorageError | StorageError, SqlStoreService> =>
+): Effect.Effect<Manifest, StorageError, SqlStoreService> =>
   Effect.gen(function* () {
-    const server = yield* resolveServerInfoEffect(input.server)
+    const server = yield* resolveServerInfo(input.server)
     return yield* assembleManifestEffect({
       server,
       season: input.season,
@@ -32,11 +32,7 @@ export const readManifestProjection = (
     readonly ifNoneMatch: readonly string[]
     readonly cacheable: boolean
   },
-): Effect.Effect<
-  ManifestProjectionRead,
-  StorageError | StorageError,
-  SqlStoreService | StatusReadModelService
-> =>
+): Effect.Effect<ManifestProjectionRead, StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     const readModel = yield* StatusReadModelService
     const cachedRead = readModel.readManifestProjection?.bind(readModel)

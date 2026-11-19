@@ -1,25 +1,24 @@
 import type { Scope, ServerInfo } from '@caelestis/shared'
 import { isUuidV7, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from '@caelestis/shared'
-import { Effect, Context as Services } from 'effect'
+import { Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { ArchiveHost } from './archive/port.js'
+import { requireScopeEffect } from './auth/middleware.js'
 import type { BackfillClients } from './backfill/port.js'
 import type { ConnectPresence, PresenceOnline } from './presence/port.js'
-import { createArchiveAdminRoutes } from './routes/archive.js'
-import { createArchiveRoutes, createBackfillAdminRoutes } from './routes/backfill.js'
+import { archiveHold, createArchiveAdminRoutes } from './routes/archive.js'
+import { createBackfillAdminRoutes, createCanvasHistoryRoutes } from './routes/backfill.js'
 import { createManifestRoutes } from './routes/manifest.js'
 import { createNodeRoutes } from './routes/nodes.js'
-import { createServerAdminRoutes, createServerRoutes } from './routes/server.js'
+import {
+  createServerAdminRoutes,
+  createServerAssetRoutes,
+  createServerRoutes,
+} from './routes/server.js'
 import { createTagRoutes } from './routes/tags.js'
 import { createTelemetryRoutes } from './routes/telemetry.js'
-import {
-  createChunkRoutes,
-  createRecipeRoutes,
-  createSourceRoutes,
-  createTemplateRoutes,
-  createTileRoutes,
-} from './routes/templates.js'
+import { createBlobRoutes, createRecipeRoutes, createTemplateRoutes } from './routes/templates.js'
 import { createTokenRoutes } from './routes/tokens.js'
 import { createWorkRoutes } from './routes/work.js'
 import {
@@ -28,7 +27,7 @@ import {
   SqlStoreService,
   StatusReadModelService,
 } from './runtime/backend-runtime.js'
-import { runBackendHttp } from './runtime/hono.js'
+import { errorResponse } from './runtime/hono.js'
 
 /**
  * The Hono app, deliberately free of any runtime binding.
@@ -80,12 +79,13 @@ export interface AppOptions {
 
 export const createApp = (context: BackendContext, options: AppOptions = {}) => {
   const app = new Hono()
-  const v1Routes = new Hono()
   const runtime = createBackendRuntime(context)
   const auth = {
     bootstrapAdminToken: options.bootstrapAdminToken,
     openAccess: options.openAccess,
   }
+  const bootstrapConfigured =
+    options.bootstrapAdminToken !== undefined && options.bootstrapAdminToken.length > 0
   // `??` guards `undefined` and nothing else, and every one of these is a wrangler.toml var an
   // operator edits by hand. A non-UUIDv7 id, an empty name or an empty description all passed
   // through and then failed the wire schema — so the deployment's own manifest became undecodable
@@ -147,47 +147,63 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
   // rather than a promise to be kept.
   app.use('/*', cors({ origin: '*', exposeHeaders: ['ETag'], maxAge: 86_400 }))
 
-  // While an archive operation holds the server, only health, identity, and the archive routes
-  // answer. An export keeps the dataset still; a restore keeps a partial dataset out of sight.
-  const sql = Services.get(context, SqlStoreService)
-  app.use('/*', async (c, next) => {
-    const path = c.req.path.replace(/^\/v1(?=\/)/, '')
-    if (path === '/health' || path === '/server' || path.startsWith('/admin/archive')) return next()
-    if (!(await sql.archiveOperationActive())) return next()
-    c.header('retry-after', '60')
-    return c.json({ error: 'This server is being archived or restored. Try again later.' }, 503)
-  })
+  app.onError((error, c) => errorResponse(c, error))
+  app.get('/health', (c) => c.json({ ok: true }))
 
-  app.get('/health', (c) =>
-    runBackendHttp(c, runtime, Effect.succeed({ ok: true }), (health) => c.json(health)),
-  )
-  v1Routes.route('/server', createServerRoutes(runtime, server))
-  v1Routes.route('/admin/server', createServerAdminRoutes(runtime, auth, currentSeason))
-  v1Routes.route('/manifest', createManifestRoutes(runtime, auth, { server, currentSeason }))
+  const admin = requireScopeEffect(runtime, auth, 'admin')
+  const read = requireScopeEffect(runtime, auth, 'read')
+  // Restored manifests replace whatever was cached while the server was empty; live clients
+  // reconnect into the restored revisions, which continue from the source's.
+  const host = options.archive
+  const archiveHost: ArchiveHost | undefined =
+    host === undefined
+      ? undefined
+      : {
+          ...host,
+          activated: async () => {
+            await host.activated()
+            await Services.get(context, StatusReadModelService).notifyManifestChange?.(
+              currentSeason,
+            )
+          },
+        }
 
-  v1Routes.route(
-    '/admin/archive',
-    // Manifests cached while the server was empty are dropped; live clients reconnect into the
-    // restored revisions, which continue from the source's.
-    createArchiveAdminRoutes(runtime, auth, options.archive, async () => {
-      await Services.get(context, StatusReadModelService).notifyManifestChange?.(currentSeason)
-    }),
-  )
-  v1Routes.route('/admin/tokens', createTokenRoutes(runtime, auth, currentSeason))
-  v1Routes.route(
-    '/admin/backfill',
-    createBackfillAdminRoutes(runtime, auth, options.backfillClients),
-  )
-  v1Routes.route('/archive', createArchiveRoutes(runtime, auth, options.backfillClients))
-  v1Routes.route('/work', createWorkRoutes(runtime, auth))
-  v1Routes.route('/admin/nodes', createNodeRoutes(runtime, auth))
-  v1Routes.route('/admin/templates', createTemplateRoutes(runtime, auth))
-  v1Routes.route('/admin/tags', createTagRoutes(runtime, auth, currentSeason))
-  v1Routes.route('/chunks', createChunkRoutes(runtime, auth))
-  v1Routes.route('/sources', createSourceRoutes(runtime, auth))
-  v1Routes.route('/recipes', createRecipeRoutes(runtime, auth))
-  v1Routes.route('/tiles', createTileRoutes(runtime, auth))
-  v1Routes.route(
+  // Answers while an archive operation holds the server: identity, and the archive itself.
+  const open = new Hono()
+  open.route('/server', createServerRoutes(runtime, server))
+  open.use('/admin/archive/*', admin)
+  open.route('/admin/archive', createArchiveAdminRoutes(archiveHost))
+
+  // Everything else waits out an archive operation. Scope is declared per mount; a route that
+  // needs more than its mount, such as a `report` write under `read`, says so itself.
+  const gated = new Hono()
+  gated.use('/*', archiveHold(Services.get(context, SqlStoreService)))
+  gated.use('/admin/*', admin)
+  for (const mount of [
+    '/manifest',
+    '/work',
+    '/archive',
+    '/chunks',
+    '/sources',
+    '/recipes',
+    '/tiles',
+  ])
+    gated.use(`${mount}/*`, read)
+  gated.route('/server/assets', createServerAssetRoutes(runtime))
+  gated.route('/admin/server', createServerAdminRoutes(runtime, currentSeason))
+  gated.route('/admin/tokens', createTokenRoutes(runtime, { currentSeason, bootstrapConfigured }))
+  gated.route('/admin/backfill', createBackfillAdminRoutes(options.backfillClients))
+  gated.route('/admin/nodes', createNodeRoutes(runtime))
+  gated.route('/admin/templates', createTemplateRoutes(runtime))
+  gated.route('/admin/tags', createTagRoutes(runtime, currentSeason))
+  gated.route('/manifest', createManifestRoutes(runtime, { server, currentSeason }))
+  gated.route('/archive', createCanvasHistoryRoutes(runtime, options.backfillClients))
+  gated.route('/work', createWorkRoutes(runtime))
+  gated.route('/chunks', createBlobRoutes(runtime, 'chunks'))
+  gated.route('/sources', createBlobRoutes(runtime, 'sources'))
+  gated.route('/tiles', createBlobRoutes(runtime, 'tiles'))
+  gated.route('/recipes', createRecipeRoutes(runtime))
+  gated.route(
     '/telemetry',
     createTelemetryRoutes(runtime, auth, {
       currentSeason,
@@ -202,10 +218,13 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
     }),
   )
 
-  // Both mounts share these exact route objects. Compatibility aliases can therefore preserve old
-  // clients without gaining handlers or contracts that differ from the versioned API.
-  app.route('/v1', v1Routes)
-  app.route('/', v1Routes)
+  // Both mounts share these exact route objects, so compatibility aliases cannot gain handlers or
+  // contracts that differ from the versioned API. `open` mounts first: Hono runs handlers in
+  // registration order, so its routes answer before `gated`'s hold can see them.
+  for (const prefix of ['/v1', '/']) {
+    app.route(prefix, open)
+    app.route(prefix, gated)
+  }
 
   return app
 }
