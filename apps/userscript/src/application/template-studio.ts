@@ -13,8 +13,9 @@ import {
   WORLD_PIXELS,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
+import type { CaelestisElement } from '@caelestis/ui/elements'
+import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import type {
-  CaelestisElement,
   EffectLayer,
   Samples,
   ScopeStage,
@@ -22,8 +23,7 @@ import type {
   StudioRect,
   TemplateStudioIntent,
   TemplateStudioModel,
-} from '@caelestis/ui/elements'
-import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
+} from '@caelestis/ui/studio'
 import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
 import {
   activeAllianceEditorStage,

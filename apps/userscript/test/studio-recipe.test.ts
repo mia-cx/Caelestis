@@ -1,6 +1,6 @@
 import scalarWasm from 'ditherette:scalar-wasm'
 import { PALETTE_RGB } from '@caelestis/shared'
-import { ALPHA_MODES, COLOR_SPACES, DITHER_ALGORITHMS, RESIZE_MODES } from '@caelestis/ui/elements'
+import { ALPHA_MODES, COLOR_SPACES, DITHER_ALGORITHMS, RESIZE_MODES } from '@caelestis/ui/studio'
 import { createDitherette, type PaletteEntry } from 'ditherette'
 import { describe, expect, it } from 'vitest'
 import {

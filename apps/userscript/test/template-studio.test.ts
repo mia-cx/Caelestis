@@ -1,9 +1,6 @@
 import { WORLD_PIXELS, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import {
-  DEFAULT_STUDIO_LAYOUT,
-  type EffectLayer,
-  registerCaelestisUi,
-} from '@caelestis/ui/elements'
+import { registerCaelestisUi } from '@caelestis/ui/elements'
+import { DEFAULT_STUDIO_LAYOUT, type EffectLayer } from '@caelestis/ui/studio'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // The confirmation dialog is the author's answer; each test gives it.

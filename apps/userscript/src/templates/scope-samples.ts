@@ -1,5 +1,5 @@
 import { type DitheretteTemplateRecipe, PALETTE_RGB, TRANSPARENT_INDEX } from '@caelestis/shared'
-import type { Samples } from '@caelestis/ui/elements'
+import type { Samples } from '@caelestis/ui/studio'
 import type { Rgba8Image } from 'ditherette'
 
 /**
