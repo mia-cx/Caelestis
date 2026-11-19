@@ -1,89 +1,223 @@
 # Store listing
 
-Copy for the Chrome Web Store, Microsoft Edge Add-ons, and addons.mozilla.org (AMO).
-Paste each text block directly into its store field.
+The listing fields for the Chrome Web Store, Microsoft Edge Add-ons, and addons.mozilla.org (AMO), with one shared copy block for each field.
+Paste each block into the store field it names.
+The stores show the listing in US English, so the copy uses American spelling.
 
-## Name
+Field names and limits come from each store's documentation, checked on 17 November 2026:
 
-Caelestis
+- Chrome: [Store listing](https://developer.chrome.com/docs/webstore/cws-dashboard-listing), [Privacy practices](https://developer.chrome.com/docs/webstore/cws-dashboard-privacy), [Images](https://developer.chrome.com/docs/webstore/images), [Best listing practices](https://developer.chrome.com/docs/webstore/best-listing)
+- Edge: [Publish a Microsoft Edge extension](https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension)
+- AMO: [Create an appealing listing](https://extensionworkshop.com/documentation/develop/create-an-appealing-listing/) and the limits in the [addons-server source](https://github.com/mozilla/addons-server/blob/master/src/olympia/addons/models.py)
 
-## Summary
+## Text
 
-Chrome allows 132 characters, AMO 250.
+### Name
+
+| Store | Field | Limit | Source |
+| --- | --- | --- | --- |
+| Chrome | Title | Not stated | Manifest `name` |
+| Edge | Extension name | Not stated | Manifest `name`, read-only in Partner Center |
+| AMO | Name | 50 characters | Manifest `name`, editable on AMO |
 
 ```text
-Image templates and painting tools for Wplace. Place artwork on the map, find unfinished pixels, and paint with a group.
+Caelestis
 ```
 
-## Description
+### Summary
+
+| Store | Field | Limit | Source |
+| --- | --- | --- | --- |
+| Chrome | Summary | 132 characters, plain text | Manifest `description` |
+| Edge | Short description | Not stated | Manifest `description`, read-only in Partner Center |
+| AMO | Summary | 250 characters, no links | Manifest `description`, editable on AMO |
+
+Chrome shows the summary in search results and on category pages.
+The 122-character copy below is the manifest `description` in `apps/userscript/build.mjs`.
 
 ```text
-Caelestis adds image templates and painting tools to Wplace (wplace.live).
+Template overlay for Wplace. Place your pixel art on the map, find the pixels left to paint, and paint with your alliance.
+```
 
-Place your artwork on the map and find the pixels that still need painting. Adjust the overlay's appearance. Local templates work without an account or server.
+### Description
+
+| Store | Field | Limit |
+| --- | --- | --- |
+| Chrome | Detailed description | Not stated. Plain text, shown under the screenshots |
+| Edge | Description | 250 to 10,000 characters |
+| AMO | Description | 15,000 characters. Renders limited Markdown, so the `-` lines become a list |
+
+```text
+Caelestis puts your pixel art on the Wplace map as a template, so you can see which pixels still need painting and which color goes where. It works on its own, with no account or server. Connect to your alliance's Caelestis server to share templates and track progress together.
 
 Templates
-Import PNG images, Blue Marble exports, or native .wplace files. Organize templates with folders, tags, search, and filters. Caelestis also reads your Wplace personal and alliance templates. Local artwork stays in your browser.
+- Import PNG images, Blue Marble exports, or .wplace files.
+- Turn any image into Wplace colors in the template studio. Crop and scale it, adjust levels and curves, pick a dithering pattern, and limit it to the colors you own.
+- Organize templates with folders, tags, search, and filters.
+- Caelestis also reads your Wplace personal and alliance templates.
+- Your local artwork stays in your browser.
 
 Painting
-Choose full, corner, or small overlay pixels. Adjust their size, rounding, opacity, and outlines without changing your artwork. Mark mismatches or work left for the selected color, and jump to unfinished pixels. Press Shift+/ to see the keyboard shortcuts.
+- Choose full, corner, or small overlay pixels, and adjust their size, rounding, opacity, and outlines.
+- Mark mismatched pixels and the work left for the color you have selected.
+- Jump to the next unfinished pixel.
+- Press Shift+/ to see your keyboard shortcuts.
 
-Paint with a group
-Connect to your group's Caelestis server for shared templates and per-color progress. Share the area you're viewing and the pixels you've drafted. Draw claims around areas you plan to paint. Activity reports, tile sharing, and presence each have a separate setting. The web dashboard shows progress, painting pace, contributions, and timelapses.
+Paint with your alliance
+- Share templates and see the progress of each color.
+- See where other painters are working and what they have drafted.
+- Draw claims around the areas you plan to paint.
+- Turn activity reports, tile sharing, and presence on or off separately.
+- The web dashboard shows progress, painting pace, contributions, and timelapses.
 
 Run your own server
-The server's source is public. Run it with Docker or on Cloudflare.
+The server's source is public. Run it with Docker or on Cloudflare:
 https://docs.caelest.is/run-a-server/
 
-If you use the Caelestis userscript, install the extension and reload Wplace. The userscript transfers its settings and server connections to the extension, then steps aside.
+Moving from the userscript
+Install the extension and reload Wplace. The userscript hands its settings and server connections to the extension, then steps aside.
 
-Privacy policy
-https://docs.caelest.is/privacy/
+Caelestis is a community project. Wplace does not make or endorse it.
 
-Source code
-https://github.com/mia-cx/Caelestis
+Privacy policy: https://docs.caelest.is/privacy/
+Source code: https://github.com/mia-cx/Caelestis
 ```
 
-## Links
+### Screenshot captions
 
-- Homepage: https://github.com/mia-cx/Caelestis
-- Support: https://github.com/mia-cx/Caelestis/issues
-- Privacy policy: https://docs.caelest.is/privacy/
+AMO shows a caption under each screenshot. Chrome and Edge show none.
+Upload the screenshots from [`screenshots/`](screenshots/) in this order. Each one is 1280×800.
 
-## Categories
+1. [`1-place-your-art.png`](screenshots/1-place-your-art.png): `Place your pixel art on the map and see which pixels still need painting.`
+2. [`2-colour-work.png`](screenshots/2-colour-work.png): `See how many pixels each color still needs.`
+3. Template studio, not captured yet: `Turn any image into Wplace colors in the template studio.`
+4. [`4-claims.png`](screenshots/4-claims.png): `See where your alliance is painting, and claim the area you'll take.`
+5. [`5-dashboard.png`](screenshots/5-dashboard.png): `Follow progress and timelapses on your server's dashboard.`
 
-- Chrome: Art & Design
-- Edge: Entertainment
-- AMO: Games & Entertainment
+### Search terms
 
-## Chrome privacy practices
+Only Edge has this field. It allows 7 terms of up to 30 characters each, 21 words in total, and never shows them to users.
 
-Single purpose:
+```text
+wplace
+wplace template
+wplace overlay
+pixel art template
+pixel art overlay
+wplace alliance
+wplace.live
+```
+
+AMO tags come from a fixed list of 42, and none of them describe Caelestis, so leave them empty. Chrome has no search terms field.
+
+## Store details
+
+### Category
+
+| Store | Field | Value |
+| --- | --- | --- |
+| Chrome | Category | Art & Design |
+| Edge | Category | Entertainment |
+| AMO | Categories, up to 3 | Games & Entertainment |
+
+### Language
+
+English (United States) on every store.
+
+### Links
+
+| Link | Chrome | Edge | AMO | Value |
+| --- | --- | --- | --- | --- |
+| Homepage | Homepage URL | Website | Homepage | https://docs.caelest.is/ |
+| Support | Support URL | Support contact detail | Support site | https://github.com/mia-cx/Caelestis/issues |
+| Privacy policy | Privacy policy, on the Privacy tab | Privacy Policy URL | Privacy policy text | https://docs.caelest.is/privacy/ |
+
+- AMO also has an optional Support email, of up to 100 characters. Leave it empty.
+- AMO asks for the privacy policy as text, not as a link. Paste the text of `apps/docs/vault/Privacy.md` without its front matter.
+- Chrome's Official URL shows a verified badge for a domain you have verified in Google Search Console. Choose `caelest.is` once it is verified, or leave it empty.
+
+### Mature content
+
+No, on Chrome and Edge.
+
+### Visibility and markets
+
+- Chrome: Public, in all regions.
+- Edge: Public, in all markets.
+- AMO: Listed. Leave "experimental" and "requires payment" off. Turn off Android until Wplace site access is tested on Firefox for Android.
+
+### License
+
+AMO only. Choose a custom license, named `MCX License`, and paste the text of `LICENSE`.
+
+## Privacy
+
+Chrome and Edge ask the same questions on their Privacy tabs.
+
+### Single purpose
 
 ```text
 Adds image templates and painting tools to Wplace (wplace.live).
 ```
 
-Permission justifications:
+### Permission justifications
 
-- storage: `Stores settings and server connections, including access tokens, in extension storage. The Wplace page cannot read this storage.`
-- Host permission for https://wplace.live/*: `Caelestis runs only on Wplace. It draws templates over the map and compares them with tiles Wplace loads.`
+storage:
 
-Remote code: No. All code ships in the package.
+```text
+Stores settings and server connections, including access tokens, in extension storage. The Wplace page cannot read this storage.
+```
 
-Data usage
+Host permission for `https://wplace.live/*`:
 
-All data listed below goes only to servers the user connects to.
+```text
+Caelestis runs only on Wplace. It draws templates over the map and compares them with the tiles Wplace loads.
+```
+
+### Remote code
+
+No. All code ships in the package.
+
+### Data usage
+
+Check these data types. All of them go only to servers the user connects to:
 
 - Personally identifiable information: Wplace user ID and display name.
 - Authentication information: server access tokens.
 - User activity: painted pixels, viewport, and drafts.
 - Website content: Wplace map tiles.
 
-Certify that data is never sold to third parties or used outside the extension's single purpose.
-Also certify that data is never used for creditworthiness or lending.
+Check every certification: the data is not sold to third parties, is not used for purposes unrelated to the single purpose, and is not used to determine creditworthiness or for lending.
 
-## AMO
+On AMO, the manifest declares the same data under `data_collection_permissions`: `authenticationInfo`, `personallyIdentifyingInfo`, `websiteActivity`, and `websiteContent`.
 
-The manifest declares `authenticationInfo`, `personallyIdentifyingInfo`, `websiteActivity`, and `websiteContent` under `data_collection_permissions`.
-The license is MCX License. Paste the custom license from `LICENSE`.
+## Notes for reviewers
+
+Edge calls this field Notes for certification. AMO calls it Notes to reviewers, and only Mozilla sees it.
+
+```text
+Caelestis runs only on https://wplace.live. You can test it without an account or server:
+
+1. Open https://wplace.live.
+2. Click the Caelestis button on the map to open the template panel.
+3. Import any PNG image as a template and place it on the map.
+
+Painting on Wplace needs a Wplace account. Shared templates and progress need a Caelestis server, which anyone can run from the public source.
+
+The source package includes BUILD-EXTENSION.md with the exact build command. The build is reproducible: the same commit builds identical files.
+```
+
+## Images
+
+| Asset | Chrome | Edge | AMO | File |
+| --- | --- | --- | --- | --- |
+| Icon | 128×128 PNG, from the package | Extension logo: 1:1, at least 128×128, 300×300 recommended | From the package, or upload a square PNG | Package icon for Chrome and AMO, `brand/logo/caelestis-512.png` for Edge |
+| Screenshots | 1 to 5, 1280×800 or 640×400 | Up to 6, 1280×800 or 640×480 | Any number, 1280×800 recommended | `screenshots/`, 4 of 5 done |
+| Small promo tile | 440×280, optional | 440×280, optional | None | Needed |
+| Marquee / large promo tile | 1400×560, optional | 1400×560, optional | None | Optional |
+| YouTube video | Optional | Optional | None | Optional |
+
+- Chrome wants square icon artwork at 96×96 inside the 128×128 canvas. It allows the full canvas for shapes that are mostly empty space, and the crescent moon is one of those.
+- Chrome lists items without a small promo tile after items that have one.
+- Promo tiles should show the brand without text, work at half size, and avoid large areas of white or light gray, because Chrome shows them on a light gray background.
+- Screenshots fill the whole frame, with square corners and no padding. Chrome shrinks all of them to 640×400 on the listing.
