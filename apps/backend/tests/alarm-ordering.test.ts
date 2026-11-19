@@ -1,6 +1,7 @@
 import { encodeIndexedPng, millis, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
 import { expect, it } from 'vitest'
-import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { RelationalAlarmStore } from '../src/telemetry/alarms/relational.js'
 import { authorized, createTestBackend } from './support/backend.js'
 
 it.each(['loss-first', 'recovery-first'])(
@@ -10,9 +11,9 @@ it.each(['loss-first', 'recovery-first'])(
     const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
     let delayed = false
     let evaluations = 0
-    class DelayedAlarms extends RelationalSqlStore {
+    class DelayedAlarms extends RelationalAlarmStore {
       override async evaluateTemplateAlarm(
-        ...args: Parameters<RelationalSqlStore['evaluateTemplateAlarm']>
+        ...args: Parameters<RelationalAlarmStore['evaluateTemplateAlarm']>
       ) {
         if (delayed) {
           const index = evaluations++
@@ -25,7 +26,7 @@ it.each(['loss-first', 'recovery-first'])(
     const pending: Promise<Response>[] = []
     try {
       const { app, sql } = await createTestBackend({
-        sql: (connection) => new DelayedAlarms(connection),
+        sql: (connection) => relationalSqlStore(connection, { alarms: DelayedAlarms }),
       })
       const form = new FormData()
       form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))

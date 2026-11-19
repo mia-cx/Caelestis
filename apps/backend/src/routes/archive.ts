@@ -9,8 +9,8 @@ import {
   beginRestore,
   discardRestore,
 } from '../archive/restore.js'
+import type { ArchiveStatus } from '../archive/store.js'
 import { ARCHIVE_NEXT_HEADER } from '../archive/wire.js'
-import type { SqlStore } from '../ports/index.js'
 import { errorResponse } from '../runtime/hono.js'
 import { readBoundedText } from './body.js'
 
@@ -21,7 +21,7 @@ const MAX_RESTORE_BYTES = 64 * 1024 * 1024
  * export keeps the dataset still; a restore keeps a partial dataset out of sight.
  */
 export const archiveHold =
-  (sql: SqlStore): MiddlewareHandler =>
+  (sql: ArchiveStatus): MiddlewareHandler =>
   async (c, next) => {
     if (await sql.archiveOperationActive())
       return errorResponse(c, new ArchiveOperationActiveError())

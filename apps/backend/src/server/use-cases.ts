@@ -1,6 +1,5 @@
 import { type ServerAssetKind, type ServerInfo, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { ServerAssetRecord, ServerSettings, SqlStore } from '../ports/sql-store.js'
 import {
   BlobStoreService,
   PresenceService,
@@ -11,6 +10,7 @@ import { NotFoundError, type StorageError, storage } from '../runtime/errors.js'
 import { mergeServerInfo, serverAssetInfo } from '../server-info.js'
 import { publishManifestChange } from '../status-read-model/port.js'
 import { ingestTimings } from '../telemetry/ingest-timing.js'
+import type { ServerAssetRecord, ServerSettings, ServerSettingsPatch } from './store.js'
 
 const readServerSettings: Effect.Effect<ServerSettings, StorageError, SqlStoreService> = Effect.gen(
   function* () {
@@ -33,7 +33,7 @@ export const resolveServerInfo = (
 
 /** Persist a partial operator override without changing omitted fields, then tell manifest readers. */
 export const writeServerSettings = (
-  settings: Parameters<SqlStore['writeServerSettings']>[0],
+  settings: ServerSettingsPatch,
   season: number,
 ): Effect.Effect<void, StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {

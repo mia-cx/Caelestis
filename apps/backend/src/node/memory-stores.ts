@@ -4,17 +4,19 @@ import { MemoryBlobStore } from '../adapters/memory/memory-blob-store.js'
 import { coordinatorDatabase } from '../adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../adapters/node/coordinator-storage.js'
 import type { SqliteConnection } from '../adapters/node/sqlite-connection.js'
-import { RelationalSqlStore } from '../adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../adapters/relational-sql-store.js'
 import { TelemetryCoordinator } from '../coordination/telemetry.js'
-import type { SqlStore, TemplateTileStatusRecord, TileObservation } from '../ports/sql-store.js'
+import type { SqlStore } from '../ports/sql-store.js'
+import type { TileBlobStore } from '../telemetry/blobs/store.js'
+import type { TemplateTileStatusRecord, TileObservation } from '../telemetry/tiles/store.js'
 import { sqliteConnection } from './database.js'
 
-/** Builds the relational store; a test passes a subclass to inject faults or delays. */
-type SqlFactory = (connection: SqliteConnection) => RelationalSqlStore
+/** Builds the relational stores; a test swaps in a feature subclass to inject faults or delays. */
+type SqlFactory = (connection: SqliteConnection) => SqlStore
 
 /** A private, migrated in-memory SQLite database with the production relational store over it. */
 export const openMemoryDatabase = (
-  store: SqlFactory = (connection) => new RelationalSqlStore(connection),
+  store: SqlFactory = (connection) => relationalSqlStore(connection),
 ) => {
   const connection = sqliteConnection(':memory:')
   connection.migrate(join(import.meta.dirname, '../../migrations'))
@@ -52,7 +54,7 @@ const SEED_RESERVATION_MILLISECONDS = 60_000
  * kept, as an admin reporter's would be.
  */
 export const seedTileObservation = async (
-  sql: SqlStore,
+  sql: TileBlobStore,
   observation: TileObservation,
   statuses: readonly TemplateTileStatusRecord[] = [],
   options: { recordHistory?: boolean; forceCurrent?: boolean } = {},

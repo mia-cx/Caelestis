@@ -9,12 +9,7 @@ import {
   uuidV7,
 } from '@caelestis/shared'
 import { Effect, Result } from 'effect'
-import type {
-  BlobStore,
-  SqlStore,
-  TemplateTileStatusRecord,
-  TileObservation,
-} from '../ports/index.js'
+import type { BlobStore } from '../ports/index.js'
 import {
   BlobStoreService,
   SqlStoreService,
@@ -34,6 +29,8 @@ import {
   resolveCurrentTileOffers,
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
+import type { AlarmStore } from './alarms/store.js'
+import type { TileBlobStore } from './blobs/store.js'
 import { classificationKey, classifyTarget, decodeCanvasBytes } from './classification.js'
 import {
   createDerivedArtifactWriteBatch,
@@ -41,9 +38,11 @@ import {
   type DerivedArtifactWriter,
   derivedArtifactWriter,
 } from './derived-artifact-writer.js'
+import type { HistoryStore } from './history/store.js'
 import { foldTileHistoryThrottled } from './history-fold-throttle.js'
 import { type IngestCommand, type IngestStage, ingestTimings } from './ingest-timing.js'
 import { reserveTileBlob, reserveTileBlobUpload, storeTileBlob } from './tile-blobs.js'
+import type { TemplateTileStatusRecord, TileObservation, TileStore } from './tiles/store.js'
 
 export const MAX_CANVAS_TILE_BYTES = 8 * 1024 * 1024
 /** Ordinary device-clock skew a reporter's observation time may run ahead of the server. */
@@ -53,7 +52,7 @@ const OFFER_TILE_CONCURRENCY = 4
 
 interface IngestStores {
   readonly blobs: BlobStore
-  readonly sql: SqlStore
+  readonly sql: TileBlobStore & TileStore & AlarmStore & HistoryStore
   readonly statusReadModel: StatusReadModelPort
 }
 

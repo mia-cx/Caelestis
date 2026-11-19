@@ -1,6 +1,7 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
 import { ArchiveOperationActiveError, StaleArchiveOperationError } from '../archive/errors.js'
-import type { SqlStore } from '../ports/index.js'
+import type { ArchiveStatus } from '../archive/store.js'
+import { FLUSH_BATCH_LIMIT } from '../db/d1-limits.js'
 import {
   addCounters,
   COUNTER_IDEMPOTENCY_RETENTION_SECONDS,
@@ -8,14 +9,14 @@ import {
   type CounterValues,
   canAccumulateCounters,
   EXPIRES_AFTER_SECONDS,
-  FLUSH_BATCH_LIMIT,
   FLUSHABLE_AFTER_SECONDS,
   isValidCounterDelta,
   MAX_COUNTER_DELTAS_PER_RECORD,
   type PendingCounters,
   RESOLUTION_SECONDS,
-  type TelemetryBucket,
 } from '../ports/index.js'
+import type { HistoryStore } from '../telemetry/history/store.js'
+import type { TelemetryBucket } from '../telemetry/ladder.js'
 import type { AlarmStorage, CoordinatorDatabase } from './database.js'
 
 const INITIAL_FLUSH_RETRY_DELAY_MILLISECONDS = 1_000
@@ -97,7 +98,7 @@ export class TelemetryCoordinator {
   constructor(
     private readonly database: CoordinatorDatabase,
     private readonly alarms: AlarmStorage,
-    private readonly sql: SqlStore,
+    private readonly sql: HistoryStore & ArchiveStatus,
     private readonly clock: () => Millis = () => millis(Date.now()),
   ) {}
 
@@ -535,13 +536,7 @@ export class TelemetryCoordinator {
       // opposite ordering does. Both are wrong; only one of them is wrong in a direction that hides
       // work rather than exaggerating it.
       try {
-        const sql = this.sql
-        await sql.appendBuckets(buckets)
-        const templateIds = buckets.map((bucket) => bucket.templateId)
-        await sql.foldTelemetryBuckets(templateIds, nowSeconds)
-        // Painter buckets are written by the paint route, not flushed from here, but they age on
-        // the same ladder, so the flush that folds a template's buckets folds its painters' too.
-        await sql.foldPainterBuckets(templateIds, nowSeconds)
+        await this.sql.appendAndFold(buckets, nowSeconds)
       } catch (error) {
         // Schedule the retry and return normally rather than rethrowing.
         //

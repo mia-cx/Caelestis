@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { type Millis, millis } from '@caelestis/shared'
 import { durableCoordinatorDatabase } from './adapters/cloudflare/coordinator-database.js'
-import { RelationalSqlStore } from './adapters/relational-sql-store.js'
+import { relationalSqlStore } from './adapters/relational-sql-store.js'
 import { TelemetryCoordinator } from './coordination/telemetry.js'
 import type { CounterDelta } from './ports/index.js'
 
@@ -13,7 +13,7 @@ export class TelemetryShard extends DurableObject<Env> {
     this.coordinator = new TelemetryCoordinator(
       durableCoordinatorDatabase(ctx.storage),
       ctx.storage,
-      new RelationalSqlStore(env.DB),
+      relationalSqlStore(env.DB),
       clock,
     )
     void ctx.blockConcurrencyWhile(() => this.coordinator.initialize())

@@ -70,7 +70,7 @@ const createImporter = async (archive: ArchiveSource) => {
   const { sql } = openMemoryDatabase()
   const blobs = new MemoryBlobStore()
   await blobs.put('chunks', chunkHash, await encodeIndexedPng(1, 1, new Uint8Array([1])))
-  await sql.insertTemplateVersion({
+  await sql.createTemplate({
     templateId,
     versionId,
     surface: WORLD_TEMPLATE_SURFACE,
@@ -206,7 +206,7 @@ describe('template backfill contract', () => {
   it('downloads each tile of a week once, even for jobs larger than the decoded-week budget', async () => {
     const { sql } = openMemoryDatabase()
     // Over 50 tiles once the timelapse frame is added: more decoded weeks than the cache holds.
-    await sql.insertTemplateVersion({
+    await sql.createTemplate({
       templateId,
       versionId,
       surface: WORLD_TEMPLATE_SURFACE,
@@ -346,7 +346,7 @@ describe('folder backfill contract', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       season: 0,
       parentId: null,
-      path: '/murals',
+      slug: 'murals',
       name: 'Murals',
       description: null,
       createdAt: millis(1),
@@ -360,7 +360,7 @@ describe('folder backfill contract', () => {
     for (const { x, colour, suffix } of templates) {
       const hash = suffix.repeat(64)
       await blobs.put('chunks', hash, await encodeIndexedPng(1, 1, new Uint8Array([colour])))
-      await sql.insertTemplateVersion({
+      await sql.createTemplate({
         templateId: `01890f3e-7b2c-7abc-8def-01234567890${suffix}`,
         versionId: `01890f3e-7b2c-7abc-8def-01234567891${suffix}`,
         surface: WORLD_TEMPLATE_SURFACE,

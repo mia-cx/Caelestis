@@ -7,15 +7,7 @@ import {
   TRANSPARENT_INDEX,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
-import {
-  type BlobStore,
-  type ContributionDelta,
-  type CounterDelta,
-  type CounterStore,
-  type PainterTelemetryBucket,
-  painterBucketResolution,
-  type SqlStore,
-} from '../ports/index.js'
+import type { BlobStore, CounterDelta, CounterStore } from '../ports/index.js'
 import {
   BlobStoreService,
   CounterStoreService,
@@ -24,8 +16,12 @@ import {
 } from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
 import { publishDashboardChange } from '../status-read-model/port.js'
+import type { TileBlobStore } from './blobs/store.js'
 import { readDecodedCanvas, readTargetChunk } from './classification.js'
+import type { ContributionDelta, HistoryStore } from './history/store.js'
 import { ingestTimings } from './ingest-timing.js'
+import { type PainterTelemetryBucket, painterBucketResolution } from './ladder.js'
+import type { TileStore } from './tiles/store.js'
 
 const SECONDS_PER_DAY = 86_400
 
@@ -36,7 +32,11 @@ const dayOf = (timestamp: Seconds): Seconds =>
   seconds(Math.floor(timestamp / SECONDS_PER_DAY) * SECONDS_PER_DAY)
 
 const recordPaintPromise = async (
-  ports: { readonly blobs: BlobStore; readonly sql: SqlStore; readonly counters: CounterStore },
+  ports: {
+    readonly blobs: BlobStore
+    readonly sql: HistoryStore & TileStore & TileBlobStore
+    readonly counters: CounterStore
+  },
   event: PaintEvent,
   reporterTokenHash: string,
   includeUnpublished: boolean,

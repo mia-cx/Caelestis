@@ -3,15 +3,12 @@ import { MAX_EPOCH_SECONDS, MAX_PAINTER_TOTALS } from '@caelestis/wire-schema'
 import { Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
-import {
-  LADDER_RESOLUTIONS,
-  MAX_PAINTER_HISTORY_IDS,
-  MAX_READ_BUCKETS_TEMPLATE_IDS,
-  TILE_HISTORY_RESOLUTIONS,
-} from '../ports/index.js'
+import { MAX_IDS_PER_READ } from '../db/d1-limits.js'
 import { type BackendRuntime, SqlStoreService } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { readMismatchMask } from '../telemetry/classification.js'
+import { MAX_PAINTER_HISTORY_IDS } from '../telemetry/history/store.js'
+import { LADDER_RESOLUTIONS, TILE_HISTORY_RESOLUTIONS } from '../telemetry/ladder.js'
 import { readProgressHistory, readTemplateProgressHistory } from '../telemetry/progress-history.js'
 import {
   readAlarms,
@@ -31,7 +28,7 @@ const MAX_LEADERBOARD_LIMIT = 200
 const DEFAULT_LEADERBOARD_LIMIT = 50
 
 const SEASON_ERROR = 'season must be a non-negative integer'
-const TEMPLATE_IDS_ERROR = `templateIds must be 1..${MAX_READ_BUCKETS_TEMPLATE_IDS} comma-separated ids`
+const TEMPLATE_IDS_ERROR = `templateIds must be 1..${MAX_IDS_PER_READ} comma-separated ids`
 const RANGE_ERROR = 'from and to must be Unix seconds with from < to'
 const MAX_RESOLUTION_ERROR = `maxResolution must be at least ${LADDER_RESOLUTIONS[0]}`
 
@@ -39,7 +36,7 @@ const MAX_RESOLUTION_ERROR = `maxResolution must be at least ${LADDER_RESOLUTION
 const parseTemplateIds = (value: string | undefined): string[] | null => {
   if (value === undefined || value.length === 0) return null
   const ids = value.split(',')
-  if (ids.length > MAX_READ_BUCKETS_TEMPLATE_IDS) return null
+  if (ids.length > MAX_IDS_PER_READ) return null
   return ids.every(isUuidV7) ? ids : null
 }
 

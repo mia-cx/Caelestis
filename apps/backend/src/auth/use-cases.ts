@@ -1,10 +1,10 @@
 import type { Scope } from '@caelestis/shared'
 import { isSha256Hex, millis, parseWholeNumber } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { AccessToken } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import { type StorageError, storage, ValidationError } from '../runtime/errors.js'
 import { closeLiveCredential } from '../status-read-model/port.js'
+import type { AccessToken } from './store.js'
 import { hashToken, mintToken } from './tokens.js'
 
 /** Even 128 control characters per label remain below the userscript's 64 KiB JSON cap. */

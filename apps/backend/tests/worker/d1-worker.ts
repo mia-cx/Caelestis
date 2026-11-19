@@ -1,5 +1,5 @@
 import { millis } from '@caelestis/shared'
-import { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../../src/adapters/relational-sql-store.js'
 import {
   runLeaderboardContract,
   runNodeTemplateContract,
@@ -18,7 +18,7 @@ export default {
         if (statement.trim()) await env.DB.prepare(statement).run()
       return new Response(null, { status: 204 })
     }
-    const sql = new RelationalSqlStore(env.DB)
+    const sql = relationalSqlStore(env.DB)
     const createdAt = millis(100)
     for (const tokenHash of ['b'.repeat(64), 'a'.repeat(64)])
       await sql.insertAccessToken({

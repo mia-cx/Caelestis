@@ -12,7 +12,7 @@ import {
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
-import { MAX_READ_BUCKETS_TEMPLATE_IDS, type SqlStore } from '../ports/index.js'
+import { MAX_IDS_PER_READ } from '../db/d1-limits.js'
 import { presenceRectWithinSurface } from '../presence/geometry.js'
 import { PresenceService, SqlStoreService } from '../runtime/backend-runtime.js'
 import {
@@ -23,19 +23,20 @@ import {
   storage,
   ValidationError,
 } from '../runtime/errors.js'
+import type { TemplateStore } from '../templates/store.js'
 
 /**
  * Clear template hints that name a template the public manifest does not carry. Every reader,
  * presence included, gets this one list, so a hint never says more than the manifest does.
  */
 export const withPublishedHints = async (
-  sql: SqlStore,
+  sql: TemplateStore,
   regions: readonly RegionClaim[],
 ): Promise<readonly RegionClaim[]> => {
   const hinted = [...new Set(regions.flatMap(({ templateId }) => templateId ?? []))]
   const published = new Set<string>()
-  for (let start = 0; start < hinted.length; start += MAX_READ_BUCKETS_TEMPLATE_IDS) {
-    const ids = hinted.slice(start, start + MAX_READ_BUCKETS_TEMPLATE_IDS)
+  for (let start = 0; start < hinted.length; start += MAX_IDS_PER_READ) {
+    const ids = hinted.slice(start, start + MAX_IDS_PER_READ)
     for (const id of await sql.filterPublishedTemplateIds(ids)) published.add(id)
   }
   return regions.map((region) =>

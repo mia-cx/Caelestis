@@ -1,5 +1,5 @@
 import type { ServerAsset, ServerInfo } from '@caelestis/shared'
-import type { ServerAssetRecord, ServerSettings } from './ports/sql-store.js'
+import type { ServerAssetRecord, ServerSettings } from './server/store.js'
 
 /** Public identity of a content-addressed branding object. */
 export const serverAssetInfo = (record: ServerAssetRecord): ServerAsset => ({

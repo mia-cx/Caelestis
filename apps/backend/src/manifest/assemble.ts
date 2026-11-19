@@ -7,9 +7,15 @@ import {
   tileKey,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { SqlStore } from '../ports/index.js'
+import type { NodeStore } from '../nodes/store.js'
 import { SqlStoreService } from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
+import type { TagStore } from '../tags/store.js'
+import type { TemplateStore } from '../templates/store.js'
+import type { WorkStore } from '../work/store.js'
+
+/** The stores a manifest is assembled from. */
+export type ManifestStores = NodeStore & TemplateStore & TagStore & { readonly work: WorkStore }
 
 export interface AssembleManifestOptions {
   readonly server: ServerInfo
@@ -26,7 +32,7 @@ const MAX_MANIFEST_NODES = 100_000
 const MAX_MANIFEST_TEMPLATES = 100_000
 
 const assembleManifestWithSql = async (
-  sql: SqlStore,
+  sql: ManifestStores,
   options: AssembleManifestOptions,
 ): Promise<Manifest> => {
   const surface = options.surface ?? { kind: 'world', allianceId: null }
@@ -218,7 +224,7 @@ const assembleManifestWithSql = async (
 
 /** Compatibility entry point for assembler tests and callers that have not migrated yet. */
 export const assembleManifest = (
-  sql: SqlStore,
+  sql: ManifestStores,
   options: AssembleManifestOptions,
 ): Promise<Manifest> => assembleManifestWithSql(sql, options)
 

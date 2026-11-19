@@ -4,7 +4,7 @@ import { R2ObjectStorage } from '@caelestis/storage/r2'
 import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
 import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-read-model.js'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
-import { RelationalSqlStore } from './adapters/relational-sql-store.js'
+import { relationalSqlStore } from './adapters/relational-sql-store.js'
 import { type App, createApp } from './app.js'
 import { IN_PROCESS_READ } from './auth/middleware.js'
 import { deploymentVersion, instrumentD1, measureRequest } from './metrics/request-metrics.js'
@@ -90,7 +90,7 @@ const appFor = (env: Env): App => {
 
   const context = makeBackendContext(
     new R2BlobStore(env.BLOBS),
-    new RelationalSqlStore(instrumentD1(env.DB)),
+    relationalSqlStore(instrumentD1(env.DB)),
     new DurableObjectCounterStore(env.TELEMETRY),
     statusReadModelFor(env),
     {
@@ -217,7 +217,7 @@ export default {
     }
     const stores = {
       blobs: new R2BlobStore(env.BLOBS),
-      sql: new RelationalSqlStore(instrumentD1(env.DB)),
+      sql: relationalSqlStore(instrumentD1(env.DB)),
       counters: new DurableObjectCounterStore(env.TELEMETRY),
       statusReadModel: statusReadModelFor(env),
     }

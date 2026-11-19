@@ -11,10 +11,10 @@ import {
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
-import type { SqlStore } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import { ForbiddenError, NotFoundError, storage, ValidationError } from '../runtime/errors.js'
 import { publishManifestChange } from '../status-read-model/port.js'
+import type { TemplateStore } from '../templates/store.js'
 
 const invalid = (message: string) => Effect.fail(new ValidationError({ message }))
 
@@ -38,7 +38,7 @@ const activityAction = (action: WorkMutation['action']): WorkAction => {
  * copies template names and links, so an item linking an unpublished or deleted template would
  * still describe it.
  */
-const visibleWork = (sql: SqlStore, season: number, surface: TemplateSurface) =>
+const visibleWork = (sql: TemplateStore, season: number, surface: TemplateSurface) =>
   storage('coordination', async () => {
     const published = new Set(
       (await sql.listManifestTemplates({ season, surface }, false)).map((template) => template.id),

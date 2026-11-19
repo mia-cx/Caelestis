@@ -1,6 +1,6 @@
 import type { Millis, TemplateTag } from '@caelestis/shared'
-import type { TemplateManifestScope } from '../ports/sql-store.js'
 import { PortError } from '../runtime/errors.js'
+import type { TemplateManifestScope } from '../templates/store.js'
 
 export type TagMutation =
   | { readonly type: 'create'; readonly id: string; readonly name: string }
