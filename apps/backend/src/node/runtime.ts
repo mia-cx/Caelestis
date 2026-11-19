@@ -228,7 +228,7 @@ export const openNodeRuntime = async (
         serverId,
         counters,
         statusShard: (season) => shards.get(season).coordinator,
-        connectLive: async (_request, live) =>
+        connectLive: async (live) =>
           (await shards.get(live.season).coordinator.connect(live)).response,
         presenceRoom: (season: number, surface: TemplateSurface) =>
           rooms.get({ season, surface }).coordinator,

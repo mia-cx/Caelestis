@@ -126,7 +126,7 @@ export const putRegion = (
         return yield* Effect.fail(new GoneError({ message: 'Region was deleted' }))
       return yield* Effect.fail(new ForbiddenError())
     }
-    yield* storage('regions', () => live.publishRegions(season, surface))
+    yield* storage('regions', () => live(season, surface).publishRegions())
     return region
   })
 
@@ -156,6 +156,6 @@ export const deleteRegion = (
       ),
     )
     if (!deleted) return yield* Effect.fail(new ForbiddenError())
-    yield* storage('regions', () => live.publishRegions(region.season, region.surface))
+    yield* storage('regions', () => live(region.season, region.surface).publishRegions())
     return { ok: true }
   })

@@ -85,7 +85,7 @@ const afterTemplateChange = (
       // the change it follows.
       const presence = yield* PresenceService
       yield* Effect.promise(() =>
-        presence.publishRegions(template.season, template.surface).catch(console.error),
+        presence(template.season, template.surface).publishRegions().catch(console.error),
       )
     }
     yield* Effect.promise(() =>

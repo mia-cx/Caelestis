@@ -132,7 +132,7 @@ export const createTelemetryLiveRoutes = (
     if (!isServed(c)) return c.json({ error: NOT_SERVED }, 404)
     const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))
     if (surface === null) return c.json({ error: 'invalid drawing surface' }, 400)
-    return c.json({ online: await presence.online(currentSeason, surface) })
+    return c.json({ online: await presence(currentSeason, surface).online() })
   })
 
   routes.get(
@@ -151,19 +151,22 @@ export const createTelemetryLiveRoutes = (
       if (publisherId !== undefined && !isUuidV7(publisherId))
         return c.json({ error: 'publisherId must be a UUID' }, 400)
       const metricClient = metricClientOf(c)
-      return presence.connect(c.req.raw, {
-        season: currentSeason,
-        surface,
-        painter,
-        credentialScope: caller.scope,
-        tokenHash: caller.tokenHash,
-        clientHash,
-        ...(publisherId === undefined ? {} : { publisherId }),
-        anonymous: isAnonymous(caller),
-        revocable: caller.token !== null,
-        metricClient: metricClient.client,
-        metricClientVersion: metricClient.clientVersion,
-      })
+      return presence(currentSeason, surface).connect(
+        {
+          season: currentSeason,
+          surface,
+          painter,
+          credentialScope: caller.scope,
+          tokenHash: caller.tokenHash,
+          clientHash,
+          ...(publisherId === undefined ? {} : { publisherId }),
+          anonymous: isAnonymous(caller),
+          revocable: caller.token !== null,
+          metricClient: metricClient.client,
+          metricClientVersion: metricClient.clientVersion,
+        },
+        c.req.raw,
+      )
     }),
   )
 
@@ -185,20 +188,23 @@ export const createTelemetryLiveRoutes = (
       const clientHash = anonymous ? await clientHashOf(c, caller) : caller.tokenHash
       if (clientHash === null) return c.json({ error: INVALID_CLIENT_ID }, 400)
       const metricClient = metricClientOf(c)
-      return liveSync.connect(c.req.raw, {
-        season: currentSeason,
-        scope,
-        credentialScope: caller.scope,
-        tokenHash: caller.tokenHash,
-        clientHash,
-        anonymous,
-        revocable: caller.token !== null,
-        lastRevision,
-        metricClient: metricClient.client,
-        metricClientVersion: metricClient.clientVersion,
-        protocol,
-        stateVector: c.req.query('stateVector') === '1',
-      })
+      return liveSync.connect(
+        {
+          season: currentSeason,
+          scope,
+          credentialScope: caller.scope,
+          tokenHash: caller.tokenHash,
+          clientHash,
+          anonymous,
+          revocable: caller.token !== null,
+          lastRevision,
+          metricClient: metricClient.client,
+          metricClientVersion: metricClient.clientVersion,
+          protocol,
+          stateVector: c.req.query('stateVector') === '1',
+        },
+        c.req.raw,
+      )
     }),
   )
 

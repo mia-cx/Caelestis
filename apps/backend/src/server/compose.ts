@@ -4,7 +4,7 @@ import { createApp } from '../app.js'
 import type { CounterArchive } from '../archive/port.js'
 import type { LiveSyncPort } from '../live/port.js'
 import type { CounterStore } from '../ports/index.js'
-import type { PresencePort, PresenceRooms } from '../presence/port.js'
+import type { PresenceRooms } from '../presence/port.js'
 import { makeBackendContext } from '../runtime/backend-runtime.js'
 import { CoordinatedStatusReadModel, type StatusShard } from '../status-read-model/shard.js'
 import type { BackfillHandle } from './backfill.js'
@@ -37,16 +37,8 @@ export const composeBackend = (host: HostBindings, config: ServerConfig) => {
   const { counters, presenceRoom, backfill, scheduleAlarms } = host
   const statusReadModel = new CoordinatedStatusReadModel(host.statusShard)
   const stores = { ...host.stores, counters, statusReadModel }
-  const presence: PresencePort = {
-    publishRegions: (season, surface) => presenceRoom(season, surface).publishRegions(),
-    readIngestTimings: async (season, surface, reset) =>
-      presenceRoom(season, surface).readIngestTimings(reset),
-    online: (season, surface) => presenceRoom(season, surface).online(),
-    connect: (request, connection) =>
-      presenceRoom(connection.season, connection.surface).connect(connection, request),
-  }
   const context = makeBackendContext(stores.blobs, stores.sql, counters, statusReadModel, {
-    presence,
+    presence: presenceRoom,
     liveSync: { connect: host.connectLive },
     backfill,
   })
