@@ -31,7 +31,7 @@ Organise artwork with folders, tags and filters. Export the artwork as PNG or ke
 ## Painting
 
 Choose full, corner, or small overlay pixels, then adjust their size, rounding, opacity, and outlines.
-These controls change how the overlay looks. Wplace’s picker reads template colours directly on the map.
+These controls change how the overlay looks. Wplace's picker reads template colours directly on the map.
 
 Mark mismatches or work for the selected colour, and navigate to unfinished pixels.
 Press `Shift+/` for your current keyboard shortcuts.
