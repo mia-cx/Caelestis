@@ -1,4 +1,9 @@
-import { PALETTE_RGB, PALETTE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
+import {
+  KEY_CAPTURE_ATTRIBUTE,
+  PALETTE_RGB,
+  PALETTE_SIZE,
+  TRANSPARENT_INDEX,
+} from '@caelestis/shared'
 import {
   findWplaceLabelled,
   hasWplaceLabel,
@@ -249,11 +254,13 @@ const isActiveControl = (button: Element): boolean =>
 export const activeNativeTool = (tool: NativeTool): HTMLButtonElement | null =>
   nativeToolButtons(tool).find(isActiveControl) ?? null
 
-/** Text fields, where Space types instead of painting. Wplace's paint hold skips the same ones. */
-const TEXT_FIELD =
-  'input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"]), textarea, select, [contenteditable]:not([contenteditable="false"])'
+/**
+ * Text fields, where Space types instead of painting (Wplace's paint hold skips the same ones),
+ * and our settings control while it records a chord.
+ */
+const TEXT_FIELD = `input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [${KEY_CAPTURE_ATTRIBUTE}]`
 
-/** Whether a key event is typing into a text field, which Wplace's paint hold ignores. */
+/** Whether a key event belongs to a text field rather than to shortcuts or painting. */
 export const typingInTextField = (event: Event): boolean =>
   event.composedPath().some((target) => target instanceof Element && target.matches(TEXT_FIELD))
 

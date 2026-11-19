@@ -1,5 +1,4 @@
 import {
-  KEY_CAPTURE_ATTRIBUTE,
   keyBindingFromStroke,
   keyBindingMatches,
   resolveShortcutBindings,
@@ -12,6 +11,7 @@ import {
   shortcutLabel,
 } from '@caelestis/shared'
 import { getState } from './settings.js'
+import { typingInTextField } from './wplace-dom.js'
 
 interface ShortcutPlatformSource {
   readonly platform?: string
@@ -53,50 +53,16 @@ export const shortcutHint = (
 }
 
 /**
- * Whether a keystroke belongs to something else on the page: a text field, or the settings
- * control recording a new chord.
- *
- * Kept DOM-shape based so the shortcut matcher stays testable without constructing a browser
- * document. Real keyboard event targets expose exactly these properties.
- */
-const isTypingTarget = (target: EventTarget | null): boolean => {
-  if (target === null || typeof target !== 'object') return false
-  const element = target as EventTarget & {
-    isContentEditable?: boolean
-    tagName?: unknown
-    getAttribute?: (name: string) => string | null
-  }
-  if (element.isContentEditable === true) return true
-  if (
-    typeof element.getAttribute === 'function' &&
-    element.getAttribute(KEY_CAPTURE_ATTRIBUTE) !== null
-  ) {
-    return true
-  }
-  if (typeof element.tagName !== 'string') return false
-  return (
-    element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.tagName === 'SELECT'
-  )
-}
-
-const isTypingEvent = (
-  event: Pick<KeyboardEvent, 'target'> & Partial<Pick<KeyboardEvent, 'composedPath'>>,
-): boolean =>
-  isTypingTarget(event.target) ||
-  event.composedPath?.().some((target) => isTypingTarget(target)) === true
-
-/**
  * Resolve a non-typing keydown to one of Caelestis's deliberately few shortcuts.
  *
  * Actions are tried in a fixed order and the first match wins, so a chord can never fire two of
  * them even if stored bindings somehow overlap.
  */
 export const shortcutFor = (
-  event: Pick<KeyboardEvent, 'altKey' | 'code' | 'ctrlKey' | 'key' | 'metaKey' | 'target'> &
-    Partial<Pick<KeyboardEvent, 'composedPath' | 'repeat' | 'shiftKey'>>,
+  event: KeyboardEvent,
   platform: ShortcutPlatform,
 ): ShortcutId | null => {
-  if (isTypingEvent(event)) return null
+  if (typingInTextField(event)) return null
   const pressed = keyBindingFromStroke(event, platform)
   if (pressed === null) return null
   const bindings = activeShortcutBindings()

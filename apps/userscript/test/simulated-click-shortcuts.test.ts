@@ -111,3 +111,22 @@ describe('shortcuts that click Wplace controls', () => {
     expect(reloaded.loadState().simulatedInput).toEqual({ 'paint-commit': true })
   })
 })
+
+describe('shortcuts beside form controls', () => {
+  /** B, pressed with focus inside `html`'s first input. */
+  const pressPaintIn = (html: string): string[] => {
+    const clicked = recordClicks(DOCK + html)
+    document
+      .querySelector('input')
+      ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', bubbles: true }))
+    return clicked
+  }
+
+  it('still fire after a settings checkbox took focus', () => {
+    expect(pressPaintIn('<input type="checkbox">')).toEqual(['Paint'])
+  })
+
+  it('stay out of the way while typing in a text field', () => {
+    expect(pressPaintIn('<input type="text">')).toEqual([])
+  })
+})
