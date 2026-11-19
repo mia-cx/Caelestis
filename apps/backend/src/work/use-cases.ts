@@ -1,7 +1,6 @@
 import {
   MAX_TEMPLATE_CLAIMANTS,
   MAX_WORK_ITEMS,
-  sameTemplateSurface,
   type TemplateSurface,
   uuidV7,
   type WorkAction,
@@ -12,7 +11,7 @@ import {
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
-import type { NodeStore } from '../nodes/store.js'
+import { type NodeStore, sameScope } from '../nodes/store.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
   ForbiddenError,
@@ -114,18 +113,13 @@ interface MutationResult {
   readonly item: WorkItem | null
 }
 
-const inScope = (
-  target: WorkTarget,
-  owner: { readonly season: number; readonly surface: TemplateSurface },
-) => owner.season === target.season && sameTemplateSurface(owner.surface, target.surface)
-
 const notFound = Effect.fail(new NotFoundError({ message: 'Work item not found' }))
 
 /** The stored item, refused when it lives in another drawing scope than the request names. */
 const readHeld = (sql: WorkStores, target: WorkTarget) =>
   Effect.gen(function* () {
     const held = yield* storage('coordination', () => sql.work.read(target.id))
-    if (held !== null && !inScope(target, held))
+    if (held !== null && !sameScope(target, held))
       return yield* invalid('Work belongs to a different drawing scope')
     return held
   })
@@ -142,20 +136,20 @@ const checkFields = (
     const { nodeId } = fields
     if (nodeId !== null && nodeId !== held?.nodeId) {
       const node = yield* storage('coordination', () => sql.readNode(nodeId))
-      if (node === null || !inScope(target, node))
+      if (node === null || !sameScope(target, node))
         return yield* invalid('Folder is missing or belongs to a different drawing scope')
     }
     for (const templateId of fields.templateIds) {
       if (held?.templateIds.includes(templateId)) continue
       const template = yield* storage('coordination', () => sql.readTemplate(templateId))
-      if (template === null || !inScope(target, template))
+      if (template === null || !sameScope(target, template))
         return yield* invalid('Linked template is missing or belongs to a different drawing scope')
       if (!template.published)
         return yield* invalid('Publish the template before linking shared work')
     }
     for (const blockerId of fields.blockerIds) {
       const blocker = yield* storage('coordination', () => sql.work.read(blockerId))
-      if (blocker === null || !inScope(target, blocker))
+      if (blocker === null || !sameScope(target, blocker))
         return yield* invalid('Blocker is missing or belongs to a different drawing scope')
     }
   })
@@ -288,7 +282,7 @@ const claimTemplate = (
     const sql = yield* SqlStoreService
     const held = yield* readHeld(sql, target)
     const template = yield* storage('coordination', () => sql.readTemplate(target.id))
-    if (template === null || !template.published || !inScope(target, template))
+    if (template === null || !template.published || !sameScope(target, template))
       return yield* invalid('Publish the template before claiming it')
     if (held !== null && (held.templateIds.length !== 1 || held.templateIds[0] !== target.id))
       return yield* invalid('This work item is not a template claim')

@@ -6,12 +6,12 @@ import {
   type RegionDocument,
   regionDocumentBounds,
   type TemplateSurface,
-  templateSurface,
 } from '@caelestis/shared'
 import { and, asc, eq, getTableColumns, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
 import { changedRows } from '../adapters/relational-database.js'
 import { RelationalStore } from '../adapters/relational-store.js'
 import { templates, workRegionDeletions, workRegions } from '../db/schema.js'
+import { scopeWhere, surfaceOf } from '../db/scope.js'
 import type { RegionOwner, RegionRenewal, RegionStore, RegionWriter } from './region-store.js'
 
 const ownedBy = (writer: RegionWriter) =>
@@ -23,8 +23,7 @@ const ownedBy = (writer: RegionWriter) =>
       )
 
 const fromRow = (row: typeof workRegions.$inferSelect): RegionClaim => {
-  const surface = templateSurface(row.surfaceKind, row.allianceId)
-  if (surface === null) throw new Error('Invalid stored region surface')
+  const surface = surfaceOf(row, `region ${row.id}`)
   const rect = { x: row.x, y: row.y, w: row.w, h: row.h }
   let shape: unknown = null
   if (row.shape !== null) {
@@ -89,11 +88,7 @@ export class RelationalRegionStore extends RelationalStore implements RegionStor
       .from(workRegions)
       .where(
         and(
-          eq(workRegions.season, season),
-          eq(workRegions.surfaceKind, surface.kind),
-          surface.allianceId === null
-            ? isNull(workRegions.allianceId)
-            : eq(workRegions.allianceId, surface.allianceId),
+          scopeWhere(workRegions, season, surface),
           isNotNull(workRegions.tokenHash),
           eq(workRegions.state, 'active'),
         ),
@@ -147,11 +142,7 @@ export class RelationalRegionStore extends RelationalStore implements RegionStor
       .from(workRegions)
       .where(
         and(
-          eq(workRegions.season, season),
-          eq(workRegions.surfaceKind, surface.kind),
-          surface.allianceId === null
-            ? isNull(workRegions.allianceId)
-            : eq(workRegions.allianceId, surface.allianceId),
+          scopeWhere(workRegions, season, surface),
           templateId === undefined
             ? undefined
             : and(eq(workRegions.templateId, templateId), hintPublished),

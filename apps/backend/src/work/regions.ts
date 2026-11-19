@@ -7,11 +7,11 @@ import {
   type RegionClaimRequest,
   regionDocumentBounds,
   regionDocumentPixels,
-  sameTemplateSurface,
   type TemplateSurface,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
+import { sameScope } from '../nodes/store.js'
 import { presenceRectWithinSurface } from '../presence/geometry.js'
 import { PresenceService, SqlStoreService } from '../runtime/backend-runtime.js'
 import {
@@ -79,12 +79,7 @@ export const putRegion = (
     if (typeof templateId === 'string') {
       const template = yield* storage('regions', () => sql.readTemplate(templateId))
       // One message for all three, so the answer never says that a draft exists.
-      if (
-        template === null ||
-        !template.published ||
-        template.season !== season ||
-        !sameTemplateSurface(template.surface, surface)
-      )
+      if (template === null || !template.published || !sameScope(template, { season, surface }))
         return yield* Effect.fail(
           new ValidationError({
             message: 'Template is missing, unpublished, or belongs to another drawing surface',
@@ -116,7 +111,7 @@ export const putRegion = (
         return yield* Effect.fail(new GoneError({ message: 'Region was deleted' }))
       return yield* Effect.fail(new ConflictError({ message: 'Region changed during save' }))
     }
-    if (region.season !== season || !sameTemplateSurface(region.surface, surface))
+    if (!sameScope(region, { season, surface }))
       return yield* Effect.fail(new ConflictError({ message: 'Region is already claimed' }))
     if (!inserted)
       region = yield* storage('regions', () =>

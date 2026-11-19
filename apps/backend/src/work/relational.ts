@@ -5,6 +5,7 @@ import {
   type WorkItem,
 } from '@caelestis/shared'
 import { RelationalStore } from '../adapters/relational-store.js'
+import { scopeBindings, scopeCondition } from '../db/scope.js'
 import type { WorkStore } from './store.js'
 
 /** SQL batches make the compare-and-swap and its activity entry one transaction. */
@@ -20,9 +21,9 @@ export class RelationalWorkStore extends RelationalStore implements WorkStore {
   async list(season: number, surface: TemplateSurface, after = ''): Promise<readonly WorkItem[]> {
     const rows = await this.client
       .prepare(
-        `SELECT data FROM work_items WHERE season = ? AND surface_kind = ? AND alliance_id ${this.syntax.nullEqual} ? AND id > ? ORDER BY id LIMIT ?`,
+        `SELECT data FROM work_items WHERE ${scopeCondition('work_items', this.syntax.nullEqual)} AND id > ? ORDER BY id LIMIT ?`,
       )
-      .bind(season, surface.kind, surface.allianceId, after, MAX_WORK_ITEMS)
+      .bind(...scopeBindings(season, surface), after, MAX_WORK_ITEMS)
       .all<{ data: string }>()
     return rows.results.map((row) => JSON.parse(row.data) as WorkItem)
   }
@@ -30,9 +31,9 @@ export class RelationalWorkStore extends RelationalStore implements WorkStore {
   async revision(season: number, surface: TemplateSurface): Promise<number> {
     const row = await this.client
       .prepare(
-        `SELECT COALESCE(SUM(revision), 0) AS revision FROM work_items WHERE season = ? AND surface_kind = ? AND alliance_id ${this.syntax.nullEqual} ?`,
+        `SELECT COALESCE(SUM(revision), 0) AS revision FROM work_items WHERE ${scopeCondition('work_items', this.syntax.nullEqual)}`,
       )
-      .bind(season, surface.kind, surface.allianceId)
+      .bind(...scopeBindings(season, surface))
       .first<{ revision: number }>()
     return row?.revision ?? 0
   }

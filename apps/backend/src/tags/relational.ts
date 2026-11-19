@@ -8,6 +8,7 @@ import {
 } from '@caelestis/shared'
 import { violates } from '../adapters/constraint-violation.js'
 import { RelationalStore } from '../adapters/relational-store.js'
+import { scopeBindings, scopeCondition } from '../db/scope.js'
 import type { TemplateManifestScope } from '../templates/store.js'
 import { TagConflictError, type TagMutation, type TagStore } from './store.js'
 
@@ -34,9 +35,9 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     const result = await this.client
       .prepare(`SELECT tt.template_id AS "templateId", tags.id, tags.name
       FROM template_tags tt JOIN tags ON tags.id = tt.tag_id JOIN templates t ON t.id = tt.template_id
-      WHERE t.season = ? AND t.surface_kind = ? AND t.alliance_id ${this.syntax.nullEqual} ? AND (? = 1 OR t.published_at IS NOT NULL)
+      WHERE ${scopeCondition('t', this.syntax.nullEqual)} AND (? = 1 OR t.published_at IS NOT NULL)
       ORDER BY tags.id`)
-      .bind(scope.season, scope.surface.kind, scope.surface.allianceId, includeUnpublished ? 1 : 0)
+      .bind(...scopeBindings(scope.season, scope.surface), includeUnpublished ? 1 : 0)
       .all<{ templateId: string; id: string; name: string }>()
     return result.results.map(({ templateId, id, name }) => ({ templateId, tag: { id, name } }))
   }
@@ -53,8 +54,8 @@ export class RelationalTagStore extends RelationalStore implements TagStore {
     const result = await this.client
       .prepare(`SELECT nt.node_id AS "nodeId", tags.id, tags.name
       FROM node_tags nt JOIN tags ON tags.id = nt.tag_id JOIN nodes n ON n.id = nt.node_id
-      WHERE n.season = ? AND n.surface_kind = ? AND n.alliance_id ${this.syntax.nullEqual} ? ORDER BY tags.id`)
-      .bind(scope.season, scope.surface.kind, scope.surface.allianceId)
+      WHERE ${scopeCondition('n', this.syntax.nullEqual)} ORDER BY tags.id`)
+      .bind(...scopeBindings(scope.season, scope.surface))
       .all<{ nodeId: string; id: string; name: string }>()
     return result.results.map(({ nodeId, id, name }) => ({ nodeId, tag: { id, name } }))
   }
