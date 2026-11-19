@@ -1,7 +1,7 @@
 import type { ContributionDay, LeaderboardEntry, Millis, Seconds } from '@caelestis/shared'
 import { MAX_IDS_PER_READ, tooManyIds } from '../../db/d1-limits.js'
 import type { CounterDelta } from '../../ports/counter-store.js'
-import type { PainterTelemetryBucket, TelemetryBucket } from '../ladder.js'
+import type { PainterTelemetryBucket, TelemetryBucket } from './ladder.js'
 
 export interface BucketQuery {
   readonly templateIds: readonly string[]

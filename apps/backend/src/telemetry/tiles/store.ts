@@ -8,7 +8,7 @@ import {
   WORLD_TILES,
 } from '@caelestis/shared'
 import type { ManifestTileRecord } from '../../templates/store.js'
-import { TILE_HISTORY_RESOLUTIONS } from '../ladder.js'
+import { TILE_HISTORY_RESOLUTIONS } from './ladder.js'
 
 /** One current template chunk affected by a canvas tile observation or paint event. */
 export interface TelemetryTarget extends ManifestTileRecord {

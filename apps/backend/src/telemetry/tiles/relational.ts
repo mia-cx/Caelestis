@@ -30,14 +30,14 @@ import {
   tileHistory,
   versionTiles,
 } from '../../db/schema.js'
+import { DECAY_FOLD_GROUP_LIMIT, foldCutoff } from '../decay.js'
+import { commitTileObservation } from './commit.js'
 import {
-  DECAY_FOLD_GROUP_LIMIT,
   foldTileFrames,
   foldTileReporterRows,
   TILE_HISTORY_DECAY_EDGES,
   type TileHistoryReporterRow,
-} from '../ladder.js'
-import { commitTileObservation } from './commit.js'
+} from './ladder.js'
 import {
   assertValidTileHistoryQuery,
   type LatestTileObservation,
@@ -349,7 +349,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
         WHERE history.season = ? AND history.tile_x = ? AND history.tile_y = ?
           AND history.resolution_s = ${edge.source}
         ORDER BY history.bucket_start_s, history.sha256, history.reported_by_user_id`
-      const cutoff = now - edge.retainSeconds
+      const cutoff = foldCutoff(edge, now)
       const selected = await this.client
         .prepare(query)
         .bind(

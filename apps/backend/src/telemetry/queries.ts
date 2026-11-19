@@ -32,38 +32,33 @@ import { type StorageError, storage } from '../runtime/errors.js'
 import type { TemplateStore } from '../templates/store.js'
 import type { TileBlobStore } from './blobs/store.js'
 import { classificationKey, classifyTarget, readDecodedCanvas } from './classification.js'
+import { type DecayEdge, foldCutoff, targetWindowStart } from './decay.js'
 import {
   logArtifactFailure,
   putMismatchArtifact,
   readMismatchArtifact,
 } from './derived-artifacts.js'
-import {
-  type DecayEdge,
-  LADDER_RESOLUTIONS,
-  TELEMETRY_DECAY_EDGES,
-  TILE_HISTORY_DECAY_EDGES,
-  TILE_HISTORY_RESOLUTIONS,
-} from './ladder.js'
+import { LADDER_RESOLUTIONS, TELEMETRY_DECAY_EDGES } from './history/ladder.js'
+import { TILE_HISTORY_DECAY_EDGES, TILE_HISTORY_RESOLUTIONS } from './tiles/ladder.js'
 import type { TileStore } from './tiles/store.js'
 
 interface HistoryTier {
   readonly resolution: number
-  /** How long this tier is retained. Omitted for the final, permanent tier. */
-  readonly retainedFor?: number
+  /** The edge that folds this tier into the next. Omitted for the final, permanent tier. */
+  readonly edge?: DecayEdge
   /** Raw tile observations are irregular; one minute is a conservative density estimate. */
   readonly estimatedStep?: number
 }
 
-/** Each tier is kept for as long as its decay edge waits before folding it into the next. */
 const historyTiers = (
   resolutions: readonly number[],
   edges: readonly DecayEdge[],
 ): readonly HistoryTier[] =>
   resolutions.map((resolution) => {
-    const retainedFor = edges.find((edge) => edge.source === resolution)?.retainSeconds
+    const edge = edges.find((candidate) => candidate.source === resolution)
     return {
       resolution,
-      ...(retainedFor === undefined ? {} : { retainedFor }),
+      ...(edge === undefined ? {} : { edge }),
       ...(resolution === 0 ? { estimatedStep: 60 } : {}),
     }
   })
@@ -87,7 +82,7 @@ const selectHistoryResolution = (
   const permanent = tiers.at(-1)
   if (permanent === undefined) throw new Error('history tier ladder must not be empty')
   const eligible = tiers.filter(
-    (tier) => tier.retainedFor === undefined || range.fromSeconds >= now - tier.retainedFor,
+    (tier) => tier.edge === undefined || range.fromSeconds >= foldCutoff(tier.edge, now),
   )
   const covering = eligible.length === 0 ? [permanent] : eligible
   const width = range.toSeconds - range.fromSeconds
@@ -104,7 +99,6 @@ const nowSeconds = (): Seconds => seconds(Math.floor(Date.now() / 1_000))
 export const selectTileHistoryResolution = (range: HistoryRange): number =>
   selectHistoryResolution(TILE_HISTORY_TIERS, range, nowSeconds())
 
-/** The telemetry tier for a range, never coarser than `maxResolution`. */
 const selectTelemetryResolution = (
   range: HistoryRange,
   maxResolution: number | undefined,
@@ -119,15 +113,12 @@ const selectTelemetryResolution = (
   )
 
 const telemetryCoverageStart = (resolution: number, range: HistoryRange, now: Seconds): Seconds => {
-  const index = TELEMETRY_HISTORY_TIERS.findIndex((tier) => tier.resolution === resolution)
-  const tier = TELEMETRY_HISTORY_TIERS[index]
-  const nextTier = TELEMETRY_HISTORY_TIERS[index + 1]
-  if (tier?.retainedFor === undefined || nextTier === undefined) return range.fromSeconds
+  const edge = TELEMETRY_HISTORY_TIERS.find((tier) => tier.resolution === resolution)?.edge
+  if (edge === undefined) return range.fromSeconds
 
   // Folding waits until a complete target bucket crosses the retention cutoff. The target bucket
   // containing that cutoff is therefore the first interval with guaranteed source-tier coverage.
-  const cutoff = now - tier.retainedFor
-  const retainedStart = Math.floor(cutoff / nextTier.resolution) * nextTier.resolution
+  const retainedStart = targetWindowStart(foldCutoff(edge, now), edge)
   const requestedStart = Math.max(range.fromSeconds, retainedStart)
   return seconds(Math.ceil(requestedStart / resolution) * resolution)
 }

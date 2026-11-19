@@ -19,8 +19,8 @@ import { type StorageError, storage } from '../runtime/errors.js'
 import { bestEffort } from '../status-read-model/port.js'
 import type { TileBlobStore } from './blobs/store.js'
 import { readDecodedCanvas, readTargetChunk } from './classification.js'
+import { type PainterTelemetryBucket, painterBucketResolution } from './history/ladder.js'
 import type { ContributionDelta, HistoryStore } from './history/store.js'
-import { type PainterTelemetryBucket, painterBucketResolution } from './ladder.js'
 import type { TileStore } from './tiles/store.js'
 
 const SECONDS_PER_DAY = 86_400

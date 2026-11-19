@@ -18,16 +18,16 @@ import {
   telemetryBuckets,
   templates,
 } from '../../db/schema.js'
+import { DECAY_FOLD_GROUP_LIMIT, foldCutoff } from '../decay.js'
 import {
   assertValidBuckets,
   assertValidPainterBuckets,
   compareBuckets,
   comparePainterBuckets,
-  DECAY_FOLD_GROUP_LIMIT,
   type PainterTelemetryBucket,
   TELEMETRY_DECAY_EDGES,
   type TelemetryBucket,
-} from '../ladder.js'
+} from './ladder.js'
 import {
   assertValidContributionQuery,
   type BucketQuery,
@@ -284,7 +284,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
             WHERE chosen.template_id = source.template_id
               AND chosen.target_start = CAST(source.bucket_start_s / ${edge.target} AS BIGINT) * ${edge.target}
           )`
-      const cutoff = now - edge.retainSeconds
+      const cutoff = foldCutoff(edge, now)
       const bindings = [...templateIds, cutoff, DECAY_FOLD_GROUP_LIMIT]
       await this.client.batch([
         this.client.prepare(insert).bind(...bindings),

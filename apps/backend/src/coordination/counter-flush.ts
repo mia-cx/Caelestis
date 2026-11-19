@@ -6,8 +6,8 @@ import {
   RESOLUTION_SECONDS,
 } from '../ports/index.js'
 import { serialQueue } from '../runtime/serial-queue.js'
+import type { TelemetryBucket } from '../telemetry/history/ladder.js'
 import type { HistoryStore } from '../telemetry/history/store.js'
-import type { TelemetryBucket } from '../telemetry/ladder.js'
 import { COUNTER_VALUES } from './counter-tables.js'
 import type { AlarmStorage, CoordinatorDatabase } from './database.js'
 
