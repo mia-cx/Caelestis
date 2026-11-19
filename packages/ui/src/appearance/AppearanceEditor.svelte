@@ -224,7 +224,7 @@
   .compact .sliders, .compact .marker-settings { padding-inline: 0.25rem; }
   .disabled { opacity: 0.45; }
   .presets, .same-colour, .colour-toolbar { display: flex; align-items: center; gap: 0.25rem; }
-  .pixel-preset, .choice { --button-colour: var(--caelestis-raised-surface); display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; border: 1px solid color-mix(in oklab, var(--button-colour), #000 5%); outline-color: var(--button-colour); background: var(--button-colour); color: var(--caelestis-text); box-shadow: 0 0.5px 0 0.5px oklch(100% 0 0 / 6%) inset, 0 3px 2px -2px color-mix(in oklab, var(--button-colour) 30%, transparent); font: 600 0.75rem/1 var(--caelestis-font); cursor: pointer; }
+  .pixel-preset, .choice { --button-colour: var(--caelestis-raised-surface); display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; border: var(--caelestis-border-width) solid color-mix(in oklab, var(--button-colour), #000 5%); outline-color: var(--button-colour); background: var(--button-colour); color: var(--caelestis-text); box-shadow: 0 0.5px 0 0.5px oklch(100% 0 0 / 6%) inset, 0 3px 2px -2px color-mix(in oklab, var(--button-colour) 30%, transparent); font: 600 0.75rem/1 var(--caelestis-font); cursor: pointer; }
   .pixel-preset { inline-size: 2rem; block-size: 2rem; padding: 0; border-radius: var(--caelestis-pill-radius); }
   .choice { block-size: 1.5rem; padding-inline: 0.5rem; border-radius: var(--caelestis-radius); font-size: 0.6875rem; }
   .only-selected { inline-size: 1.5rem; padding-inline: 0; }

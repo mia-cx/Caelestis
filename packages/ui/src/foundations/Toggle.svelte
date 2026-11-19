@@ -101,7 +101,7 @@
 
   /* Pixel chrome: Wplace's .toggle — well-shade track, square ink thumb, checked goes primary. */
   :host([data-caelestis-style='pixel']) input {
-    --border: 2px;
+    --caelestis-border-width: 2px;
     border: 2px solid var(--caelestis-pixel-ink);
     border-radius: 0;
     background: var(--caelestis-pixel-well-shade);
