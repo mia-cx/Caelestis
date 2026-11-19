@@ -1,10 +1,10 @@
 import {
   isUuidV7,
+  parseTileKey,
   parseWholeNumber,
   type Seconds,
   type ServerInfo,
   seconds,
-  WORLD_TILES,
 } from '@caelestis/shared'
 import { MAX_EPOCH_SECONDS, MAX_PAINTER_TOTALS } from '@caelestis/wire-schema'
 import { type Context, Hono } from 'hono'
@@ -139,18 +139,9 @@ export const createTelemetryReadRoutes = (
     async (c) => {
       const templateId = c.req.param('templateId')
       const versionId = c.req.param('versionId')
-      const x = parseWholeNumber(c.req.param('x'))
-      const y = parseWholeNumber(c.req.param('y'))
+      const tile = parseTileKey(`${c.req.param('x')}/${c.req.param('y')}`)
       const season = seasonOf(c)
-      if (
-        !isUuidV7(templateId) ||
-        !isUuidV7(versionId) ||
-        x === null ||
-        y === null ||
-        x >= WORLD_TILES ||
-        y >= WORLD_TILES ||
-        season === null
-      ) {
+      if (!isUuidV7(templateId) || !isUuidV7(versionId) || tile === null || season === null) {
         return c.json({ error: 'template, version, tile and season must be valid' }, 400)
       }
       return runBackendHttp(
@@ -160,7 +151,7 @@ export const createTelemetryReadRoutes = (
           season,
           templateId,
           versionId,
-          tile: { x, y },
+          tile,
           includeUnpublished: includeUnpublished(c),
         }),
         (result) => {
@@ -330,11 +321,8 @@ export const createTelemetryReadRoutes = (
   // GET here, PUT with a trailing `:hash` in the report routes. Hono matches on method and path
   // together, so the two never collide, and `history` is not a valid hash either.
   routes.get('/tiles/:x/:y/history', read, async (c) => {
-    const x = parseWholeNumber(c.req.param('x'))
-    const y = parseWholeNumber(c.req.param('y'))
-    if (x === null || y === null || x >= WORLD_TILES || y >= WORLD_TILES) {
-      return c.json({ error: 'tile coordinates must be on the canvas' }, 400)
-    }
+    const tile = parseTileKey(`${c.req.param('x')}/${c.req.param('y')}`)
+    if (tile === null) return c.json({ error: 'tile coordinates must be on the canvas' }, 400)
     const season = seasonOf(c)
     if (season === null) return c.json({ error: SEASON_ERROR }, 400)
     const legacyResolution = optionalWholeNumber(c.req.query('resolution'))
@@ -354,7 +342,7 @@ export const createTelemetryReadRoutes = (
       runtime,
       readTileHistory({
         season,
-        tile: { x, y },
+        tile,
         range,
         legacyResolution,
         includeUnpublished: includeUnpublished(c),

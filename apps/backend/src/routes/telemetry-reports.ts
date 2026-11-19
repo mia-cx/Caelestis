@@ -3,10 +3,10 @@ import {
   MAX_LIVE_PAINT_BYTES,
   MAX_NAME_LENGTH,
   millis,
+  parseTileKey,
   parseWholeNumber,
   type StatusDelta,
   seconds,
-  WORLD_TILES,
 } from '@caelestis/shared'
 import {
   MAX_EPOCH_SECONDS,
@@ -117,18 +117,14 @@ export const createTelemetryReportRoutes = (
   })
 
   routes.put('/tiles/:x/:y/:hash', report, async (c) => {
-    const x = parseWholeNumber(c.req.param('x'))
-    const y = parseWholeNumber(c.req.param('y'))
+    const tile = parseTileKey(`${c.req.param('x')}/${c.req.param('y')}`)
     const hash = c.req.param('hash')
     const season = parseWholeNumber(c.req.header('x-caelestis-season'))
     const observedAt = parseWholeNumber(c.req.header('x-caelestis-observed-at'))
     const wplaceUserId = parseWholeNumber(c.req.header('x-caelestis-wplace-user-id'))
     const displayName = decodedHeader(c.req.header('x-caelestis-display-name'))
     if (
-      x === null ||
-      y === null ||
-      x >= WORLD_TILES ||
-      y >= WORLD_TILES ||
+      tile === null ||
       !isSha256Hex(hash) ||
       season === null ||
       season !== currentSeason ||
@@ -154,7 +150,7 @@ export const createTelemetryReportRoutes = (
           displayName,
           tokenHash: caller.tokenHash,
           season,
-          tile: { x, y },
+          tile,
           hash,
           observedAt: seconds(observedAt),
           includeUnpublished: caller.scope === 'admin',
