@@ -1,18 +1,13 @@
 import {
-  assignShortcutBinding,
   sameTemplateSurface,
   type TemplateSurface,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type {
   CaelestisPanel,
-  CaelestisRailControl,
   PanelIntent,
   PanelModel,
-  RailControlIntent,
-  RailControlModel,
   SettingsIntent,
-  SettingsModel,
 } from '@caelestis/ui/elements'
 import {
   cancelSurfaceClose,
@@ -27,91 +22,44 @@ import {
   currentSurface,
   onActiveAllianceSurfaceChange,
 } from '../alliance-surface.js'
-import {
-  accessTokensModel,
-  createServerAccessToken,
-  loadMoreAccessTokens,
-  prefetchAccessTokens,
-  refreshAccessTokens,
-  revokeServerAccessToken,
-} from '../application/access-tokens.js'
+import { onTemplateStudioChange } from '../application/template-studio.js'
 import { cancelDestinationAdmissions } from '../application/transfer.js'
-import { copyToServer, treeActionUsesServer } from '../application/tree-copy.js'
-import {
-  copyServerTemplateToLocal,
-  dropOnServerNode,
-  moveBranch,
-} from '../application/tree-drop.js'
-import { createFolder } from '../application/tree-folders.js'
-import { captureTemplate, importTemplate } from '../application/tree-import.js'
-import { openContextMenu } from '../application/tree-menu.js'
-import {
-  cancelTreeActionSetup,
-  handleTreeActionPresentationIntent,
-  treeActionPresentation,
-} from '../application/tree-presentation.js'
+import { treeActionUsesServer } from '../application/tree-copy.js'
+import { cancelTreeActionSetup } from '../application/tree-presentation.js'
 import { onServerSnapshot, primeFromCache } from '../application/tree-server-state.js'
-import {
-  importFromOtherBuild,
-  onOtherBuildChange,
-  otherBuild,
-  sendToOtherBuild,
-} from '../build-transfer.js'
+import { onOtherBuildChange } from '../build-transfer.js'
 import { onCanvasWrite } from '../canvas-write.js'
 import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
 import { openClaimTool } from '../claims.js'
-import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
 import { log } from '../debug.js'
 import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboard-pixels.js'
-import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
-import { consumeInvite } from '../invite.js'
 import { onViewChange, redraw, viewportCentre } from '../map-view.js'
-import { runningBuild } from '../page-claim.js'
 import { onPresenceChange } from '../presence-client.js'
-import {
-  isProfileEnabled,
-  measureProfile,
-  profileReport,
-  profileSnapshot,
-  recordProfileCounter,
-  resetProfile,
-} from '../profile.js'
+import { measureProfile, recordProfileCounter } from '../profile.js'
 import { admittedServerContentsFor } from '../server-api.js'
 import {
   installServerConnectionRetry,
-  isCurrentServerConnection,
-  probeServer,
   refreshStoredServers,
   removeServer,
-  upsertServer,
 } from '../server-connections.js'
-import { canonicalServerUrl } from '../server-url.js'
 import {
   getState,
-  getSurfaceAppearance,
-  MAX_CONNECTED_SERVERS,
-  onlySelectedColourFor,
   onStateChange,
   type ServerConnection,
   type State,
-  setOnlySelectedColourFor,
   setState,
-  setSurfaceAppearance,
 } from '../settings.js'
-import { activeShortcutBindings, currentShortcutPlatform, shortcutHint } from '../shortcuts.js'
 import { onStoredValueChange } from '../stored-values.js'
 import { onServerAlarmChange, onServerStatusChange } from '../telemetry.js'
 import { onLocalChange } from '../templates/local-store.js'
 import { pixelAccounting } from '../templates/mismatch.js'
-import { focusedTemplate } from '../templates/nearest.js'
 import { onOfficialOverlaysChange } from '../templates/official-overlays.js'
 import { ensureLocalTags } from '../templates/tags.js'
 import { reloadTiles } from '../tile-pixels.js'
 import { serverTemplateTreeKey } from '../tree-keys.js'
-import { backendVersionOutdated } from '../userscript-update.js'
 import { refreshAccount } from '../wplace-account.js'
-import { isPaintOpen, onPaintSelectionChange } from '../wplace-paint.js'
+import { onPaintSelectionChange } from '../wplace-paint.js'
 import { onWplacePatchChange } from '../wplace-switches.js'
 import {
   handleAppearanceIntent,
@@ -119,100 +67,72 @@ import {
   surfaceAppearanceStore,
 } from './appearance.js'
 import { positionChargeForecast } from './charge-forecast.js'
-import { setTemplateDisplayMode } from './display-mode.js'
 import { frameQueue } from './frame-queue.js'
-import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
-import {
-  mountNotificationsIn,
-  PANEL_ID,
-  requestConfirmation,
-  showToast,
-  syncToastPlacement,
-} from './notification-host.js'
-import {
-  glideOverlayControls,
-  invalidateOverlayControlsEdge,
-  refreshOverlayMenu,
-} from './overlay-menu.js'
+import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
+import { mountNotificationsIn, showToast, syncToastPlacement } from './notification-host.js'
+import { glideOverlayControls, invalidateOverlayControlsEdge } from './overlay-menu.js'
 import { canvasWritesTouchArtboard } from './panel-progress.js'
 import {
+  ALLIANCE_PANEL_ID,
   AllianceDrawerInset,
-  alliancePanelTitle,
-  allianceRailInlineEnd,
-  allianceRailTop,
-  bindRailActivation,
+  PANEL_ID,
   type PanelScope,
   PanelSessions,
   type PanelView,
+  panelTitle,
 } from './panel-scope.js'
-import { clearClaim, flyToClaim, flyToPainter, presenceSummaryModel } from './presence-actions.js'
+import { clearClaim, flyToClaim, flyToPainter } from './presence-actions.js'
 import {
-  claimToolButton,
-  installRailStateSync,
-  mismatchModeButton,
-  presenceModeButton,
-  syncClaimToolState,
-  syncMismatchModeState,
-  syncPresenceModeState,
-} from './rail-controls.js'
+  installRail,
+  mountAllianceRail,
+  positionAllianceRail,
+  positionRail,
+  syncPanelButtons,
+  unmountAllianceRail,
+} from './rail.js'
+import {
+  autoExpanded,
+  disconnectingServerUrls,
+  expandedServers,
+  handleSettingsIntent,
+  onSettingsViewChange,
+  setSettingsVisible,
+  settingsModel,
+} from './settings-controller.js'
 import { applyWplaceTheme } from './theme.js'
-import { templateTreeAdapter } from './tree.js'
-import { type TemplateTreeAdapter, type TreeCallbacks, templateTreeKeyFor } from './tree-context.js'
+import {
+  buildTreeView,
+  clearTreeView,
+  focusedTreeKey,
+  handleTreeIntent,
+  hasTreeView,
+  installTreeView,
+  markClaimedTreeStale,
+  presenceField,
+  refreshTreeViewProgress,
+  setShowOtherClaims,
+  treeViewModel,
+  treeViewPresents,
+} from './tree-view.js'
 import { isTreeDragActive } from './tree-view-state.js'
-import {
-  changeTemplateClaim,
-  retryTemplateClaims,
-  withTemplateClaims,
-  workSectionModel,
-} from './work.js'
-import {
-  findWplaceRail,
-  onWplaceLayoutChange,
-  wplaceButtonBelow,
-  wplaceFreeTop,
-  wplaceRailGap,
-} from './wplace-rail.js'
+import { retryTemplateClaims } from './work.js'
 
 /**
- * Our button on wplace's right-hand rail, and the panel it opens.
+ * The panel our rail button opens: the world sidebar, or a drawer beside an alliance artboard.
+ * This module mounts and opens it and redraws its current view; the views' models and intents
+ * live in tree-view, settings-controller and appearance.
  *
- * Two things make this look native rather than bolted on, and neither is a matter of copying values:
- *
- * 1. **wplace ships DaisyUI**, with `data-theme="custom-winter"` on `<html>`. Borrowing their
- *    component classes means our surfaces inherit their theme tokens, including any theme they add
- *    later. The coupling is real: if they drop DaisyUI our chrome loses its skin.
- *
- *    **But borrow components, never invent utilities.** Tailwind ships only the classes a site
- *    actually uses, so a utility wplace has no use for is simply absent from their stylesheet.
- *    Measured on the live page, `right-16`, `bottom-4`, `w-full`, `min-h-0` and `text-base-content`
- *    are all missing — which is why the first version of this panel rendered in the top-left corner
- *    with `position: fixed` applied and nothing else. So: **layout is inline styles**, which cannot
- *    silently evaporate, and only classes they demonstrably use (`btn`, `badge`, `input`, `select`,
- *    `checkbox`, `bg-base-100`, `rounded-box`, `shadow-*`) are borrowed.
- * 2. **Their rail is their own markup**, not a MapLibre control — `.maplibregl-ctrl-top-right` is
- *    empty. So we append to a Svelte-rendered list, which means it can be re-rendered out from under
- *    us; see the observer below.
+ * **wplace ships DaisyUI**, with `data-theme="custom-winter"` on `<html>`. Borrowing their
+ * component classes means our surfaces inherit their theme tokens, including any theme they add
+ * later. **But borrow components, never invent utilities.** Tailwind ships only the classes a
+ * site actually uses, so a utility wplace has no use for is simply absent from their stylesheet —
+ * which is why the first version of this panel rendered in the top-left corner with
+ * `position: fixed` applied and nothing else. So **layout is inline styles**, which cannot
+ * silently evaporate.
  *
  * The sidebar keeps the map interactive. Its popout opens the same menu in a modal for wider
  * template browsing, with grid mode available there. Canvas actions return to the sidebar.
  */
-
-/**
- * How to find the rail.
- *
- * Not by its classes. `.flex.flex-col.items-center.gap-3` is Tailwind utility soup that describes a
- * layout, not an identity — several elements on the page match it, `querySelector` returns whichever
- * comes first in the document, and ours landed in the wrong one. Anchor on the thing we actually
- * mean instead: one of wplace's own rail buttons, whose parent *is* the rail by definition. The
- * logged-in rail has Overlays; the logged-out rail has Search and Leaderboard. Ours then lands
- * directly beneath whichever native rail is on screen.
- */
-const BUTTON_ID = 'caelestis-rail-button'
-const ALLIANCE_BUTTON_WRAPPER_ID = 'caelestis-alliance-rail'
-const ALLIANCE_BUTTON_ID = 'caelestis-alliance-rail-button'
-const ALLIANCE_COLOUR_MODE_ID = 'caelestis-alliance-colour-mode'
-const ALLIANCE_MISMATCH_MODE_ID = 'caelestis-alliance-mismatch-mode'
-const ALLIANCE_PANEL_ID = 'caelestis-alliance-panel'
 
 const maximumPanelWidth = (): number =>
   Math.min(720, Math.max(0, document.documentElement.clientWidth - 96))
@@ -220,204 +140,52 @@ const minimumPanelWidth = (): number => Math.min(260, maximumPanelWidth())
 const panelWidthForViewport = (wanted: number): number =>
   Math.min(maximumPanelWidth(), Math.max(minimumPanelWidth(), wanted))
 
-/**
- * Named for the alliance it was built for. From Latin `caelum` — sky, heavens — so it carries
- * "shared" and "above everything" without having to say either.
- *
- * A proper noun rather than a functional label like the buttons around it, which is right for a
- * third-party addition: it should not read as another wplace feature. The tooltip carries the
- * explanation, since "Caelestis" alone teaches a first-time user nothing.
- */
-const APP_NAME = 'Caelestis'
-const PANEL_TITLE = APP_NAME
-const buttonTooltip = (): string => `${APP_NAME} — shared templates${shortcutHint('toggle-panel')}`
-
 const panelSessions = new PanelSessions()
-let alarmBadge = 0
-let searchQuery = ''
-let showOtherClaims = false
 let panelSurface: TemplateSurface = WORLD_TEMPLATE_SURFACE
 let panelHost: HTMLElement | null = null
 let allianceStage: HTMLElement | null = null
 const allianceDrawerInset = new AllianceDrawerInset()
-let allianceRailObserver: MutationObserver | null = null
 const worldTreeVisibleListeners = new Set<() => void>()
 
 const currentView = (): PanelView => panelSessions.view()
 const panelOpen = (): boolean => panelSessions.isOpen()
 const currentPanelId = (): string =>
   panelSessions.scope() === 'alliance' ? ALLIANCE_PANEL_ID : PANEL_ID
+const currentPanel = (): CaelestisPanel | null =>
+  document.getElementById(currentPanelId()) as CaelestisPanel | null
+/** Settings belong to the whole tab, so only the world panel shows them. */
+const showsSettings = (): boolean => panelSurface.kind === 'world'
 
-/**
- * wplace marks an open rail button by adding `btn-primary`, measured by opening theirs and diffing
- * the class list. Using the same class rather than a colour of our own means our button lights up
- * in whatever their theme calls primary, now and after any theme change.
- */
-const panelRailModel = (scope: PanelScope): RailControlModel => ({
-  id: scope === 'alliance' ? 'alliance-panel' : 'panel',
-  label: buttonTooltip(),
-  pressed: panelSessions.isOpen(scope),
-  expanded: panelSessions.isOpen(scope),
-  controls: scope === 'alliance' ? ALLIANCE_PANEL_ID : PANEL_ID,
-  ...(scope === 'world' && alarmBadge > 0 ? { badge: alarmBadge } : {}),
+/** The panel's laid-out width; a freshly connected element has no box yet, so its model's. */
+const currentPanelWidth = (panel: CaelestisPanel): number =>
+  panel.getBoundingClientRect().width || panel.model.width
+
+const panelModel = (width = panelWidthForViewport(getState().panelWidth)): PanelModel => ({
+  view: currentView(),
+  title: panelTitle(panelSurface),
+  showSettings: showsSettings(),
+  width,
+  minWidth: minimumPanelWidth(),
+  maxWidth: maximumPanelWidth(),
+  ...(currentView() === 'tree' ? treeViewModel() : {}),
+  ...(currentView() === 'appearance' ? { appearance: surfaceAppearanceModel(panelSurface) } : {}),
+  ...(currentView() === 'settings' && showsSettings() ? { settings: settingsModel() } : {}),
 })
 
-const syncRailButtonState = (): void => {
-  const main = document.getElementById(BUTTON_ID) as CaelestisRailControl | null
-  if (main !== null) main.model = panelRailModel('world')
-  const alliance = document.getElementById(ALLIANCE_BUTTON_ID) as CaelestisRailControl | null
-  if (alliance !== null) alliance.model = panelRailModel('alliance')
+const notifyWorldTreeVisible = (): void => {
+  if (!panelSessions.isWorldTreeVisible()) return
+  for (const listener of worldTreeVisibleListeners) listener()
 }
 
-const syncAllianceModeState = (active = activeAllianceSurface()): void => {
-  const colour = document.getElementById(ALLIANCE_COLOUR_MODE_ID) as CaelestisRailControl | null
-  if (colour !== null && active !== null) colour.model = colourRailModel(active.surface)
-  const mismatch = document.getElementById(ALLIANCE_MISMATCH_MODE_ID) as CaelestisRailControl | null
-  if (mismatch === null || active === null) return
-  const on = getSurfaceAppearance(active.surface).markMismatch
-  mismatch.model = {
-    id: 'mismatch',
-    label: `${on ? 'Hide' : 'Show'} mismatch markers on this canvas${shortcutHint('toggle-markers')}`,
-    pressed: on,
-  }
-}
-
-const railButton = (): CaelestisRailControl => {
-  const existing = document.getElementById(BUTTON_ID)
-  if (existing !== null) return existing as CaelestisRailControl
-  const button = document.createElement('caelestis-rail-control')
-  button.id = BUTTON_ID
-  button.model = panelRailModel('world')
-  applyWplaceTheme(button)
-  bindRailActivation(button, 'panel', () => togglePanelFor('world'))
-  return button
-}
-
-const allianceRailButton = (active: ActiveAllianceSurface): CaelestisRailControl => {
-  const existing = active.stage.ownerDocument.getElementById(ALLIANCE_BUTTON_ID)
-  if (existing !== null) return existing as CaelestisRailControl
-  const button = active.stage.ownerDocument.createElement(
-    'caelestis-rail-control',
-  ) as CaelestisRailControl
-  button.id = ALLIANCE_BUTTON_ID
-  button.model = panelRailModel('alliance')
-  applyWplaceTheme(button)
-  bindRailActivation(
-    button,
-    'alliance-panel',
-    () => {
-      selectAlliancePanelSurface(active)
-      togglePanelFor('alliance')
-    },
-    { isolatePointerDown: true },
-  )
-  return button
-}
-
-const allianceColourModeButton = (active: ActiveAllianceSurface): CaelestisRailControl => {
-  const existing = document.getElementById(ALLIANCE_COLOUR_MODE_ID)
-  if (existing !== null) return existing as CaelestisRailControl
-  const button = document.createElement('caelestis-rail-control')
-  button.id = ALLIANCE_COLOUR_MODE_ID
-  button.model = colourRailModel(active.surface)
-  applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
-    if (intent.id !== 'colour') return
-    setOnlySelectedColourFor(active.surface, !onlySelectedColourFor(active.surface))
-  })
-  return button
-}
-
-const allianceMismatchModeButton = (active: ActiveAllianceSurface): CaelestisRailControl => {
-  const existing = document.getElementById(ALLIANCE_MISMATCH_MODE_ID)
-  if (existing !== null) return existing as CaelestisRailControl
-  const button = document.createElement('caelestis-rail-control')
-  button.id = ALLIANCE_MISMATCH_MODE_ID
-  applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
-    if (intent.id !== 'mismatch') return
-    const appearance = getSurfaceAppearance(active.surface)
-    setSurfaceAppearance(active.surface, {
-      ...appearance,
-      markMismatch: !appearance.markMismatch,
-    })
-  })
-  return button
-}
-
-const positionAllianceRail = (active: ActiveAllianceSurface): void => {
-  const wrapper = active.stage.ownerDocument.getElementById(ALLIANCE_BUTTON_WRAPPER_ID)
-  if (wrapper === null) return
-  const parent = wrapper.parentElement
-  if (parent === null) return
-  if (panelSessions.isOpen('alliance')) {
-    const panel = active.stage.ownerDocument.getElementById(ALLIANCE_PANEL_ID)
-    const measuredWidth = panel?.getBoundingClientRect().width ?? 0
-    const width = measuredWidth > 0 ? measuredWidth : panelWidthForViewport(getState().panelWidth)
-    allianceDrawerInset.apply(active.stage, width, GAP)
-  }
-  wrapper.style.top = `${active.stage.offsetTop + allianceRailTop(active.stage, GAP, GAP)}px`
-  wrapper.style.right = `${allianceRailInlineEnd(active.stage, parent, GAP)}px`
-}
-
-const mountAllianceRail = (active: ActiveAllianceSurface): void => {
-  allianceRailObserver?.disconnect()
-  allianceRailObserver = null
-  document.getElementById(ALLIANCE_BUTTON_WRAPPER_ID)?.remove()
-  const wrapper = active.stage.ownerDocument.createElement('div')
-  wrapper.id = ALLIANCE_BUTTON_WRAPPER_ID
-  Object.assign(wrapper.style, {
-    position: 'absolute',
-    zIndex: '40',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: `${GAP}px`,
-  } satisfies Partial<CSSStyleDeclaration>)
-  wrapper.append(
-    allianceRailButton(active),
-    allianceColourModeButton(active),
-    allianceMismatchModeButton(active),
-  )
-  ;(active.stage.parentElement ?? active.stage).appendChild(wrapper)
-  positionAllianceRail(active)
-  syncAllianceModeState(active)
-  const realm = active.stage.ownerDocument.defaultView
-  if (realm !== null) {
-    realm.requestAnimationFrame(() => refreshOverlayMenu())
-    allianceRailObserver = new realm.MutationObserver(() => {
-      positionAllianceRail(active)
-    })
-    const viewportAttributes = { attributes: true, attributeFilter: ['class', 'style'] }
-    allianceRailObserver.observe(active.frame, viewportAttributes)
-    allianceRailObserver.observe(active.stage, viewportAttributes)
-  }
-}
-
-/**
- * The unacknowledged-alarm count. Not "how many alarms are active" — that number stays lit for
- * hours on a griefed template and stops being read. This one means "something new since you last
- * looked", so it clears itself by being seen.
- */
-export const setAlarmBadge = (count: number): void => {
-  alarmBadge = Math.max(0, count)
-  syncRailButtonState()
-}
+const syncSettingsVisible = (): void =>
+  setSettingsVisible(panelOpen() && currentView() === 'settings')
 
 /**
  * Redraw whatever the panel is showing when the state changes underneath it.
  *
- * The panel used to subscribe to nothing, so every row showed whatever was true when it was last
- * drawn by an interaction. That was survivable while templates only ever appeared because someone
- * in this panel imported one — and stopped being survivable the moment a background sync could add
- * one: the canvas updated, the tree did not, and a template drew over the map with its own switch
- * reading "off" because the row had been drawn before it existed.
- *
- * **Every view, not only the tree.** A keybind is a change from outside the panel by definition, so
- * pressing `W` moved the markers and left the switch that claims to control them reading the
- * opposite — and clicking it then did nothing visible, because it was already in the state it was
- * being asked for.
+ * **Every view, not only the tree.** A keybind is a change from outside the panel by definition,
+ * so pressing `W` moved the markers and left the switch that claims to control them reading the
+ * opposite.
  *
  * Skipped mid-gesture. A rename is an open text field, a drag is a row in flight, and a slider is
  * held under the pointer; replacing any of those takes the thing away from the hand using it. The
@@ -428,7 +196,7 @@ let owedRefresh = false
 const heldPanelPointers = new Set<number>()
 
 const refreshView = (): void => {
-  claimedTreeStale = true
+  markClaimedTreeStale()
   redrawView()
 }
 
@@ -458,6 +226,35 @@ const redrawView = (): void => {
   showView(currentView())
 }
 
+/**
+ * Pay back a redraw that was declined while something was being held. Deferred by a tick because
+ * every event that calls it fires *before* the thing it announces has finished letting go.
+ */
+const repayRefresh = (): void => {
+  if (!owedRefresh) return
+  setTimeout(refreshView, 0)
+}
+
+const refreshSettings = (): void => {
+  if (panelOpen() && currentView() === 'settings') showView('settings')
+}
+
+/** Rebuild the main tree only, for inputs the claimed list ignores, such as the search query. */
+const renderTree = (): void => {
+  if (!panelOpen() || currentView() !== 'tree') return
+  const panel = currentPanel()
+  if (panel === null) return
+  buildTreeView()
+  panel.model = panelModel(currentPanelWidth(panel))
+  notifyWorldTreeVisible()
+}
+
+/** Rebuild both trees: whichever is on screen, whatever closure asks. */
+const rerenderTree = (): void => {
+  markClaimedTreeStale()
+  renderTree()
+}
+
 let manifestTreeRefreshQueued = false
 const queueManifestTreeRefresh = (): void => {
   if (manifestTreeRefreshQueued) return
@@ -485,30 +282,69 @@ onServerSnapshot((server, result) => {
   if (result.changed || claimsChanged) queueManifestTreeRefresh()
 })
 
-/**
- * Pay back a redraw that was declined while something was being held.
- *
- * Suppressing a redraw is a debt. Without this the panel simply lost it: a template arriving from a
- * server while a name was being typed, or a keybind pressed mid-drag, stayed invisible until some
- * unrelated change happened to redraw the view. Deferred by a tick because both events that call it
- * fire *before* the thing they announce has finished letting go.
- */
-const repayRefresh = (): void => {
-  if (!owedRefresh) return
-  setTimeout(refreshView, 0)
+/** Follow a presence message by replacing only the Painters drawer; the trees do not read it. */
+const refreshPresenceDrawer = (): void => {
+  if (!panelOpen() || currentView() !== 'tree') return
+  const panel = currentPanel()
+  const work = panel?.model.work
+  if (panel == null || work === undefined) return
+  const { presence: _previous, ...rest } = work
+  panel.model = { ...panel.model, work: { ...rest, ...presenceField() } }
 }
 
-/** Which servers' rows are open. Kept across re-renders, which rebuild the whole pane. */
-const expandedServers = new Set<string>()
+/** Follow a pixel-progress change by updating row progress in both trees, keeping their rows. */
+const refreshTreeProgress = (): void => {
+  if (!panelOpen() || currentView() !== 'tree' || !hasTreeView()) return
+  const panel = currentPanel()
+  if (panel === null) return
+  if (refreshTreeViewProgress()) panel.model = panelModel(currentPanelWidth(panel))
+}
 
-/**
- * Servers whose row has already been opened for them, so it is done once and not fought over.
- *
- * A server asking for a token is opened without being asked, because the one thing it needs is
- * inside. Doing that on every render would mean it could never be closed again.
- */
-const autoExpanded = new Set<string>()
-const disconnectingServerUrls = new Set<string>()
+/** Move the focused-row marker without rebuilding the full template tree. */
+const refreshTreeFocus = (): void => {
+  if (!panelOpen() || currentView() !== 'tree' || !hasTreeView()) return
+  const panel = currentPanel()
+  if (panel === null) return
+  if (panel.model.tree?.focusedKey === focusedTreeKey()) return
+  panel.model = panelModel(currentPanelWidth(panel))
+}
+
+let lastFocusCentre: { readonly x: number; readonly y: number } | null | undefined
+
+/** The focused row follows the view; on the world map, only when its centre moves. */
+const followViewFocus = (): void => {
+  if (currentSurface().kind === 'world') {
+    const centre = viewportCentre()
+    if (
+      lastFocusCentre !== undefined &&
+      (centre === null
+        ? lastFocusCentre === null
+        : lastFocusCentre?.x === centre.x && lastFocusCentre.y === centre.y)
+    )
+      return
+    lastFocusCentre = centre
+  }
+  refreshTreeFocus()
+}
+
+const showView = (view: PanelView): void => {
+  if (view === 'settings' && !showsSettings()) return
+  panelSessions.setView(view)
+  const panel = currentPanel()
+  if (panel === null) return
+
+  if (view === 'settings') settingsModel()
+  if (view === 'tree') {
+    buildTreeView()
+  } else {
+    clearTreeView()
+    if (view === 'appearance') refreshAccount(refreshView)
+  }
+  panel.model = panelModel(currentPanelWidth(panel))
+  syncSettingsVisible()
+  notifyWorldTreeVisible()
+  log('install', `panel view: ${view}`)
+}
 
 /**
  * Disconnect: take the server out of the list, and everything it put on this machine with it.
@@ -534,526 +370,85 @@ const disconnectServer = async (server: ServerConnection): Promise<void> => {
   }
 }
 
-let activeTreeAdapter: TemplateTreeAdapter | null = null
-/** The claims the active tree was built with, reused by every panel model until the next build. */
-let activeTreeClaims: ReturnType<typeof workSectionModel> | null = null
-let claimedTreeAdapter: TemplateTreeAdapter | null = null
-let claimedTreeKeys: readonly string[] = []
-/**
- * Whether the claimed list's inputs may have changed since it was built: templates, servers,
- * claims, state. The search query and folder expansion never set it, since the flat list ignores
- * both, and progress ticks update both trees in place.
- */
-let claimedTreeStale = true
-
-const settingsMessages = new Map<string, string>()
-/** The last recorded chord and the actions it displaced, shown until the next change. */
-let shortcutChange: NonNullable<SettingsModel['shortcuts']['lastChange']> | undefined
-const pendingServers = new Set<string>()
-let addServerPending = false
-let addServerMessage: string | undefined
-let profileStatus: string | undefined
-
-const formatBytes = (value: number | null): string => {
-  if (value === null) return 'Unavailable'
-  if (value < 1024) return `${value} B`
-  const units = ['KiB', 'MiB', 'GiB']
-  let amount = value / 1024
-  let unit = units[0] ?? 'KiB'
-  for (let index = 1; index < units.length && amount >= 1024; index++) {
-    amount /= 1024
-    unit = units[index] ?? unit
+const handleSettings = (intent: SettingsIntent): void => {
+  if (!showsSettings()) return
+  if (intent.type !== 'disconnect-server') {
+    handleSettingsIntent(intent)
+    return
   }
-  return `${amount.toFixed(amount >= 100 ? 0 : amount >= 10 ? 1 : 2)} ${unit}`
+  const server = getState().servers.find((candidate) => candidate.url === intent.url)
+  if (server !== undefined) void disconnectServer(server)
 }
 
-const formatMilliseconds = (value: number): string => `${value.toFixed(value >= 10 ? 1 : 2)} ms`
-
-const settingsModel = (): SettingsModel => {
-  const state = getState()
-  for (const server of state.servers) {
-    if (server.status === 'needs-token' && !autoExpanded.has(server.url)) {
-      autoExpanded.add(server.url)
-      expandedServers.add(server.url)
-    }
-  }
-  const snapshot = isProfileEnabled() ? profileSnapshot() : null
-  const extension = runningBuild() === 'extension'
-  return {
-    userscriptVersion,
-    build: runningBuild(),
-    otherBuild: otherBuild() ?? undefined,
-    servers: state.servers.map((server) => {
-      const message = settingsMessages.get(server.url)
-      const info = server.info
-      const version = [info?.version, info?.build].filter(Boolean).join(' · ')
-      return {
-        url: server.url,
-        name: server.info?.name ?? server.url,
-        status: server.status,
-        ...(version === '' ? {} : { version }),
-        ...(backendVersionOutdated(info?.version, expectedBackendVersion)
-          ? { outdated: { expected: expectedBackendVersion } }
-          : {}),
-        ...(server.error === undefined ? {} : { error: server.error }),
-        expanded: expandedServers.has(server.url),
-        tokenSaved: server.token !== null,
-        ...(server.tokenUsable === undefined ? {} : { tokenUsable: server.tokenUsable }),
-        isAdmin: server.isAdmin,
-        ...(server.isAdmin && expandedServers.has(server.url)
-          ? { accessTokens: accessTokensModel(server, refreshSettings) }
-          : {}),
-        ...(pendingServers.has(server.url) ? { pending: true } : {}),
-        ...(message === undefined ? {} : { message }),
-      }
-    }),
-    ...(addServerPending ? { addServerPending: true } : {}),
-    ...(addServerMessage === undefined ? {} : { addServerMessage }),
-    colourNavigationOrder: state.colourNavigationOrder,
-    simulatedInput: state.simulatedInput,
-    ...globalSettingsModel('tab'),
-    // The extension's store updates it, so there is no update notification to switch.
-    notifyUpdates: extension ? undefined : state.notifyUpdates,
-    shortcuts: {
-      platform: currentShortcutPlatform(),
-      bindings: activeShortcutBindings(),
-      customised: Object.keys(state.shortcutOverrides).length > 0,
-      ...(shortcutChange === undefined ? {} : { lastChange: shortcutChange }),
-    },
-    ...(snapshot === null
-      ? {}
-      : {
-          profile: {
-            note: 'CPU and GPU cover measured Caelestis work. Frame timing, long tasks and heap cover the whole tab.',
-            metrics: [
-              {
-                id: 'main',
-                label: 'Measured CPU',
-                value: `${snapshot.cpu.main.dutyPercent.toFixed(2)}%`,
-              },
-              {
-                id: 'worker',
-                label: 'Worker CPU',
-                value: `${snapshot.cpu.worker.dutyPercent.toFixed(2)}%`,
-              },
-              {
-                id: 'gpu',
-                label: 'Overlay GPU',
-                value:
-                  snapshot.gpu.supported === false
-                    ? 'Unavailable'
-                    : snapshot.gpu.count === 0
-                      ? 'Waiting for a frame'
-                      : formatMilliseconds(snapshot.gpu.averageMs),
-              },
-              {
-                id: 'buffers',
-                label: 'Known buffers',
-                value: formatBytes(snapshot.memory.knownTotalBytes),
-              },
-              {
-                id: 'heap',
-                label: 'Page JS heap',
-                value: formatBytes(snapshot.memory.pageUsedJSHeapBytes),
-              },
-              {
-                id: 'frames',
-                label: 'Frame p95',
-                value:
-                  snapshot.frames.count === 0
-                    ? 'Waiting for a frame'
-                    : `${formatMilliseconds(snapshot.frames.p95Ms)} · ${snapshot.frames.estimatedFps?.toFixed(0) ?? '0'} fps`,
-              },
-              {
-                id: 'long-tasks',
-                label: 'Page long tasks',
-                value: !snapshot.longTasks.supported
-                  ? 'Unsupported'
-                  : !snapshot.longTasks.observing
-                    ? 'Observer unavailable'
-                    : `${snapshot.longTasks.count} · ${formatMilliseconds(snapshot.longTasks.totalMs)}`,
-              },
-            ],
-            ...(profileStatus === undefined ? {} : { status: profileStatus }),
-          },
-        }),
-  }
+/** Make room beside the alliance drawer at `width`, and line its rail up again. */
+const insetAllianceDrawer = (width: number): void => {
+  if (allianceStage === null) return
+  allianceDrawerInset.apply(allianceStage, width, GAP)
+  const active = activeAllianceSurface()
+  if (active !== null) positionAllianceRail(active)
 }
 
-const refreshSettings = (): void => {
-  if (panelOpen() && currentView() === 'settings') showView('settings')
-}
-
-let profileTimer: number | null = null
-const syncProfileTimer = (): void => {
-  const wanted = panelOpen() && currentView() === 'settings' && isProfileEnabled()
-  if (wanted && profileTimer === null) {
-    profileTimer = window.setInterval(refreshSettings, 1_000)
-  } else if (!wanted && profileTimer !== null) {
-    window.clearInterval(profileTimer)
-    profileTimer = null
-  }
-}
-
-const connectServer = async (value: string): Promise<void> => {
-  if (addServerPending) return
-  addServerPending = true
-  addServerMessage = 'Connecting…'
-  refreshSettings()
-  try {
-    let canonical: string | null = null
-    try {
-      canonical = canonicalServerUrl(value)
-    } catch {
-      /* probe reports the address error */
-    }
-    if (canonical !== null && getState().servers.some((server) => server.url === canonical)) {
-      addServerMessage = `${canonical} is already connected.`
-      return
-    }
-    if (canonical !== null && disconnectingServerUrls.has(canonical)) {
-      addServerMessage = `Still disconnecting ${canonical}. Try again in a moment.`
-      return
-    }
-    const server = await probeServer(value, null)
-    if (server.superseded === true) return
-    if (server.status === 'unreachable') {
-      addServerMessage = `Could not reach ${server.url}. Check the address and that the server allows this origin.`
-      return
-    }
-    if (getState().servers.some((one) => one.url === server.url)) {
-      addServerMessage = `${server.url} is already connected.`
-      return
-    }
-    if (!upsertServer(server)) {
-      addServerMessage = `Already connected to ${MAX_CONNECTED_SERVERS} servers. Disconnect one first.`
-      return
-    }
-    claimRouter().connect(server)
-    addServerMessage = undefined
-  } finally {
-    addServerPending = false
-    refreshSettings()
-  }
-}
-
-const updateServerToken = async (url: string, token: string): Promise<void> => {
-  const server = getState().servers.find((candidate) => candidate.url === url)
-  if (server === undefined || pendingServers.has(url)) return
-  pendingServers.add(url)
-  settingsMessages.set(url, 'Checking…')
-  refreshSettings()
-  try {
-    const next = await probeServer(url, token)
-    // The panel stays usable during the probe; a server disconnected meanwhile must not come back.
-    if (next.superseded === true || !isCurrentServerConnection(server)) return
-    if (next.status === 'connected') {
-      cancelDestinationAdmissions(url)
-      if (upsertServer(next)) claimRouter().connect(next)
-      expandedServers.delete(url)
-      settingsMessages.delete(url)
-      return
-    }
-    settingsMessages.set(
-      url,
-      next.status === 'needs-token'
-        ? 'That token was not accepted. Ask whoever runs the server for a current one.'
-        : `Could not reach the server. ${next.error ?? ''}`.trim(),
-    )
-  } finally {
-    pendingServers.delete(url)
-    refreshSettings()
-  }
-}
-
-/**
- * Consume an invite fragment left in the address bar, at startup and on `hashchange`.
- *
- * `history.replaceState` clears it without reloading, firing `hashchange` again, or disturbing
- * Wplace's own query string and history state.
- */
-export const openInviteFromLocation = async (): Promise<void> => {
-  await consumeInvite({
-    hash: location.hash,
-    clearHash: () => history.replaceState(history.state, '', location.pathname + location.search),
-    servers: () => getState().servers,
-    probe: (url, token) => probeServer(url, token),
-    upsert: (server) => upsertServer(server),
-    connected: (server, replacing) => {
-      if (replacing) cancelDestinationAdmissions(server.url)
-      claimRouter().connect(server)
-    },
-    notify: (message, tone) => showToast(message, tone),
-    isBusy: (url) =>
-      pendingServers.has(url) || disconnectingServerUrls.has(url) || addServerPending,
-  })
-  refreshSettings()
-}
-
-/** Import from or send to the other build, after one confirmation. */
-const moveSettings = async (
-  direction: 'import-from-other-build' | 'send-to-other-build',
-): Promise<void> => {
-  const other = otherBuild()
-  if (other === null) return
-  const importing = direction === 'import-from-other-build'
-  const confirmed = await requestConfirmation({
-    title: importing ? `Import from the ${other}?` : `Send to the ${other}?`,
-    body: importing
-      ? `Your servers and settings here are replaced with the ${other}'s. Wplace then reloads.`
-      : `The ${other}'s servers and settings are replaced with the ones here.`,
-    note: 'Templates stay as they are; both share them.',
-    confirmLabel: importing ? 'Import' : 'Send',
-  })
-  if (!confirmed) return
-  try {
-    if (importing) await importFromOtherBuild()
-    else {
-      await sendToOtherBuild()
-      showToast(`Sent to the ${other}.`)
-    }
-  } catch (error) {
-    showToast(
-      importing ? `Could not import from the ${other}.` : `Could not send to the ${other}.`,
-      'error',
-    )
-    log('install', 'moving settings failed', String(error))
-  }
-}
-
-const handleSettingsIntent = (intent: SettingsIntent): void => {
+const handlePanelIntent = (panel: CaelestisPanel, intent: PanelIntent): void => {
   switch (intent.type) {
-    case 'add-server':
-      void connectServer(intent.url)
+    case 'tree':
+      handleTreeIntent(intent.intent, 'tree')
       break
-    case 'toggle-server':
-      if (intent.expanded) {
-        expandedServers.add(intent.url)
-        const server = getState().servers.find((candidate) => candidate.url === intent.url)
-        if (server?.isAdmin === true) refreshAccessTokens(server, refreshSettings)
-      } else expandedServers.delete(intent.url)
-      refreshSettings()
+    case 'work-tree':
+      handleTreeIntent(intent.intent, 'claimed')
       break
-    case 'prefetch-server': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
-      if (server !== undefined) prefetchAccessTokens(server)
+    case 'work-retry':
+      retryTemplateClaims(panelSurface, rerenderTree)
       break
-    }
-    case 'update-server-token':
-      void updateServerToken(intent.url, intent.token)
+    case 'work-visibility':
+      setShowOtherClaims(intent.showOtherClaims)
       break
-    case 'disconnect-server': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
-      if (server !== undefined) void disconnectServer(server)
+    case 'region-claim':
+      openClaimTool()
       break
-    }
-    case 'load-more-access-tokens': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
-      if (server?.isAdmin === true) loadMoreAccessTokens(server, refreshSettings)
+    case 'presence-fly':
+      flyToPainter(intent.key)
       break
-    }
-    case 'create-access-token': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
-      if (server?.isAdmin === true)
-        createServerAccessToken(server, intent.label, intent.scope, refreshSettings)
+    case 'claim-fly':
+      flyToClaim(intent.key)
       break
-    }
-    case 'revoke-access-token': {
-      const server = getState().servers.find((candidate) => candidate.url === intent.url)
-      if (server?.isAdmin === true)
-        revokeServerAccessToken(server, intent.tokenHash, intent.label, refreshSettings)
+    case 'claim-clear':
+      void clearClaim(intent.key, rerenderTree)
       break
-    }
-    case 'set-colour-navigation-order':
-      setState({ colourNavigationOrder: intent.value })
+    case 'navigate':
+      showView(intent.view)
       break
-    case 'set-simulated-input': {
-      const { [intent.id]: _, ...others } = getState().simulatedInput
-      setState({ simulatedInput: intent.value ? { ...others, [intent.id]: true } : others })
-      refreshSettings()
+    case 'close':
+      setOpen(false)
       break
-    }
-    case 'set-boolean':
-      applyGlobalSettingsIntent(intent, 'tab')
-      refreshSettings()
+    case 'reload-tiles':
+      void reloadTiles()
       break
-    case 'import-from-other-build':
-    case 'send-to-other-build':
-      void moveSettings(intent.type)
+    case 'popout':
+      mountNotificationsIn(intent.open ? (panel.shadowRoot?.querySelector('dialog') ?? null) : null)
       break
-    case 'set-wplace-patch':
-      // Redraws this view through the change listener installed with the panel.
-      applyGlobalSettingsIntent(intent, 'tab')
+    case 'resize-preview':
+      insetAllianceDrawer(intent.width)
+      invalidateOverlayControlsEdge()
+      redraw()
       break
-    case 'set-shortcut-binding': {
-      const { overrides, displaced } = assignShortcutBinding(
-        getState().shortcutOverrides,
-        intent.id,
-        intent.binding,
-      )
-      shortcutChange = intent.binding === null ? undefined : { id: intent.id, displaced }
-      setState({ shortcutOverrides: overrides })
-      syncRailButtonState()
-      refreshSettings()
+    case 'resize-commit':
+      setState({ panelWidth: intent.width })
+      insetAllianceDrawer(intent.width)
       break
-    }
-    case 'reset-shortcut-bindings':
-      shortcutChange = undefined
-      setState({ shortcutOverrides: {} })
-      syncRailButtonState()
-      refreshSettings()
+    case 'appearance':
+      handleAppearanceIntent(surfaceAppearanceStore(panelSurface), intent.intent)
       break
-    case 'reset-profile':
-      resetProfile()
-      profileStatus = 'Reset'
-      refreshSettings()
-      break
-    case 'copy-profile':
-      if (navigator.clipboard === undefined) {
-        profileStatus = 'Clipboard unavailable'
-        refreshSettings()
-        break
-      }
-      void navigator.clipboard.writeText(profileReport()).then(
-        () => {
-          profileStatus = 'Copied'
-          refreshSettings()
-        },
-        () => {
-          profileStatus = 'Clipboard unavailable'
-          refreshSettings()
-        },
-      )
+    case 'settings':
+      handleSettings(intent.intent)
       break
   }
 }
 
-const treeCallbacks = (): TreeCallbacks => ({
-  onAddServer: () => {
-    if (panelSurface.kind === 'world') showView('settings')
-  },
-  onCreateFolder: (target) => void createFolder(target, rerenderTree, panelSurface),
-  onImportTemplate: (target) => void importTemplate(target, rerenderTree, panelSurface),
-  onCaptureTemplate: (target) => captureTemplate(target, rerenderTree),
-  onContextMenu: (target, event) => openContextMenu(target, event, rerenderTree, panelSurface),
-  onCopyToServer: (id) => void copyToServer(id, rerenderTree),
-  onDropInServer: (server, nodeId, draggedKey) =>
-    dropOnServerNode(server, nodeId, draggedKey, rerenderTree, panelSurface),
-  onDropInLocal: async (draggedKey, folderId) => {
-    if (draggedKey.startsWith('node:')) {
-      return await moveBranch(draggedKey, { kind: 'local', folderId }, rerenderTree, panelSurface)
-    }
-    if (draggedKey.startsWith('st:')) {
-      return await copyServerTemplateToLocal(draggedKey, folderId, rerenderTree, panelSurface)
-    }
-    return null
-  },
-})
-
-const currentFocusedTreeKey = (): string | undefined =>
-  templateTreeKeyFor(focusedTemplate(), getState().servers)
-
-const focusedTreeModel = (): { readonly focusedKey?: string } => {
-  const focusedKey = currentFocusedTreeKey()
-  return focusedKey === undefined ? {} : { focusedKey }
-}
-
-const panelModel = (width = panelWidthForViewport(getState().panelWidth)): PanelModel => ({
-  view: currentView(),
-  title: alliancePanelTitle(panelSurface),
-  showSettings: panelSurface.kind === 'world',
-  width,
-  minWidth: minimumPanelWidth(),
-  maxWidth: maximumPanelWidth(),
-  ...(currentView() === 'tree' && activeTreeAdapter !== null && activeTreeClaims !== null
-    ? claimTreeModels(activeTreeAdapter, activeTreeClaims)
-    : {}),
-  ...(currentView() === 'appearance' ? { appearance: surfaceAppearanceModel(panelSurface) } : {}),
-  ...(currentView() === 'settings' && panelSurface.kind === 'world'
-    ? { settings: settingsModel() }
-    : {}),
-})
-
-const claimTreeModels = (
-  adapter: TemplateTreeAdapter,
-  claims: ReturnType<typeof workSectionModel>,
-): Pick<PanelModel, 'tree' | 'work' | 'showOtherClaims'> => {
-  const keys = [...claims.templates]
-    .filter(
-      ([, claim]) => claim.mine || (showOtherClaims && claim.canAssign && claim.people.length > 0),
-    )
-    .map(([key]) => key)
-  if (
-    claimedTreeAdapter === null ||
-    claimedTreeStale ||
-    keys.length !== claimedTreeKeys.length ||
-    keys.some((key, index) => key !== claimedTreeKeys[index])
-  ) {
-    claimedTreeAdapter = templateTreeAdapter(treeCallbacks(), rerenderTree, {
-      surface: panelSurface,
-      includeCollapsed: true,
-      templateKeys: new Set(keys),
-      claims: claims.templates,
-    })
-    claimedTreeStale = false
-    claimedTreeKeys = keys
-  }
-  return {
-    showOtherClaims,
-    tree: {
-      ...withTemplateClaims(adapter.model, claims),
-      ...focusedTreeModel(),
-      ...treeActionPresentation(),
-    },
-    work: {
-      tree: {
-        ...withTemplateClaims(claimedTreeAdapter.model, claims, showOtherClaims),
-        ...focusedTreeModel(),
-      },
-      canShowOthers: claims.canShowOthers,
-      error: claims.error,
-      ...presenceField(),
-    },
-  }
-}
-
-/** The Painters drawer's model, which only the world canvas has. */
-const presenceField = (): Pick<NonNullable<PanelModel['work']>, 'presence'> => {
-  if (panelSurface.kind !== 'world') return {}
-  const presence = presenceSummaryModel()
-  return presence === undefined ? {} : { presence }
-}
-
-/** Follow a presence message by replacing only the Painters drawer; the trees do not read it. */
-const refreshPresenceDrawer = (): void => {
-  if (!panelOpen() || currentView() !== 'tree') return
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
-  const work = panel?.model.work
-  if (panel == null || work === undefined) return
-  const { presence: _previous, ...rest } = work
-  panel.model = { ...panel.model, work: { ...rest, ...presenceField() } }
-}
-
-/** Follow a pixel-progress change by updating row progress in both trees, keeping their rows. */
-const refreshTreeProgress = (): void => {
-  if (!panelOpen() || currentView() !== 'tree' || activeTreeAdapter === null) return
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
-  if (panel === null) return
-  const tree = activeTreeAdapter.refreshProgress()
-  const claimed = claimedTreeAdapter?.refreshProgress() ?? false
-  if (tree || claimed) panel.model = panelModel(currentPanelWidth(panel))
-}
-
-/** The panel's laid-out width; a freshly connected element has no box yet, so its model's. */
-const currentPanelWidth = (panel: CaelestisPanel): number =>
-  panel.getBoundingClientRect().width || panel.model.width
-
-/** Wplace adapter around the shared panel shell. View contents migrate in the following slices. */
-const buildSveltePanel = (): CaelestisPanel => {
+const buildPanel = (): CaelestisPanel => {
   const panel = (panelHost?.ownerDocument ?? document).createElement('caelestis-panel')
   const alliance = panelSessions.scope() === 'alliance'
   panel.id = currentPanelId()
-  panel.setAttribute('aria-label', alliance ? alliancePanelTitle(panelSurface) : PANEL_TITLE)
+  panel.setAttribute('aria-label', panelTitle(panelSurface))
   Object.assign(panel.style, {
     position: alliance ? 'absolute' : 'fixed',
     right: alliance ? '0' : `${CLEAR_OF_RAIL}px`,
@@ -1070,206 +465,15 @@ const buildSveltePanel = (): CaelestisPanel => {
   panel.style.setProperty('--pane-inset', alliance ? '0px' : `${CLEAR_OF_RAIL}px`)
   panel.model = panelModel()
   applyWplaceTheme(panel)
-  panel.addEventListener('caelestis-panel-intent', (event) => {
-    const intent = (event as CustomEvent<PanelIntent>).detail
-    switch (intent.type) {
-      case 'work-retry':
-        retryTemplateClaims(panelSurface, rerenderTree)
-        break
-      case 'work-tree':
-        if (intent.intent.type === 'template-claim') {
-          changeTemplateClaim(
-            intent.intent.key,
-            panelSurface,
-            rerenderTree,
-            intent.intent.release,
-            intent.intent.person,
-          )
-        } else if (!handleTreeActionPresentationIntent(intent.intent)) {
-          claimedTreeAdapter?.handle(intent.intent)
-        }
-        break
-      case 'work-visibility':
-        showOtherClaims = intent.showOtherClaims
-        rerenderTree()
-        break
-      case 'region-claim':
-        openClaimTool(undefined, rerenderTree)
-        break
-      case 'presence-fly':
-        flyToPainter(intent.key)
-        break
-      case 'claim-fly':
-        flyToClaim(intent.key)
-        break
-      case 'claim-clear':
-        void clearClaim(intent.key, rerenderTree)
-        break
-      case 'navigate':
-        if (panelSurface.kind !== 'world' && intent.view === 'settings') break
-        showView(intent.view)
-        break
-      case 'close':
-        setOpen(false)
-        break
-      case 'reload-tiles':
-        void reloadTiles()
-        break
-      case 'popout':
-        mountNotificationsIn(
-          intent.open ? (panel.shadowRoot?.querySelector('dialog') ?? null) : null,
-        )
-        break
-      case 'resize-preview':
-        if (allianceStage !== null) {
-          allianceDrawerInset.apply(allianceStage, intent.width, GAP)
-          const active = activeAllianceSurface()
-          if (active !== null) positionAllianceRail(active)
-        }
-        invalidateOverlayControlsEdge()
-        redraw()
-        break
-      case 'resize-commit':
-        setState({ panelWidth: intent.width })
-        if (allianceStage !== null) {
-          allianceDrawerInset.apply(allianceStage, intent.width, GAP)
-          const active = activeAllianceSurface()
-          if (active !== null) positionAllianceRail(active)
-        }
-        break
-      case 'tree':
-        if (intent.intent.type === 'template-claim') {
-          changeTemplateClaim(
-            intent.intent.key,
-            panelSurface,
-            rerenderTree,
-            intent.intent.release,
-            intent.intent.person,
-          )
-          break
-        }
-        if (handleTreeActionPresentationIntent(intent.intent)) {
-          break
-        }
-        if (intent.intent.type === 'search') {
-          searchQuery = intent.intent.query
-          renderTree()
-        } else if (intent.intent.type === 'sort') {
-          setState({ sort: intent.intent.sort })
-          rerenderTree()
-        } else if (intent.intent.type === 'display-mode') {
-          if (!setTemplateDisplayMode(intent.intent.mode))
-            showToast('Could not save the template view.', 'error')
-          rerenderTree()
-        } else if (intent.intent.type === 'filter') {
-          setState({ filters: intent.intent.filters })
-          rerenderTree()
-        } else {
-          activeTreeAdapter?.handle(intent.intent)
-        }
-        break
-      case 'appearance':
-        handleAppearanceIntent(surfaceAppearanceStore(panelSurface), intent.intent)
-        break
-      case 'settings':
-        if (panelSurface.kind === 'world') handleSettingsIntent(intent.intent)
-        break
-    }
-  })
+  panel.addEventListener('caelestis-panel-intent', (event) =>
+    handlePanelIntent(panel, (event as CustomEvent<PanelIntent>).detail),
+  )
   return panel
-}
-
-/**
- * Whichever tree is currently on screen.
- *
- * Every row callback would otherwise close over the `renderTree` of the build that created it, and
- * `setState`
- * notifies synchronously — so an action that writes state before it redraws (expanding a collapsed
- * parent, say) has had the whole view replaced underneath it, and its own closure then paints an
- * element that is no longer in the document. Routing through this makes a stale closure redraw the
- * live tree instead of a detached one.
- */
-const rerenderTree = (): void => {
-  claimedTreeStale = true
-  renderTree()
-}
-
-/** Rebuild the main tree only, for inputs the claimed list ignores, such as the search query. */
-const renderTree = (): void => {
-  if (!panelOpen() || currentView() !== 'tree') return
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
-  if (panel === null) return
-  buildActiveTree()
-  panel.model = panelModel(currentPanelWidth(panel))
-  if (panelSessions.isWorldTreeVisible()) {
-    for (const listener of worldTreeVisibleListeners) listener()
-  }
-}
-
-/** Build the main tree with one pass over the claims, which every panel model then reuses. */
-const buildActiveTree = (): void => {
-  activeTreeClaims = workSectionModel(panelSurface, rerenderTree)
-  activeTreeAdapter = templateTreeAdapter(treeCallbacks(), rerenderTree, {
-    surface: panelSurface,
-    query: searchQuery,
-    claims: activeTreeClaims.templates,
-  })
-}
-
-let lastFocusCentre: { readonly x: number; readonly y: number } | null | undefined
-
-/** The focused row follows the view; on the world map, only when its centre moves. */
-const followViewFocus = (): void => {
-  if (currentSurface().kind === 'world') {
-    const centre = viewportCentre()
-    if (
-      lastFocusCentre !== undefined &&
-      (centre === null
-        ? lastFocusCentre === null
-        : lastFocusCentre?.x === centre.x && lastFocusCentre.y === centre.y)
-    )
-      return
-    lastFocusCentre = centre
-  }
-  refreshTemplateTreeFocus()
-}
-
-/** Move the focused-row marker without rebuilding the full template tree. */
-const refreshTemplateTreeFocus = (): void => {
-  if (!panelOpen() || currentView() !== 'tree' || activeTreeAdapter === null) return
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
-  if (panel === null) return
-  const focusedKey = currentFocusedTreeKey()
-  if (panel.model.tree?.focusedKey === focusedKey) return
-  panel.model = panelModel(currentPanelWidth(panel))
-}
-
-const showView = (view: PanelView): void => {
-  if (panelSurface.kind !== 'world' && view === 'settings') return
-  panelSessions.setView(view)
-  const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
-  if (panel === null) return
-
-  if (view === 'settings') settingsModel()
-  if (view === 'tree') {
-    buildActiveTree()
-  } else {
-    activeTreeAdapter = null
-    activeTreeClaims = null
-    claimedTreeAdapter = null
-    if (view === 'appearance') refreshAccount(refreshView)
-  }
-  panel.model = panelModel(currentPanelWidth(panel))
-  syncProfileTimer()
-  if (panelSessions.isWorldTreeVisible()) {
-    for (const listener of worldTreeVisibleListeners) listener()
-  }
-  log('install', `panel view: ${view}`)
 }
 
 const setOpen = (next: boolean): void => {
   panelSessions.setOpen(next)
-  syncRailButtonState()
+  syncPanelButtons()
   const existing = document.getElementById(currentPanelId())
   if (!panelOpen()) {
     cancelTreeActionSetup(new Error('panel closed'))
@@ -1280,7 +484,7 @@ const setOpen = (next: boolean): void => {
       const active = activeAllianceSurface()
       if (active !== null) positionAllianceRail(active)
     }
-    syncProfileTimer()
+    syncSettingsVisible()
     // Map-anchored controls glide into the reclaimed width in lockstep with the drawer.
     glideOverlayControls(existing === null ? 0 : surfaceCloseDurationMs(existing))
     redraw()
@@ -1290,24 +494,20 @@ const setOpen = (next: boolean): void => {
   // A node still running its exit transition is reused so the reopen reverses in place.
   if (existing !== null && !cancelSurfaceClose(existing)) return
   if (existing !== null) existing.dataset.state = 'open'
-  if (allianceStage !== null) {
-    allianceDrawerInset.apply(allianceStage, panelWidthForViewport(getState().panelWidth), GAP)
-    const active = activeAllianceSurface()
-    if (active !== null) positionAllianceRail(active)
-  }
+  insetAllianceDrawer(panelWidthForViewport(getState().panelWidth))
   const host = panelHost ?? document.body
-  const panel = existing ?? buildSveltePanel()
+  const panel = existing ?? buildPanel()
   if (existing === null) {
     host.appendChild(panel)
     openSurface(panel)
   }
   // The panel's measured left edge is now the map controls' right edge; they glide over to it.
-  // Armed before showView and the open listeners, which already reposition the controls. Read from
-  // the theme token Panel.element's --pane-open-dur points at: a fresh host's shadow styles attach
-  // a microtask after connection, so --pane-open-dur itself still reads empty here.
+  // Armed before showView, which already repositions the controls. Read from the theme token
+  // Panel.element's --pane-open-dur points at: a fresh host's shadow styles attach a microtask
+  // after connection, so --pane-open-dur itself still reads empty here.
   glideOverlayControls(surfaceCloseDurationMs(panel, '--caelestis-duration-medium'))
   // Refreshes skip a closed panel, so whatever the claimed list was built from may have moved.
-  claimedTreeStale = true
+  markClaimedTreeStale()
   showView(currentView())
   void primeFromCache(rerenderTree)
   redraw()
@@ -1327,7 +527,7 @@ const togglePanelFor = (scope: PanelScope): void => {
   const next = !panelSessions.isOpen(scope)
   if (scope !== panelSessions.scope()) {
     panelSessions.setOpen(next, scope)
-    syncRailButtonState()
+    syncPanelButtons()
     return
   }
   setOpen(next)
@@ -1338,16 +538,12 @@ const unmountSelectedPanel = (): void => {
   document.getElementById(currentPanelId())?.remove()
   syncToastPlacement(currentPanelId())
   if (panelSessions.scope() === 'alliance') allianceDrawerInset.clear()
-  activeTreeAdapter = null
-  activeTreeClaims = null
-  claimedTreeAdapter = null
-  syncProfileTimer()
+  clearTreeView()
+  syncSettingsVisible()
 }
 
 const selectAlliancePanelSurface = (active: ActiveAllianceSurface | null): void => {
-  allianceRailObserver?.disconnect()
-  allianceRailObserver = null
-  document.getElementById(ALLIANCE_BUTTON_WRAPPER_ID)?.remove()
+  unmountAllianceRail()
   if (active === null) {
     if (panelSessions.scope() === 'alliance') unmountSelectedPanel()
     panelSessions.select('world')
@@ -1355,7 +551,7 @@ const selectAlliancePanelSurface = (active: ActiveAllianceSurface | null): void 
     panelHost = document.body
     allianceStage = null
     if (panelSessions.isOpen()) setOpen(true)
-    else syncRailButtonState()
+    else syncPanelButtons()
     return
   }
 
@@ -1367,282 +563,76 @@ const selectAlliancePanelSurface = (active: ActiveAllianceSurface | null): void 
     panelHost !== nextHost ||
     allianceStage !== active.stage
   if (!changed) {
-    syncRailButtonState()
+    syncPanelButtons()
     return
   }
 
   unmountSelectedPanel()
   panelSessions.select('alliance')
   panelSurface = active.surface
-  panelHost = nextHost as HTMLElement
+  panelHost = nextHost
   allianceStage = active.stage
   if (panelSessions.isOpen()) setOpen(true)
-  else syncRailButtonState()
+  else syncPanelButtons()
 }
 
 export const isPanelOpen = (): boolean => panelOpen()
 
-export const isWorldTemplateTreeVisible = (): boolean => panelSessions.isWorldTreeVisible()
-
 /** Whether the open world tree presents this template after search, filters, and collapse. */
 export const isWorldTemplatePresented = (server: ServerConnection, templateId: string): boolean =>
-  isWorldTemplateTreeVisible() &&
-  (activeTreeAdapter?.model.entries.some(
-    (entry) => entry.type === 'row' && entry.key === serverTemplateTreeKey(server, templateId),
-  ) ??
-    false)
+  panelSessions.isWorldTreeVisible() && treeViewPresents(serverTemplateTreeKey(server, templateId))
 
 export const onWorldTemplateTreeVisible = (listener: () => void): (() => void) => {
   worldTreeVisibleListeners.add(listener)
   return () => worldTreeVisibleListeners.delete(listener)
 }
 
-const RAIL_ID = 'caelestis-rail'
-/** Wplace's rail spacing, last measured; kept while their rail is gone, as in the paint drawer. */
-let railGap = GAP
+/** The panel hides while the template studio is open, and comes back if it was open before. */
+let hiddenForStudio = false
 
-/**
- * Our own rail, beneath wplace's when they have one and in its place when they do not.
- *
- * Our button used to be appended *into* their rail, which looked native and disappeared with it —
- * and it disappears exactly when the paint drawer opens, which is when these controls are most
- * wanted. Owning the container decouples the two: it is positioned against theirs while theirs is on
- * screen, so it still reads as part of the same stack, and simply stays put when theirs goes.
- *
- * Positioned rather than laid out, because their rail is Svelte-rendered and free to re-render at
- * any moment. Anything we put inside it is on loan; anything we position against it is not.
- */
-const railContainer = (): HTMLElement => {
-  const existing = document.getElementById(RAIL_ID)
-  if (existing !== null) return existing
-  const el = document.createElement('div')
-  el.id = RAIL_ID
-  Object.assign(el.style, {
-    position: 'fixed',
-    zIndex: '30',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-  })
-  document.body.appendChild(el)
-  return el
-}
-
-const MORE_ID = 'caelestis-rail-more'
-const TRAY_ID = 'caelestis-rail-tray'
-let moreControl: CaelestisRailControl | null = null
-let tray: HTMLElement | null = null
-
-/** Every rail button in rail order; the first ones win the slots when the column is short. */
-const railButtons = (): CaelestisRailControl[] => [
-  railButton(),
-  colourModeButton(),
-  mismatchModeButton(),
-  presenceModeButton(),
-  claimToolButton(),
-]
-
-const trayOpen = (): boolean => tray !== null && !tray.hidden
-
-const syncMoreState = (): void => {
-  if (moreControl === null) return
-  moreControl.model = {
-    id: 'more',
-    label: 'More Caelestis controls',
-    popup: 'menu',
-    controls: TRAY_ID,
-    expanded: trayOpen(),
-  }
-}
-
-const setTrayOpen = (open: boolean): void => {
-  if (tray === null || trayOpen() === open) return
-  tray.hidden = !open
-  syncMoreState()
+const followTemplateStudio = (open: boolean): void => {
   if (open) {
-    window.addEventListener('pointerdown', closeTrayOutside, true)
-    window.addEventListener('keydown', closeTrayOnEscape)
-  } else {
-    window.removeEventListener('pointerdown', closeTrayOutside, true)
-    window.removeEventListener('keydown', closeTrayOnEscape)
+    hiddenForStudio = panelOpen()
+    if (hiddenForStudio) setOpen(false)
+    return
   }
+  if (hiddenForStudio && !panelOpen()) setOpen(true)
+  hiddenForStudio = false
 }
 
-const closeTrayOutside = (event: PointerEvent): void => {
-  const target = event.target as Node
-  if (tray?.contains(target) === true || moreControl?.contains(target) === true) return
-  setTrayOpen(false)
-}
-
-const closeTrayOnEscape = (event: KeyboardEvent): void => {
-  if (event.key !== 'Escape') return
-  setTrayOpen(false)
-  moreControl?.focus()
-}
-
-/** The rail's last slot when the column is short: opens the buttons that did not fit. */
-const moreButton = (): CaelestisRailControl => {
-  if (moreControl !== null) return moreControl
-  moreControl = document.createElement('caelestis-rail-control')
-  moreControl.id = MORE_ID
-  applyWplaceTheme(moreControl)
-  moreControl.addEventListener('caelestis-rail-intent', (event) => {
-    if ((event as CustomEvent<RailControlIntent>).detail.id !== 'more') return
-    setTrayOpen(!trayOpen())
-  })
-  syncMoreState()
-  return moreControl
-}
-
-/**
- * The popout beside More: a row of the overflowed rail buttons, the same elements the rail would
- * have shown, so their state and handlers carry over untouched. A button in it does its job and
- * the tray closes, like a menu.
- */
-const trayContainer = (): HTMLElement => {
-  if (tray !== null) return tray
-  tray = document.createElement('div')
-  tray.id = TRAY_ID
-  Object.assign(tray.style, { display: 'flex', alignItems: 'center' })
-  tray.setAttribute('role', 'menu')
-  tray.setAttribute('aria-label', 'More Caelestis controls')
-  Object.assign(tray.style, { position: 'fixed', zIndex: '30' })
-  tray.hidden = true
-  tray.addEventListener('caelestis-rail-intent', () => setTrayOpen(false))
-  document.body.appendChild(tray)
-  return tray
-}
-
-/** Put exactly these children in this order, touching only the ones out of place. */
-const place = (host: HTMLElement, children: readonly HTMLElement[]): void => {
-  children.forEach((child, index) => {
-    if (host.children[index] !== child) host.insertBefore(child, host.children[index] ?? null)
-  })
-  while (host.children.length > children.length) host.lastElementChild?.remove()
-}
-
-/** Write `top`/`right` only when they change, so an unmoved rail leaves layout clean. */
-const setFixedOffset = (el: HTMLElement, top: number, right: number): void => {
-  const topPx = `${top}px`
-  const rightPx = `${right}px`
-  if (el.style.top !== topPx) el.style.top = topPx
-  if (el.style.right !== rightPx) el.style.right = rightPx
-}
-
-/**
- * Keep our rail where wplace's is, and following it when it moves.
- *
- * Read from their rail's own box rather than from a copy of their Tailwind offsets: they own that
- * layout and are free to change it, and a hardcoded corner would drift the moment they do. The
- * fallback matters more than it looks — it is the paint-drawer case, where their rail is gone and
- * only the Store button, when they show it while painting, is left in the corner.
- *
- * The column ends above whatever wplace button sits below it — My location, the profile button,
- * the paint drawer. Buttons that do not fit move behind More rather than into a second column,
- * because the space to the left belongs to each overlay's own controls.
- */
-const positionRail = (): void => {
-  const rail = railContainer()
-  // Every read comes before the first write, so measuring never forces a second layout.
-  const theirRail = findWplaceRail()
-  railGap = (theirRail === null ? null : wplaceRailGap(theirRail)) ?? railGap
-  const gap = railGap
-  const theirs = theirRail?.getBoundingClientRect()
-  const beside = theirs !== undefined && theirs.width > 0
-  // Fixed-position offsets use the layout viewport, which excludes the page scrollbar.
-  const viewportWidth = document.documentElement.clientWidth
-  // Theirs is gone — the paint-drawer case — so ours takes its place at the same inset, below
-  // anything of theirs that stays in that corner.
-  const right = beside ? viewportWidth - theirs.right : EDGE
-  const columnRight = viewportWidth - right
-  const top = wplaceFreeTop(
-    { left: columnRight - RAIL_BUTTON, right: columnRight },
-    beside ? theirs.bottom + gap : EDGE,
-    gap,
-  )
-  const below = wplaceButtonBelow({ left: columnRight - RAIL_BUTTON, right: columnRight, top })
-  const floor = below === null ? window.innerHeight - EDGE : below - gap
-  const slots = Math.max(1, Math.floor((floor - top + gap) / (RAIL_BUTTON + gap)))
-  const buttons = railButtons()
-  const fits = slots >= buttons.length
-  setFixedOffset(rail, top, right)
-  place(rail, fits ? buttons : [...buttons.slice(0, slots - 1), moreButton()])
-  place(trayContainer(), fits ? [] : buttons.slice(slots - 1))
-  if (fits) setTrayOpen(false)
-  const tray = trayContainer()
-  setFixedOffset(tray, top + (slots - 1) * (RAIL_BUTTON + gap), right + RAIL_BUTTON + gap)
-  const gapPx = `${gap}px`
-  if (rail.style.gap !== gapPx) rail.style.gap = gapPx
-  if (tray.style.gap !== gapPx) tray.style.gap = gapPx
-}
-
-/**
- * Follow the colour wplace has selected, for every overlay on the current canvas.
- *
- * On the rail rather than only in the panel because it is toggled constantly while painting, and
- * opening a panel to reach it costs more than the mode saves. It says nothing while their drawer is
- * shut — there is no selected colour then — which the tooltip carries.
- */
-const colourRailModel = (surface: TemplateSurface = WORLD_TEMPLATE_SURFACE): RailControlModel => {
-  const on = onlySelectedColourFor(surface)
-  const label = on ? 'Showing only the selected colour' : 'Show only the selected colour'
-  return {
-    id: 'colour',
-    label: `${isPaintOpen() ? label : `${label} — open wplace's paint drawer to pick one`}${shortcutHint('toggle-colour')}`,
-    pressed: on,
-  }
-}
-
-const colourModeButton = (): CaelestisRailControl => {
-  const existing = document.getElementById(COLOUR_MODE_ID)
-  if (existing !== null) return existing as CaelestisRailControl
-  const button = document.createElement('caelestis-rail-control')
-  button.id = COLOUR_MODE_ID
-  button.model = colourRailModel()
-  applyWplaceTheme(button)
-  button.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
-    if (intent.id !== 'colour') return
-    setOnlySelectedColourFor(WORLD_TEMPLATE_SURFACE, !onlySelectedColourFor(WORLD_TEMPLATE_SURFACE))
-    syncColourModeState()
-  })
-  return button
-}
-
-const COLOUR_MODE_ID = 'caelestis-colour-mode'
-
-const syncColourModeState = (): void => {
-  const button = document.getElementById(COLOUR_MODE_ID) as CaelestisRailControl | null
-  if (button === null) return
-  button.model = colourRailModel()
-}
-
-/**
- * Keep our rail on screen and our buttons in it.
- *
- * The rail is rendered by wplace's own Svelte app, which is free to re-render at any moment. Ours is
- * separate, so the observer is only here to notice *their* rail moving or vanishing — not to rescue
- * a button they threw away.
- */
+/** Install the rail, the panel it opens, and everything that redraws the panel's current view. */
 export const installPanel = (): void => {
   void ensureLocalTags()
     .then(refreshView)
     .catch(() => showToast('Could not load local tags. Reload the page to try again.', 'error'))
   panelSessions.select('world')
   panelHost = document.body
+  installTreeView({
+    surface: () => panelSurface,
+    rerender: rerenderTree,
+    render: renderTree,
+    addServer: () => showView('settings'),
+  })
   void refreshStoredServers(refreshView)
   installServerConnectionRetry(refreshView)
-  // Placed before the state syncs below: they find their buttons by id, so the buttons must be in
-  // the document first.
-  positionRail()
-  syncRailButtonState()
-  syncColourModeState()
-  syncMismatchModeState()
-  syncPresenceModeState()
-  syncClaimToolState()
-  onClaimEditorChange(syncClaimToolState)
+  installRail({
+    isOpen: (scope) => panelSessions.isOpen(scope),
+    toggleWorld: () => togglePanelFor('world'),
+    toggleAlliance: (active) => {
+      selectAlliancePanelSurface(active)
+      togglePanelFor('alliance')
+    },
+    insetAllianceDrawer: (active) => {
+      if (!panelSessions.isOpen('alliance')) return
+      const panel = active.stage.ownerDocument.getElementById(ALLIANCE_PANEL_ID)
+      const measuredWidth = panel?.getBoundingClientRect().width ?? 0
+      const width = measuredWidth > 0 ? measuredWidth : panelWidthForViewport(getState().panelWidth)
+      allianceDrawerInset.apply(active.stage, width, GAP)
+    },
+  })
   onClaimEditorChange(closePanelForMobileDrawing)
-  onPresenceChange(syncClaimToolState)
+  // The claims drawer follows the editor.
+  onClaimEditorChange(rerenderTree)
   // Headcounts and region claims arrive over the socket; the Painters drawer has to follow them.
   onPresenceChange(() =>
     measureProfile('Presence drawer', () => {
@@ -1650,24 +640,14 @@ export const installPanel = (): void => {
       refreshPresenceDrawer()
     }),
   )
-  installRailStateSync()
   onViewChange(followViewFocus, 'Template tree focus')
-  positionChargeForecast()
-  log('install', 'rail installed beside wplace’s')
-
-  // Their re-render may have taken our buttons if anything ever moves them; `positionRail` also
-  // puts every button back in its slot, so one call covers both. Only Wplace's own DOM changes
-  // count, at most once per frame: ours moving would otherwise wake this again.
-  onWplaceLayoutChange(() => {
-    positionRail()
-    positionChargeForecast()
-  })
+  onTemplateStudioChange(followTemplateStudio)
   window.addEventListener('resize', () => {
     invalidateOverlayControlsEdge()
     closePanelForMobileDrawing()
     positionRail()
     positionChargeForecast()
-    const panel = document.getElementById(currentPanelId()) as CaelestisPanel | null
+    const panel = currentPanel()
     if (panel !== null) {
       const width = panelWidthForViewport(getState().panelWidth)
       panel.model = panelModel(width)
@@ -1677,11 +657,8 @@ export const installPanel = (): void => {
     if (active !== null) positionAllianceRail(active)
     redraw()
   })
-  onStateChange(syncColourModeState)
-  onStateChange(() => syncAllianceModeState())
-  // Once, here, rather than each time a view is built: subscribing from inside `treeView` added a
-  // fresh listener on every switch back to it, so the tenth visit redrew the panel ten times per
-  // change.
+  // Once, here, rather than each time a view is built: subscribing from inside a view added a
+  // fresh listener on every switch back to it.
   let previousState = getState()
   onStateChange((next) => {
     const expansionOnly = onlyExpansionChanged(previousState, next)
@@ -1692,6 +669,7 @@ export const installPanel = (): void => {
     else refreshView()
   })
   onAllianceManifestChange(refreshView)
+  onSettingsViewChange(refreshSettings)
   // A patch switched from the console must not leave an open settings view showing the old state.
   onWplacePatchChange(refreshSettings)
   // The same for any setting changed in the extension's toolbar popup or another tab.
@@ -1782,12 +760,9 @@ export const installPanel = (): void => {
     repayRefresh()
   })
   // Opening wplace's paint drawer changes what the appearance grid is showing without changing any
-  // state of ours, so neither listener above hears it and the grid sat showing the switches the
-  // mode had already overridden. Only that view: the tree is expensive to rebuild and a colour
-  // click while painting would rebuild it every time.
+  // state of ours. Only that view: the tree is expensive to rebuild and a colour click while
+  // painting would rebuild it every time.
   onPaintSelectionChange(() => {
-    syncColourModeState()
-    syncAllianceModeState()
     if (currentView() === 'appearance') refreshView()
   })
 }

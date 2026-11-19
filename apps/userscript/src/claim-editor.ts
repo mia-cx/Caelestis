@@ -73,7 +73,6 @@ export interface ClaimEditorHost {
     ids: readonly string[],
     documents: readonly RegionDocument[],
   ) => Promise<ClaimSaveResult>
-  readonly changed: () => void
 }
 
 export interface ClaimCaptureHost {
@@ -124,7 +123,6 @@ const notify = (): void => {
       warn('install', 'claim editor listener failed', String(error))
     }
   }
-  host?.changed()
   syncMode()
   syncOverlay()
   applyCursor()

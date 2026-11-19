@@ -60,7 +60,6 @@ import {
 import { MAX_TEMPLATE_NAME_LENGTH } from '../templates/template-record.js'
 import { presetColours } from '../ui/colours.js'
 import { requestConfirmation } from '../ui/notification-host.js'
-import { isPanelOpen, togglePanel } from '../ui/panel.js'
 import { applyWplaceTheme } from '../ui/theme.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
 
@@ -132,7 +131,7 @@ let closing: HTMLElement | null = null
 let releaseHost: (() => void) | null = null
 let draftId = ''
 /** The panel steps aside for the studio's windows and comes back when it closes. */
-let panelWasOpen = false
+const studioListeners = new Set<(open: boolean) => void>()
 
 let name = ''
 let source: Source | null = null
@@ -215,6 +214,11 @@ function initialSettings(): StudioSettings {
 }
 
 export const isTemplateStudioOpen = (): boolean => target !== null
+
+/** Follow the studio opening and closing; the panel steps aside while it is open. */
+export const onTemplateStudioChange = (listener: (open: boolean) => void): void => {
+  studioListeners.add(listener)
+}
 
 /* Model. */
 
@@ -1269,8 +1273,7 @@ export const closeTemplateStudio = (): void => {
   window.removeEventListener('paste', onPaste, true)
   releaseHost?.()
   releaseHost = null
-  if (panelWasOpen && !isPanelOpen()) togglePanel()
-  panelWasOpen = false
+  for (const listener of studioListeners) listener(false)
   const leaving = element
   element = null
   if (leaving === null) return
@@ -1332,8 +1335,7 @@ export const openTemplateStudio = (
     origin = next.origin
     setOutput({ width: next.width, height: next.height })
   }
-  panelWasOpen = isPanelOpen()
-  if (panelWasOpen) togglePanel()
+  for (const listener of studioListeners) listener(true)
   mount()
   render()
   window.addEventListener('paste', onPaste, true)

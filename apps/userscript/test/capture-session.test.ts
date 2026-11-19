@@ -48,7 +48,6 @@ beforeEach(() => {
   installClaimEditor({
     myRegions: () => [],
     templateFor: () => null,
-    changed: () => {},
     save: async () => ({ ids: [], error: null }),
   })
 })

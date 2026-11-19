@@ -117,8 +117,6 @@ const templateNear = (rect: PresenceRect | null): PlacedTemplate | null => {
   return best
 }
 
-const rerenders = new Set<() => void>()
-
 const editorHost: ClaimEditorHost = {
   templateFor: (document) => templateNear(regionDocumentBounds(document))?.name ?? null,
   myRegions: () =>
@@ -134,17 +132,13 @@ const editorHost: ClaimEditorHost = {
       )
     return result
   },
-  changed: () => {
-    for (const rerender of rerenders) rerender()
-  },
 }
 
 /**
  * Enter claim mode with a tool in hand, from the rail, the drawer, or the M key; when claiming is
- * not possible, say why. `rerender` is the panel's, so its drawer follows the editor.
+ * not possible, say why.
  */
-export const openClaimTool = (tool?: ClaimTool, rerender?: () => void): boolean => {
-  if (rerender !== undefined) rerenders.add(rerender)
+export const openClaimTool = (tool?: ClaimTool): boolean => {
   const availability = claimAvailability()
   if (!availability.ready) {
     showToast(availability.reason, 'error')

@@ -10,9 +10,9 @@ import type {
 } from '@caelestis/ui/elements'
 import { getState } from '../settings.js'
 import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
+import { PANEL_ID } from './panel-scope.js'
 import { applyWplaceTheme } from './theme.js'
 
-export const PANEL_ID = 'caelestis-panel'
 const NOTIFICATIONS_ID = 'caelestis-notifications'
 const MAX_PENDING_AMBIENT_TOASTS = 20
 /** Errors kept behind the newest toast; a bulk operation can fail many times over. */

@@ -10,7 +10,6 @@ import type {
   CaelestisRailControl,
   OverlayControlsIntent,
   OverlayControlsModel,
-  RailControlIntent,
   RailControlModel,
 } from '@caelestis/ui/elements'
 import {
@@ -86,13 +85,14 @@ import {
   handleAppearanceIntent,
 } from './appearance.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
-import { PANEL_ID, requestConfirmation } from './notification-host.js'
+import { requestConfirmation } from './notification-host.js'
 import {
   overlayAppearanceState,
   type AppearanceUpdater as Updater,
 } from './overlay-appearance-state.js'
 import { type OverlayFailureKey as FailureKey, overlayFailures } from './overlay-failures.js'
-import { allianceRailTop } from './panel-scope.js'
+import { ALLIANCE_PANEL_ID, ALLIANCE_RAIL_ID, allianceRailTop, PANEL_ID } from './panel-scope.js'
+import { mountRailButton } from './rail-button.js'
 import { createRangeGestures } from './range-gestures.js'
 import { applyWplaceTheme } from './theme.js'
 import { findWplaceRightControls, onWplaceLayoutChange } from './wplace-rail.js'
@@ -161,12 +161,11 @@ const localControlsRightEdge = (): number => {
     wplaceControls !== undefined && wplaceControls.width > 0
       ? Math.min(fallbackRailEdge, wplaceControls.left - GAP)
       : fallbackRailEdge
-  const allianceRail = document.getElementById('caelestis-alliance-rail')?.getBoundingClientRect()
+  const allianceRail = document.getElementById(ALLIANCE_RAIL_ID)?.getBoundingClientRect()
   if (allianceRail !== undefined && allianceRail.width > 0) {
     railEdge = Math.min(railEdge, allianceRail.left - GAP)
   }
-  const panel =
-    document.getElementById('caelestis-alliance-panel') ?? document.getElementById(PANEL_ID)
+  const panel = document.getElementById(ALLIANCE_PANEL_ID) ?? document.getElementById(PANEL_ID)
   // A closing panel has already given its room back; measuring it would pin controls against a
   // box that is sliding away and then snap them once it is removed.
   if (panel === null || panel.dataset.state === 'closing') return railEdge
@@ -203,7 +202,7 @@ const worldControlsRightEdge = (): number => {
   worldRightEdge = localControlsRightEdge()
   const sized = [
     findWplaceRightControls(),
-    document.getElementById('caelestis-alliance-rail'),
+    document.getElementById(ALLIANCE_RAIL_ID),
     document.getElementById(PANEL_ID),
   ].filter((element) => element !== null)
   if (
@@ -417,22 +416,13 @@ const overlayRailControl = (
   control: string,
   activate: () => void,
 ): CaelestisRailControl => {
-  const element = document.createElement('caelestis-rail-control')
+  const element = mountRailButton({ model, activate, hostClick: true })
   element.dataset[CONTROL] = control
-  element.model = model
   Object.assign(element.style, {
     position: 'fixed',
     width: `${RAIL_BUTTON}px`,
     height: `${RAIL_BUTTON}px`,
     zIndex: BUTTON_Z,
-  })
-  applyWplaceTheme(element)
-  element.addEventListener('caelestis-rail-intent', (event) => {
-    const intent = (event as CustomEvent<RailControlIntent>).detail
-    if (intent.id === model.id) activate()
-  })
-  element.addEventListener('click', (event) => {
-    if (event.composedPath()[0] === element) activate()
   })
   return element
 }

@@ -1,6 +1,11 @@
 import type { TemplateSurface } from '@caelestis/shared'
 
 export type PanelScope = 'world' | 'alliance'
+
+/** Our chrome's element ids, which the panel, the rail and the map controls each look up. */
+export const PANEL_ID = 'caelestis-panel'
+export const ALLIANCE_PANEL_ID = 'caelestis-alliance-panel'
+export const ALLIANCE_RAIL_ID = 'caelestis-alliance-rail'
 export type PanelView = 'tree' | 'settings' | 'appearance'
 
 interface PanelSession {
@@ -37,7 +42,6 @@ export class PanelSessions {
   }
 
   setView(view: PanelView, scope = this.selected): void {
-    if (scope === 'alliance' && view === 'settings') return
     this.sessions[scope].view = view
   }
 
@@ -48,7 +52,8 @@ export class PanelSessions {
   }
 }
 
-export const alliancePanelTitle = (surface: TemplateSurface): string => {
+/** The panel's title on a canvas: Caelestis on the world, what the alliance canvas holds there. */
+export const panelTitle = (surface: TemplateSurface): string => {
   switch (surface.kind) {
     case 'alliance-headquarters':
       return 'Headquarters overlays'
@@ -102,25 +107,6 @@ export const allianceRailInlineEnd = (
     )
   }
   return Math.max(0, parent.clientWidth - stage.offsetLeft - stage.offsetWidth + gap)
-}
-
-/** Accept both activation paths, optionally shielding a nested control from artboard pointer capture. */
-export const bindRailActivation = (
-  element: HTMLElement,
-  id: string,
-  activate: () => void,
-  options: { readonly isolatePointerDown?: boolean } = {},
-): void => {
-  if (options.isolatePointerDown) {
-    element.addEventListener('pointerdown', (event) => event.stopPropagation())
-  }
-  element.addEventListener('caelestis-rail-intent', (event) => {
-    const detail = (event as CustomEvent<{ readonly id?: string }>).detail
-    if (detail?.id === id) activate()
-  })
-  element.addEventListener('click', (event) => {
-    if (event.composedPath()[0] === element) activate()
-  })
 }
 
 /** Own and restore the Wplace geometry changed while the alliance drawer is open. */
