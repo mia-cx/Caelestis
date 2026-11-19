@@ -1,10 +1,12 @@
 <!--
-  The theme values every custom element starts from, declared once on its host. A host theme
-  overrides any of them inline (the userscript paints radius and fonts per Wplace style), and the
-  motion scale is the transitions.dev one, prefixed so Tailwind's own --ease-* never shadows it.
+  The theme values every component starts from: on each custom element's host, and on the page
+  root when the frontend renders this once in its layout. `:where()` keeps them at zero
+  specificity, so any host theme overrides them (the userscript paints radius and fonts per Wplace
+  style, the frontend sets its own radius and colours). The motion scale is the transitions.dev
+  one, prefixed so Tailwind's own --ease-* never shadows it.
 -->
 <style>
-  :global(:host) {
+  :global(:where(:root, :host)) {
     --caelestis-radius: calc(0.7rem + 1px);
     --caelestis-pill-radius: 999px;
     --caelestis-font: ui-sans-serif, system-ui, sans-serif;

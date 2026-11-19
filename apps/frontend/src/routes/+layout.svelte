@@ -6,7 +6,7 @@ useIconSet('pixel')
 </script>
 
 <script lang="ts">
-import { Icon, MenuStyles } from '@caelestis/ui'
+import { Icon, MenuStyles, ThemeDefaults } from '@caelestis/ui'
 import { page } from '$app/state'
 import { onMount, untrack } from 'svelte'
 import {
@@ -80,6 +80,7 @@ const toggleTheme = (): void => {
 {/if}
 
 <!-- Menus anywhere on the page, from the shared UI and the site alike, take these styles. -->
+<ThemeDefaults />
 <MenuStyles />
 
 <svelte:head>

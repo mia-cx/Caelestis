@@ -1,6 +1,7 @@
 export { default as Icon } from './foundations/Icon.svelte'
 export { useIconSet } from './foundations/icons.svelte.js'
 export { default as MenuStyles } from './foundations/MenuStyles.svelte'
+export { default as ThemeDefaults } from './foundations/ThemeDefaults.svelte'
 export { default as ColourProgress } from './progress/ColourProgress.svelte'
 export { COLOUR_PROGRESS_SORTS, type ColourProgressSort } from './progress/colour-sorts.js'
 export { default as ProgressMeter } from './progress/ProgressMeter.svelte'
