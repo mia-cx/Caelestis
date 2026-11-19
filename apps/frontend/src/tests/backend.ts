@@ -1,10 +1,8 @@
 import { type Millis, millis } from '@caelestis/shared'
-import { MemoryBlobStore } from '../../../backend/dist/adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../../../backend/dist/adapters/memory/memory-counter-store.js'
-import { MemorySqlStore } from '../../../backend/dist/adapters/memory/memory-sql-store.js'
 import { createApp } from '../../../backend/dist/app.js'
 import { hashToken } from '../../../backend/dist/auth/tokens.js'
 import type { BackfillClients } from '../../../backend/dist/backfill/port.js'
+import { openMemoryStores } from '../../../backend/dist/node/memory-stores.js'
 import { makeBackendContext } from '../../../backend/dist/runtime/backend-runtime.js'
 
 export const adminToken = 'FRONTEND-CONTRACT-ADMIN'
@@ -14,9 +12,8 @@ export const createTestBackend = async (
   options: { openAccess?: boolean; clock?: () => Millis; backfillClients?: BackfillClients } = {},
 ) => {
   const { clock, ...appOptions } = options
-  const sql = new MemorySqlStore()
-  const blobs = new MemoryBlobStore()
-  const counters = new MemoryCounterStore(sql, clock)
+  const stores = await openMemoryStores({ clock })
+  const { sql, blobs, counters } = stores
   const tokenHash = await hashToken(adminToken)
   await sql.insertAccessToken({
     tokenHash,
@@ -31,7 +28,7 @@ export const createTestBackend = async (
     currentSeason: 3,
     ...appOptions,
   })
-  return { app, sql, blobs, counters }
+  return { ...stores, app }
 }
 
 export const authorized = (path: string, init: RequestInit = {}) => {

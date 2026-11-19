@@ -14,6 +14,7 @@ import {
   TemplateBackfill,
 } from '../../../backend/dist/backfill/import.js'
 import { type BackfillClients, localBackfillClient } from '../../../backend/dist/backfill/port.js'
+import { seedTileObservation } from '../../../backend/dist/node/memory-stores.js'
 import {
   type ApiError,
   chunkImageUrl,
@@ -357,18 +358,15 @@ describe('frontend API client against the built backend', () => {
     const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
     for (let step = 0; step < job.total; step += 1) await importer.step()
     const hash = 'd'.repeat(64)
-    await backend.sql.recordTileObservation(
-      {
-        season: 0,
-        tile: { x: 0, y: 0 },
-        hash,
-        observedAt: millis((fixtureNow - 3_600) * 1_000),
-        reportedAt: seconds(fixtureNow - 3_600),
-        reportedWithToken: 'a'.repeat(64),
-        reportedByUserId: 42,
-      },
-      [],
-    )
+    await seedTileObservation(backend.sql, {
+      season: 0,
+      tile: { x: 0, y: 0 },
+      hash,
+      observedAt: millis((fixtureNow - 3_600) * 1_000),
+      reportedAt: seconds(fixtureNow - 3_600),
+      reportedWithToken: 'a'.repeat(64),
+      reportedByUserId: 42,
+    })
     await backend.sql.writeTileMeasurements(archiveVersionId, { x: 0, y: 0 }, [
       { hash, correct: 1, wrong: 0, blank: 0 },
     ])

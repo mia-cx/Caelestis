@@ -11,13 +11,13 @@ import {
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { EralyonArchive, parseSnapshots } from '../src/backfill/eralyon.js'
 import {
   type ArchiveSource,
   type BackfillStorage,
   TemplateBackfill,
 } from '../src/backfill/import.js'
+import { openMemoryDatabase, seedTileObservation } from '../src/node/memory-stores.js'
 import { archiveWeek } from './support/eralyon.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
@@ -70,7 +70,7 @@ class MemoryBackfillStorage implements BackfillStorage {
 }
 
 const createImporter = async (archive: ArchiveSource) => {
-  const sql = new MemorySqlStore()
+  const { sql } = openMemoryDatabase()
   const blobs = new MemoryBlobStore()
   await blobs.put('chunks', chunkHash, await encodeIndexedPng(1, 1, new Uint8Array([1])))
   await sql.insertTemplateVersion({
@@ -207,7 +207,7 @@ describe('template backfill contract', () => {
   })
 
   it('downloads each tile of a week once, even for jobs larger than the decoded-week budget', async () => {
-    const sql = new MemorySqlStore()
+    const { sql } = openMemoryDatabase()
     // Over 50 tiles once the timelapse frame is added: more decoded weeks than the cache holds.
     await sql.insertTemplateVersion({
       templateId,
@@ -281,19 +281,15 @@ describe('template backfill contract', () => {
     const job = await importer.start(templateId, versionId, snapshot.id)
     await importer.step()
     // A reporter's delayed upload lands between the two snapshots.
-    await sql.recordTileObservation(
-      {
-        season: 0,
-        tile: { x: 0, y: 0 },
-        hash: 'c'.repeat(64),
-        observedAt: millis(150_000),
-        reportedAt: seconds(150),
-        reportedWithToken: 'd'.repeat(64),
-        reportedByUserId: 42,
-      },
-      [],
-      true,
-    )
+    await seedTileObservation(sql, {
+      season: 0,
+      tile: { x: 0, y: 0 },
+      hash: 'c'.repeat(64),
+      observedAt: millis(150_000),
+      reportedAt: seconds(150),
+      reportedWithToken: 'd'.repeat(64),
+      reportedByUserId: 42,
+    })
     for (let step = 1; step < job.total; step++) await importer.step()
     const done = await importer.job()
     expect(done).toMatchObject({ status: 'completed', to: snapshot.at })
@@ -345,7 +341,7 @@ describe('template backfill contract', () => {
 
 describe('folder backfill contract', () => {
   it('reads each archive tile once for a folder and stops each template at its own native history', async () => {
-    const sql = new MemorySqlStore()
+    const { sql } = openMemoryDatabase()
     const blobs = new MemoryBlobStore()
     const nodeId = '01890f3e-7b2c-7abc-8def-0123456789a0'
     await sql.insertNode({
@@ -383,19 +379,15 @@ describe('folder backfill contract', () => {
       })
     }
     // The first template's native history starts at the second snapshot.
-    await sql.recordTileObservation(
-      {
-        season: 0,
-        tile: { x: 0, y: 0 },
-        hash: 'c'.repeat(64),
-        observedAt: millis(150_000),
-        reportedAt: seconds(150),
-        reportedWithToken: 'd'.repeat(64),
-        reportedByUserId: 42,
-      },
-      [],
-      true,
-    )
+    await seedTileObservation(sql, {
+      season: 0,
+      tile: { x: 0, y: 0 },
+      hash: 'c'.repeat(64),
+      observedAt: millis(150_000),
+      reportedAt: seconds(150),
+      reportedWithToken: 'd'.repeat(64),
+      reportedByUserId: 42,
+    })
     const reads: string[] = []
     const archive: ArchiveSource = {
       snapshots: async () => [snapshot, { id: 2, at: 150 }],

@@ -2,10 +2,10 @@ import { millis, type TemplateStatus } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { createKeyedStatusPersistence } from '../src/status-coordinator.js'
 import { createSeasonStatusReadModel } from '../src/status-read-model/model.js'
 import { createTileGenerationCache } from '../src/status-read-model/tile-generation-cache.js'
-import { openRelationalStore } from './support/relational.js'
 
 describe('tile generation cache', () => {
   it('does not let a losing or expired prepared commit overwrite the newest tile generation', async () => {
@@ -143,7 +143,7 @@ describe('status projection freshness', () => {
 
 describe('keyed status persistence', () => {
   it('writes only changed templates and a restart recovers the saved projection', async () => {
-    const store = await openRelationalStore()
+    const store = openMemoryDatabase()
     try {
       const database = coordinatorDatabase(store.connection)
       await SqlCoordinatorStorage.initialize(database)

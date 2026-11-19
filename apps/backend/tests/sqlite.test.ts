@@ -1,11 +1,11 @@
 import { millis } from '@caelestis/shared'
 import { afterEach, describe, expect, it } from 'vitest'
-import { openRelationalStore } from './support/relational.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 
-const stores: Awaited<ReturnType<typeof openRelationalStore>>[] = []
+const stores: Awaited<ReturnType<typeof openMemoryDatabase>>[] = []
 
 const openStore = async () => {
-  const store = await openRelationalStore()
+  const store = openMemoryDatabase()
   stores.push(store)
   return store
 }

@@ -2,9 +2,9 @@ import { type PresenceServerEvent, WORLD_TEMPLATE_SURFACE } from '@caelestis/sha
 import { expect, it } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { PresenceCoordinator, type PresenceHost } from '../src/presence-coordinator.js'
 import type { LiveSocket } from '../src/status-coordinator.js'
-import { openRelationalStore } from './support/relational.js'
 
 class Socket implements LiveSocket {
   readyState = 1
@@ -46,7 +46,7 @@ const session = (index: number, viewport: { x: number; y: number }, renewedAt: n
 
 for (const renewing of ['observer', 'mover'] as const)
   it(`keeps a presence update that arrives while the ${renewing}'s claims renew`, async () => {
-    const store = await openRelationalStore()
+    const store = openMemoryDatabase()
     const database = coordinatorDatabase(store.connection)
     await SqlCoordinatorStorage.initialize(database)
     const observer = session(1, { x: 0, y: 0 }, Date.now())

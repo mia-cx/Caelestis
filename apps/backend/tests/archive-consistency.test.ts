@@ -1,7 +1,6 @@
 import { millis, sha256Hex } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
@@ -31,15 +30,15 @@ import { appendRestore, beginRestore, discardRestore } from '../src/archive/rest
 import { type BackfillStorage, TemplateBackfill } from '../src/backfill/import.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { MemoryObjectStorage, runningImport } from './support/archive.js'
-import { openRelationalStore } from './support/relational.js'
 
 const closes: Array<() => Promise<void>> = []
 afterEach(async () => {
   await Promise.all(closes.splice(0).map((close) => close()))
 })
 const relational = async () => {
-  const opened = await openRelationalStore()
+  const opened = openMemoryDatabase()
   closes.push(opened.close)
   return opened
 }
@@ -300,14 +299,13 @@ describe('archive snapshot boundary', () => {
       deleteAlarm: async () => {},
     }
     // Only a fresh read sees the gate, as in the second after it closes on another isolate.
-    class GateClosing extends MemorySqlStore {
-      override async archiveOperationActive(options?: { readonly fresh?: boolean }) {
-        return options?.fresh === true
-      }
+    class GateClosing extends RelationalSqlStore {
+      override readonly archiveOperationActive = async (options?: { readonly fresh?: boolean }) =>
+        options?.fresh === true
     }
     const importer = new TemplateBackfill(
       storage,
-      new GateClosing(),
+      openMemoryDatabase((connection) => new GateClosing(connection)).sql,
       new MemoryBlobStore(),
       { snapshots: async () => [], tile: async () => null },
       () => 5_000,

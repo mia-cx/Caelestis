@@ -1,6 +1,5 @@
 import {
   MAX_HOME_COPY_LENGTH,
-  millis,
   SERVER_ASSET_MAX_BYTES,
   type ServerAssetKind,
   sha256Hex,
@@ -8,30 +7,23 @@ import {
 import { Manifest, ServerInfo } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
 import { describe, expect, it, vi } from 'vitest'
-import { MemoryBlobStore } from '../adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../adapters/memory/memory-counter-store.js'
-import { MemorySqlStore } from '../adapters/memory/memory-sql-store.js'
 import { createApp } from '../app.js'
+import { openMemoryStores } from '../node/memory-stores.js'
 import { makeBackendContext } from '../runtime/backend-runtime.js'
 import { DirectStatusReadModel } from '../status-read-model/port.js'
 
 const token = 'bootstrap-operator-token'
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const gif = new TextEncoder().encode('GIF89a')
-const harness = (openAccess = true, options: Parameters<typeof createApp>[1] = {}) => {
-  const sql = new MemorySqlStore()
-  const blobs = new MemoryBlobStore()
+const harness = async (openAccess = true, options: Parameters<typeof createApp>[1] = {}) => {
+  const { sql, blobs, counters } = await openMemoryStores()
   const readModel = new DirectStatusReadModel(sql)
   const notify = vi.spyOn(readModel, 'notifyManifestChange')
-  const app = createApp(
-    makeBackendContext(
-      blobs,
-      sql,
-      new MemoryCounterStore(sql, () => millis(Date.now())),
-      readModel,
-    ),
-    { bootstrapAdminToken: token, openAccess, ...options },
-  )
+  const app = createApp(makeBackendContext(blobs, sql, counters, readModel), {
+    bootstrapAdminToken: token,
+    openAccess,
+    ...options,
+  })
   const patch = (body: unknown, credential = token) =>
     app.request('/v1/admin/server', {
       method: 'PATCH',
@@ -58,7 +50,7 @@ const harness = (openAccess = true, options: Parameters<typeof createApp>[1] = {
 
 describe('public server branding', () => {
   it('publishes every field through server and manifest, and clears optional branding', async () => {
-    const { patch, upload, remove, server, manifest, notify } = harness()
+    const { patch, upload, remove, server, manifest, notify } = await harness()
     const empty = await server()
     expect(empty).not.toHaveProperty('discordInviteUrl')
     expect(empty).not.toHaveProperty('homeCopy')
@@ -108,7 +100,7 @@ describe('public server branding', () => {
   })
 
   it('reports the backend version and build, and keeps them through settings changes', async () => {
-    const { patch, server, manifest } = harness(true, {
+    const { patch, server, manifest } = await harness(true, {
       version: '0.9.0',
       build: 'a1b2c3d4e5f6',
     })
@@ -124,7 +116,7 @@ describe('public server branding', () => {
   })
 
   it('omits version metadata when the runtime does not provide it', async () => {
-    const { server } = harness()
+    const { server } = await harness()
     const reported = await server()
     expect(reported).not.toHaveProperty('version')
     expect(reported).not.toHaveProperty('build')
@@ -159,7 +151,7 @@ describe('public server branding', () => {
     ['logoText', 'a\u0000b', 'logoText must be 1..64 characters, or null'],
     ['logoText', {}, 'logoText must be 1..64 characters, or null'],
   ])('rejects invalid %s without applying other fields', async (field, value, error) => {
-    const { patch, server, notify } = harness()
+    const { patch, server, notify } = await harness()
     const before = await server()
     const response = await patch({ name: 'Should not persist', [field]: value })
     expect(response.status).toBe(400)
@@ -169,7 +161,7 @@ describe('public server branding', () => {
   })
 
   it('rejects empty patches and bodies; blank home copy clears without changing other fields', async () => {
-    const { patch, sql } = harness()
+    const { patch, sql } = await harness()
     for (const body of [{}, { ignored: true }, null, [], 'text']) {
       expect((await patch(body)).status).toBe(400)
     }
@@ -182,7 +174,7 @@ describe('public server branding', () => {
   })
 
   it('requires admin scope on all mutations', async () => {
-    const { app, blobs, notify } = harness()
+    const { app, blobs, notify } = await harness()
     const minted = await app.request('/v1/admin/tokens', {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -213,7 +205,7 @@ describe('public server branding', () => {
   it.each(['logo', 'preview'] as const)(
     'sniffs, deduplicates, replaces, and deletes %s',
     async (kind) => {
-      const { upload, remove, sql, blobs, notify } = harness()
+      const { upload, remove, sql, blobs, notify } = await harness()
       const etag = await sha256Hex(png)
       const response = await upload(kind)
       expect(response.status).toBe(200)
@@ -242,7 +234,7 @@ describe('public server branding', () => {
   it.each(['logo', 'preview'] as const)(
     'enforces %s limits on both the header and actual body',
     async (kind) => {
-      const { upload, blobs } = harness()
+      const { upload, blobs } = await harness()
       const bytes = new Uint8Array(SERVER_ASSET_MAX_BYTES[kind] + 1)
       bytes.set(png)
       const error =
@@ -261,7 +253,7 @@ describe('public server branding', () => {
   )
 
   it('rejects empty bodies, unsupported containers, and unknown kinds', async () => {
-    const { app, upload, remove } = harness()
+    const { app, upload, remove } = await harness()
     expect((await upload('logo', new Uint8Array())).status).toBe(400)
     const response = await upload('logo', new TextEncoder().encode('<svg/>'), {
       'content-type': 'image/png',
@@ -276,7 +268,7 @@ describe('public server branding', () => {
   it.each(['logo', 'preview'] as const)(
     'serves public %s bytes with validators and versioned caching',
     async (kind: ServerAssetKind) => {
-      const { app, upload } = harness(false)
+      const { app, upload } = await harness(false)
       const path = `/v1/server/assets/${kind}`
       expect((await app.request(path)).status).toBe(404)
       await upload(kind)
@@ -316,7 +308,7 @@ describe('public server branding', () => {
   )
 
   it('keeps the previous asset when storing a replacement fails', async () => {
-    const { upload, sql, blobs } = harness()
+    const { upload, sql, blobs } = await harness()
     await upload('logo')
     const previous = await sql.readServerSettings()
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -336,7 +328,7 @@ describe('public server branding', () => {
   })
 
   it('keeps an object that an overlapping upload restored before the cleanup ran', async () => {
-    const { upload, sql, blobs } = harness()
+    const { upload, sql, blobs } = await harness()
     await upload('logo')
     const previous = await sql.readServerSettings()
     const write = sql.writeServerSettings.bind(sql)
