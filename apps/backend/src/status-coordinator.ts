@@ -62,6 +62,7 @@ import {
   createBackendRuntime,
   makeBackendContext,
 } from './runtime/backend-runtime.js'
+import { ValidationError } from './runtime/errors.js'
 import {
   LIVE_CACHE_OUTCOME_HEADER,
   LIVE_D1_USAGE_HEADER,
@@ -1289,8 +1290,8 @@ export class StatusCoordinator<Client> {
       return
     }
     try {
-      await ingestTimings.timed('upload', 'total', () =>
-        this.backendRuntime().run(
+      const refused = await ingestTimings.timed('upload', 'total', () =>
+        this.backendRuntime().runHandled(
           uploadTile(
             {
               wplaceUserId: metadata.wplaceUserId,
@@ -1305,21 +1306,22 @@ export class StatusCoordinator<Client> {
             frame.payload,
             metadata.coverageToken,
           ),
+          (error) => (error instanceof ValidationError ? 'invalid' : 'unavailable'),
         ),
       )
       this.send(socket, {
         type: 'tile-upload-result',
         requestId: metadata.requestId,
         deliveryId: metadata.deliveryId,
-        accepted: true,
+        ...(typeof refused === 'string' ? { accepted: false, error: refused } : { accepted: true }),
       })
-    } catch (error) {
+    } catch {
       this.send(socket, {
         type: 'tile-upload-result',
         requestId: metadata.requestId,
         deliveryId: metadata.deliveryId,
         accepted: false,
-        error: error instanceof RangeError ? 'invalid' : 'unavailable',
+        error: 'unavailable',
       })
     }
   }

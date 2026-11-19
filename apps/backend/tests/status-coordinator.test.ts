@@ -1,4 +1,10 @@
-import { encodeIndexedPng, uuidV7, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import {
+  encodeIndexedPng,
+  encodeLiveTileUpload,
+  seconds,
+  uuidV7,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import { expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
@@ -10,11 +16,14 @@ const SEASON = 3
 /** A socket that records every message the coordinator sends it. */
 class RecordingSocket implements LiveSocket {
   readonly sent: string[] = []
+  closed: { code?: number; reason?: string } | null = null
   constructor(private attachment: unknown) {}
   send(message: string | ArrayBuffer | ArrayBufferView): void {
     this.sent.push(String(message))
   }
-  close(): void {}
+  close(code?: number, reason?: string): void {
+    this.closed = { code, reason }
+  }
   serializeAttachment(attachment: unknown): void {
     this.attachment = attachment
   }
@@ -146,4 +155,33 @@ it('acknowledges dashboard changes before refreshing and serves a burst with one
         expect.objectContaining({ subscriptionId: subscriptionIds[index] }),
       ),
     )
+})
+
+it('answers an upload whose bytes do not match their hash as invalid, not unavailable', async () => {
+  const { coordinator, subscribe } = await liveCoordinator()
+  const [socket] = subscribe(1)
+  if (socket === undefined) throw new Error('Expected a subscriber')
+  const requestId = uuidV7()
+  const deliveryId = uuidV7()
+  const frame = encodeLiveTileUpload(
+    {
+      type: 'tile-upload',
+      requestId,
+      deliveryId,
+      season: SEASON,
+      tile: '0/0',
+      sha256: '0'.repeat(64),
+      ts: seconds(Math.floor(Date.now() / 1_000)),
+      wplaceUserId: 1,
+      displayName: 'Reporter',
+    },
+    await encodeIndexedPng(1, 1, new Uint8Array([1])),
+  )
+
+  await coordinator.webSocketMessage(socket, frame.buffer)
+
+  expect(socket.closed).toBeNull()
+  expect(socket.events('tile-upload-result')).toEqual([
+    { type: 'tile-upload-result', requestId, deliveryId, accepted: false, error: 'invalid' },
+  ])
 })
