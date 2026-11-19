@@ -1,5 +1,5 @@
 import { type SimulatedInput, simulatedInputOn, WORLD_PIXELS } from '@caelestis/shared'
-import { activeAllianceEditorStage } from './alliance-surface.js'
+import { activeAllianceEditorStage } from './alliance-editor-dom.js'
 import { getState } from './settings.js'
 import { typingInTextField, worldPaintMounted } from './wplace-dom.js'
 

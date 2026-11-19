@@ -26,9 +26,11 @@ vi.mock('./map-view.js', () => ({
   canvasPixelAt: (clientX: number) => ({ x: 100 + Math.floor(clientX / 20), y: 200 }),
 }))
 vi.mock('./map-handle.js', () => ({ getMap: () => null }))
+vi.mock('./alliance-editor-dom.js', () => ({
+  activeAllianceEditorStage: () => page.alliance?.stage ?? null,
+}))
 vi.mock('./alliance-surface.js', () => ({
   activeAllianceSurface: () => page.alliance,
-  activeAllianceEditorStage: () => page.alliance?.stage ?? null,
 }))
 vi.mock('./gl/artboard-pixels.js', () => ({ readArtboardPixels: () => page.artboard }))
 vi.mock('./tile-pixels.js', () => ({ ensureTilePixels: () => false }))

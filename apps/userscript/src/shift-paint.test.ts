@@ -19,9 +19,11 @@ const harness = vi.hoisted(() => ({
   alliance: null as ActiveAllianceSurface | null,
 }))
 vi.mock('./templates/move.js', () => ({ isMoving: () => harness.moving }))
+vi.mock('./alliance-editor-dom.js', () => ({
+  activeAllianceEditorStage: () => harness.alliance?.stage ?? null,
+}))
 vi.mock('./alliance-surface.js', () => ({
   activeAllianceSurface: () => harness.alliance,
-  activeAllianceEditorStage: () => harness.alliance?.stage ?? null,
   currentSurface: () => ({ kind: harness.alliance === null ? 'world' : 'alliance-headquarters' }),
 }))
 vi.mock('./settings.js', () => ({

@@ -28,6 +28,12 @@ export const MAP_SURFACE = '.maplibregl-canvas-container, canvas.maplibregl-canv
 /** An open Wplace modal: an alliance editor, or its settings. */
 export const OPEN_DIALOG = 'dialog[open]'
 
+/** An alliance editor's stage: the viewport Wplace labels by which editor it is. */
+export const ALLIANCE_EDITOR_STAGE = `${OPEN_DIALOG} [role="application"]`
+
+/** The transformed frame inside an alliance editor's stage that holds its native canvas. */
+export const ARTBOARD_FRAME = '.artboard-frame'
+
 /** The pressed toggle in an alliance editor's fullscreen header: the view it is showing. */
 const PRESSED_BUTTON = 'button[aria-pressed="true"]'
 
@@ -250,3 +256,26 @@ const TEXT_FIELD =
 /** Whether a key event is typing into a text field, which Wplace's paint hold ignores. */
 export const typingInTextField = (event: Event): boolean =>
   event.composedPath().some((target) => target instanceof Element && target.matches(TEXT_FIELD))
+
+/** Whether an element is Caelestis chrome: inside our rail, a panel, or any of our custom elements. */
+export const isCaelestis = (element: Element): boolean => {
+  for (let node: Element | null = element; node !== null; node = node.parentElement) {
+    if (node.id.startsWith('caelestis') || node.tagName.toLowerCase().startsWith('caelestis-'))
+      return true
+  }
+  return false
+}
+
+const isCaelestisNode = (node: Node): boolean => node instanceof Element && isCaelestis(node)
+
+/**
+ * Whether a mutation is Wplace's own. A record is ours when it happened on or inside our nodes, or
+ * when everything it added or removed was one of our nodes; a batch that mixes both still counts.
+ */
+export const isWplaceMutation = (record: MutationRecord): boolean => {
+  if (record.target instanceof Element && isCaelestis(record.target)) return false
+  if (record.type !== 'childList') return true
+  for (const node of record.addedNodes) if (!isCaelestisNode(node)) return true
+  for (const node of record.removedNodes) if (!isCaelestisNode(node)) return true
+  return false
+}

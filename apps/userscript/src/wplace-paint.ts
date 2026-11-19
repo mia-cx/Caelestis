@@ -1,5 +1,5 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
-import { activeAllianceEditorStage } from './alliance-surface.js'
+import { activeAllianceEditorStage } from './alliance-editor-dom.js'
 import { log } from './debug.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import {

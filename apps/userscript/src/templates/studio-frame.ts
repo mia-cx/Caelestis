@@ -1,6 +1,6 @@
 import type { TemplateSurface } from '@caelestis/shared'
 import type { StudioRect } from '@caelestis/ui/elements'
-import { activeAllianceEditorStage } from '../alliance-surface.js'
+import { activeAllianceEditorStage } from '../alliance-editor-dom.js'
 import { placementScale, placementScreenPoint } from './move.js'
 
 /**

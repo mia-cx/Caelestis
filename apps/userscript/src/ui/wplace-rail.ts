@@ -1,4 +1,5 @@
-import { frameQueue } from './frame-queue.js'
+import { frameQueue } from '../frame-queue.js'
+import { isCaelestis, isWplaceMutation } from '../wplace-dom.js'
 import { RAIL_BUTTON } from './metrics.js'
 
 const ANCHOR_LABELS = ['Overlays', 'Search', 'Leaderboard'] as const
@@ -13,29 +14,6 @@ export const wplaceRailGap = (rail: Element): number | null => {
     .map((child) => child.getBoundingClientRect())
     .filter((box) => box.height > 0)
   return first === undefined || second === undefined ? null : second.top - first.bottom
-}
-
-/** Whether an element is Caelestis chrome: inside our rail, a panel, or any of our custom elements. */
-const isCaelestis = (element: Element): boolean => {
-  for (let node: Element | null = element; node !== null; node = node.parentElement) {
-    if (node.id.startsWith('caelestis') || node.tagName.toLowerCase().startsWith('caelestis-'))
-      return true
-  }
-  return false
-}
-
-const isCaelestisNode = (node: Node): boolean => node instanceof Element && isCaelestis(node)
-
-/**
- * Whether a mutation is Wplace's own. A record is ours when it happened on or inside our nodes, or
- * when everything it added or removed was one of our nodes; a batch that mixes both still counts.
- */
-export const isWplaceMutation = (record: MutationRecord): boolean => {
-  if (record.target instanceof Element && isCaelestis(record.target)) return false
-  if (record.type !== 'childList') return true
-  for (const node of record.addedNodes) if (!isCaelestisNode(node)) return true
-  for (const node of record.removedNodes) if (!isCaelestisNode(node)) return true
-  return false
 }
 
 const layoutListeners = new Set<() => void>()

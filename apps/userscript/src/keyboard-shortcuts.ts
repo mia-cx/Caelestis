@@ -6,11 +6,8 @@ import {
   type ShortcutPlatform,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import {
-  type ActiveAllianceSurface,
-  activeAllianceEditorStage,
-  activeAllianceSurface,
-} from './alliance-surface.js'
+import { activeAllianceEditorStage } from './alliance-editor-dom.js'
+import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
 import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/template-studio.js'
 import { isClaimModeActive } from './claim-editor.js'
 import { openClaimTool } from './claims.js'

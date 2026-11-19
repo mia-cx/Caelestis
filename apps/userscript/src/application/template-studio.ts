@@ -26,11 +26,8 @@ import {
 } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
 import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
-import {
-  activeAllianceEditorStage,
-  allianceSurfaceCentre,
-  onActiveAllianceSurfaceChange,
-} from '../alliance-surface.js'
+import { activeAllianceEditorStage } from '../alliance-editor-dom.js'
+import { allianceSurfaceCentre, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
 import { viewportCentre } from '../map-view.js'
