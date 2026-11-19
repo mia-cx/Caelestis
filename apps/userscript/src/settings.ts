@@ -87,7 +87,7 @@ export interface LocalFolder {
   readonly visible: boolean
   readonly createdAt?: number
   /** Exact drawing surface. Records written before alliance support are world-scoped. */
-  readonly surface?: TemplateSurface
+  readonly surface: TemplateSurface
 }
 
 /** Browser-owned drawing preferences for an overlay whose pixels remain server-owned. */

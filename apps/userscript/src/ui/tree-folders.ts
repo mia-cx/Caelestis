@@ -47,9 +47,7 @@ const takenLocalFolderNames = (
   new Set(
     folders
       .filter(
-        (folder) =>
-          folder.parentId === parentId &&
-          sameTemplateSurface(folder.surface ?? WORLD_TEMPLATE_SURFACE, surface),
+        (folder) => folder.parentId === parentId && sameTemplateSurface(folder.surface, surface),
       )
       .map((folder) => folder.name.toLowerCase()),
   )

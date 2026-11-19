@@ -484,10 +484,7 @@ export const setTemplateFolder = async (id: string, folderId: string | null): Pr
       if (existing.origin !== 'local') return null
       if (folderId !== null) {
         const folder = getState().localFolders.find((candidate) => candidate.id === folderId)
-        if (
-          folder === undefined ||
-          !sameTemplateSurface(existing.surface, folder.surface ?? WORLD_TEMPLATE_SURFACE)
-        ) {
+        if (folder === undefined || !sameTemplateSurface(existing.surface, folder.surface)) {
           return null
         }
       }
@@ -520,10 +517,7 @@ export const setTemplatesFolder = async (
         const folder = getState().localFolders.find((candidate) => candidate.id === folderId)
         if (
           folder === undefined ||
-          present.some(
-            (template) =>
-              !sameTemplateSurface(template.surface, folder.surface ?? WORLD_TEMPLATE_SURFACE),
-          )
+          present.some((template) => !sameTemplateSurface(template.surface, folder.surface))
         ) {
           return false
         }

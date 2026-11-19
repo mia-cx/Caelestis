@@ -380,10 +380,7 @@ const restoreRecord = async (
     !getState().localFolders.some(
       (folder) =>
         folder.id === template.folderId &&
-        sameTemplateSurface(
-          folder.surface ?? WORLD_TEMPLATE_SURFACE,
-          template.surface ?? WORLD_TEMPLATE_SURFACE,
-        ),
+        sameTemplateSurface(folder.surface, template.surface ?? WORLD_TEMPLATE_SURFACE),
     )
   ) {
     // Folder state and template records live in different stores. Another tab can delete the

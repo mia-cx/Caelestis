@@ -29,8 +29,6 @@ export interface CachedServer {
   readonly season: number
   readonly nodes: readonly TreeNode[]
   readonly fetchedAt: number
-  /** ETag from the manifest, so a refetch can be a 304. */
-  readonly etag?: string
   readonly templates?: readonly ServerTemplate[]
 }
 
@@ -175,7 +173,6 @@ const cachedServerFrom = (
     nodes,
     fetchedAt: Number(candidate.fetchedAt),
     ...(templates === undefined ? {} : { templates }),
-    ...(typeof candidate.etag === 'string' ? { etag: candidate.etag } : {}),
   }
 }
 

@@ -1,4 +1,4 @@
-import { sameTemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { sameTemplateSurface } from '@caelestis/shared'
 import {
   localFolderChainVisible,
   moveLocalFolder,
@@ -79,9 +79,7 @@ export const renderLocalCategory = (ctx: TreeContext): boolean => {
   const entries: Array<{ parentId: string | null; item: TreeItem }> = []
   const folders =
     ctx.templateKeys === undefined
-      ? getState().localFolders.filter((folder) =>
-          sameTemplateSurface(folder.surface ?? WORLD_TEMPLATE_SURFACE, surface),
-        )
+      ? getState().localFolders.filter((folder) => sameTemplateSurface(folder.surface, surface))
       : []
   for (const folder of folders) {
     const key = localFolderKey(folder.id)

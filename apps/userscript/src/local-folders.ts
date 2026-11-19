@@ -23,10 +23,7 @@ export const createLocalFolder = (
   if (folders.length >= MAX_LOCAL_FOLDERS) return null
   if (parentId !== null) {
     const parent = folders.find((candidate) => candidate.id === parentId)
-    if (
-      parent === undefined ||
-      !sameTemplateSurface(parent.surface ?? WORLD_TEMPLATE_SURFACE, surface)
-    ) {
+    if (parent === undefined || !sameTemplateSurface(parent.surface, surface)) {
       return null
     }
   }
@@ -150,13 +147,7 @@ export const moveLocalFolder = (id: string, parentId: string | null): boolean =>
   if (folder === undefined) return false
   if (parentId !== null) {
     const parent = folders.find((candidate) => candidate.id === parentId)
-    if (
-      parent === undefined ||
-      !sameTemplateSurface(
-        folder.surface ?? WORLD_TEMPLATE_SURFACE,
-        parent.surface ?? WORLD_TEMPLATE_SURFACE,
-      )
-    ) {
+    if (parent === undefined || !sameTemplateSurface(folder.surface, parent.surface)) {
       return false
     }
   }

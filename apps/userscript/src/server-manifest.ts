@@ -106,8 +106,8 @@ export interface ServerTemplate {
     readonly maxY: number
   }
   readonly chunks: readonly { readonly tile: string; readonly hash: string }[]
-  /** Absent only in legacy world cache entries and test fixtures. */
-  readonly surface?: TemplateSurface
+  /** The surface it is drawn on; legacy world manifests and cache entries are read as world. */
+  readonly surface: TemplateSurface
 }
 
 export interface TreeNode {

@@ -132,8 +132,7 @@ const claimRecipients = (
     if (rows === undefined) return null
     const match = rows.find(
       (template) =>
-        sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, region.surface) &&
-        overlaps(pixels, template),
+        sameTemplateSurface(template.surface, region.surface) && overlaps(pixels, template),
     )
     if (match !== undefined) matching.set(server, match.id)
   }

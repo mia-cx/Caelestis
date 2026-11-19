@@ -701,7 +701,10 @@ describe('server cache saved by an older version', () => {
       templates: [template(publicArt, publicFolder, true), template(draftArt, draftsFolder, false)],
     }
     // Creates the store, then overwrites the entry the way the previous version saved it.
-    await cacheServer(entry)
+    await cacheServer({
+      ...entry,
+      templates: entry.templates.map((row) => ({ ...row, surface: WORLD_TEMPLATE_SURFACE })),
+    })
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('caelestis')
       request.onsuccess = () => resolve(request.result)

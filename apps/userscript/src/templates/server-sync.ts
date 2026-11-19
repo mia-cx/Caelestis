@@ -173,7 +173,7 @@ const assemble = async (
   downloadSignal: AbortSignal,
 ): Promise<{ width: number; height: number; indices: Uint8Array } | null> => {
   if (downloadSignal.aborted) return null
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   const wrapsX = surface.kind === 'world' && template.bbox.minX > template.bbox.maxX
   const width = wrapsX
     ? WORLD_PIXELS - template.bbox.minX + template.bbox.maxX
@@ -358,9 +358,7 @@ const syncServerTemplatesOnce = async (
   if (!current()) return
   const wanted = new Map(
     available
-      .filter((template) =>
-        sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface),
-      )
+      .filter((template) => sameTemplateSurface(template.surface, surface))
       .map((template) => [serverTemplateKey(server.url, template.id, surface), template]),
   )
   // Snapshot once. Re-reading and linearly searching the store for every manifest entry would make
@@ -379,7 +377,7 @@ const syncServerTemplatesOnce = async (
   }
   if (!current()) return
   for (const [key, entry] of latest.entries(server.url)) {
-    const onSurface = sameTemplateSurface(entry.template.surface ?? WORLD_TEMPLATE_SURFACE, surface)
+    const onSurface = sameTemplateSurface(entry.template.surface, surface)
     if (onSurface && !wanted.has(key)) latest.delete(server.url, key)
   }
   for (const [key, template] of wanted) latest.set(server.url, key, { server, template })
