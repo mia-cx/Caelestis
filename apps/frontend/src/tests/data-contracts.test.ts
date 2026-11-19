@@ -17,7 +17,7 @@ import {
   mergeObservedProgress,
 } from '../lib/components/stats/progress-history'
 import { clampWindow, clipSeries, rollingIntervalPace } from '../lib/components/stats/progress-pace'
-import { manifest, template } from './fixtures'
+import { template } from './fixtures'
 
 const sample = (at: number, correct: number | null) => ({
   at: seconds(at),
