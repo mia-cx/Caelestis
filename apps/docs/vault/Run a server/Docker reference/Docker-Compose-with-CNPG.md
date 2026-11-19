@@ -2,7 +2,7 @@
 title: CNPG Docker stack
 ---
 
-Runs Caelestis in Docker against an existing CloudNativePG database. It does not install CNPG or create a Kubernetes cluster.
+Connect a Docker installation to the writable primary of an existing CloudNativePG cluster.
 
 If Caelestis will run inside Kubernetes too, use [Kubernetes with Helm](Kubernetes-with-Helm).
 
@@ -14,7 +14,7 @@ A Kubernetes-only `.svc` address usually is not reachable from a separate Docker
 
 ## Setup
 
-Complete the checkout and common settings in [Run with Docker](Run-with-Docker#1-download-caelestis). Add your CNPG connection to `.env`:
+Complete the checkout and common settings in [Run with Docker](Run-with-Docker#1-download-caelestis). Enter the CNPG connection settings in `.env`.
 
 ~~~dotenv
 PGHOST=postgres.example.com
@@ -27,21 +27,21 @@ PG_TLS_CA_FILE=/absolute/path/to/cnpg-ca.crt
 
 Use the database name, user, and password from your CNPG application Secret. The user must be able to create and migrate tables.
 
-Start the stack:
+Start the containers and check their health.
 
 ~~~sh
 docker compose -f compose.yaml -f deploy/compose/cnpg.yaml up --build -d --wait
 docker compose -f compose.yaml -f deploy/compose/cnpg.yaml ps
 ~~~
 
-Open [http://localhost:3000](http://localhost:3000). The [Docker guide](Run-with-Docker#4-open-the-dashboard) shows the initial dashboard and userscript connection steps.
+Open [http://localhost:3000](http://localhost:3000). The [Docker guide](Run-with-Docker#4-open-the-dashboard) shows the dashboard and Wplace connection steps.
 
 ## Parameters
 
 | Variable | Purpose |
 | --- | --- |
 | `PGHOST` | Writable-primary hostname, also used for certificate verification. |
-| `PGPORT` | Database port; defaults to `5432`. |
+| `PGPORT` | Database port. Defaults to `5432`. |
 | `PGDATABASE`, `PGUSER`, `PGPASSWORD` | Application database credentials. |
 | `PG_TLS_CA_FILE` | Existing CA file on the Docker host. The overlay mounts it read-only. |
 

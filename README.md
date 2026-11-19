@@ -16,26 +16,22 @@ Its web dashboard shows templates, contributions, and timelapses outside Wplace.
 
 ## Install
 
-1. Install [Violentmonkey](https://violentmonkey.github.io/get-it/) or [Tampermonkey](https://www.tampermonkey.net/).
-2. Open [the Caelestis installer](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js) and confirm **Install** in your userscript manager.
-3. Open or reload [Wplace](https://wplace.live). Click the Caelestis map button to open the template panel.
+In Firefox, add [Caelestis from Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/caelestis/). In Chrome or Edge, use a userscript manager and the [Caelestis userscript installer](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js).
 
-The [installation guide](https://github.com/mia-cx/Caelestis/wiki/Install-the-userscript) includes browser settings and screenshots.
-Then follow [Getting started](https://github.com/mia-cx/Caelestis/wiki/Getting-started) to import and place your first template.
+Open Wplace and click the Caelestis moon. If you already use the userscript, leave it enabled when you install the extension so your settings transfer. Follow the [installation guide](https://docs.caelest.is/start-here/install/) or [place your first template](https://docs.caelest.is/start-here/getting-started/).
 
 ## Templates
 
-Import PNG images, Blue Marble exports, or native `.wplace` files. Organise them with folders,
-tags, search, and filters. Caelestis also reads Wplace's personal and alliance templates.
+Use the [template studio](https://docs.caelest.is/use-caelestis/template-studio/) to crop, scale and dither an image with Wplace colours. On the world map you can also import Blue Marble and native `.wplace` files at their saved positions. Work on an alliance HQ, avatar or banner inside its editor.
 
-Local artwork stays in this browser. Export a copy before clearing browser storage.
+Organise artwork with folders, tags and filters. Export the artwork as PNG or keep its placement in a `.wplace` file. Back up local templates before clearing Wplace's site data.
 
 ![The Caelestis template tree beside a placed Wplace overlay.](docs/assets/readme/templates-and-overlay.png)
 
 ## Painting
 
 Choose full, corner, or small overlay pixels, then adjust their size, rounding, opacity, and outlines.
-These controls change how the overlay looks, not the stored artwork.
+These controls change how the overlay looks. From Caelestis 1.1.0, Wplace's picker reads template colours directly on the map.
 
 Mark mismatches or work for the selected colour, and navigate to unfinished pixels.
 Press `Shift+/` for your current keyboard shortcuts.
@@ -46,7 +42,7 @@ Press `Shift+/` for your current keyboard shortcuts.
 
 Connect to a group's server to use its shared templates and per-colour progress.
 Painters can share their viewports and drafts, and draw claims around areas they plan to paint.
-Activity reports, tile sharing, and presence have separate settings.
+Activity reports, tile sharing and presence have separate settings.
 
 The dashboard shows recorded progress, painting pace, contributions, and timelapses.
 
@@ -55,26 +51,26 @@ The dashboard shows recorded progress, painting pace, contributions, and timelap
 ## Run your own server
 
 The backend stores shared artwork and progress. The frontend serves the dashboard.
-Run both with [Docker](https://github.com/mia-cx/Caelestis/wiki/Run-with-Docker)
-or [Cloudflare](https://github.com/mia-cx/Caelestis/wiki/Deploy-on-Cloudflare).
+Run both with [Docker](https://docs.caelest.is/run-a-server/run-with-docker/)
+or [Cloudflare](https://docs.caelest.is/run-a-server/deploy-on-cloudflare/).
 
-Docker uses SQLite and filesystem storage by default. The [self-hosting guides](https://github.com/mia-cx/Caelestis/wiki/Self-hosting)
+Docker uses SQLite and filesystem storage by default. The [self-hosting guides](https://docs.caelest.is/run-a-server/self-hosting/)
 also cover PostgreSQL, MariaDB, CNPG, S3, and Kubernetes.
 
 ## Guides
 
 | Task | Guide |
 | --- | --- |
-| Import and organise artwork | [Templates](https://github.com/mia-cx/Caelestis/wiki/Templates) |
-| Adjust pixels, outlines, and markers | [Overlay and painting](https://github.com/mia-cx/Caelestis/wiki/Overlay-and-painting) |
-| Join a group's server | [Connect to a server](https://github.com/mia-cx/Caelestis/wiki/Connect-to-a-server) |
-| Change sharing or keyboard bindings | [Settings and shortcuts](https://github.com/mia-cx/Caelestis/wiki/Settings-and-shortcuts) |
-| Fix a problem | [Troubleshooting](https://github.com/mia-cx/Caelestis/wiki/Troubleshooting) |
+| Import and organise artwork | [Templates](https://docs.caelest.is/use-caelestis/templates/) |
+| Adjust pixels, outlines, and markers | [Overlay and painting](https://docs.caelest.is/use-caelestis/overlay-and-painting/) |
+| Join a group's server | [Connect to a server](https://docs.caelest.is/start-here/connect-to-a-server/) |
+| Change sharing or keyboard bindings | [Settings and shortcuts](https://docs.caelest.is/use-caelestis/settings-and-shortcuts/) |
+| Fix a problem | [Troubleshooting](https://docs.caelest.is/use-caelestis/troubleshooting/) |
 
 ## Project links
 
-- [Wiki](https://github.com/mia-cx/Caelestis/wiki)
-- [Dashboard](https://caelestis.mia.cx)
+- [Documentation](https://docs.caelest.is/)
+- [Dashboard](https://caelest.is)
 - [Releases](https://github.com/mia-cx/Caelestis/releases)
 - [The Quilt Discord](https://discord.gg/thequilt)
 - [Issue tracker](https://github.com/mia-cx/Caelestis/issues)

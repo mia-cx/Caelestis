@@ -3,7 +3,7 @@ title: Run a server
 order: 3
 ---
 
-A Caelestis server lets a group share templates, track progress, and see where others are working. The backend stores shared artwork and progress; the frontend serves the dashboard.
+Host a shared template library and dashboard for your group. The backend records artwork and progress. The frontend lets painters browse them outside Wplace.
 
 [Self-hosting](Self-hosting) compares the deployment options. Then follow [Run with Docker](Run-with-Docker), [Deploy on Cloudflare](Deploy-on-Cloudflare), or [Kubernetes with Helm](Kubernetes-with-Helm).
 

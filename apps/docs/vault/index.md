@@ -2,7 +2,7 @@
 title: Caelestis
 ---
 
-Caelestis adds image templates and painting tools to [Wplace](https://wplace.live). Import your artwork, place it on the map, and adjust the overlay to see where each colour belongs.
+Place an image template on [Wplace](https://wplace.live) with the Caelestis extension or userscript. Import your artwork, place it on the map, and adjust the overlay to see where each colour belongs.
 
 You can use it on your own without a server. A server lets a group share templates, track progress, and see where others are working. The web dashboard shows those templates and their history outside Wplace.
 
@@ -10,10 +10,12 @@ You can use it on your own without a server. A server lets a group share templat
 
 ## Start painting
 
-[Install the userscript](Install-the-userscript), then follow [Getting started](Getting-started) to place your first template.
+[Install Caelestis](Install), then follow [Getting started](Getting-started) to place your first template.
 
 | I want to… | Read |
 | --- | --- |
+| Crop, scale and dither an image | [Template studio](Template-studio) |
+| Work on an alliance HQ, avatar or banner | [Alliance canvases](Alliance-canvases) |
 | Import, move, or organise artwork | [Templates](Templates) |
 | Change pixel styles, outlines, or markers | [Overlay and painting](Overlay-and-painting) |
 | Join a group's server | [Connect to a server](Connect-to-a-server) |

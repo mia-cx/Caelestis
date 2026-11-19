@@ -2,27 +2,27 @@
 title: S3 object storage
 ---
 
-S3 holds template artwork, tile blobs, and social images. It does not replace the relational database.
+Store template artwork, tile history and social images in a local or external S3-compatible bucket.
 
-You can combine S3 with SQLite, PostgreSQL, MariaDB, or CNPG. Configure it before importing data; changing the adapter does not copy existing objects.
+You can combine S3 with SQLite, PostgreSQL, MariaDB, or CNPG. Choose the store before importing data. Changing the adapter does not copy existing objects.
 
-## Local MinIO
+## Local RustFS
 
-The supplied S3 Compose file starts MinIO and creates a `caelestis` bucket. Data stays in a Docker volume on this host.
+The supplied S3 Compose file starts RustFS and creates a `caelestis` bucket. Data stays in a Docker volume on this host.
 
-Add a password to `.env`:
+Set the object-store password in `.env`.
 
 ~~~dotenv
 MINIO_ROOT_PASSWORD=replace-with-a-long-private-password
 ~~~
 
-Start SQLite with MinIO:
+Include the S3 overlay to start SQLite with RustFS.
 
 ~~~sh
 docker compose -f compose.yaml -f deploy/compose/s3.yaml up --build -d --wait
 ~~~
 
-Or PostgreSQL with MinIO:
+For PostgreSQL, include both overlays.
 
 ~~~sh
 docker compose -f compose.yaml -f deploy/compose/postgres.yaml -f deploy/compose/s3.yaml up --build -d --wait
@@ -31,17 +31,19 @@ docker compose -f compose.yaml -f deploy/compose/postgres.yaml -f deploy/compose
 | Parameter | Default or purpose |
 | --- | --- |
 | `MINIO_ROOT_USER` | `caelestis` |
-| `MINIO_ROOT_PASSWORD` | Required. Used by MinIO and the application containers in this local example. |
-| `s3` volume | MinIO's persistent data. |
-| Internal endpoint | `http://s3:9000`; not published to the host. |
+| `MINIO_ROOT_PASSWORD` | Required. Used by RustFS and the application containers in this local example. |
+| `rustfs` volume | RustFS's persistent data. |
+| Internal endpoint | `http://s3:9000` on the Compose network. |
 
-The overlay configures both application containers to use the same bucket.
+Both application containers use the same bucket. The overlay keeps the `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` variable names for RustFS.
+
+For an existing MinIO installation, the migration service reads the old `s3` volume and copies its files into `rustfs`. Initialisation checks the migrated objects before the backend starts. Keep a [database and bucket backup](Storage-and-backups) before upgrading.
 
 ## External S3 provider
 
-Create a dedicated bucket and credentials with your provider. Do **not** add `deploy/compose/s3.yaml`; that file is for local MinIO.
+Create a dedicated bucket and credentials with your provider. Use the base Compose file and your database overlay.
 
-Set these values in `.env`:
+Configure the external bucket and its credentials in `.env`.
 
 ~~~dotenv
 OBJECT_STORAGE=s3

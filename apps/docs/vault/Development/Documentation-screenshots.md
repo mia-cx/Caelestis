@@ -2,7 +2,7 @@
 title: Documentation screenshots
 ---
 
-Docs screenshots live in `apps/docs/vault/images/`. The source repository's README images live in `docs/assets/readme/`.
+Capture a real control or result for the step it illustrates. Save vault images in `apps/docs/vault/images/` and README images in `docs/assets/readme/`.
 
 ## What a screenshot should show
 
@@ -14,7 +14,7 @@ Use a different capture when the next step changes the UI. Repeating an overview
 
 ## Cropping
 
-Keep complete controls inside the crop, including buttons at the right edge. Check the actual screenshot dimensions; browser zoom can make DOM coordinates differ from screenshot coordinates.
+Keep complete controls inside the crop, including buttons at the right edge. Check the image dimensions. Browser zoom can change the relationship between page coordinates and screenshot pixels.
 
 Inspect the image at the width it will have in the docs. Avoid distant map views, huge empty areas, and menus without the effect being described.
 
@@ -24,7 +24,7 @@ A small outline can identify the control to click. It must not obscure its label
 
 Use copyable code blocks for terminal commands. Use screenshots for UI actions and visible results.
 
-Capture a new server's empty dashboard for the first-run result. Do not substitute a populated production server.
+Capture an empty dashboard for the first-run result. Do not substitute a populated production server.
 
 Do not use screenshots of command-reference websites as evidence of running those commands.
 
@@ -36,4 +36,4 @@ Use an isolated demonstration server for token creation and administration scree
 
 Check every image against the instruction beside it. Confirm that links load, captions describe what is visible, and no step points to an unrelated capture.
 
-Keep the README's hero video. Its three static images cover templates, painting, and the dashboard; they are overviews, not substitutes for guide screenshots.
+Keep the README's hero video. Its three static images show templates, painting and the dashboard.
