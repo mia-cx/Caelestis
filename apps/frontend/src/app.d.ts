@@ -8,18 +8,13 @@ declare module 'node:http' {
   }
 }
 
-// See https://svelte.dev/docs/kit/types#app.d.ts
-// for information about these interfaces
 declare global {
   namespace App {
-    // interface Error {}
     /** Set for every request by `hooks.server.ts`. */
     interface Locals {
       objectStorage?: ObjectStorage
       backendEnvironment: HostEnv
     }
-    // interface PageData {}
-    // interface PageState {}
     interface Platform {
       /** The custom Node server attaches its config to the request before SvelteKit handles it. */
       req: IncomingMessage

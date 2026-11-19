@@ -15,7 +15,7 @@ export const frameAt = (timeline: readonly number[], time: number): number => {
  * this, and an arrow key must move the playhead visibly, so the transport never steps through
  * recorded seconds directly.
  */
-export const TRANSPORT_STEPS = 1_000
+const TRANSPORT_STEPS = 1_000
 
 export interface TransportScale {
   /** The slider maximum; positions run from 0 to this inclusive. */

@@ -3,7 +3,6 @@ import { mergeArchiveFrames } from '@caelestis/social'
 import { describe, expect, it } from 'vitest'
 import {
   archiveContributionDays,
-  archiveIntervals,
   combineArchiveSamples,
 } from '../lib/components/stats/archive-history'
 import { contributionPainters } from '../lib/components/stats/community.svelte'
@@ -119,9 +118,8 @@ describe('observed progress and archive precedence', () => {
     ).toEqual(imported.map(({ at, correct }) => ({ at, correct })))
   })
 
-  it('retains signed regressions and does not invent activity across missing capture days', () => {
+  it('credits daily archive gains to their capture date and skips missing capture days', () => {
     const captures = [archive(0, 5), archive(86400, 3), archive(3 * 86400, 9)]
-    expect(archiveIntervals(captures)[0].rate).toBeCloseTo(-2 / 24)
     expect([...archiveContributionDays(captures, 4 * 86400)]).toEqual([[86400, 0]])
   })
 })

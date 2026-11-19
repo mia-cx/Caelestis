@@ -36,7 +36,7 @@ export const combineArchiveSamples = (
 }
 
 /** Net changes retain their observed intervals and signed regressions. */
-export const archiveIntervals = (samples: readonly ArchiveProgressSample[]) =>
+const archiveIntervals = (samples: readonly ArchiveProgressSample[]) =>
   samples.flatMap((sample, index) => {
     const before = samples[index - 1]
     if (sample.correct === null || before?.correct == null || sample.at <= before.at) return []
@@ -46,7 +46,6 @@ export const archiveIntervals = (samples: readonly ArchiveProgressSample[]) =>
         to: sample.at,
         startCorrect: before.correct,
         endCorrect: sample.correct,
-        rate: ((sample.correct - before.correct) / (sample.at - before.at)) * 3_600,
       },
     ]
   })

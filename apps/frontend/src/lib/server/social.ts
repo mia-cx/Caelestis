@@ -17,10 +17,10 @@ interface SocialContext {
   statuses: readonly TemplateStatus[]
 }
 
-export const DEFAULT_SOCIAL_DESCRIPTION =
+const DEFAULT_SOCIAL_DESCRIPTION =
   'Follow Wplace pixel art, track template progress, and watch timelapses on Caelestis.'
 
-export interface SocialImage {
+interface SocialImage {
   image: string
   imageType: string
   imageWidth: number | null

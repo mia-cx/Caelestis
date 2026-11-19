@@ -445,17 +445,6 @@
   image-rendering: pixelated;
 }
 
-@utility alpha-checker {
-  /* The transparency checkerboard behind any canvas excerpt, pixel-editor style. */
-  background-image: conic-gradient(
-    color-mix(in oklab, var(--color-base-content) 7%, transparent) 0 25%,
-    transparent 0 50%,
-    color-mix(in oklab, var(--color-base-content) 7%, transparent) 0 75%,
-    transparent 0
-  );
-  background-size: 16px 16px;
-}
-
 /* Pixel perfect only at whole multiples of 0.75rem, and only with the browser adding nothing. */
 @utility font-logo {
   font-family: var(--font-logo);
