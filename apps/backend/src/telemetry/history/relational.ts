@@ -464,7 +464,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
   }
 
   /** The contribution rows `query` may see, narrowed to `chunk` when it names template ids. */
-  private contributionFilter(query: ContributionQuery, chunk: readonly string[] | SQL | null) {
+  #contributionFilter(query: ContributionQuery, chunk: readonly string[] | SQL | null) {
     // The season and publish filters are one IN-subquery rather than a join, so one builder shape
     // serves the season-only, ids-only and intersected forms — and the group key stays the three
     // columns the reduction is defined over, with nothing joined in to widen it. The publish gate
@@ -511,7 +511,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
         })
         .from(contributions)
         .leftJoin(painters, eq(painters.wplaceUserId, contributions.wplaceUserId))
-        .where(this.contributionFilter(query, chunk))
+        .where(this.#contributionFilter(query, chunk))
         .groupBy(contributions.templateId, contributions.dayS, contributions.wplaceUserId)
 
     // Chunked like `readBuckets`, and safe for the same structural reason: the group key contains
@@ -564,7 +564,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
         repairs: sql<number>`max(${contributions.repairs})`.as('repairs'),
       })
       .from(contributions)
-      .where(this.contributionFilter(query, templateIds))
+      .where(this.#contributionFilter(query, templateIds))
       .groupBy(contributions.templateId, contributions.dayS, contributions.wplaceUserId)
       .as('painter_days')
     const correct = sql<number>`sum(${days.correct})`
