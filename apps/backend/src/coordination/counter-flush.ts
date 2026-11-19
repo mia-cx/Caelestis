@@ -7,6 +7,7 @@ import {
   type SqlStore,
   type TelemetryBucket,
 } from '../ports/index.js'
+import { serialQueue } from '../runtime/serial-queue.js'
 import { COUNTER_VALUES } from './counter-tables.js'
 import type { AlarmStorage, CoordinatorDatabase } from './database.js'
 
@@ -42,7 +43,8 @@ export const bindMillis = (value: Millis): number => value
 
 /** Moves due counters to D1 in batches, retains what D1 holds, and owns the coordinator's alarm. */
 export class CounterFlusher {
-  private alarmUpdates: Promise<void> = Promise.resolve()
+  /** Keeps a stale empty read from deleting a newer record's wakeup or replacing its backoff. */
+  private readonly updateAlarm = serialQueue()
   /**
    * When the oldest unexpired retained row expires, as of the last prune. `null` is unknown, after
    * startup or a restore, and makes the next record prune.
@@ -278,15 +280,6 @@ export class CounterFlusher {
     )
   }
 
-  /** Keep a stale empty read from deleting a newer record's wakeup or replacing its backoff. */
-  private updateAlarm(operation: () => Promise<void>): Promise<void> {
-    const running = this.alarmUpdates.then(operation, operation)
-    this.alarmUpdates = running.then(
-      () => undefined,
-      () => undefined,
-    )
-    return running
-  }
 
   private async reconcileAlarm(nowMilliseconds: Millis): Promise<void> {
     const flushBatchPending =
