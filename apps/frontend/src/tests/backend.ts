@@ -11,7 +11,7 @@ export const adminToken = 'FRONTEND-CONTRACT-ADMIN'
 export const createTestBackend = async (
   options: { openAccess?: boolean; clock?: () => Millis; backfillClients?: BackfillClients } = {},
 ) => {
-  const { clock, ...appOptions } = options
+  const { clock, openAccess, backfillClients } = options
   const stores = await openMemoryStores({ clock })
   const { sql, blobs, counters } = stores
   const tokenHash = await hashToken(adminToken)
@@ -22,12 +22,17 @@ export const createTestBackend = async (
     createdWithToken: tokenHash,
     createdAt: millis(1),
   })
-  const app = createApp(makeBackendContext(blobs, sql, counters), {
-    serverId: '00000000-0000-7000-8000-000000000000',
-    serverName: 'Test server',
-    currentSeason: 3,
-    ...appOptions,
-  })
+  const app = createApp(
+    makeBackendContext(blobs, sql, counters, undefined, { backfill: backfillClients }),
+    {
+      server: {
+        id: '00000000-0000-7000-8000-000000000000',
+        name: 'Test server',
+        auth: openAccess === true ? 'none' : 'access_token',
+      },
+      currentSeason: 3,
+    },
+  )
   return { ...stores, app }
 }
 

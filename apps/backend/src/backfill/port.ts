@@ -13,7 +13,7 @@ import { type D1Usage, measureD1Usage } from '../metrics/request-metrics.js'
 export class BackfillError extends Error {
   constructor(
     message: string,
-    readonly status: 400 | 404 | 409 = 400,
+    readonly status: 400 | 404 | 409 | 503 = 400,
   ) {
     super(message)
   }
@@ -78,7 +78,7 @@ export interface BackfillImporter {
 
 export type BackfillReply<T> = (
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: string; readonly status: 400 | 404 | 409 | 502 }
+  | { readonly ok: false; readonly error: string; readonly status: 400 | 404 | 409 | 502 | 503 }
 ) & { readonly usage: D1Usage }
 
 /** Preserve D1 usage and expected errors across the Durable Object RPC boundary. */
@@ -140,3 +140,20 @@ export const localBackfillClient = (
     exclusive(() => backfillReply(() => importer.startFolder(node, versions, snapshot))),
   cancelFolder: () => exclusive(() => backfillReply(() => importer.cancelFolder())),
 })
+
+const unsupported = (): Promise<never> =>
+  Promise.reject(new BackfillError('This server does not support backfill yet.', 503))
+
+/** A host without an import worker, such as tests: commands refuse and history is empty. */
+export const noBackfill: BackfillClients = () =>
+  localBackfillClient({
+    preview: unsupported,
+    start: unsupported,
+    job: unsupported,
+    cancel: unsupported,
+    previewFolder: unsupported,
+    startFolder: unsupported,
+    folderJob: unsupported,
+    cancelFolder: unsupported,
+    history: async () => ({ source: 'eralyon', basis: null, samples: [], frames: [] }),
+  })

@@ -1,4 +1,5 @@
 import type { Manifest, ServerInfo, TemplateSurface } from '@caelestis/shared'
+import { serialQueue } from '../runtime/serial-queue.js'
 
 export type ManifestVisibilityScope = 'public' | 'admin'
 
@@ -100,16 +101,7 @@ export const createSeasonManifestReadModel = (options: {
   const maximumBytes = options.maximumBytes ?? MAX_MANIFEST_PROJECTION_BYTES_PER_SEASON
   let state: PersistedManifestReadModel | null = null
   let loaded = false
-  let tail = Promise.resolve()
-
-  const exclusive = <A>(operation: () => Promise<A>): Promise<A> => {
-    const running = tail.then(operation, operation)
-    tail = running.then(
-      () => undefined,
-      () => undefined,
-    )
-    return running
-  }
+  const exclusive = serialQueue()
 
   const load = async (): Promise<PersistedManifestReadModel> => {
     if (!loaded) {

@@ -7,8 +7,9 @@ import { readNodeConfig } from './config.js'
 import { openNodeRuntime } from './runtime.js'
 import { type FrontendHandler, listenNodeServer } from './server.js'
 
-const config = readNodeConfig()
-const objects = nodeObjectStorage(process.env)
+const env = process.env
+const config = readNodeConfig(env)
+const objects = nodeObjectStorage(env)
 let close: (() => Promise<void>) | undefined
 let closing = false
 let ownershipFailure: Error | undefined
@@ -62,8 +63,8 @@ try {
     await shutdown()
     console.info('Database migrations applied')
   } else {
-    const module: { handler: FrontendHandler } | undefined = process.env.FRONTEND_HANDLER
-      ? await import(pathToFileURL(resolve(process.env.FRONTEND_HANDLER)).href)
+    const module: { handler: FrontendHandler } | undefined = config.frontendHandler
+      ? await import(pathToFileURL(resolve(config.frontendHandler)).href)
       : undefined
     if (process.versions.bun && module)
       throw new Error('The Bun backend requires the separate Node frontend image')
@@ -99,7 +100,7 @@ try {
         host: config.host,
         port: server.port,
         database: config.adapter,
-        objectStorage: process.env.OBJECT_STORAGE ?? 'filesystem',
+        objectStorage: config.objectStorage,
         serverId: runtime.serverId,
       }),
     )

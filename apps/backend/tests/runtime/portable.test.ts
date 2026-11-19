@@ -88,3 +88,38 @@ it('serves authenticated HTTP and upgrades, revokes, and closes real WebSockets'
   await server.close()
   expect((await closed)[0]).toBe(1001)
 })
+
+it('reports the configured live limit and counts upgrades on the unversioned alias', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'caelestis-runtime-'))
+  cleanups.push(() => rm(directory, { recursive: true, force: true }))
+  const config = readNodeConfig({
+    DATA_DIRECTORY: directory,
+    PORT: '0',
+    HOST: '127.0.0.1',
+    CAELESTIS_LIVE_SUBSCRIBER_LIMIT: '7',
+  })
+  const runtime = await openNodeRuntime(
+    config,
+    new FilesystemObjectStorage(join(directory, 'objects')),
+    { onOwnershipLost() {} },
+  )
+  const listener = process.versions.bun
+    ? (await import('../../src/bun/server.js')).listenBunServer
+    : listenNodeServer
+  const server = await listener(runtime, config)
+  cleanups.push(() => server.close())
+  const live = new WebSocket(
+    `ws://127.0.0.1:${server.port}/backend/telemetry/live?season=0&scope=public&stateVector=1`,
+    [
+      'caelestis.live.v2',
+      `caelestis.auth.b64.${Buffer.from(runtime.readToken).toString('base64url')}`,
+    ],
+  )
+  await once(live, 'open')
+  const metrics = await (await fetch(`http://127.0.0.1:${server.port}/metrics`)).text()
+  expect(metrics).toContain(
+    'caelestis_coordinator_connection_limit{kind="live-sync",coordinator="0"} 7\n',
+  )
+  expect(metrics).toContain('caelestis_admissions_total{channel="live-sync"} 1\n')
+  live.close()
+})

@@ -6,6 +6,7 @@ import {
   type TemplateStatus,
   type TileKey,
 } from '@caelestis/shared'
+import { serialQueue } from '../runtime/serial-queue.js'
 
 export type StatusVisibilityScope = 'public' | 'admin'
 
@@ -251,16 +252,7 @@ export const createSeasonStatusReadModel = (options: {
   const ttlMilliseconds = options.ttlMilliseconds ?? STATUS_READ_MODEL_TTL_MILLISECONDS
   let state: PersistedStatusReadModel | null = null
   let loaded = false
-  let tail = Promise.resolve()
-
-  const exclusive = <A>(operation: () => Promise<A>): Promise<A> => {
-    const running = tail.then(operation, operation)
-    tail = running.then(
-      () => undefined,
-      () => undefined,
-    )
-    return running
-  }
+  const exclusive = serialQueue()
 
   const load = async (): Promise<void> => {
     if (loaded) return

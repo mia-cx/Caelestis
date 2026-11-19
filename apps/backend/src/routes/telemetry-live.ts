@@ -6,7 +6,7 @@ import {
   PRESENCE_PROTOCOL_V1,
   parseWholeNumber,
 } from '@caelestis/shared'
-import { Effect } from 'effect'
+import { Effect, Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
 import {
   type AuthOptions,
@@ -16,7 +16,11 @@ import {
 } from '../auth/middleware.js'
 import { hashToken } from '../auth/tokens.js'
 import { normalizeMetricClientIdentity } from '../metrics/request-metrics.js'
-import type { BackendRuntime } from '../runtime/backend-runtime.js'
+import {
+  type BackendRuntime,
+  LiveSyncService,
+  PresenceService,
+} from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { parseSurface } from './params.js'
 import type { TelemetryRouteOptions } from './telemetry.js'
@@ -81,6 +85,8 @@ export const createTelemetryLiveRoutes = (
   options: TelemetryRouteOptions,
 ) => {
   const routes = new Hono()
+  const presence = Services.get(runtime.context, PresenceService)
+  const liveSync = Services.get(runtime.context, LiveSyncService)
   const servedSeason = (c: Context): number | null => {
     const season = parseWholeNumber(c.req.query('season'))
     return season === options.currentSeason ? season : null
@@ -113,19 +119,16 @@ export const createTelemetryLiveRoutes = (
 
   routes.get('/presence/online', requireScopeEffect(runtime, auth, 'read'), async (c) => {
     c.header('cache-control', 'no-store')
-    if (options.connectPresence === undefined || options.presenceOnline === undefined)
-      return c.json({ error: 'not found' }, 404)
     const season = servedSeason(c)
     if (season === null) return c.json({ error: NOT_SERVED }, 404)
     const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))
     if (surface === null) return c.json({ error: 'invalid drawing surface' }, 400)
-    return c.json({ online: await options.presenceOnline(season, surface) })
+    return c.json({ online: await presence.online(season, surface) })
   })
 
   routes.get(
     '/presence',
     upgrade(true, async (c, caller) => {
-      if (options.connectPresence === undefined) return c.json({ error: 'not found' }, 404)
       const season = servedSeason(c)
       if (season === null) return c.json({ error: NOT_SERVED }, 404)
       const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))
@@ -143,7 +146,7 @@ export const createTelemetryLiveRoutes = (
       if (publisherId !== undefined && !isUuidV7(publisherId))
         return c.json({ error: 'publisherId must be a UUID' }, 400)
       const metricClient = metricClientOf(c)
-      return options.connectPresence(c.req.raw, {
+      return presence.connect(c.req.raw, {
         season,
         surface,
         painter,
@@ -162,7 +165,6 @@ export const createTelemetryLiveRoutes = (
   routes.get(
     '/live',
     upgrade(false, async (c, caller, protocol) => {
-      if (options.connectStatusLive === undefined) return c.json({ error: 'not found' }, 404)
       const season = servedSeason(c)
       if (season === null) return c.json({ error: NOT_SERVED }, 404)
       const requestedScope = c.req.query('scope')
@@ -186,7 +188,7 @@ export const createTelemetryLiveRoutes = (
         clientHash = await hashToken(`${caller.tokenHash}\u0000${clientId}`)
       }
       const metricClient = metricClientOf(c)
-      return options.connectStatusLive(c.req.raw, {
+      return liveSync.connect(c.req.raw, {
         season,
         scope,
         credentialScope: caller.scope,

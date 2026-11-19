@@ -78,6 +78,13 @@ describe('snapshotCapacity', () => {
     ])
   })
 
+  it('reports the live-sync limit admission uses when a deployment overrides it', () => {
+    const snapshot = snapshotCapacity([{ kind: 'live-sync', key: '0', host: host([]) }], 7)
+    expect(snapshot.coordinators).toEqual([
+      { kind: 'live-sync', key: '0', connections: 0, limit: 7 },
+    ])
+  })
+
   it('excludes presence sockets that are not open, matching room admission', () => {
     const mia = { tokenHash: hash('a'), clientHash: hash('a'), anonymous: false }
     const snapshot = snapshotCapacity([
@@ -115,6 +122,12 @@ describe('AdmissionCounters', () => {
     expect(admissionChannel('/custom/v1/telemetry/presence')).toBe('presence')
     expect(admissionChannel('/backend/v1/telemetry/presence/online')).toBeNull()
     expect(admissionChannel('/backend/v1/manifest')).toBeNull()
+  })
+
+  it('maps the unversioned alias to its channel too', () => {
+    expect(admissionChannel('/backend/telemetry/live')).toBe('live-sync')
+    expect(admissionChannel('/backend/telemetry/presence')).toBe('presence')
+    expect(admissionChannel('/backend/telemetry/presence/online')).toBeNull()
   })
 })
 

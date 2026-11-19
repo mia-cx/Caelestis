@@ -7,6 +7,7 @@ import {
   type Scope,
 } from '@caelestis/shared'
 import type { CoordinatorStorage } from '../coordination/database.js'
+import { serialQueue } from '../runtime/serial-queue.js'
 import type { StatusVisibilityScope } from '../status-read-model/model.js'
 
 export const MAX_LIVE_SUBSCRIBERS = 256
@@ -92,15 +93,7 @@ export interface LiveSessionFence {
 
 /** Serialize the second credential check, socket attachment, and revocation close scan. */
 export const createLiveSessionFence = (): LiveSessionFence => {
-  let tail = Promise.resolve()
-  const exclusive = <A>(operation: () => Promise<A>): Promise<A> => {
-    const running = tail.then(operation, operation)
-    tail = running.then(
-      () => undefined,
-      () => undefined,
-    )
-    return running
-  }
+  const exclusive = serialQueue()
   return {
     attach: (revalidate, attach) => exclusive(async () => ((await revalidate()) ? attach() : null)),
     revoke: (close) => exclusive(async () => close()),

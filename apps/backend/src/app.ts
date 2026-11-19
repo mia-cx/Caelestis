@@ -1,13 +1,9 @@
 import type { ServerInfo } from '@caelestis/shared'
-import { isUuidV7, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from '@caelestis/shared'
 import { Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { ArchiveHost } from './archive/port.js'
 import { requireScopeEffect } from './auth/middleware.js'
-import type { BackfillClients } from './backfill/port.js'
-import type { StatusLiveConnection } from './live/session.js'
-import type { ConnectPresence, PresenceOnline } from './presence/port.js'
 import { archiveHold, createArchiveAdminRoutes } from './routes/archive.js'
 import { createBackfillAdminRoutes, createCanvasHistoryRoutes } from './routes/backfill.js'
 import { createManifestRoutes } from './routes/manifest.js'
@@ -30,92 +26,31 @@ import {
 } from './runtime/backend-runtime.js'
 import { errorResponse } from './runtime/hono.js'
 
-/**
- * The Hono app, deliberately free of any runtime binding.
- *
- * Entry points adapt this app to a runtime; the app itself stays portable and only depends on the
- * use-case-shaped ports.
- *
- * @see https://github.com/mia-cx/Caelestis/issues/12
- */
 export interface AppOptions {
-  /** Relational runtimes can export and restore complete server archives. */
-  readonly archive?: ArchiveHost
-  readonly connectPresence?: ConnectPresence
-  readonly presenceOnline?: PresenceOnline
-  readonly backfillClients?: BackfillClients
+  /** What `/server` and every manifest advertise; hosts build it with `serverInfo`. */
+  readonly server: ServerInfo
+  readonly currentSeason: number
   /**
    * The operator's bootstrap credential. Absent means the server has no bootstrap path, which is
    * the right state once a real admin token has been minted.
    */
   readonly bootstrapAdminToken?: string | undefined
-  readonly serverId?: string | undefined
-  readonly serverName?: string | undefined
-  readonly serverDescription?: string | undefined
-  /** Backend package version reported on `/server`. */
-  readonly version?: string | undefined
-  /** Deploy/build identifier reported on `/server`, e.g. the first 12 characters of the release SHA. */
-  readonly build?: string | undefined
-  readonly openAccess?: boolean | undefined
-  readonly currentSeason?: number | undefined
-  readonly connectStatusLive?:
-    | ((request: Request, connection: StatusLiveConnection) => Promise<Response>)
-    | undefined
+  /** Relational runtimes can export and restore complete server archives. */
+  readonly archive?: ArchiveHost
 }
 
-export const createApp = (context: BackendContext, options: AppOptions = {}) => {
+/** The Hono app over the context's ports. It holds no runtime binding; `composeBackend` adds them. */
+export const createApp = (context: BackendContext, options: AppOptions) => {
   const app = new Hono()
   const runtime = createBackendRuntime(context)
+  const { server, currentSeason } = options
   const auth = {
     bootstrapAdminToken: options.bootstrapAdminToken,
-    openAccess: options.openAccess,
+    // What `/server` advertises is what the server enforces.
+    openAccess: server.auth === 'none',
   }
   const bootstrapConfigured =
     options.bootstrapAdminToken !== undefined && options.bootstrapAdminToken.length > 0
-  // `??` guards `undefined` and nothing else, and every one of these is a wrangler.toml var an
-  // operator edits by hand. A non-UUIDv7 id, an empty name or an empty description all passed
-  // through and then failed the wire schema — so the deployment's own manifest became undecodable
-  // and the operator heard about it from a client, if at all. Refuse at startup instead.
-  const configured = <T>(value: T, valid: (value: T) => boolean, name: string): T => {
-    if (!valid(value)) throw new Error(`${name} is not valid: ${JSON.stringify(value)}`)
-    return value
-  }
-  const serverBase = {
-    id: configured(
-      options.serverId ?? '00000000-0000-7000-8000-000000000000',
-      isUuidV7,
-      'serverId',
-    ),
-    name: configured(
-      options.serverName ?? 'Template Server',
-      (name) => name.length > 0 && name.length <= MAX_NAME_LENGTH,
-      'serverName',
-    ),
-    auth: options.openAccess === true ? 'none' : 'access_token',
-    ...(options.version === undefined ? {} : { version: options.version }),
-    ...(options.build === undefined ? {} : { build: options.build }),
-    ...(options.connectPresence === undefined ? {} : { presence: 1 as const }),
-    ...(options.connectStatusLive === undefined
-      ? {}
-      : {
-          liveSync: 1 as const,
-          liveSyncMax: 2 as const,
-          liveTileOffers: 1 as const,
-          livePaintParts: 1 as const,
-        }),
-  } as const
-  const server: ServerInfo =
-    options.serverDescription === undefined
-      ? serverBase
-      : {
-          ...serverBase,
-          description: configured(
-            options.serverDescription,
-            (description) => description.length > 0 && description.length <= MAX_DESCRIPTION_LENGTH,
-            'serverDescription',
-          ),
-        }
-  const currentSeason = options.currentSeason ?? 0
 
   // The userscript runs on wplace.live and calls this server cross-origin.
   // `ETag` has to be named explicitly. It is not a CORS-safelisted response header, and Hono only
@@ -148,9 +83,7 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
           ...host,
           activated: async () => {
             await host.activated()
-            await Services.get(context, StatusReadModelService).notifyManifestChange?.(
-              currentSeason,
-            )
+            await Services.get(context, StatusReadModelService).notifyManifestChange(currentSeason)
           },
         }
 
@@ -178,31 +111,18 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
   gated.route('/server/assets', createServerAssetRoutes(runtime))
   gated.route('/admin/server', createServerAdminRoutes(runtime, currentSeason))
   gated.route('/admin/tokens', createTokenRoutes(runtime, { currentSeason, bootstrapConfigured }))
-  gated.route('/admin/backfill', createBackfillAdminRoutes(options.backfillClients))
+  gated.route('/admin/backfill', createBackfillAdminRoutes(runtime))
   gated.route('/admin/nodes', createNodeRoutes(runtime))
   gated.route('/admin/templates', createTemplateRoutes(runtime))
   gated.route('/admin/tags', createTagRoutes(runtime, currentSeason))
   gated.route('/manifest', createManifestRoutes(runtime, { server, currentSeason }))
-  gated.route('/archive', createCanvasHistoryRoutes(runtime, options.backfillClients))
+  gated.route('/archive', createCanvasHistoryRoutes(runtime))
   gated.route('/work', createWorkRoutes(runtime))
   gated.route('/chunks', createBlobRoutes(runtime, 'chunks'))
   gated.route('/sources', createBlobRoutes(runtime, 'sources'))
   gated.route('/tiles', createBlobRoutes(runtime, 'tiles'))
   gated.route('/recipes', createRecipeRoutes(runtime))
-  gated.route(
-    '/telemetry',
-    createTelemetryRoutes(runtime, auth, {
-      currentSeason,
-      server,
-      ...(options.connectPresence === undefined
-        ? {}
-        : { connectPresence: options.connectPresence }),
-      ...(options.presenceOnline === undefined ? {} : { presenceOnline: options.presenceOnline }),
-      ...(options.connectStatusLive === undefined
-        ? {}
-        : { connectStatusLive: options.connectStatusLive }),
-    }),
-  )
+  gated.route('/telemetry', createTelemetryRoutes(runtime, auth, { currentSeason, server }))
 
   // Both mounts share these exact route objects, so compatibility aliases cannot gain handlers or
   // contracts that differ from the versioned API. `open` mounts first: Hono runs handlers in

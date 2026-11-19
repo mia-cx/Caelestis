@@ -29,10 +29,12 @@ export const createTestBackend = async (
     createdAt: millis(1),
   })
   const app = createApp(makeBackendContext(blobs, sql, counters, options.statusReadModel?.(sql)), {
-    serverId: '00000000-0000-7000-8000-000000000000',
-    serverName: 'Test server',
+    server: {
+      id: '00000000-0000-7000-8000-000000000000',
+      name: 'Test server',
+      auth: options.openAccess === true ? 'none' : 'access_token',
+    },
     currentSeason: 3,
-    openAccess: options.openAccess,
     bootstrapAdminToken: options.bootstrapAdminToken,
   })
   return { ...stores, app }

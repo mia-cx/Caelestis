@@ -1,20 +1,18 @@
 import { DurableObject } from 'cloudflare:workers'
-import { type Millis, millis } from '@caelestis/shared'
+import { cloudflareStores } from './adapters/cloudflare/bindings.js'
 import { durableCoordinatorDatabase } from './adapters/cloudflare/coordinator-database.js'
-import { relationalSqlStore } from './adapters/relational-sql-store.js'
 import { TelemetryCoordinator } from './coordination/telemetry.js'
 import type { CounterDelta } from './ports/index.js'
 
-/** Cloudflare lifecycle and storage binding for the shared telemetry coordinator. */
+/** The telemetry coordinator. DO RPC exposes only prototype methods, so each one delegates. */
 export class TelemetryShard extends DurableObject<Env> {
   private readonly coordinator: TelemetryCoordinator
-  constructor(ctx: DurableObjectState, env: Env, clock: () => Millis = () => millis(Date.now())) {
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.coordinator = new TelemetryCoordinator(
       durableCoordinatorDatabase(ctx.storage),
       ctx.storage,
-      relationalSqlStore(env.DB),
-      clock,
+      cloudflareStores(env).sql,
     )
     void ctx.blockConcurrencyWhile(() => this.coordinator.initialize())
   }

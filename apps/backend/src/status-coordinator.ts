@@ -141,6 +141,7 @@ export class StatusCoordinator<Client> {
     private readonly sql: SqlStore,
     private readonly blobs: BlobStore,
     private readonly counters: () => CounterStore,
+    /** The deployment's identity, as `serverInfo` builds it for every manifest. */
     private readonly server: ServerInfo,
     private readonly scheduleAlarms: () => Promise<void>,
     private readonly closePresence: (
@@ -233,17 +234,6 @@ export class StatusCoordinator<Client> {
     for (const { socket } of subscribers) this.sendEncoded(socket, messages)
   }
 
-  private configuredServer(): ServerInfo {
-    return {
-      ...this.server,
-      liveSync: 1,
-      liveSyncMax: 2,
-      liveTileOffers: 1,
-      presence: 1,
-      livePaintParts: 1,
-    }
-  }
-
   /** The snapshot one projection subscriber is owed, or null when it has none. */
   private async projectionSnapshot(
     attachment: LiveSubscriberAttachment,
@@ -259,7 +249,7 @@ export class StatusCoordinator<Client> {
     const surface = manifestSurface(projection)
     if (surface === null) return null
     const read = await this.season(attachment.season).readManifest({
-      server: this.configuredServer(),
+      server: this.server,
       season: attachment.season,
       surface,
       scope: attachment.scope,
