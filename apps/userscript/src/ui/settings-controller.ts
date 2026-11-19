@@ -2,7 +2,11 @@ import { assignShortcutBinding } from '@caelestis/shared'
 import type { SettingsIntent, SettingsModel } from '@caelestis/ui/elements'
 import { prefetchAccessTokens } from '../application/token-inventory.js'
 import { importFromOtherBuild, otherBuild, sendToOtherBuild } from '../build-transfer.js'
-import { expectedBackendVersion, userscriptVersion } from '../client-metrics.js'
+import {
+  backendVersionOutdated,
+  expectedBackendVersion,
+  userscriptVersion,
+} from '../client-metrics.js'
 import { log } from '../debug.js'
 import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { consumeInvite } from '../invite.js'
@@ -19,7 +23,6 @@ import {
 } from '../server-connections.js'
 import { getState, MAX_CONNECTED_SERVERS, setState } from '../settings.js'
 import { activeShortcutBindings, currentShortcutPlatform } from '../shortcuts.js'
-import { backendVersionOutdated } from '../userscript-update.js'
 import {
   accessTokensModel,
   createServerAccessToken,

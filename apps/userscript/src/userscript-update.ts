@@ -2,65 +2,19 @@ import { isRecord } from '@caelestis/shared'
 import { userscriptVersion } from './client-metrics.js'
 import { getState } from './settings.js'
 import { showAmbientToast } from './ui/notification-host.js'
+import { compareVersions, type ParsedVersion, parseVersion } from './version.js'
 
 const UPDATE_CHECK_DELAY_MS = 5_000
-const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 const RELEASE_TAG = /^userscript-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 
-type VersionParts = readonly [major: bigint, minor: bigint, patch: bigint]
-
-interface PublishedVersion {
-  readonly label: string
-  readonly parts: VersionParts
-}
-
-const parseVersion = (value: string, pattern: RegExp): PublishedVersion | null => {
-  const match = pattern.exec(value)
-  if (match === null) return null
-  const major = match[1]
-  const minor = match[2]
-  const patch = match[3]
-  if (major === undefined || minor === undefined || patch === undefined) return null
-  return {
-    label: `${major}.${minor}.${patch}`,
-    parts: [BigInt(major), BigInt(minor), BigInt(patch)],
-  }
-}
-
-const compareVersions = (left: VersionParts, right: VersionParts): number => {
-  for (const index of [0, 1, 2] as const) {
-    if (left[index] === right[index]) continue
-    return left[index] > right[index] ? 1 : -1
-  }
-  return 0
-}
-
-/**
- * A server is stale only when both versions parse as x.y.z and the server's is lower. Missing or
- * unparseable version fields say nothing about age, so they are never flagged.
- */
-export const backendVersionOutdated = (
-  serverVersion: string | undefined,
-  expected: string,
-): boolean => {
-  if (serverVersion === undefined) return false
-  const advertised = parseVersion(serverVersion, VERSION)
-  const baseline = parseVersion(expected, VERSION)
-  return (
-    advertised !== null &&
-    baseline !== null &&
-    compareVersions(advertised.parts, baseline.parts) < 0
-  )
-}
-
-const decodeLatestVersion = (value: unknown): PublishedVersion | null => {
+const decodeLatestVersion = (value: unknown): ParsedVersion | null => {
   if (!isRecord(value) || value.draft !== false || value.prerelease !== false) return null
   return typeof value.tag_name === 'string' ? parseVersion(value.tag_name, RELEASE_TAG) : null
 }
 
 /** Check when update notices are enabled, announcing each published version at most once. */
 const createUserscriptUpdateCheck = (): (() => Promise<void>) => {
-  const running = parseVersion(userscriptVersion, VERSION)
+  const running = parseVersion(userscriptVersion)
   let announcedVersion: string | null = null
 
   return async (): Promise<void> => {
@@ -75,7 +29,7 @@ const createUserscriptUpdateCheck = (): (() => Promise<void>) => {
         latest === null ||
         !getState().notifyUpdates ||
         latest.label === announcedVersion ||
-        compareVersions(latest.parts, running.parts) <= 0
+        compareVersions(latest, running) <= 0
       )
         return
 

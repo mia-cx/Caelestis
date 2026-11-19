@@ -228,7 +228,7 @@ describe('userscript to backend API boundary', () => {
       const { state, server } = await connect()
       const identity = state.serverConnectionIdentity(server)
       const signal = state.serverConnectionSignal(server)
-      const { backendVersionOutdated } = await import('../src/userscript-update.js')
+      const { backendVersionOutdated } = await import('../src/client-metrics.js')
       expect(backendVersionOutdated(server.info?.version, '0.9.0')).toBe(true)
       const changed = vi.fn()
       state.onStateChange(changed)

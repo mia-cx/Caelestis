@@ -196,7 +196,7 @@ describe('server manifest admission', () => {
   ] as const)(
     'flags a server version %s against expectation 0.9.0 only when strictly lower',
     async (advertised, expected) => {
-      const { backendVersionOutdated } = await import('../src/userscript-update.js')
+      const { backendVersionOutdated } = await import('../src/client-metrics.js')
       expect(backendVersionOutdated(advertised, '0.9.0')).toBe(expected)
     },
   )
