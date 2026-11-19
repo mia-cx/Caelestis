@@ -32,19 +32,23 @@ export const storedSwitches = <Id extends string>(
       return { ...defaults }
     }
   }
+  let watching = false
   const current = (): Record<Id, boolean> => {
+    // Watched from the first read: a change before it has nothing earlier to differ from.
+    if (!watching) {
+      watching = true
+      onStoredValueChange((changed) => {
+        if (changed !== key) return
+        const before = current()
+        cached = read()
+        for (const id of ids) if (before[id] !== cached[id]) announce(id, cached[id])
+      })
+    }
     cached ??= read()
     return cached
   }
   const announce = (id: Id, on: boolean): void =>
     notifyListeners(listeners, `${key} listener failed`, id, on)
-
-  onStoredValueChange((changed) => {
-    if (changed !== key) return
-    const before = current()
-    cached = read()
-    for (const id of ids) if (before[id] !== cached[id]) announce(id, cached[id])
-  })
 
   return {
     isOn: (id: Id): boolean => current()[id],
