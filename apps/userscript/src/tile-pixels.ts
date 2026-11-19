@@ -1,5 +1,6 @@
 import { parseTileKey, TILE_SIZE, type TileCoord, tileKey, WPLACE_PALETTE } from '@caelestis/shared'
 import { count, log, warn } from './debug.js'
+import { notifyEach } from './listeners.js'
 import { applyPixels, notifyPixelBatch } from './pixel-changes.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
 import { measureProfile } from './profile.js'
@@ -319,9 +320,16 @@ const chased = new Set<string>()
 const activeChases = new Map<string, Promise<void>>()
 let chasing = 0
 const tileLoadWaiters = new Set<() => void>()
+const tileLoadListeners = new Set<() => void>()
 /** Wake explicit readers when a URL, captured tile, or fetch slot becomes available. */
 const wakeTileLoaders = (): void => {
   for (const resolve of tileLoadWaiters) resolve()
+  notifyEach(tileLoadListeners, (listener) => listener(), 'pixels:load listener failed')
+}
+
+/** Observe when a refused or deferred tile read may now succeed: a URL, tile or fetch slot freed. */
+export const onTileLoadsChange = (listener: () => void): void => {
+  tileLoadListeners.add(listener)
 }
 
 const rememberTileUrl = (url: string, tile: TileCoord): void => {

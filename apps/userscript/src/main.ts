@@ -10,7 +10,7 @@ import { installAllianceOverlayLayer } from './gl/artboard-layer.js'
 import { onMapThemeChange } from './gl/contrast-outline.js'
 import { installOverlayDiagnostics, outlineLayer, overlayLayer } from './gl/layer.js'
 import { installLayerStack } from './gl/layer-stack.js'
-import { installMarkerDiagnostics, markerLayer } from './gl/markers.js'
+import { installMarkerLayer, markerLayer } from './gl/markers.js'
 import { pickCellLayer } from './gl/pick-cell-layer.js'
 import { presenceLayer } from './gl/presence-layer.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
@@ -209,7 +209,7 @@ const installPresenceFeatures = (): void => {
 /** Keep our GL layers, and the features bound to the map, on whichever map Wplace shows. */
 const attachOverlayLayer = (): void => {
   installOverlayDiagnostics()
-  installMarkerDiagnostics()
+  installMarkerLayer()
   installLayerStack({
     outline: outlineLayer,
     overlay: overlayLayer,

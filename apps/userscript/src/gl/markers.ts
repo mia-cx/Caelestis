@@ -21,7 +21,7 @@ import type { MarkList } from '../templates/mark-list.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { horizontalSpans } from '../templates/placement.js'
 import { currentQuads, isDrawingTiles } from '../tile-frame.js'
-import { holdTilePixels } from '../tile-pixels.js'
+import { holdTilePixels, onTileLoadsChange } from '../tile-pixels.js'
 import { selectedColour } from '../wplace-paint.js'
 import { LAYER_IDS } from './layer-stack.js'
 import { markerDensityMemoryBytes, visibleListPoints, visibleSourceRect } from './marker-density.js'
@@ -32,10 +32,19 @@ import { worldRenderScene } from './render-scene.js'
 let worldMarkerRenderer: MarkerRenderer | null = null
 
 const markerGpuMemoryBytes = (): number => worldMarkerRenderer?.memoryBytes() ?? 0
-/** Register the world markers' profile memory sources. */
-export const installMarkerDiagnostics = (): void => {
+/**
+ * Whether the last frame left a tile unanswered because its pixels had not arrived. An idle Wplace
+ * map renders nothing, so the frame that answers it is asked for when a tile read can progress.
+ */
+let awaitingPixels = false
+
+/** Register the world markers' memory sources, and redraw a deferred frame once pixels can arrive. */
+export const installMarkerLayer = (): void => {
   registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
   registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
+  onTileLoadsChange(() => {
+    if (awaitingPixels) requestMapFrame()
+  })
 }
 
 const initMarkers = (gl: WebGL2RenderingContext): void => {
@@ -79,35 +88,6 @@ const drawMarkers = (
   )
 }
 
-/**
- * The soonest a deferred scan may ask for another frame.
- *
- * Asking from inside a render callback is asking for the next frame from the frame you are in, so a
- * tile that can never be answered — because its pixels were never captured, say — turns into a
- * render loop at full rate that looks exactly like a hang. This makes the retry a heartbeat instead.
- */
-const RETRY_MS = 250
-let nextRetry = 0
-let retryTimer: ReturnType<typeof setTimeout> | null = null
-
-/**
- * Ask for another frame once the heartbeat allows it, from a timer: an idle Wplace map renders
- * nothing, so a scan deferred behind a failed or queued tile chase would otherwise wait for the next
- * unrelated movement.
- */
-const retryDeferredScan = (now: number): void => {
-  if (retryTimer !== null) return
-  retryTimer = setTimeout(
-    () => {
-      retryTimer = null
-      nextRetry = performance.now() + RETRY_MS
-      requestMapFrame()
-      count('marker:asked for another frame')
-    },
-    Math.max(0, nextRetry - now),
-  )
-}
-
 /** Every marked pixel of every template that asks for it, over every tile on screen. */
 const drawVisible = (
   gl: WebGL2RenderingContext,
@@ -116,6 +96,7 @@ const drawVisible = (
   const tiles = isDrawingTiles() ? currentQuads() : []
   if (tiles.length === 0) {
     holdTilePixels([])
+    awaitingPixels = false
     return
   }
   const now = performance.now()
@@ -281,7 +262,7 @@ const drawVisible = (
 
   if (selectedWork.length === 0 && mismatchWork.length === 0) {
     reportWorkload(0, 0, 0)
-    if (deferred) retryDeferredScan(now)
+    awaitingPixels = deferred
     return
   }
 
@@ -299,7 +280,7 @@ const drawVisible = (
     submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, one.sampleRate)
   reportWorkload(batches.length, drawnPoints, submittedPoints)
 
-  if (deferred) retryDeferredScan(now)
+  awaitingPixels = deferred
 }
 
 const drawAll = (
