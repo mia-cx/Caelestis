@@ -1533,8 +1533,7 @@ const draftPixelDeltasFor = (template: PlacedTemplate): TemplateDraftPixelDelta[
  *
  * Capture, worker scheduling, server-mask selection, draft precedence, cache invalidation and
  * per-pixel patching stay behind this interface. Callers receive only stable typed-array projections
- * and aggregates from the one managed record. A future Wasm implementation can satisfy this same
- * interface while TypeScript keeps MapLibre, WebGL and UI ownership.
+ * and aggregates from the one managed record.
  */
 export const pixelAccounting = Object.freeze({
   read: (template: PlacedTemplate): TemplatePixelAccounting => ({

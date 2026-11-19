@@ -99,5 +99,3 @@ export const appearanceTransitionSet = (): AppearanceTransitions => {
     },
   }
 }
-
-export const appearanceTransitions = appearanceTransitionSet()
