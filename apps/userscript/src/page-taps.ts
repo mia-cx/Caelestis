@@ -1,6 +1,6 @@
 import { installCanvasWriteTaps } from './canvas-taps.js'
 import { registerDebugEntry } from './console-api.js'
-import { count } from './debug.js'
+import { count, warn } from './debug.js'
 import { draftPixelMemoryBytes } from './draft-pixels.js'
 import { installMapContextObserver } from './gl-observer.js'
 import type { InstalledValueHook } from './page-hooks.js'
@@ -45,8 +45,9 @@ export const install = (realm: Window & typeof globalThis = pageWindow()): void 
     let installed: InstalledValueHook | null = null
     try {
       installed = installer()
-    } catch {
-      // A throwing installer refuses like one that returns null.
+    } catch (error) {
+      // Our own exception, not the page refusing the tap; it still unwinds like a refusal.
+      warn('tap install failed', String(error))
     }
     if (installed === null) {
       count('install:tap refused')
