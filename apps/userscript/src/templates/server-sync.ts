@@ -1,4 +1,5 @@
 import {
+  bboxSize,
   PALETTE_RGB,
   quantiseToPalette,
   type ReconciliationReason,
@@ -254,10 +255,7 @@ const assemble = async (
   if (generationSignal.aborted) return null
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
   const wrapsX = surface.kind === 'world' && template.bbox.minX > template.bbox.maxX
-  const width = wrapsX
-    ? WORLD_PIXELS - template.bbox.minX + template.bbox.maxX
-    : template.bbox.maxX - template.bbox.minX
-  const height = template.bbox.maxY - template.bbox.minY
+  const { width, height } = bboxSize(surface, template.bbox)
   if (
     width <= 0 ||
     height <= 0 ||
@@ -593,11 +591,7 @@ const syncServerTemplatesOnce = async (
     // Asked before the download, not after. A server may advertise a template larger than memory
     // could ever hold, and decoding it only to have the store refuse it wastes the entire chunk
     // transfer and assembly on every poll.
-    const wrapsX = surface.kind === 'world' && template.bbox.minX > template.bbox.maxX
-    const width = wrapsX
-      ? WORLD_PIXELS - template.bbox.minX + template.bbox.maxX
-      : template.bbox.maxX - template.bbox.minX
-    const height = template.bbox.maxY - template.bbox.minY
+    const { width, height } = bboxSize(surface, template.bbox)
     const pixels = width * height
     if (!Number.isSafeInteger(pixels) || pixels <= 0 || !hasRoomForServerTemplate(key, pixels)) {
       continue

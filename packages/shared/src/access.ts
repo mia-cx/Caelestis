@@ -1,0 +1,27 @@
+/** Access-token scopes, ordered: each one grants everything below it. */
+export const SCOPES = ['read', 'report', 'admin'] as const
+
+export type Scope = (typeof SCOPES)[number]
+
+/** The longest name a server, template, node or tag may carry. */
+export const MAX_NAME_LENGTH = 256
+
+/**
+ * The longest a node's materialized path may be. The `nodes_path_check` CHECK, the node store and
+ * the wire's `NodePath` all read this one bound.
+ */
+export const MAX_NODE_PATH_LENGTH = 256
+
+/** The longest free-text description a server or work region may carry. */
+export const MAX_DESCRIPTION_LENGTH = 4_096
+
+/**
+ * Whether `held` satisfies `required`.
+ *
+ * Scopes are a ladder, not a set: admin manages tokens and templates, so refusing it a read it could
+ * grant itself in one request buys nothing. The ordering is the whole rule — a `read` holder must
+ * never satisfy `report`, which is what stops someone who obtained read access from poisoning the
+ * counters.
+ */
+export const satisfiesScope = (held: Scope, required: Scope): boolean =>
+  SCOPES.indexOf(held) >= SCOPES.indexOf(required)

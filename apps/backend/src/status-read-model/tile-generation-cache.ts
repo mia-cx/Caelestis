@@ -1,5 +1,5 @@
-import type { Millis, TileCoord } from '@caelestis/shared'
-import type { StatusVisibilityScope } from './model.js'
+import { type Millis, type TileCoord, tileKey } from '@caelestis/shared'
+import type { VisibilityScope } from '../manifest/read-model.js'
 
 export const TILE_GENERATION_CACHE_TTL_MILLISECONDS = 5 * 60_000
 
@@ -47,8 +47,6 @@ interface PendingTileGenerationCommits {
   candidate: CachedTileGeneration | null
 }
 
-const tileKey = (tile: TileCoord): string => `${tile.x}/${tile.y}`
-
 /** Shared season cache. D1 remains authoritative whenever this module answers unresolved. */
 export const createTileGenerationCache = (
   options: {
@@ -63,6 +61,12 @@ export const createTileGenerationCache = (
   const ttl = options.ttlMilliseconds ?? TILE_GENERATION_CACHE_TTL_MILLISECONDS
   const createCoverageToken = options.createCoverageToken ?? (() => crypto.randomUUID())
   let coverageToken = createCoverageToken()
+
+  const retire = (next: string): void => {
+    coverageToken = next
+    entries.clear()
+    pendingCommits.clear()
+  }
 
   const releaseSettledCandidate = (
     key: string,
@@ -133,7 +137,7 @@ export const createTileGenerationCache = (
     },
 
     resolve(
-      scope: StatusVisibilityScope,
+      scope: VisibilityScope,
       offers: readonly TileGenerationOffer[],
     ): TileGenerationCacheRead {
       const acknowledgedDeliveryIds: string[] = []
@@ -197,18 +201,12 @@ export const createTileGenerationCache = (
     },
 
     synchronizeCoverageToken(next: string): void {
-      if (coverageToken === next) return
-      coverageToken = next
-      entries.clear()
-      pendingCommits.clear()
+      if (coverageToken !== next) retire(next)
     },
 
+    /** Retire every cached generation and in-flight commit under a token no coverage revision names. */
     invalidate(): void {
-      coverageToken = createCoverageToken()
-      entries.clear()
-      pendingCommits.clear()
+      retire(createCoverageToken())
     },
   }
 }
-
-export type TileGenerationCache = ReturnType<typeof createTileGenerationCache>

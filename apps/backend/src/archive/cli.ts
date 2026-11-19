@@ -2,6 +2,12 @@ import { createReadStream } from 'node:fs'
 import { appendFile, readFile, rm, stat, truncate, writeFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
+import {
+  ARCHIVE_LEASE_BUSY,
+  ARCHIVE_NEXT_HEADER,
+  ARCHIVE_ROUTE,
+  MAX_RESTORE_LINES,
+} from './wire.js'
 
 /**
  * Command-line client for server archives. It streams files line by line, so memory stays bounded
@@ -22,17 +28,26 @@ export interface ArchiveClient {
   readonly log?: (message: string) => void
 }
 
-const NEXT_HEADER = 'caelestis-archive-next'
-const BATCH_LINES = 500
+/** Bytes the CLI batches into one append, well inside the route's `MAX_RESTORE_MIB`. */
 const BATCH_BYTES = 8 * 1024 * 1024
 const ATTEMPTS = 5
 
 const sleep = (milliseconds: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
 
-const LEASE_BUSY = 'archive request is running'
 /** Longest wait for another archive request's lease to end or expire. */
 const LEASE_ATTEMPTS = 70
+
+const leaseBusy = async (response: Response): Promise<boolean> => {
+  if (response.status !== 409) return false
+  try {
+    return (
+      (JSON.parse(await response.clone().text()) as { code?: unknown }).code === ARCHIVE_LEASE_BUSY
+    )
+  } catch {
+    return false
+  }
+}
 
 /** One request, retried across dropped connections, gateway errors, and a held archive lease. */
 const request = async (client: ArchiveClient, path: string, init: RequestInit = {}) => {
@@ -44,16 +59,14 @@ const request = async (client: ArchiveClient, path: string, init: RequestInit = 
   let leaseWait = 0
   for (;;) {
     try {
-      const response = await send(`${client.api}/admin/archive${path}`, {
+      const response = await send(`${client.api}${ARCHIVE_ROUTE}${path}`, {
         ...init,
         headers: { authorization: `Bearer ${client.token}`, ...init.headers },
       })
-      if (response.status === 409 && (await response.clone().text()).includes(LEASE_BUSY)) {
-        if (leaseWait < LEASE_ATTEMPTS) {
-          leaseWait += 1
-          await wait(2_000)
-          continue
-        }
+      if (leaseWait < LEASE_ATTEMPTS && (await leaseBusy(response))) {
+        leaseWait += 1
+        await wait(2_000)
+        continue
       }
       if (![502, 503, 504].includes(response.status) || attempt === ATTEMPTS) return response
     } catch (error) {
@@ -125,7 +138,7 @@ export const exportToFile = async (client: ArchiveClient, file: string): Promise
     }
     if (response.status !== 200) await json(response, [200])
     await appendFile(file, Buffer.from(await response.arrayBuffer()))
-    cursor = response.headers.get(NEXT_HEADER)
+    cursor = response.headers.get(ARCHIVE_NEXT_HEADER)
     if (cursor === null) break
     const { size } = await stat(file)
     await writeFile(progressFile, JSON.stringify({ cursor, bytes: size } satisfies ExportProgress))
@@ -187,9 +200,9 @@ export const importFromFile = async (client: ArchiveClient, file: string) => {
     if (index < next) continue
     batch.push(line)
     bytes += line.length
-    if (batch.length < BATCH_LINES && bytes < BATCH_BYTES) continue
+    if (batch.length < MAX_RESTORE_LINES && bytes < BATCH_BYTES) continue
     await send()
-    if (index % (BATCH_LINES * 20) === 0) client.log?.(`Restored ${index} records`)
+    if (index % (MAX_RESTORE_LINES * 20) === 0) client.log?.(`Restored ${index} records`)
   }
   await send()
   const activated = await json<{ sourceServerId: string; counts: Record<string, number> }>(

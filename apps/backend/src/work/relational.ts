@@ -1,0 +1,86 @@
+import {
+  MAX_WORK_ITEMS,
+  type TemplateSurface,
+  type WorkActivity,
+  type WorkItem,
+} from '@caelestis/shared'
+import { RelationalStore } from '../adapters/relational-store.js'
+import { scopeBindings, scopeCondition } from '../db/scope.js'
+import type { WorkStore } from './store.js'
+
+/** SQL batches make the compare-and-swap and its activity entry one transaction. */
+export class RelationalWorkStore extends RelationalStore implements WorkStore {
+  async read(id: string): Promise<WorkItem | null> {
+    const row = await this.client
+      .prepare('SELECT data FROM work_items WHERE id = ?')
+      .bind(id)
+      .first<{ data: string }>()
+    return row === null ? null : (JSON.parse(row.data) as WorkItem)
+  }
+
+  async list(season: number, surface: TemplateSurface, after = ''): Promise<readonly WorkItem[]> {
+    const rows = await this.client
+      .prepare(
+        `SELECT data FROM work_items WHERE ${scopeCondition('work_items', this.syntax.nullEqual)} AND id > ? ORDER BY id LIMIT ?`,
+      )
+      .bind(...scopeBindings(season, surface), after, MAX_WORK_ITEMS)
+      .all<{ data: string }>()
+    return rows.results.map((row) => JSON.parse(row.data) as WorkItem)
+  }
+
+  async revision(season: number, surface: TemplateSurface): Promise<number> {
+    const row = await this.client
+      .prepare(
+        `SELECT COALESCE(SUM(revision), 0) AS revision FROM work_items WHERE ${scopeCondition('work_items', this.syntax.nullEqual)}`,
+      )
+      .bind(...scopeBindings(season, surface))
+      .first<{ revision: number }>()
+    return row?.revision ?? 0
+  }
+
+  async history(id: string, before: number): Promise<readonly WorkActivity[]> {
+    const rows = await this.client
+      .prepare(
+        'SELECT data FROM work_activity WHERE item_id = ? AND revision < ? ORDER BY revision DESC LIMIT 50',
+      )
+      .bind(id, before)
+      .all<{ data: string }>()
+    return rows.results.map((row) => JSON.parse(row.data) as WorkActivity)
+  }
+
+  async save(
+    item: WorkItem,
+    expectedRevision: number,
+    activity: WorkActivity,
+    tokenHash: string,
+  ): Promise<boolean> {
+    const data = JSON.stringify(item)
+    const write =
+      expectedRevision === 0
+        ? this.client
+            .prepare(`INSERT INTO work_items (id, season, surface_kind, alliance_id, revision, mutation_id, data)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO NOTHING`)
+            .bind(
+              item.id,
+              item.season,
+              item.surface.kind,
+              item.surface.allianceId,
+              item.revision,
+              activity.id,
+              data,
+            )
+        : this.client
+            .prepare(
+              'UPDATE work_items SET revision = ?, mutation_id = ?, data = ? WHERE id = ? AND revision = ?',
+            )
+            .bind(item.revision, activity.id, data, item.id, expectedRevision)
+    const audit = this.client
+      .prepare(`INSERT INTO work_activity (id, item_id, revision, token_hash, data)
+      SELECT ?, id, revision, ?, ? FROM work_items WHERE id = ? AND mutation_id = ?
+      ON CONFLICT(id) DO NOTHING`)
+      .bind(activity.id, tokenHash, JSON.stringify(activity), item.id, activity.id)
+    const results = await this.client.batch([write, audit])
+    return results[0]?.meta.changes === 1
+  }
+}

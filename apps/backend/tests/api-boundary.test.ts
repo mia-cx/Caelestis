@@ -1,9 +1,11 @@
 import { encodeIndexedPng, millis, seconds, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { hashToken } from '../src/auth/tokens.js'
+import { seedTileObservation } from '../src/node/memory-stores.js'
+import { RelationalServerSettingsStore } from '../src/server/relational.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
-import { adminToken, createTestBackend } from './support/backend.js'
-import { openRelationalStore } from './support/relational.js'
+import { adminToken, countCalls, createTestBackend } from './support/backend.js'
 
 const id = '01890f3e-7b2c-7abc-8def-012345678901'
 const hash = 'a'.repeat(64)
@@ -306,19 +308,15 @@ describe('backend API trust boundary', () => {
       const publish = (published: boolean) =>
         request(backend, `/admin/templates/${templateId}`, 'PATCH', adminToken, { published })
       expect((await publish(true)).status).toBe(200)
-      await backend.sql.recordTileObservation(
-        {
-          season: 3,
-          tile: { x: 0, y: 0 },
-          hash,
-          observedAt: millis(1_000),
-          reportedAt: seconds(1),
-          reportedWithToken: hash,
-          reportedByUserId: 42,
-        },
-        [],
-        true,
-      )
+      await seedTileObservation(backend.sql, {
+        season: 3,
+        tile: { x: 0, y: 0 },
+        hash,
+        observedAt: millis(1_000),
+        reportedAt: seconds(1),
+        reportedWithToken: hash,
+        reportedByUserId: 42,
+      })
       const frames = async () =>
         (
           (await (
@@ -352,9 +350,14 @@ describe('backend API trust boundary', () => {
       expect(await frames()).toBe(0)
     })
 
-  it('confirms a tile covered by many stale templates within a bounded number of queries', async () => {
+  it('confirms a tile covered by many stale templates within a bounded number of store reads', async () => {
     let invalidation = true
+    let reads = 0
     const backend = await createTestBackend({
+      sql: (connection) =>
+        countCalls(relationalSqlStore(connection), () => {
+          reads++
+        }),
       statusReadModel: (sql) =>
         new (class extends DirectStatusReadModel {
           override async notifyManifestChange(
@@ -386,31 +389,17 @@ describe('backend API trust boundary', () => {
     const publish = (templateId: string, published: boolean) =>
       request(backend, `/admin/templates/${templateId}`, 'PATCH', adminToken, { published })
     for (const templateId of templateIds) expect((await publish(templateId, true)).status).toBe(200)
-    await backend.sql.recordTileObservation(
-      {
-        season: 3,
-        tile: { x: 0, y: 0 },
-        hash,
-        observedAt: millis(1_000),
-        reportedAt: seconds(1),
-        reportedWithToken: hash,
-        reportedByUserId: 42,
-      },
-      [],
-      true,
-    )
-    let queries = 0
-    for (const name of ['readTemplate', 'listManifestTemplates'] as const) {
-      const original = backend.sql[name].bind(backend.sql) as (...args: unknown[]) => unknown
-      Object.assign(backend.sql, {
-        [name]: (...args: unknown[]) => {
-          queries++
-          return original(...args)
-        },
-      })
-    }
+    await seedTileObservation(backend.sql, {
+      season: 3,
+      tile: { x: 0, y: 0 },
+      hash,
+      observedAt: millis(1_000),
+      reportedAt: seconds(1),
+      reportedWithToken: hash,
+      reportedByUserId: 42,
+    })
     const frames = async () => {
-      queries = 0
+      reads = 0
       return (
         (await (
           await request(
@@ -422,20 +411,21 @@ describe('backend API trust boundary', () => {
         ).json()) as { frames: unknown[] }
       ).frames.length
     }
-    // The first read also builds the manifest; afterwards a fresh cache costs one template read.
     expect(await frames()).toBe(1)
     expect(await frames()).toBe(1)
-    expect(queries).toBe(1)
+    const fresh = reads
 
     // Every template but the last is unpublished while the cached manifest still lists them all.
+    // Confirming each stale template one by one would cost at least one extra read apiece.
     invalidation = false
+    const stale = templateIds.length - 1
     for (const templateId of templateIds.slice(0, -1))
       expect((await publish(templateId, false)).status).toBe(200)
     expect(await frames()).toBe(1)
-    expect(queries).toBeLessThanOrEqual(9)
+    expect(reads - fresh).toBeLessThan(stale)
     expect((await publish(templateIds.at(-1) ?? '', false)).status).toBe(200)
     expect(await frames()).toBe(0)
-    expect(queries).toBeLessThanOrEqual(9)
+    expect(reads - fresh).toBeLessThan(stale)
   })
 
   it('rejects malformed read parameters instead of returning a successful empty result', async () => {
@@ -454,8 +444,11 @@ describe('backend API trust boundary', () => {
       `/telemetry/history?templateIds=${id}&from=1&to=2&resolution=60&maxResolution=60`,
       `/telemetry/painter-history?templateIds=${id}&from=1&to=2&painters=bad`,
       `/telemetry/painters?templateIds=${id}&from=1&to=2&limit=0`,
+      `/telemetry/painters?templateIds=${id}&from=1&to=2&limit=abc`,
       `/telemetry/contributions?templateIds=${id}&from=2&to=1`,
       '/telemetry/leaderboard?limit=0',
+      '/telemetry/leaderboard?limit=1.5',
+      '/telemetry/leaderboard?limit=',
       '/telemetry/canvas?season=-1',
       '/telemetry/tiles/2048/0/history?from=1&to=2',
       `/telemetry/progress/${id}?version=bad&from=1&to=2`,
@@ -477,6 +470,13 @@ describe('backend API trust boundary', () => {
     const listed = await request(backend, '/admin/tokens', 'GET', 'bootstrap-secret')
     const body = (await listed.json()) as { tokens: Record<string, unknown>[] }
     expect(body.tokens).toContainEqual(expect.objectContaining({ bootstrap: true, scope: 'admin' }))
+    // Authorship names the bootstrap credential by its digest, like every other author column.
+    expect(body.tokens).toContainEqual(
+      expect.objectContaining({
+        tokenHash: reader.tokenHash,
+        createdWithToken: await hashToken('bootstrap-secret'),
+      }),
+    )
     expect(body.tokens.every((token) => !('token' in token))).toBe(true)
     for (let retry = 0; retry < 2; retry++)
       expect(
@@ -525,90 +525,86 @@ describe('backend API trust boundary', () => {
   })
 
   it('maps storage failures to a non-sensitive HTTP error and permits a later retry', async () => {
-    class UnavailableSql extends MemorySqlStore {
-      fail = true
+    let fail = true
+    class UnavailableSettings extends RelationalServerSettingsStore {
       override async readServerSettings() {
-        if (this.fail) throw new Error('database password=do-not-expose')
+        if (fail) throw new Error('database password=do-not-expose')
         return super.readServerSettings()
       }
     }
-    const sql = new UnavailableSql()
-    const backend = await createTestBackend({ sql })
+    const backend = await createTestBackend({
+      sql: (connection) => relationalSqlStore(connection, { settings: UnavailableSettings }),
+    })
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     const response = await request(backend, '/server')
     expect(response.status).toBe(500)
     expect(await response.text()).toBe('Internal Server Error')
     expect(logged).toHaveBeenCalled()
-    sql.fail = false
+    fail = false
     expect(await (await request(backend, '/server')).json()).toMatchObject({ name: 'Test server' })
   })
 
   it('preserves SQLite data on missing or stale destructive preconditions', async () => {
-    const store = await openRelationalStore()
-    try {
-      const backend = await createTestBackend({ sql: store.sql })
-      const nodeResponse = await request(backend, '/admin/nodes', 'POST', adminToken, {
-        season: 3,
-        parentId: null,
-        name: 'Collection',
-      })
-      expect(nodeResponse.status).toBe(201)
-      const node = (await nodeResponse.json()) as { id: string }
-      const form = new FormData()
-      form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'pixel.png'))
-      for (const [key, value] of Object.entries({
-        nodeId: node.id,
-        name: 'Pixel',
-        originX: '0',
-        originY: '0',
-      }))
-        form.set(key, value)
-      const upload = await backend.app.fetch(
-        new Request('https://backend.test/admin/templates', {
-          method: 'POST',
-          headers: { authorization: `Bearer ${adminToken}` },
-          body: form,
-        }),
-      )
-      expect(upload.status).toBe(201)
-      const created = (await upload.json()) as { templateId: string; versionId: string }
-      const templatePath = `/admin/templates/${created.templateId}`
-      expect((await request(backend, templatePath, 'DELETE', adminToken)).status).toBe(428)
-      expect(
-        (
-          await request(
-            backend,
-            `${templatePath}?expectedVersion=${created.versionId}&expectedUpdatedAt=0`,
-            'DELETE',
-            adminToken,
-          )
-        ).status,
-      ).toBe(409)
-      expect((await request(backend, `/admin/nodes/${node.id}`, 'DELETE', adminToken)).status).toBe(
-        409,
-      )
-      expect(
-        (
-          await request(
-            backend,
-            `/admin/nodes/${node.id}?cascade=true&expectedNodes=1&expectedTemplates=0`,
-            'DELETE',
-            adminToken,
-          )
-        ).status,
-      ).toBe(409)
-      expect(await store.sql.countNodeSubtree(node.id)).toEqual({ nodes: 1, templates: 1 })
-      const deleted = await request(
-        backend,
-        `/admin/nodes/${node.id}?cascade=true&expectedNodes=1&expectedTemplates=1`,
-        'DELETE',
-        adminToken,
-      )
-      expect(deleted.status).toBe(200)
-      expect(await deleted.json()).toEqual({ nodes: 1, templates: 1, chunks: 0 })
-      expect(await store.sql.readTemplate(created.templateId)).toBeNull()
-    } finally {
-      await store.close()
-    }
+    const backend = await createTestBackend()
+    const nodeResponse = await request(backend, '/admin/nodes', 'POST', adminToken, {
+      season: 3,
+      parentId: null,
+      name: 'Collection',
+    })
+    expect(nodeResponse.status).toBe(201)
+    const node = (await nodeResponse.json()) as { id: string }
+    const form = new FormData()
+    form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'pixel.png'))
+    for (const [key, value] of Object.entries({
+      nodeId: node.id,
+      name: 'Pixel',
+      originX: '0',
+      originY: '0',
+    }))
+      form.set(key, value)
+    const upload = await backend.app.fetch(
+      new Request('https://backend.test/admin/templates', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${adminToken}` },
+        body: form,
+      }),
+    )
+    expect(upload.status).toBe(201)
+    const created = (await upload.json()) as { templateId: string; versionId: string }
+    const templatePath = `/admin/templates/${created.templateId}`
+    expect((await request(backend, templatePath, 'DELETE', adminToken)).status).toBe(428)
+    expect(
+      (
+        await request(
+          backend,
+          `${templatePath}?expectedVersion=${created.versionId}&expectedUpdatedAt=0`,
+          'DELETE',
+          adminToken,
+        )
+      ).status,
+    ).toBe(409)
+    expect((await request(backend, `/admin/nodes/${node.id}`, 'DELETE', adminToken)).status).toBe(
+      409,
+    )
+    expect(
+      (
+        await request(
+          backend,
+          `/admin/nodes/${node.id}?cascade=true&expectedNodes=1&expectedTemplates=0`,
+          'DELETE',
+          adminToken,
+        )
+      ).status,
+    ).toBe(409)
+    expect(await backend.sql.countNodeSubtree(node.id)).toEqual({ nodes: 1, templates: 1 })
+    const deleted = await request(
+      backend,
+      `/admin/nodes/${node.id}?cascade=true&expectedNodes=1&expectedTemplates=1`,
+      'DELETE',
+      adminToken,
+    )
+    expect(deleted.status).toBe(200)
+    expect(await deleted.json()).toEqual({ nodes: 1, templates: 1, chunks: 0 })
+    expect(await backend.sql.readTemplate(created.templateId)).toBeNull()
   })
 })

@@ -1,12 +1,11 @@
 import { sha256Hex } from '@caelestis/shared'
-import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/telemetry.js'
+import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/counter-tables.js'
+import { ArchiveError } from './errors.js'
 import {
   ARCHIVE_CHAIN_SEED,
   ARCHIVE_FORMAT,
   ARCHIVE_OBJECT_PREFIXES,
-  ARCHIVE_TABLES,
   ARCHIVE_VERSION,
-  ArchiveError,
   type ArchiveHeader,
   type ArchiveJson,
   type ArchiveRecord,
@@ -17,8 +16,11 @@ import {
   countKey,
   decodeBase64,
   encodeBase64,
+  quoted,
+  TABLE_EXPORT_ORDER,
+  type TableStep,
+  TEMPLATES_TABLE,
 } from './format.js'
-import { type ArchiveOperationRow, readArchiveOperation } from './gate.js'
 import {
   changedError,
   finishPendingRelease,
@@ -29,24 +31,20 @@ import {
   transition,
   withArchiveLease,
 } from './operation.js'
+import { type ArchiveOperationRow, readArchiveOperation } from './operation-row.js'
 import type { ArchiveHost } from './port.js'
 
 type Step =
   | { readonly kind: 'header' }
-  | { readonly kind: 'rows' | 'links'; readonly table: ArchiveTable }
+  | TableStep
   | { readonly kind: 'counters'; readonly table: CounterArchiveTable }
   | { readonly kind: 'backfill' }
   | { readonly kind: 'objects'; readonly prefix: string }
   | { readonly kind: 'end' }
 
-/** Export order. Restoring in this order satisfies every foreign key as rows arrive. */
 const STEPS: readonly Step[] = [
   { kind: 'header' },
-  ...ARCHIVE_TABLES.map((table) => ({ kind: 'rows' as const, table })),
-  ...ARCHIVE_TABLES.filter((table) => table.deferred.length > 0).map((table) => ({
-    kind: 'links' as const,
-    table,
-  })),
+  ...TABLE_EXPORT_ORDER,
   ...Object.keys(COUNTER_ARCHIVE_TABLES).map((table) => ({
     kind: 'counters' as const,
     table: table as CounterArchiveTable,
@@ -118,7 +116,6 @@ const decodeCursor = (token: string): ExportCursor => {
   }
 }
 
-const quoted = (name: string) => `"${name}"`
 const where = (conditions: readonly string[]) =>
   conditions.length === 0 ? '' : ` WHERE ${conditions.join(' AND ')}`
 
@@ -356,7 +353,7 @@ const exportPageHeld = async (
           (
             await host.connection
               .prepare(
-                `SELECT "id" FROM "templates"${typeof cursor.after === 'string' ? ' WHERE "id" > ?' : ''} ORDER BY "id" LIMIT 1`,
+                `SELECT "id" FROM "${TEMPLATES_TABLE}"${typeof cursor.after === 'string' ? ' WHERE "id" > ?' : ''} ORDER BY "id" LIMIT 1`,
               )
               .bind(...(typeof cursor.after === 'string' ? [cursor.after] : []))
               .first<{ id: string }>()

@@ -1,18 +1,20 @@
 import type { Manifest } from '@caelestis/shared'
-import { type ReadApi, refreshSocialImages, storedMapTiles } from '@caelestis/social'
+import type { ReadApi } from '@caelestis/social'
 import { R2ObjectStorage } from '@caelestis/storage/r2'
-import { D1SqlStore } from './adapters/cloudflare/d1-sql-store.js'
-import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
-import { DurableObjectStatusReadModel } from './adapters/cloudflare/do-status-read-model.js'
-import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
-import { type App, createApp } from './app.js'
+import {
+  alarmWatcher,
+  cloudflareBindings,
+  cloudflareConfig,
+  durablePresenceRooms,
+} from './adapters/cloudflare/bindings.js'
+import { durableLiveSync } from './adapters/cloudflare/do-status-read-model.js'
 import { IN_PROCESS_READ } from './auth/middleware.js'
-import { deploymentVersion, instrumentD1, measureRequest } from './metrics/request-metrics.js'
-import { presenceRequest } from './presence/port.js'
-import { makeBackendContext } from './runtime/backend-runtime.js'
+import { measureRequest } from './metrics/request-metrics.js'
+import { type Backend, composeBackend } from './server/compose.js'
+import { unmounted } from './server/config.js'
+import { type JobName, jobsAt } from './server/jobs.js'
+import { publishSocialImages } from './server/social.js'
 import { derivedArtifactWriter } from './telemetry/derived-artifact-writer.js'
-import { fetchCanvasTiles } from './telemetry/fetcher.js'
-import { runTileBlobGc, type TileBlobGcMode } from './telemetry/tile-blobs.js'
 
 export { AlarmWatcher } from './alarm-watcher.js'
 export { PresenceObject } from './presence-object.js'
@@ -20,145 +22,52 @@ export { StatusReadModelObject } from './status-read-model-object.js'
 export { TelemetryShard } from './telemetry-shard.js'
 export { TemplateBackfillObject } from './template-backfill-object.js'
 
-/**
- * `SEASON` as a season number, or a refusal.
- *
- * `Number('abc')` is NaN and `Number('-1')` is -1, and either reached `/manifest` as the season it
- * reports — NaN serializes to `null`, which the wire refuses outright, so the deployment's own
- * manifest stopped decoding because of a typo in a config var.
- */
-const parseSeason = (value: string | undefined): number | undefined => {
-  if (value === undefined) return undefined
-  if (!/^(?:0|[1-9]\d*)$/.test(value)) {
-    throw new Error(`SEASON is not a season number: ${JSON.stringify(value)}`)
-  }
-  const season = Number(value)
-  if (!Number.isSafeInteger(season) || season < 0) {
-    throw new Error(`SEASON is not a season number: ${JSON.stringify(value)}`)
-  }
-  return season
-}
+/** Cloudflare's limit on messages per `sendBatch`. */
+const QUEUE_BATCH_LIMIT = 100
 
-const requestAtBasePath = (
-  request: Request,
-  configured: string | undefined,
-  rootHost: string | undefined,
-): Request | null => {
-  if (configured === undefined || configured === '' || configured === '/') return request
-  if (!configured.startsWith('/') || configured.endsWith('/') || /[?#]/.test(configured)) {
-    throw new Error(
-      `BASE_PATH is not an absolute path without a trailing slash: ${JSON.stringify(configured)}`,
-    )
-  }
-  const url = new URL(request.url)
-  if (url.pathname !== configured && !url.pathname.startsWith(`${configured}/`)) {
-    return url.hostname === rootHost ? request : null
-  }
-  url.pathname = url.pathname.slice(configured.length) || '/'
-  return new Request(url.href, request)
-}
+const backends = new WeakMap<Env, Backend>()
 
-const archiveSettle = (value: string): number => {
-  if (!/^(?:0|[1-9]\d{0,5})$/.test(value))
-    throw new Error(`ARCHIVE_SETTLE_SECONDS is not a number of seconds: ${JSON.stringify(value)}`)
-  return Number(value) * 1_000
-}
-
-const tileBlobGcMode = (value: string | undefined): TileBlobGcMode => {
-  if (value === undefined || value === 'dry-run') return 'dry-run'
-  if (value === 'delete') return 'delete'
-  throw new Error(`Unsupported TILE_BLOB_GC_MODE: ${JSON.stringify(value)}`)
-}
-
-/** One prepared Hono/Effect runtime per Worker environment object, released with that environment. */
-const preparedApps = new WeakMap<Env, App>()
-const preparedStatusReadModels = new WeakMap<Env, DurableObjectStatusReadModel>()
-
-const statusReadModelFor = (env: Env): DurableObjectStatusReadModel => {
-  const prepared = preparedStatusReadModels.get(env)
-  if (prepared !== undefined) return prepared
-  const created = new DurableObjectStatusReadModel(env.STATUS_READ_MODEL, () =>
-    env.ALARM_WATCHER.getByName('global').schedule(),
+const backendFor = (env: Env): Backend => {
+  const held = backends.get(env)
+  if (held !== undefined) return held
+  const config = cloudflareConfig(env)
+  const created = composeBackend(
+    {
+      ...cloudflareBindings(env),
+      serverId: config.serverId,
+      connectLive: durableLiveSync(env.STATUS_READ_MODEL),
+      presenceRoom: durablePresenceRooms(env),
+      backfill: (name) => env.TEMPLATE_BACKFILL.getByName(name),
+      scheduleAlarms: () => alarmWatcher(env).schedule(),
+    },
+    config,
   )
-  preparedStatusReadModels.set(env, created)
+  backends.set(env, created)
   return created
 }
 
-const appFor = (env: Env): App => {
-  const prepared = preparedApps.get(env)
-  if (prepared !== undefined) return prepared
-
-  const context = makeBackendContext(
-    new R2BlobStore(env.BLOBS),
-    new D1SqlStore(instrumentD1(env.DB)),
-    new DurableObjectCounterStore(env.TELEMETRY),
-    statusReadModelFor(env),
-    {
-      readIngestTimings: (season, surface, reset) =>
-        env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).readIngestTimings(reset),
-      publishRegions: (season, surface) =>
-        env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).publishRegions(
-          season,
-          surface,
-        ),
-    },
-  )
-  const app = createApp(context, {
-    archive: {
-      connection: env.DB,
-      objects: new R2ObjectStorage(env.BLOBS),
-      counters: new DurableObjectCounterStore(env.TELEMETRY),
-      backfill: (templateId) => env.TEMPLATE_BACKFILL.getByName(templateId),
-      serverId: env.SERVER_ID,
-      activated: () => env.ALARM_WATCHER.getByName('global').schedule(),
-      ...(env.ARCHIVE_SETTLE_SECONDS === undefined
-        ? {}
-        : { settleMilliseconds: archiveSettle(env.ARCHIVE_SETTLE_SECONDS) }),
-    },
-    backfillClients: (templateId) => env.TEMPLATE_BACKFILL.getByName(templateId),
-    bootstrapAdminToken: env.ADMIN_TOKEN,
-    serverId: env.SERVER_ID,
-    serverName: env.SERVER_NAME,
-    ...(typeof __CAELESTIS_BACKEND_VERSION__ === 'string'
-      ? { version: __CAELESTIS_BACKEND_VERSION__ }
-      : {}),
-    build: deploymentVersion,
-    serverDescription: env.SERVER_DESCRIPTION,
-    // Without the season, every deployment answers as season 0. Without openAccess, a server that
-    // advertises anonymous reads still rejects its manifest. Keep both in the prepared app config.
-    currentSeason: parseSeason(env.SEASON),
-    openAccess: env.OPEN_ACCESS === 'true',
-    connectStatusLive: (request, connection) =>
-      statusReadModelFor(env).connectLive(request, connection),
-    presenceOnline: (season, surface) =>
-      env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).online(),
-    connectPresence: async (request, connection) => {
-      const { season, surface } = connection
-      if (connection.revocable)
-        await env.STATUS_READ_MODEL.getByName(`season:${season}`).registerPresenceSurface(
-          season,
-          connection.tokenHash,
-          surface,
-        )
-      return env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).fetch(
-        presenceRequest(request, connection),
-      )
-    },
-  })
-  preparedApps.set(env, app)
-  return app
+/**
+ * The request as the app sees it, without `BASE_PATH`, or null when it is outside the mount.
+ * `ROOT_HOST` serves the API without the shared site's prefix.
+ */
+const requestAtBasePath = (
+  request: Request,
+  basePath: string | undefined,
+  rootHost: string | undefined,
+): Request | null => {
+  if (basePath === undefined) return request
+  const url = new URL(request.url)
+  if (url.pathname !== basePath && !url.pathname.startsWith(`${basePath}/`)) {
+    return url.hostname === rootHost ? request : null
+  }
+  return unmounted(request, basePath)
 }
-
-/** The daily entry in wrangler.toml `[triggers]`; the other cron is the 6-hour tile mirror. */
-const SOCIAL_REFRESH_CRON = '37 7 * * *'
-/** Cloudflare's limit on messages per `sendBatch`. */
-const QUEUE_BATCH_LIMIT = 100
 
 /** Read this deployment's own API in-process: no network hop and no stored token. */
 const readSelf =
   (env: Env): ReadApi =>
   async (path) => {
-    const response = await appFor(env).fetch(
+    const response = await backendFor(env).app.fetch(
       new Request(new URL(path, 'https://self.invalid/v1/').href),
       { [IN_PROCESS_READ]: true },
     )
@@ -166,8 +75,10 @@ const readSelf =
     return response
   }
 
-/** Queue one share-GIF render per published template. */
-const enqueueSocialRefresh = async (env: Env, queue: NonNullable<Env['SOCIAL_REFRESH']>) => {
+/** Queue one share-GIF render per published template; the queue consumer renders each. */
+const enqueueSocialRefresh = async (env: Env): Promise<void> => {
+  const queue = env.SOCIAL_REFRESH
+  if (queue === undefined) return
   const manifest = (await (await readSelf(env)('manifest')).json()) as Manifest
   const messages = manifest.templates
     .filter((template) => template.published)
@@ -177,13 +88,8 @@ const enqueueSocialRefresh = async (env: Env, queue: NonNullable<Env['SOCIAL_REF
 }
 
 export default {
-  // Workers always pass the execution context; unit tests call fetch without one.
-  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
-    if (env.SHARD_STRATEGY !== 'single') {
-      throw new Error(`Unsupported telemetry shard strategy: ${env.SHARD_STRATEGY}`)
-    }
-
-    const mountedRequest = requestAtBasePath(request, env.BASE_PATH, env.ROOT_HOST)
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const mountedRequest = requestAtBasePath(request, cloudflareConfig(env).basePath, env.ROOT_HOST)
     if (mountedRequest === null) {
       return measureRequest(
         env.REQUEST_METRICS,
@@ -198,56 +104,27 @@ export default {
         env.REQUEST_METRICS,
         mountedRequest,
         new URL(mountedRequest.url).pathname,
-        async () => appFor(env).fetch(mountedRequest),
+        async () => backendFor(env).app.fetch(mountedRequest),
       )
     } finally {
       // Derived mismatch artifacts queued by this request finish after the reply; the Worker
       // must keep the isolate alive for them, or they only become later cache misses.
-      ctx?.waitUntil(derivedArtifactWriter.drain())
+      ctx.waitUntil(derivedArtifactWriter.drain())
     }
   },
 
-  // The 6-hour tile mirror — see [triggers] in wrangler.toml and telemetry/fetcher.ts — and the
-  // daily share-GIF refresh.
   async scheduled(controller, env, ctx): Promise<void> {
-    if (controller.cron === SOCIAL_REFRESH_CRON) {
-      if (env.SOCIAL_REFRESH !== undefined)
-        ctx.waitUntil(enqueueSocialRefresh(env, env.SOCIAL_REFRESH))
-      return
+    const jobs: Record<JobName, () => Promise<void>> = {
+      ...backendFor(env).jobs,
+      social: () => enqueueSocialRefresh(env),
     }
-    const stores = {
-      blobs: new R2BlobStore(env.BLOBS),
-      sql: new D1SqlStore(instrumentD1(env.DB)),
-      counters: new DurableObjectCounterStore(env.TELEMETRY),
-      statusReadModel: statusReadModelFor(env),
-    }
-    const gcMode = tileBlobGcMode(env.TILE_BLOB_GC_MODE)
-    ctx.waitUntil(
-      fetchCanvasTiles(stores, { season: parseSeason(env.SEASON) ?? 0 }).finally(async () => {
-        // A prior template may already have persisted a probe when later scan work fails. Always
-        // reconcile the watcher so that durable work cannot be stranded until the next cron.
-        await env.ALARM_WATCHER.getByName('global').schedule()
-      }),
-    )
-    ctx.waitUntil(runTileBlobGc(stores, { mode: gcMode }).then(() => undefined))
-    ctx.waitUntil(stores.sql.regions.expireRegions(Date.now()))
+    for (const name of jobsAt(controller.cron)) ctx.waitUntil(jobs[name]())
   },
 
   // One template per batch (max_batch_size = 1). A throw retries it, and its previous GIF stays.
   async queue(batch, env): Promise<void> {
-    const storage = new R2ObjectStorage(env.BLOBS)
-    for (const message of batch.messages) {
-      await refreshSocialImages({
-        read: readSelf(env),
-        readMapTile: storedMapTiles(storage),
-        templateId: message.body.templateId,
-        save: async (key, gif, template) => {
-          await storage.put(key, gif, { contentType: 'image/gif' })
-          console.log(`${template.id}: ${gif.length} bytes, published`)
-        },
-      })
-    }
+    const objects = new R2ObjectStorage(env.BLOBS)
+    for (const message of batch.messages)
+      await publishSocialImages(readSelf(env), objects, message.body.templateId)
   },
 } satisfies ExportedHandler<Env, { templateId: string }>
-
-import { templateSurfaceKey } from '@caelestis/shared'

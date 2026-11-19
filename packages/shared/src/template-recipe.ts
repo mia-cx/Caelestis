@@ -1,5 +1,5 @@
 import type { RecipeV2 } from 'ditherette'
-import { sha256Hex } from './hash.js'
+import { isSha256Hex, sha256Hex } from './hash.js'
 import { TRANSPARENT_INDEX } from './palette.js'
 import { WORLD_PIXELS } from './tiles.js'
 
@@ -90,7 +90,6 @@ export interface DitheretteTemplateRecipe extends RecipeBase {
 
 export type TemplateRecipe = ImportTemplateRecipe | DitheretteTemplateRecipe
 
-const SHA256_HEX = /^[0-9a-f]{64}$/
 const COLOR_METRICS: readonly string[] = ['rgb', 'lab', 'compuphase', 'ciede2000']
 const IMPORT_KEYS = [
   'format',
@@ -214,7 +213,7 @@ export const parseTemplateRecipe = (value: unknown): TemplateRecipe | null => {
     !isRecord(source) ||
     !hasExactly(source, ['sha256', 'width', 'height']) ||
     typeof source.sha256 !== 'string' ||
-    !SHA256_HEX.test(source.sha256) ||
+    !isSha256Hex(source.sha256) ||
     !isSize(source.width, source.height) ||
     !isSize(value.width, value.height) ||
     !isPalette(value.palette)

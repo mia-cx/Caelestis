@@ -1,17 +1,26 @@
 /**
- * Content-addressed blob storage. R2 today, S3-compatible later.
+ * Content-addressed blob storage over R2 or any portable object store.
  *
- * Deliberately use-case shaped rather than a generic object-store wrapper — every method here
- * exists because something in this system needs exactly it. A thin `get/put/delete` facade would
- * be easier to write and would leak the underlying API's assumptions straight through.
+ * Use-case shaped rather than a generic object-store wrapper: every method exists because
+ * something in this system needs exactly it, so no provider's assumptions leak through.
  */
 
 /**
  * Blobs are segregated by kind: template chunks, original template sources, mirrored canvas
  * tiles, derived products, archives, and operator branding. Tile garbage collection never scans
- * the other namespaces.
+ * the other namespaces. Archives carry the namespaces in this order: append a new one, never
+ * insert it.
  */
-export type BlobNamespace = 'chunks' | 'sources' | 'tiles' | 'derived' | 'archives' | 'branding'
+export const BLOB_NAMESPACES = [
+  'branding',
+  'chunks',
+  'sources',
+  'archives',
+  'tiles',
+  'derived',
+] as const
+
+export type BlobNamespace = (typeof BLOB_NAMESPACES)[number]
 
 export interface BlobListPage {
   /** Keys relative to the requested namespace, in the object store's stable listing order. */

@@ -123,10 +123,6 @@ const publishingPair = async () => {
   return { a, b }
 }
 
-it('publishes two exact quick claims to an overlapping painter', async () => {
-  await publishingPair()
-})
-
 it('omits quickClaims from the next peer update after an explicit clear', async () => {
   const { a, b } = await publishingPair()
   a.update({ quickClaims: [] })

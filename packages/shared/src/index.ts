@@ -1,17 +1,20 @@
+export * from './access.js'
 export * from './backfill.js'
 export * from './bitmask.js'
 export * from './client-metrics.js'
 export * from './count.js'
-export { sha256Hex } from './hash.js'
+export { isSha256Hex, SHA256_HEX_PATTERN, sha256Hex } from './hash.js'
 export * from './live.js'
 export * from './live-paint.js'
 export * from './manifest.js'
 export * from './mismatch-mask.js'
+export * from './numbers.js'
 export {
   PALETTE_RGB,
   PALETTE_SIZE,
   type PaletteColour,
   type PaletteKind,
+  paletteIndexFromWplace,
   TRANSPARENT_INDEX,
   WPLACE_PALETTE,
 } from './palette.js'
@@ -52,6 +55,6 @@ export * from './template-sort.js'
 export * from './template-surface.js'
 export * from './tiles.js'
 export * from './time.js'
-export { uuidV7 } from './uuid.js'
+export { isUuidV7, UUID_V7_PATTERN, uuidV7 } from './uuid.js'
 export * from './work.js'
 export * from './work-client.js'

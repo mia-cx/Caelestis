@@ -158,6 +158,10 @@ export const WPLACE_PALETTE: readonly PaletteColour[] = ENTRIES.map(([name, hex,
  */
 export const TRANSPARENT_INDEX = 63
 
+/** Our index for a pixel in Wplace's own encoding, where 0 is transparent and colours start at 1. */
+export const paletteIndexFromWplace = (wplaceIndex: number): number =>
+  wplaceIndex === 0 ? TRANSPARENT_INDEX : wplaceIndex - 1
+
 /** Entries in a full palette including the transparent slot, so 0..63 are all valid indices. */
 export const PALETTE_SIZE = TRANSPARENT_INDEX + 1
 

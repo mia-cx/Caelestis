@@ -1,3 +1,4 @@
+import { isUuidV7 } from './uuid.js'
 /** A reusable label owned by one local store or server. */
 export interface TemplateTag {
   readonly id: string
@@ -26,13 +27,7 @@ export const parseTemplateTags = (value: unknown): readonly TemplateTag[] | null
   const names = new Set<string>()
   const tags: TemplateTag[] = []
   for (const item of value) {
-    if (
-      typeof item !== 'object' ||
-      item === null ||
-      typeof item.id !== 'string' ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(item.id)
-    )
-      return null
+    if (typeof item !== 'object' || item === null || !isUuidV7(item.id)) return null
     const name = tagName(item.name)
     if (name === null || name !== item.name || ids.has(item.id) || names.has(tagNameKey(name)))
       return null

@@ -1,8 +1,7 @@
 import { millis, seconds } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../src/adapters/memory/memory-counter-store.js'
-import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { isValidCounterDelta } from '../src/ports/counter-delta.js'
 import { runTileBlobGc } from '../src/telemetry/tile-blobs.js'
 
@@ -51,27 +50,8 @@ describe('portable port contracts', () => {
     expect(isValidCounterDelta({ ...valid, occurredAt: seconds(1) }, now)).toBe(false)
   })
 
-  it('makes repeated counter delivery idempotent before its bucket flushes', async () => {
-    const sql = new MemorySqlStore()
-    const counters = new MemoryCounterStore(sql, () => millis(120_000))
-    const delta = {
-      templateId: 'template',
-      occurredAt: seconds(120),
-      placed: 3,
-      correct: 2,
-      repairs: 1,
-    }
-
-    await counters.record([delta], 'delivery-1')
-    await counters.record([delta], 'delivery-1')
-
-    expect(await counters.readPending(['template'])).toEqual([
-      { templateId: 'template', placed: 3, correct: 2, repairs: 1, flushedAt: null },
-    ])
-  })
-
   it('only deletes unreferenced tile blobs when delete mode is explicitly selected', async () => {
-    const sql = new MemorySqlStore()
+    const { sql } = openMemoryDatabase()
     const blobs = new MemoryBlobStore()
     const hash = 'a'.repeat(64)
     await blobs.put('tiles', hash, new Uint8Array([7]))
@@ -85,7 +65,7 @@ describe('portable port contracts', () => {
   })
 
   it('leaves a failed blob deletion fenced for the next bounded GC retry', async () => {
-    const sql = new MemorySqlStore()
+    const { sql } = openMemoryDatabase()
     const blobs = new FailingOnceBlobStore()
     const hash = 'b'.repeat(64)
     await blobs.put('tiles', hash, new Uint8Array([8]))

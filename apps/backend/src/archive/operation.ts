@@ -1,16 +1,19 @@
 import { uuidV7 } from '@caelestis/shared'
-import { ArchiveError } from './format.js'
+import { ArchiveError } from './errors.js'
+import { ARCHIVE_SETTLE_MILLISECONDS, closeProcessWrites, openProcessWrites } from './fence.js'
 import {
-  ARCHIVE_SETTLE_MILLISECONDS,
   type ArchiveLease,
   type ArchiveOperationRow,
   acquireArchiveLease,
-  closeProcessWrites,
-  openProcessWrites,
+  advanceOperation,
+  deleteOperation,
+  insertOperation,
+  operationHolds,
   readArchiveOperation,
   releaseArchiveLease,
-} from './gate.js'
+} from './operation-row.js'
 import type { ArchiveHost } from './port.js'
+import { ARCHIVE_LEASE_BUSY } from './wire.js'
 
 /**
  * The archive operation lifecycle. The `archive_operation` row is the durable record of the one
@@ -21,14 +24,14 @@ import type { ArchiveHost } from './port.js'
  *            preparing → releasing            (refused or cancelled before anything was restored)
  *            ready → discarding → releasing   (discard; ready includes the ended archive)
  *
- * Concurrency is closed in two layers, because a restore and its discard write to stores that
- * cannot share one transaction:
+ * A restore and its discard write to stores that cannot share one transaction, so these rules
+ * close concurrency between them:
  *
  * 1. The `archive_lease` row serializes requests: every lifecycle entry point that writes takes
  *    it with one compare-and-set before doing anything, and hands it back in `finally`. A second
  *    request gets 409. Each lease has a fence that bumps on every take-over and a TTL, so a
  *    crashed holder can only stall work until the lease expires. Near its deadline a call saves
- *    progress and returns, the way the chunked steps always could. Status reads stay lock-free.
+ *    progress and returns, as the chunked steps do. Status reads stay lock-free.
  * 2. Fences keep a stale call safe even after its lease is taken over. Every batch an archive
  *    call writes leads with `archiveFence`: a constraint-violating insert that fires exactly
  *    when the operation row no longer carries the expected state or the lease no longer carries
@@ -70,12 +73,7 @@ export const transition = async <State extends { readonly phase: ArchivePhase }>
   position = from.position,
 ): Promise<ArchiveOperationRow | null> => {
   const stateJson = JSON.stringify(state)
-  const changed = await host.connection
-    .prepare(
-      'UPDATE "archive_operation" SET "state_json" = ?, "position" = ? WHERE "id" = 1 AND "operation_id" = ? AND "position" = ? AND "state_json" = ?',
-    )
-    .bind(stateJson, position, from.operationId, from.position, from.stateJson)
-    .run()
+  const changed = await advanceOperation(host.connection, from, stateJson, position).run()
   return changed.meta.changes === 1 ? { ...from, stateJson, position } : null
 }
 
@@ -84,7 +82,9 @@ export const changedError = () =>
 
 /** The archive lease was already taken when this request asked. Distinct from `changedError`. */
 export const leaseBusyError = () =>
-  new ArchiveError('Another archive request is running. Retry shortly.', 409)
+  new ArchiveError('Another archive request is running. Retry shortly.', 409, {
+    code: ARCHIVE_LEASE_BUSY,
+  })
 
 /** The call reached its deadline; whatever it wrote outside the database stays idempotent. */
 export class ArchiveLeaseDeadline extends ArchiveError {
@@ -118,14 +118,6 @@ export const withArchiveLease = async <T>(
   }
 }
 
-const HOLDING: ReadonlySet<ArchivePhase> = new Set([
-  'freezing',
-  'frozen',
-  'preparing',
-  'ready',
-  'discarding',
-])
-
 /**
  * Stop every writer for `operation`, then prove it still holds the server. A freeze is a side
  * effect that cannot join the row's compare-and-set, so it is checked afterwards and undone when
@@ -136,7 +128,8 @@ export const holdFor = async (host: ArchiveHost, operation: ArchiveOperationRow)
   await host.counters.freeze(operation.operationId)
   const current = await readArchiveOperation(host.connection)
   const ours = current?.operationId === operation.operationId
-  if (ours && current !== null && HOLDING.has(phaseOf(current))) return
+  // Every phase but `releasing` holds the server.
+  if (ours && current !== null && phaseOf(current) !== 'releasing') return
   // The operation no longer holds the server, so nobody needs its holds any more.
   await host.counters.thaw(operation.operationId)
   // A release of this operation still in progress reopens writes itself, after its delete.
@@ -162,18 +155,7 @@ export const holdServer = async (
     stateJson: JSON.stringify(state),
   }
   try {
-    await host.connection
-      .prepare(
-        'INSERT INTO "archive_operation" ("id", "kind", "operation_id", "started_at_ms", "position", "state_json") VALUES (1, ?, ?, ?, ?, ?)',
-      )
-      .bind(
-        kind,
-        operation.operationId,
-        operation.startedAt,
-        operation.position,
-        operation.stateJson,
-      )
-      .run()
+    await insertOperation(host.connection, operation).run()
   } catch (cause) {
     if ((await readArchiveOperation(host.connection)) !== null)
       throw new ArchiveError('Another archive operation is in progress.', 409)
@@ -203,8 +185,8 @@ export const releaseServer = async (
   return true
 }
 
-/** D1 binds at most 100 parameters per statement; two go to the operation fence. */
-const LEGACY_TOKEN_DELETE_CHUNK = 98
+/** D1 binds at most 100 parameters per statement; three go to the operation fence. */
+const LEGACY_TOKEN_DELETE_CHUNK = 97
 
 /**
  * A restore begun before archives stopped carrying credentials may have imported the archive's
@@ -230,11 +212,12 @@ const dropLegacyCredentials = async (host: ArchiveHost, operation: ArchiveOperat
   // since. Chunked by the imported hashes, never the keep list, to stay inside D1's parameters.
   for (let start = 0; start < imported.length; start += LEGACY_TOKEN_DELETE_CHUNK) {
     const chunk = imported.slice(start, start + LEGACY_TOKEN_DELETE_CHUNK)
+    const holds = operationHolds(operation)
     await host.connection
       .prepare(
-        `DELETE FROM "access_tokens" WHERE EXISTS (SELECT 1 FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?) AND "token_hash" IN (${chunk.map(() => '?').join(', ')})`,
+        `DELETE FROM "access_tokens" WHERE ${holds.sql} AND "token_hash" IN (${chunk.map(() => '?').join(', ')})`,
       )
-      .bind(operation.operationId, operation.stateJson, ...chunk)
+      .bind(...holds.values, ...chunk)
       .run()
   }
 }
@@ -248,12 +231,7 @@ const dropLegacyCredentials = async (host: ArchiveHost, operation: ArchiveOperat
 const completeRelease = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
   await dropLegacyCredentials(host, operation)
   await host.counters.closeCounterOperation(operation.operationId)
-  await host.connection
-    .prepare(
-      'DELETE FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?',
-    )
-    .bind(operation.operationId, operation.stateJson)
-    .run()
+  await deleteOperation(host.connection, operation).run()
   try {
     await host.counters.thaw(operation.operationId)
   } finally {
@@ -280,5 +258,7 @@ export const archiveReadyAt = (host: ArchiveHost, startedAt: number): number =>
 export const assertSettled = (host: ArchiveHost, startedAt: number): void => {
   const readyAt = archiveReadyAt(host, startedAt)
   if (Date.now() < readyAt)
-    throw new ArchiveError('Cached gate reads are still expiring. Retry shortly.', 409, readyAt)
+    throw new ArchiveError('Cached gate reads are still expiring. Retry shortly.', 409, {
+      retryAt: readyAt,
+    })
 }

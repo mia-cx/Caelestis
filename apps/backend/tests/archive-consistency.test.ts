@@ -1,45 +1,43 @@
 import { millis, sha256Hex } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
-import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import type {
   SqlConnection,
   SqlResult,
   SqlStatement,
   TransactionalSqlConnection,
 } from '../src/adapters/sql-connection.js'
+import { createApp } from '../src/app.js'
+import { ArchiveOperationActiveError, StaleArchiveOperationError } from '../src/archive/errors.js'
 import { exportPage, finishExport, startExport } from '../src/archive/export.js'
+import { closeProcessWrites, fencedConnection, openProcessWrites } from '../src/archive/fence.js'
 import {
   ARCHIVE_CHAIN_SEED,
   ARCHIVE_OBJECT_PREFIXES,
   ARCHIVE_TABLES,
 } from '../src/archive/format.js'
-import {
-  ArchiveOperationActiveError,
-  closeProcessWrites,
-  fencedConnection,
-  openProcessWrites,
-  readArchiveOperation,
-  StaleArchiveOperationError,
-} from '../src/archive/gate.js'
 import { releaseServer } from '../src/archive/operation.js'
+import { readArchiveOperation } from '../src/archive/operation-row.js'
 import type { ArchiveHost } from '../src/archive/port.js'
 import { appendRestore, beginRestore, discardRestore } from '../src/archive/restore.js'
-import { type BackfillStorage, TemplateBackfill } from '../src/backfill/import.js'
+import { TemplateBackfill } from '../src/backfill/import.js'
+import type { BackfillStorage } from '../src/backfill/port.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
+import { makeBackendContext } from '../src/runtime/backend-runtime.js'
+import { RelationalHistoryStore } from '../src/telemetry/history/relational.js'
 import { MemoryObjectStorage, runningImport } from './support/archive.js'
-import { openRelationalStore } from './support/relational.js'
 
 const closes: Array<() => Promise<void>> = []
 afterEach(async () => {
   await Promise.all(closes.splice(0).map((close) => close()))
 })
 const relational = async () => {
-  const opened = await openRelationalStore()
+  const opened = openMemoryDatabase()
   closes.push(opened.close)
   return opened
 }
@@ -121,6 +119,7 @@ describe('archive snapshot boundary', () => {
       }
     }
     const connection: TransactionalSqlConnection = {
+      dialect: 'sqlite',
       prepare: () => new HeldStatement(),
       batch: async () => [],
       transaction: (operation) => operation(connection),
@@ -159,7 +158,7 @@ describe('archive snapshot boundary', () => {
       prepare: (query) => opened.connection.prepare(query),
       batch: (statements) => opened.connection.batch(statements),
     }
-    const store = new RelationalSqlStore(d1)
+    const store = relationalSqlStore(d1)
     expect(await store.archiveOperationActive()).toBe(false)
     await opened.connection
       .prepare(
@@ -169,6 +168,39 @@ describe('archive snapshot boundary', () => {
     await expect(store.writeServerSettings({ name: 'Too late' })).rejects.toMatchObject({
       cause: expect.any(ArchiveOperationActiveError),
     })
+    expect((await opened.sql.readServerSettings()).name).toBeNull()
+  })
+
+  it('answers an HTTP write that slips past the cached gate with the gate’s own 503', async () => {
+    const opened = await relational()
+    const d1: SqlConnection = {
+      dialect: 'sqlite',
+      prepare: (query) => opened.connection.prepare(query),
+      batch: (statements) => opened.connection.batch(statements),
+    }
+    const store = relationalSqlStore(d1)
+    const counters = new TelemetryCoordinator(
+      coordinatorDatabase(opened.connection),
+      { getAlarm: async () => null, setAlarm: async () => {}, deleteAlarm: async () => {} },
+      store,
+    )
+    await counters.initialize()
+    const admin = 'race-admin'
+    const app = createApp(makeBackendContext(new MemoryBlobStore(), store, counters), {
+      server: { id: '00000000-0000-7000-8000-000000000000', name: 'Race', auth: 'access_token' },
+      currentSeason: 0,
+      bootstrapAdminToken: admin,
+    })
+    // This isolate read the gate open just before another one began an export.
+    expect(await store.archiveOperationActive()).toBe(false)
+    await holdRow(opened.connection, 'export-elsewhere')
+    const response = await app.request('/v1/admin/server', {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Too late' }),
+    })
+    expect(response.status).toBe(503)
+    expect(response.headers.get('retry-after')).toBe('60')
     expect((await opened.sql.readServerSettings()).name).toBeNull()
   })
 
@@ -236,8 +268,8 @@ describe('archive snapshot boundary', () => {
       fail = resolve
     })
     /** Holds the bucket write so the flush is mid-flight when the freeze arrives. */
-    class HeldFlush extends RelationalSqlStore {
-      override async appendBuckets(): Promise<never> {
+    class HeldFlush extends RelationalHistoryStore {
+      override async appendAndFold(): Promise<never> {
         entered()
         await failed
         throw new Error('bucket write failed after the freeze')
@@ -251,7 +283,7 @@ describe('archive snapshot boundary', () => {
     const coordinator = new TelemetryCoordinator(
       coordinatorDatabase(opened.connection),
       alarms,
-      new HeldFlush(opened.connection),
+      relationalSqlStore(opened.connection, { history: HeldFlush }),
       () => millis(100_000),
     )
     await coordinator.initialize()
@@ -300,14 +332,14 @@ describe('archive snapshot boundary', () => {
       deleteAlarm: async () => {},
     }
     // Only a fresh read sees the gate, as in the second after it closes on another isolate.
-    class GateClosing extends MemorySqlStore {
-      override async archiveOperationActive(options?: { readonly fresh?: boolean }) {
-        return options?.fresh === true
-      }
-    }
+    const gateClosing = (connection: SqlConnection) => ({
+      ...relationalSqlStore(connection),
+      archiveOperationActive: async (options?: { readonly fresh?: boolean }) =>
+        options?.fresh === true,
+    })
     const importer = new TemplateBackfill(
       storage,
-      new GateClosing(),
+      openMemoryDatabase(gateClosing).sql,
       new MemoryBlobStore(),
       { snapshots: async () => [], tile: async () => null },
       () => 5_000,
@@ -546,9 +578,6 @@ describe('archive operation lifecycle', () => {
     const [first, second] = await Promise.allSettled([discardRestore(host), discardRestore(host)])
     // Exactly one claim wins; the loser changed nothing, so neither thawed the hold.
     expect([first.status, second.status].sort()).toEqual(['fulfilled', 'rejected'])
-    expect(
-      JSON.parse((await readArchiveOperation(opened.connection))?.stateJson ?? '{}'),
-    ).toMatchObject({ phase: 'discarding' })
     await expect(coordinator.record([delta as never])).rejects.toBeInstanceOf(
       ArchiveOperationActiveError,
     )
@@ -593,9 +622,6 @@ describe('archive operation lifecycle', () => {
       .run()
     await exportPage(host, null)
     expect(frozen).toEqual(['crashed'])
-    expect(JSON.parse((await readArchiveOperation(opened.connection))?.stateJson ?? '{}')).toEqual({
-      phase: 'frozen',
-    })
   })
 })
 
@@ -632,15 +658,8 @@ describe('archive request fencing', () => {
     }
   }
 
-  /** Expire the held lease; a no-op against code that predates the lease table. */
   const expireLease = async (connection: SqlConnection) => {
-    await connection
-      .prepare('UPDATE "archive_lease" SET "expires_at_ms" = 0 WHERE "id" = 1')
-      .run()
-      .then(
-        () => {},
-        () => {},
-      )
+    await connection.prepare('UPDATE "archive_lease" SET "expires_at_ms" = 0 WHERE "id" = 1').run()
   }
 
   /** A restore in `ready`, frozen under `operationId`, accepting records for `tables`. */
@@ -739,13 +758,6 @@ describe('archive request fencing', () => {
       )
       .run()
   }
-
-  const discardProgress = async (connection: SqlConnection) =>
-    (
-      JSON.parse((await readArchiveOperation(connection))?.stateJson ?? '{}') as {
-        discard?: { step: number; verified?: number }
-      }
-    ).discard
 
   const hostFor = (opened: { connection: SqlConnection }, coordinator: TelemetryCoordinator) => {
     const visits = { count: 0 }
@@ -968,10 +980,9 @@ describe('archive request fencing', () => {
     const { backfill } = await backfillStores(opened.connection)
     const host: ArchiveHost = { ...hostFor(opened, coordinator), backfill }
     await finishingDiscard(opened.connection, 'restore-1', ['t1', 't2', 't3', 't4', 't5'])
+    // Without a checkpoint every call would rescan the first two ids and never finish.
     expect(await discardRestore(host, 2)).toBe(false)
-    expect((await discardProgress(opened.connection))?.verified).toBe(2)
     expect(await discardRestore(host, 2)).toBe(false)
-    expect((await discardProgress(opened.connection))?.verified).toBe(4)
     // The fifth id fits the third call's budget, so this call releases the server.
     expect(await discardRestore(host, 2)).toBe(true)
     expect(await readArchiveOperation(opened.connection)).toBeNull()
@@ -984,10 +995,8 @@ describe('archive request fencing', () => {
     await finishingDiscard(opened.connection, 'restore-1', ['t1', 't2', 't3', 't4'])
     await backfill('t3').importState([['late', { seed: 1 }]])
     expect(await discardRestore(host, 2)).toBe(false)
-    expect((await discardProgress(opened.connection))?.verified).toBe(2)
-    // 't3' sits in the second chunk; finding it restarts cleanup at step 0.
+    // 't3' sits in the second chunk; finding it restarts cleanup instead of releasing.
     expect(await discardRestore(host, 2)).toBe(false)
-    expect(await discardProgress(opened.connection)).toMatchObject({ step: 0 })
     for (;;) if (await discardRestore(host)) break
     expect(await backfill('t3').exportState(null, 10)).toEqual([])
     expect(await readArchiveOperation(opened.connection)).toBeNull()

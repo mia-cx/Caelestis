@@ -4,7 +4,7 @@ import type {
   ServerAssetContentType,
   TemplateSurfaceKind,
 } from '@caelestis/shared'
-import { WORLD_PIXELS, WORLD_TILES } from '@caelestis/shared'
+import { MAX_NODE_PATH_LENGTH, TEMPLATE_SURFACE_KINDS, WORLD_PIXELS } from '@caelestis/shared'
 import { sql } from 'drizzle-orm'
 import {
   type AnySQLiteColumn,
@@ -19,6 +19,12 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
+import { LADDER_RESOLUTIONS } from '../telemetry/history/ladder.js'
+import { TILE_HISTORY_RESOLUTIONS } from '../telemetry/tiles/ladder.js'
+import { sha256Hex, surfaceCheck, tileCoordinate } from './checks.js'
+
+/** A literal `(a, b, c)` list for a CHECK, so the constraint text names the ladder's own tiers. */
+const inList = (values: readonly number[]) => sql.raw(`(${values.join(', ')})`)
 
 /** Terminal claim identities, separate from rows that older binaries can read or expire. */
 export const workRegionDeletions = sqliteTable('work_region_deletions', {
@@ -190,12 +196,7 @@ export const nodes = sqliteTable(
   {
     id: text('id').primaryKey(),
     season: integer('season').notNull(),
-    surfaceKind: text('surface_kind', {
-      enum: ['world', 'alliance-headquarters', 'alliance-picture', 'alliance-banner'],
-    })
-      .$type<TemplateSurfaceKind>()
-      .notNull()
-      .default('world'),
+    surfaceKind: text('surface_kind', { enum: TEMPLATE_SURFACE_KINDS }).notNull().default('world'),
     allianceId: integer('alliance_id'),
     parentId: text('parent_id').references((): AnySQLiteColumn => nodes.id),
     path: text('path').notNull(),
@@ -222,15 +223,9 @@ export const nodes = sqliteTable(
     uniqueIndex('nodes_alliance_surface_path_idx')
       .on(table.season, table.surfaceKind, table.allianceId, sql`lower(${table.path})`)
       .where(sql`${table.surfaceKind} <> 'world'`),
-    check(
-      'nodes_surface_check',
-      sql`(${table.surfaceKind} = 'world' AND ${table.allianceId} IS NULL)
-        OR (${table.surfaceKind} IN ('alliance-headquarters', 'alliance-picture', 'alliance-banner')
-          AND typeof(${table.allianceId}) = 'integer' AND ${table.allianceId} > 0)`,
-    ),
-    // The wire's NodePath states this shape, and that schema validates the manifest *response* —
-    // nothing stood between a create-or-rename-group route and this column, and `nodes` was the one
-    // table in this file carrying no CHECK at all.
+    check('nodes_surface_check', surfaceCheck(table.surfaceKind, table.allianceId)),
+    // The wire's NodePath states this shape but validates only the manifest *response*, so this
+    // CHECK is what holds every write to it.
     //
     // `%` and `_` are LIKE metacharacters and this is the subtree-rewrite key, so `/canada%`
     // expands the move's prefix to `/canada%/` and captures every sibling subtree
@@ -244,7 +239,7 @@ export const nodes = sqliteTable(
       'nodes_path_check',
       sql`${table.path} GLOB '/*' AND ${table.path} NOT GLOB '*[%_]*'
         AND ${table.path} NOT GLOB '*/' AND ${table.path} NOT GLOB '*//*'
-        AND length(${table.path}) BETWEEN 2 AND 256`,
+        AND length(${table.path}) BETWEEN 2 AND ${sql.raw(String(MAX_NODE_PATH_LENGTH))}`,
     ),
     // The wire derives acyclicity from the path rule, which is likewise response-only. A self-parent
     // satisfies the foreign key, hangs any recursive ancestor walk, and makes the manifest
@@ -286,12 +281,11 @@ export const templateVersions = sqliteTable(
   },
   (table) => [
     unique('template_versions_id_template_idx').on(table.id, table.templateId),
-    // Same shape rule the reporter columns carry, for the same reason: an author record outlives
-    // the credential it names, so the digest is constrained and its existence is not.
+    // An author record outlives the credential it names, so the digest is constrained and its
+    // existence is not.
     check(
       'template_versions_created_with_token_check',
-      sql`typeof(${table.createdWithToken}) = 'text' AND length(${table.createdWithToken}) = 64
-        AND ${table.createdWithToken} NOT GLOB '*[^0-9a-f]*'
+      sql`${sha256Hex(table.createdWithToken)}
         AND (${table.createdByUserId} IS NULL
           OR (typeof(${table.createdByUserId}) = 'integer' AND ${table.createdByUserId} >= 0))`,
     ),
@@ -329,12 +323,7 @@ export const templates = sqliteTable(
   {
     id: text('id').primaryKey(),
     season: integer('season').notNull(),
-    surfaceKind: text('surface_kind', {
-      enum: ['world', 'alliance-headquarters', 'alliance-picture', 'alliance-banner'],
-    })
-      .$type<TemplateSurfaceKind>()
-      .notNull()
-      .default('world'),
+    surfaceKind: text('surface_kind', { enum: TEMPLATE_SURFACE_KINDS }).notNull().default('world'),
     allianceId: integer('alliance_id'),
     nodeId: text('node_id').references(() => nodes.id),
     name: text('name').notNull(),
@@ -357,18 +346,14 @@ export const templates = sqliteTable(
      * still a real credential set from the environment, so it is hashed like any other and stored
      * like any other. There is no creation without a credential behind it.
      *
-     * The account is nullable where the reporter columns' is not, and
-     * the asymmetry is the point: quorum counts distinct accounts, so a report without one is
-     * meaningless, while authorship only has to name the credential that acted. An admin uploading
-     * through a server-side route presents a token and no wplace session, and a dashboard will be in
-     * the same position until it can require the userscript to have read `/me` at least once.
+     * The account is nullable where the reporter columns' is not, and the asymmetry is the point:
+     * quorum counts distinct accounts, so a report without one is meaningless, while authorship only
+     * has to name the credential that acted. An admin uploading through a server-side route presents
+     * a token and no wplace session.
      *
-     * **An upload that does come from the userscript must carry the account.** The schema cannot
-     * enforce that — it cannot tell which client called — so it is an obligation on the userscript
-     * upload route, which does not exist yet. Recorded as the same pair a report is attributed to: the digest of the
-     * access token used, and the wplace `/me` id of the account that used it. `template_versions`
-     * records this per upload; without it here, the template itself — the thing that gets renamed,
-     * moved and deleted — had a creation time and no author.
+     * **An upload from the userscript must carry the account.** The schema cannot tell which client
+     * called, so that is an obligation on any route a userscript uploads through. `template_versions`
+     * records the same pair per upload; this one names who created the template itself.
      */
     createdWithToken: text('created_with_token').notNull(),
     createdByUserId: integer('created_by_user_id'),
@@ -376,28 +361,21 @@ export const templates = sqliteTable(
     /** Changes on every metadata or version mutation so manifest clients can invalidate caches. */
     updatedAtMs: integer('updated_at_ms').$type<Millis>().notNull(),
   },
-  // The version this template currently serves has to be one of *its own* versions. Referencing
-  // template_versions(id) alone said only "some version exists": one template could point at
-  // another's, and current_version_id is what the manifest reads bounds and chunks from, so it
-  // would serve that template's geometry under its own identity — wrong pixels on the canvas and a
-  // progress denominator belonging to a different template.
+  // The version this template currently serves has to be one of *its own* versions. A reference to
+  // template_versions(id) alone would let one template point at another's, and the manifest reads
+  // bounds and chunks through current_version_id, so it would serve that template's geometry under
+  // its own identity — wrong pixels on the canvas and another template's progress denominator.
   //
   // Expressed as a composite key against (id, template_id), which is why template_versions carries
   // a unique index on that pair: SQLite requires a foreign key's parent columns to be unique.
   (table) => [
-    check(
-      'templates_surface_check',
-      sql`(${table.surfaceKind} = 'world' AND ${table.allianceId} IS NULL)
-        OR (${table.surfaceKind} IN ('alliance-headquarters', 'alliance-picture', 'alliance-banner')
-          AND typeof(${table.allianceId}) = 'integer' AND ${table.allianceId} > 0)`,
-    ),
+    check('templates_surface_check', surfaceCheck(table.surfaceKind, table.allianceId)),
     index('templates_surface_idx').on(table.season, table.surfaceKind, table.allianceId),
-    // Same shape rule the reporter columns carry, for the same reason: an author record outlives
-    // the credential it names, so the digest is constrained and its existence is not.
+    // An author record outlives the credential it names, so the digest is constrained and its
+    // existence is not.
     check(
       'templates_created_with_token_check',
-      sql`typeof(${table.createdWithToken}) = 'text' AND length(${table.createdWithToken}) = 64
-        AND ${table.createdWithToken} NOT GLOB '*[^0-9a-f]*'
+      sql`${sha256Hex(table.createdWithToken)}
         AND (${table.createdByUserId} IS NULL
           OR (typeof(${table.createdByUserId}) = 'integer' AND ${table.createdByUserId} >= 0))`,
     ),
@@ -420,18 +398,12 @@ export const versionTiles = sqliteTable(
     hash: text('hash').notNull(),
   },
   (table) => [
-    check(
-      'version_tiles_hash_check',
-      sql`typeof(${table.hash}) = 'text' AND length(${table.hash}) = 64
-        AND ${table.hash} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('version_tiles_hash_check', sha256Hex(table.hash)),
     check(
       'version_tiles_coordinate_check',
       // Alliance HQ uses the same 1,000px chunk grid centred on zero, so its western/northern half
       // is chunk -1. The store still validates exact per-surface ranges before this outer envelope.
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN -1 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN -1 AND ${sql.raw(String(WORLD_TILES - 1))}`,
+      tileCoordinate(table.tileX, table.tileY, -1),
     ),
     primaryKey({ columns: [table.versionId, table.tileX, table.tileY] }),
     index('version_tiles_tile_idx').on(table.tileX, table.tileY),
@@ -468,7 +440,7 @@ export const telemetryBuckets = sqliteTable(
     primaryKey({ columns: [table.templateId, table.resolution, table.bucketStartS] }),
     check(
       'telemetry_buckets_resolution_check',
-      sql`${table.resolution} IN (60, 300, 900, 3600, 21600)`,
+      sql`${table.resolution} IN ${inList(LADDER_RESOLUTIONS)}`,
     ),
     // A bucket start is the floor of an event time to its resolution, so it is always a
     // non-negative multiple of it. Without this, {resolution: 60, bucketStart: 61} persists as a row
@@ -485,10 +457,9 @@ export const telemetryBuckets = sqliteTable(
       sql`typeof(${table.bucketStartS}) = 'integer' AND ${table.bucketStartS} >= 0
         AND ${table.bucketStartS} % ${table.resolution} = 0`,
     ),
-    // The geometry columns get typeof + range; the counters got neither, so `placed = -5`,
-    // `correct = 'oops'` and `repairs = 0.5` all persisted. SQLite INTEGER is an affinity, not a
-    // type. isValidCounterDelta already refuses these, which is exactly why nothing here would ever
-    // trip: this is the second half of the rule, for any writer that is not the shard.
+    // SQLite INTEGER is an affinity, not a type, so without this `placed = -5`, `correct = 'oops'`
+    // and `repairs = 0.5` would persist. isValidCounterDelta refuses them first; this holds every
+    // other writer to the same rule.
     //
     // Only `repairs >= 0` is stated. `repairs <= correct <= placed` carries the sign to the other
     // two, so a bound on either would be unreachable and no test could pin it.
@@ -530,7 +501,7 @@ export const painterTelemetryBuckets = sqliteTable(
     }),
     check(
       'painter_telemetry_buckets_resolution_check',
-      sql`${table.resolution} IN (60, 300, 900, 3600, 21600)`,
+      sql`${table.resolution} IN ${inList(LADDER_RESOLUTIONS)}`,
     ),
     check(
       'painter_telemetry_buckets_alignment_check',
@@ -575,7 +546,7 @@ export const contributions = sqliteTable(
     /**
      * Which token reported this. `wplace_user_id` is attacker-supplied and nothing binds it to the
      * authenticated caller, so a report-scope holder could attribute fabricated work to any other
-     * painter — and with no reporter column that was neither attributable nor reversible.
+     * painter; this column makes that attributable and reversible.
      *
      * **`reported_by_user_id` is the key component, not this column, so
      * `(wplace_user_id, template_id, day_s)` is not unique.** On a self-hosted alliance server every
@@ -593,9 +564,9 @@ export const contributions = sqliteTable(
     reportedWithToken: text('reported_with_token').notNull(),
     /**
      * The wplace `/me` id of the account running the reporting client, for the same reason
-     * `tile_history` carries one: a token is not a client. One token shared across an alliance's
-     * members made them a single reporter, so the max-per-reporter rollup below silently discarded
-     * every member's view but one.
+     * `tile_history` carries one: a token is not a client. Keyed by token, one token shared across
+     * an alliance's members would make them a single reporter, and the max-per-reporter rollup
+     * would keep one member's view and discard the rest.
      */
     reportedByUserId: integer('reported_by_user_id').notNull(),
     placed: integer('placed').notNull(),
@@ -608,21 +579,16 @@ export const contributions = sqliteTable(
     }),
     // Dashboards and leaderboards read by template and day range; the key leads with the painter.
     index('contributions_template_day_idx').on(table.templateId, table.dayS),
-    check(
-      'contributions_reported_with_token_check',
-      sql`typeof(${table.reportedWithToken}) = 'text' AND length(${table.reportedWithToken}) = 64
-        AND ${table.reportedWithToken} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('contributions_reported_with_token_check', sha256Hex(table.reportedWithToken)),
     check(
       'contributions_counter_check',
       // day_s is a day bucket, so it is a UTC midnight — the floor of a report time to 86400.
       // Unaligned, 1 and 2 are two primary keys for one day, and a leaderboard rollup grouped by
       // day splits one painter's work across both.
-      // wplace_user_id is attacker-supplied and was the one key column here with no type guard,
-      // while day_s and all three counters beside it had one. INTEGER affinity converts '1' but
-      // leaves 1.5 and 'abc' alone, so each persisted as its own primary key — one report token
-      // minting unbounded "painters" at 1.5, 1.25, 1.125, every one of them a separate person to
-      // `GROUP BY wplace_user_id`, which also defeats the reduce-then-max rollup documented above.
+      // wplace_user_id is attacker-supplied. INTEGER affinity converts '1' but leaves 1.5 and 'abc'
+      // alone, so without the typeof guard one report token could mint unbounded "painters" at 1.5,
+      // 1.25, 1.125, each a separate person to `GROUP BY wplace_user_id` and to the reduce-then-max
+      // rollup documented above.
       sql`typeof(${table.wplaceUserId}) = 'integer' AND ${table.wplaceUserId} >= 0
         AND typeof(${table.reportedByUserId}) = 'integer' AND ${table.reportedByUserId} >= 0
         AND typeof(${table.dayS}) = 'integer' AND ${table.dayS} >= 0
@@ -636,16 +602,12 @@ export const contributions = sqliteTable(
 )
 
 /**
- * Paint event ids already applied, so the ingest path has somewhere to detect a retry.
+ * Paint event ids already applied, so a retried `PaintEvent.eventId` never double-counts. The
+ * pending counters are purely additive (`placed = placed + excluded.placed`), so without this claim
+ * replaying one captured event N times would multiply them by N.
  *
- * `PaintEvent.eventId` is documented as "client-generated, so a retry can never double-count", and
- * nothing stored it — the pending path is purely additive (`placed = placed + excluded.placed`), so
- * replaying one captured event N times multiplied the counters by N. The guarantee was stated as a
- * property of the design with nowhere in the schema to hold it.
- *
- * This table is that place, and it is not the guarantee. The counters it protects live in a Durable
- * D1 stores the classification beside the claim and applies contribution increments in one batch.
- * A retry replays that exact classification into the independently idempotent counter store.
+ * D1 stores the classification beside the claim and applies contribution increments in the same
+ * batch. A retry replays that exact classification into the independently idempotent counter store.
  *
  * D1 retains the claim with the aggregate it protects. Pruning it would let an old retry increment
  * lifetime contributions again; the shorter-lived counter copy can expire with its time bucket.
@@ -661,9 +623,9 @@ export const appliedEvents = sqliteTable(
   },
   (table) => [
     index('applied_events_seen_at_idx').on(table.seenAtMs),
-    // The guard `contributions` carries, on the sibling that was missed. INTEGER affinity converts
-    // '1' and leaves 1.5 and 'abc' alone, so a replay check reading `wplace_user_id = 1` never
-    // matches a row stored as 1.5 — and this is the first write of every ingest request.
+    // The guard `contributions` carries. INTEGER affinity converts '1' and leaves 1.5 and 'abc'
+    // alone, so a replay check reading `wplace_user_id = 1` would never match a row stored as 1.5 —
+    // and this is the first write of every ingest request.
     check(
       'applied_events_user_check',
       sql`typeof(${table.wplaceUserId}) = 'integer' AND ${table.wplaceUserId} >= 0`,
@@ -686,59 +648,35 @@ export const tileHistory = sqliteTable(
     resolutionS: integer('resolution_s').$type<Seconds>().notNull(),
     bucketStartS: integer('bucket_start_s').$type<Seconds>().notNull(),
     sha256: text('sha256').notNull(),
-    // One row per reporter per observation. `reporters` used to be an aggregate integer on a row
-    // keyed only by tile, tier and bucket: a single hostile client could increment it by replaying
-    // its own hash until it looked like multi-client quorum, and an honest competing hash could not
-    // be stored at all because the key admitted one hash per bucket. The count is now COUNT(*) over
-    // distinct reporters, which cannot be forged by repetition.
-    //
-    // Repetition is all it is safe from. The key component that separates reporters is
-    // `reported_by_user_id`, and what keeps two rows from being one hostile client is the route
-    // verifying that account — see the note on that column. Nothing in this table can check it.
-    //
-    // It bounds the reporter dimension and only that one. `sha256` is also in the key, so a client
-    // free to choose it could still mint a row per hash for one tile and bucket. Two decisions
-    // outside this schema close that, and they are the reason the key keeps `sha256`: the server
-    // computes the hash from the tile it fetched rather than accepting a client's, and the report
-    // route rate-limits ingest. A writer that ever takes this value from a request body reopens it.
     /**
      * Deliberately not a foreign key to `access_tokens`.
      *
      * This column exists to answer "which credential reported this", so a leaked or misbehaving
-     * token can be traced through what it wrote. Referential integrity to a credential table
-     * inverts that: `ON DELETE NO ACTION` makes deleting a token that ever reported fail, so the
-     * only way to remove one is to delete its history first — destroying the very record the column
-     * was added to keep. An audit trail has to outlive the credential it names, which means orphans
-     * are the point, not a defect.
+     * token can be traced through what it wrote. With `ON DELETE NO ACTION`, deleting a token that
+     * ever reported would fail until its history was deleted first — destroying the very record
+     * this column keeps. An audit trail has to outlive the credential it names, so orphans are the
+     * point, not a defect.
      *
      * Deleting a credential does not retract what it already reported, and must not: reported state
      * records what was actually on the canvas, so it is canonical regardless of what later happens
      * to the credential that carried it. Revoking ends a holder's future access; it does not edit
      * the past, and a quorum read counting those rows is still counting real observations.
      *
-     * An earlier version of this note said revocation should delete the reports too. That was
-     * wrong — it would trade an accurate record of wplace for a tidy one.
-     *
-     * The shape stays constrained, which is what the foreign key was really buying: the earlier
-     * justification was "keeps this a token, not free text". A 64-character lowercase hex digest is
-     * still not free text, and it holds for a hash whose token row is long gone. Existence is the
-     * route's job — the server derives this from the authenticated credential rather than reading
-     * it off a request, the same way it computes `sha256` itself.
+     * The shape stays constrained: a 64-character lowercase hex digest is not free text, and it
+     * holds for a hash whose token row is long gone. Existence is the route's job — the server
+     * derives this from the authenticated credential rather than reading it off a request.
      */
     reportedWithToken: text('reported_with_token').notNull(),
     /**
      * The wplace `/me` id of the account running the reporting client, and the only key component
-     * that separates reporters. A token is not a client in either direction: one token configured
-     * on five members' userscripts made those five a single reporter and collapsed genuine quorum
-     * to 1, and keying on (token, account) made a member holding two tokens count as two, forging
-     * the two-distinct-client agreement the ladder prefers.
+     * that separates reporters. A token is not a client in either direction: keyed by token, one
+     * token configured on five members' userscripts would make those five a single reporter, and
+     * keyed by (token, account), a member holding two tokens would count as two, forging the
+     * two-distinct-client agreement the ladder prefers.
      *
-     * **That makes the route the only thing between this table and forged quorum, and it is a real
-     * obligation.** An earlier version keyed on a token digest with a foreign key to
-     * `access_tokens`, so manufacturing N agreeing reporters cost N admin-issued credentials. It no
-     * longer does: this is an integer whose only constraint is that it is a non-negative one, so a
-     * route that reads it from a request body lets one caller invent as many reporters as it likes
-     * for a hash of its choosing.
+     * **That makes the route the only thing between this table and forged quorum.** This is an
+     * integer whose only constraint is that it is non-negative, so a route that reads it from a
+     * request body lets one caller invent as many reporters as it likes for a hash of its choosing.
      *
      * The server cannot derive it the way it derives `sha256` — the value comes from wplace `/me`,
      * which answers for whoever's session asked. The route must verify the account against wplace
@@ -748,6 +686,18 @@ export const tileHistory = sqliteTable(
     reportedByUserId: integer('reported_by_user_id').notNull(),
   },
   (table) => [
+    // One row per reporter per observation, so quorum is COUNT(*) over distinct reporters: a client
+    // replaying its own hash cannot forge multi-client agreement, and competing hashes for one
+    // bucket each get their own rows.
+    //
+    // Repetition is all it is safe from. The key component that separates reporters is
+    // `reported_by_user_id`, and what keeps two rows from being one hostile client is the route
+    // verifying that account — see the note on that column. Nothing in this table can check it.
+    //
+    // `sha256` is also in the key, so a client can still mint one row per distinct image for one
+    // tile and bucket. The server verifies every hash against the bytes it stores, so each such row
+    // costs a real upload. A writer that ever takes this value from a request body unchecked
+    // reopens it.
     primaryKey({
       columns: [
         table.season,
@@ -760,47 +710,36 @@ export const tileHistory = sqliteTable(
       ],
     }),
     index('tile_history_sha256_idx').on(table.sha256),
-    check('tile_history_resolution_s_check', sql`${table.resolutionS} IN (0, 3600, 21600, 86400)`),
+    check(
+      'tile_history_resolution_s_check',
+      sql`${table.resolutionS} IN ${inList(TILE_HISTORY_RESOLUTIONS)}`,
+    ),
     check(
       'tile_history_season_check',
       sql`typeof(${table.season}) = 'integer' AND ${table.season} >= 0`,
+    ),
+    // The content digest gets the rule its credential sibling has. A BLOB stored here is invisible
+    // to text lookups and cannot satisfy the wire's Chunk.hash or an R2 object key, and two
+    // spellings of one hash split the quorum they should agree on.
+    check('tile_history_sha256_check', sha256Hex(table.sha256)),
+    check('tile_history_reported_with_token_check', sha256Hex(table.reportedWithToken)),
+    check(
+      'tile_history_reported_by_user_id_check',
+      sql`typeof(${table.reportedByUserId}) = 'integer' AND ${table.reportedByUserId} >= 0`,
     ),
     // The same rule `telemetry_buckets` states, on the ladder this table folds. A folded bucket
     // start is the floor of an observation to its tier, so {resolution: 3600, bucketStart: 3601}
     // keys a bucket overlapping the real 3600 one and the fold counts one hour as two.
     //
     // Raw observations carry resolution 0 and are exempt: their bucket start is the observation
-    // time itself, aligned to nothing. Stating that as an explicit disjunct rather than leaning on
-    // `x % 0` evaluating to NULL — a CHECK that is NULL does not fail, so the exemption would hold
-    // by accident and read as an oversight.
-    // The content digest gets the rule its credential sibling already has. A BLOB stored here is
-    // invisible to text lookups and cannot satisfy the wire's Chunk.hash or an R2 object key, and
-    // two spellings of one hash split the quorum they should agree on.
-    check(
-      'tile_history_sha256_check',
-      sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64
-        AND ${table.sha256} NOT GLOB '*[^0-9a-f]*'`,
-    ),
-    check(
-      'tile_history_reported_with_token_check',
-      sql`typeof(${table.reportedWithToken}) = 'text' AND length(${table.reportedWithToken}) = 64
-        AND ${table.reportedWithToken} NOT GLOB '*[^0-9a-f]*'`,
-    ),
-    check(
-      'tile_history_reported_by_user_id_check',
-      sql`typeof(${table.reportedByUserId}) = 'integer' AND ${table.reportedByUserId} >= 0`,
-    ),
+    // time itself. The exemption is an explicit disjunct rather than `x % 0` evaluating to NULL,
+    // which would pass the CHECK by accident.
     check(
       'tile_history_bucket_start_s_check',
       sql`typeof(${table.bucketStartS}) = 'integer' AND ${table.bucketStartS} >= 0
         AND (${table.resolutionS} = 0 OR ${table.bucketStartS} % ${table.resolutionS} = 0)`,
     ),
-    check(
-      'tile_history_coordinate_check',
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}`,
-    ),
+    check('tile_history_coordinate_check', tileCoordinate(table.tileX, table.tileY)),
   ],
 )
 
@@ -825,17 +764,8 @@ export const canvasTiles = sqliteTable(
       'canvas_tiles_season_check',
       sql`typeof(${table.season}) = 'integer' AND ${table.season} >= 0`,
     ),
-    check(
-      'canvas_tiles_coordinate_check',
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}`,
-    ),
-    check(
-      'canvas_tiles_sha256_check',
-      sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64
-        AND ${table.sha256} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('canvas_tiles_coordinate_check', tileCoordinate(table.tileX, table.tileY)),
+    check('canvas_tiles_sha256_check', sha256Hex(table.sha256)),
   ],
 )
 
@@ -861,11 +791,7 @@ export const tileBlobObjects = sqliteTable(
   },
   (table) => [
     index('tile_blob_objects_hash_state_idx').on(table.sha256, table.state),
-    check(
-      'tile_blob_objects_sha256_check',
-      sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64
-        AND ${table.sha256} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('tile_blob_objects_sha256_check', sha256Hex(table.sha256)),
     check(
       'tile_blob_objects_key_check',
       sql`${table.blobKey} = ${table.sha256} OR substr(${table.blobKey}, 1, length(${table.sha256}) + 1) = ${table.sha256} || '/'`,
@@ -897,11 +823,7 @@ export const tileBlobReservations = sqliteTable(
     // Expiry sweeps run inside every reservation and commit; without a leading expiry index the
     // sweep scans the table and, under SERIALIZABLE, conflicts with every concurrent insert.
     index('tile_blob_reservations_expiry_idx').on(table.expiresAtMs),
-    check(
-      'tile_blob_reservations_sha256_check',
-      sql`typeof(${table.sha256}) = 'text' AND length(${table.sha256}) = 64
-        AND ${table.sha256} NOT GLOB '*[^0-9a-f]*'`,
-    ),
+    check('tile_blob_reservations_sha256_check', sha256Hex(table.sha256)),
   ],
 )
 
@@ -969,12 +891,7 @@ export const templateTileStatuses = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.templateId, table.versionId, table.tileX, table.tileY] }),
     index('template_tile_statuses_version_idx').on(table.versionId),
-    check(
-      'template_tile_statuses_coordinate_check',
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}`,
-    ),
+    check('template_tile_statuses_coordinate_check', tileCoordinate(table.tileX, table.tileY)),
     check(
       'template_tile_statuses_counter_check',
       sql`typeof(${table.correct}) = 'integer' AND typeof(${table.wrong}) = 'integer'
@@ -1007,9 +924,7 @@ export const templateAlarmTileStatuses = sqliteTable(
     index('template_alarm_tile_statuses_version_idx').on(table.versionId),
     check(
       'template_alarm_tile_statuses_coordinate_check',
-      sql`typeof(${table.tileX}) = 'integer' AND typeof(${table.tileY}) = 'integer'
-        AND ${table.tileX} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}
-        AND ${table.tileY} BETWEEN 0 AND ${sql.raw(String(WORLD_TILES - 1))}`,
+      tileCoordinate(table.tileX, table.tileY),
     ),
     check(
       'template_alarm_tile_statuses_counter_check',

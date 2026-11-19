@@ -1,14 +1,14 @@
 import { EventEmitter } from 'node:events'
 import { type ServerWebSocket, serve } from 'bun'
+import { MAX_LIVE_CLIENT_BINARY_BYTES } from '../live/session.js'
 import type { NodeConfig } from '../node/config.js'
-import { createBackendHttp, type PortableRuntime } from '../node/http.js'
+import { createBackendHttp } from '../node/http.js'
 import {
   type LiveTransportSocket,
   type LiveUpgradeContext,
-  liveRequestContext,
   MAX_BUFFERED_BYTES,
 } from '../node/live.js'
-import { MAX_LIVE_CLIENT_BINARY_BYTES } from '../status-coordinator.js'
+import type { NodeRuntime } from '../node/runtime.js'
 
 type UpgradeData = {
   accept: NonNullable<LiveUpgradeContext['accept']>
@@ -37,22 +37,20 @@ class NativeSocket extends EventEmitter implements LiveTransportSocket {
   }
 }
 
-/** Native Bun HTTP/WebSockets retain the shared host's admission, queues, and authorization. */
-export const listenBunServer = async (runtime: PortableRuntime, config: NodeConfig) => {
-  let stopping = false
-  const { app } = createBackendHttp(runtime, config, () => stopping)
+/** Serve the backend and its WebSockets on Bun's native HTTP server. */
+export const listenBunServer = async (runtime: NodeRuntime, config: NodeConfig) => {
+  const http = createBackendHttp(runtime, config)
   const sockets = new Set<ServerWebSocket<UpgradeData>>()
   const server = serve<UpgradeData>({
     hostname: config.host,
     port: config.port,
     idleTimeout: 0,
     async fetch(request, server) {
-      if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return app.fetch(request)
-      const context: LiveUpgradeContext = {}
-      const response = await liveRequestContext.run(context, () => app.fetch(request))
-      if (response.status !== 200) return response
-      if (!context.accept) return new Response('WebSocket upgrade rejected', { status: 400 })
-      if (server.upgrade(request, { headers: response.headers, data: { accept: context.accept } }))
+      if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket')
+        return http.app.fetch(request)
+      const upgrade = await http.upgrade(request)
+      if ('refusal' in upgrade) return upgrade.refusal
+      if (server.upgrade(request, { headers: upgrade.headers, data: { accept: upgrade.accept } }))
         return
       return new Response('WebSocket upgrade rejected', { status: 400 })
     },
@@ -81,23 +79,17 @@ export const listenBunServer = async (runtime: PortableRuntime, config: NodeConf
     await server.stop(true)
     throw new Error('Bun did not bind a TCP port')
   }
-  runtime.scheduler.start()
+  runtime.start(port)
   return {
     server,
     port,
-    async close() {
-      if (stopping) return
-      stopping = true
-      const stopped = server.stop()
-      for (const socket of sockets) socket.close(1001, 'server shutting down')
-      const force = setTimeout(() => void server.stop(true), 5000)
-      force.unref()
-      try {
-        await stopped
-        await runtime.close()
-      } finally {
-        clearTimeout(force)
-      }
-    },
+    close: () =>
+      http.close({
+        stop: () => server.stop(),
+        closeSockets: (code, reason) => {
+          for (const socket of sockets) socket.close(code, reason)
+        },
+        force: () => void server.stop(true),
+      }),
   }
 }

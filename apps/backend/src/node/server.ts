@@ -3,45 +3,34 @@ import type { AddressInfo } from 'node:net'
 import { getRequestListener } from '@hono/node-server'
 import type { NodeConfig } from './config.js'
 import { createBackendHttp } from './http.js'
-import { createWebSocketServer, type LiveUpgradeContext, liveRequestContext } from './live.js'
-import type { openNodeRuntime } from './runtime.js'
+import { createWebSocketServer } from './live.js'
+import type { NodeRuntime } from './runtime.js'
 
 export type FrontendHandler = (
   request: IncomingMessage,
   response: ServerResponse,
   next: (error?: unknown) => void,
 ) => void | Promise<void>
-type Runtime = Awaited<ReturnType<typeof openNodeRuntime>>
 
 /** Serve the backend, frontend, and authenticated WebSockets on one HTTP listener. */
 export const listenNodeServer = async (
-  runtime: Runtime,
+  runtime: NodeRuntime,
   config: NodeConfig,
   frontend?: FrontendHandler,
 ) => {
-  let stopping = false
-  const { app, backendFetch } = createBackendHttp(runtime, config, () => stopping)
-  const backendListener = getRequestListener(app.fetch, { overrideGlobalObjects: false })
+  const http = createBackendHttp(runtime, config)
+  const backendListener = getRequestListener(http.app.fetch, { overrideGlobalObjects: false })
   const server = createServer((request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname
-    if (
-      stopping ||
-      pathname.startsWith('/health/') ||
-      pathname === '/metrics' ||
-      pathname === '/backend' ||
-      pathname.startsWith('/backend/') ||
-      pathname === config.basePath ||
-      pathname.startsWith(`${config.basePath}/`) ||
-      !frontend
-    ) {
-      backendListener?.(request, response)
+    if (!frontend || http.owns(pathname)) {
+      backendListener(request, response)
       return
     }
     const hostedRequest = Object.assign(request, {
       caelestis: {
         env: {
           CAELESTIS_READ_TOKEN: runtime.readToken,
-          CAELESTIS_BACKEND: { fetch: backendFetch },
+          CAELESTIS_BACKEND: { fetch: http.backendFetch },
         },
         objectStorage: runtime.objects,
       },
@@ -60,26 +49,22 @@ export const listenNodeServer = async (
   const protocols = new WeakMap<IncomingMessage, string>()
   const sockets = createWebSocketServer((request) => protocols.get(request) ?? false)
   server.on('upgrade', (request, socket, head) => {
-    const context: LiveUpgradeContext = {}
-    void liveRequestContext
-      .run(context, async () => {
-        const headers = new Headers()
-        for (const [key, value] of Object.entries(request.headers)) {
-          if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value)
-        }
-        const response = await app.fetch(
-          new Request(new URL(request.url ?? '/', 'http://localhost').href, { headers }),
-        )
-        if (response.status !== 200 || !context.accept) {
+    const headers = new Headers()
+    for (const [key, value] of Object.entries(request.headers)) {
+      if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value)
+    }
+    http
+      .upgrade(new Request(new URL(request.url ?? '/', 'http://localhost').href, { headers }))
+      .then((upgrade) => {
+        if ('refusal' in upgrade) {
           socket.end(
-            `HTTP/1.1 ${response.status === 200 ? 400 : response.status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
+            `HTTP/1.1 ${upgrade.refusal.status} Rejected\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
           )
           return
         }
-        const protocol = response.headers.get('sec-websocket-protocol')
+        const protocol = upgrade.headers.get('sec-websocket-protocol')
         if (protocol) protocols.set(request, protocol)
-        const accept = context.accept
-        sockets.handleUpgrade(request, socket, head, accept)
+        sockets.handleUpgrade(request, socket, head, upgrade.accept)
       })
       .catch((error: unknown) => {
         console.error('WebSocket upgrade failed', error)
@@ -93,28 +78,24 @@ export const listenNodeServer = async (
       resolve()
     })
   })
-  runtime.scheduler.start()
+  const { port } = server.address() as AddressInfo
+  runtime.start(port)
   return {
     server,
-    port: (server.address() as AddressInfo).port,
-    async close() {
-      if (stopping) return
-      stopping = true
-      const closed = new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      )
-      for (const socket of sockets.clients) socket.close(1001, 'server shutting down')
-      const force = setTimeout(() => {
-        for (const socket of sockets.clients) socket.terminate()
-        if ('closeAllConnections' in server) server.closeAllConnections()
-      }, 5000)
-      force.unref()
-      try {
-        await closed
-        await runtime.close()
-      } finally {
-        clearTimeout(force)
-      }
-    },
+    port,
+    close: () =>
+      http.close({
+        stop: () =>
+          new Promise<void>((resolve, reject) =>
+            server.close((error) => (error ? reject(error) : resolve())),
+          ),
+        closeSockets: (code, reason) => {
+          for (const socket of sockets.clients) socket.close(code, reason)
+        },
+        force: () => {
+          for (const socket of sockets.clients) socket.terminate()
+          server.closeAllConnections()
+        },
+      }),
   }
 }

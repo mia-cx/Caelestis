@@ -1,14 +1,15 @@
 import { resolve } from 'node:path'
 import { pathToFileURL, URL } from 'node:url'
 import { Worker } from 'node:worker_threads'
-import { nodeObjectStorage } from '@caelestis/storage/node'
-import { S3ObjectStorage } from '@caelestis/storage/s3'
+import { closeObjectStorage, nodeObjectStorage } from '@caelestis/storage/node'
+import { bun } from './bun.js'
 import { readNodeConfig } from './config.js'
 import { openNodeRuntime } from './runtime.js'
 import { type FrontendHandler, listenNodeServer } from './server.js'
 
-const config = readNodeConfig()
-const objects = nodeObjectStorage(process.env)
+const env = process.env
+const config = readNodeConfig(env)
+const objects = nodeObjectStorage(env)
 let close: (() => Promise<void>) | undefined
 let closing = false
 let ownershipFailure: Error | undefined
@@ -24,25 +25,30 @@ const shutdown = async (error?: Error) => {
   try {
     await close?.()
   } finally {
-    if (objects instanceof S3ObjectStorage) objects.close()
+    closeObjectStorage(objects)
     clearTimeout(deadline)
   }
 }
+/**
+ * Make `stop` what shutdown closes. Ownership lost while starting could not close it yet, so it
+ * closes here and startup fails.
+ */
+const hold = async (stop: () => Promise<void>) => {
+  close = stop
+  if (!ownershipFailure) return
+  await stop()
+  throw ownershipFailure
+}
 try {
-  let listeningPort = config.port
-  let rendererReadToken: string | undefined
   const runtime = await openNodeRuntime(config, objects, {
     onOwnershipLost: (error) => {
       ownershipFailure = error
       void shutdown(error)
     },
-    refreshSocial: () =>
+    refreshSocial: (api, readToken) =>
       new Promise<void>((resolveJob, rejectJob) => {
         const worker = new Worker(new URL('./social-worker.js', import.meta.url), {
-          workerData: {
-            api: `http://127.0.0.1:${listeningPort}${config.basePath}/v1/`,
-            readToken: rendererReadToken,
-          },
+          workerData: { api, readToken },
         })
         worker.once('error', rejectJob)
         worker.once('exit', (code) =>
@@ -52,41 +58,19 @@ try {
         )
       }),
   })
-  close = () => runtime.close()
-  rendererReadToken = runtime.readToken
-  if (ownershipFailure) {
-    await runtime.close()
-    throw ownershipFailure
-  }
+  await hold(() => runtime.close())
   if (process.argv.includes('migrate')) {
     await shutdown()
     console.info('Database migrations applied')
   } else {
-    const module: { handler: FrontendHandler } | undefined = process.env.FRONTEND_HANDLER
-      ? await import(pathToFileURL(resolve(process.env.FRONTEND_HANDLER)).href)
+    const module: { handler: FrontendHandler } | undefined = config.frontendHandler
+      ? await import(pathToFileURL(resolve(config.frontendHandler)).href)
       : undefined
-    if (process.versions.bun && module)
-      throw new Error('The Bun backend requires the separate Node frontend image')
-    // A URL import keeps Bun's ambient types out of the Node/Cloudflare compilation.
-    const bun:
-      | {
-          listenBunServer: (
-            instance: typeof runtime,
-            settings: typeof config,
-          ) => Promise<{ port: number; close(): Promise<void> }>
-        }
-      | undefined = process.versions.bun
-      ? await import(new URL('../bun/server.js', import.meta.url).href)
-      : undefined
+    if (bun && module) throw new Error('The Bun backend requires the separate Node frontend image')
     const server = bun
       ? await bun.listenBunServer(runtime, config)
       : await listenNodeServer(runtime, config, module?.handler)
-    if (ownershipFailure) {
-      await server.close()
-      throw ownershipFailure
-    }
-    listeningPort = server.port
-    close = () => server.close()
+    await hold(() => server.close())
     process.once('SIGTERM', () => {
       void shutdown()
     })
@@ -99,7 +83,7 @@ try {
         host: config.host,
         port: server.port,
         database: config.adapter,
-        objectStorage: process.env.OBJECT_STORAGE ?? 'filesystem',
+        objectStorage: config.objectStorage,
         serverId: runtime.serverId,
       }),
     )

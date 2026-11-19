@@ -1,15 +1,14 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks'
-import { MAX_PRESENCE_SUBSCRIBERS } from '@caelestis/shared'
-import { type LiveSocket, MAX_LIVE_SUBSCRIBERS } from '../status-coordinator.js'
+import { isSha256Hex, MAX_PRESENCE_SUBSCRIBERS } from '@caelestis/shared'
+import { type LiveSubscriberAttachment, MAX_LIVE_SUBSCRIBERS } from '../live/session.js'
 
 export type AdmissionChannel = 'live-sync' | 'presence'
 export const ADMISSION_CHANNELS: readonly AdmissionChannel[] = ['live-sync', 'presence']
 
-/** Socket state one pod exposes for scaling decisions. Sockets already carry their attachments. */
-export interface CapacityHost {
-  getWebSockets(): readonly LiveSocket[]
-  readonly pendingWork: number
-}
+/** The credential fields that name a socket's user. Attachments from older deploys may lack some. */
+export type Occupant = Pick<LiveSubscriberAttachment, 'tokenHash' | 'clientHash' | 'anonymous'>
+
+/** One live coordinator's state, as a pod exposes it for scaling decisions. */
 export interface CapacityCoordinator {
   readonly kind: AdmissionChannel
   /**
@@ -17,7 +16,10 @@ export interface CapacityCoordinator {
    * label domain stays bounded. Several hosts may share a key and report their fullest member.
    */
   readonly key: string
-  readonly host: CapacityHost
+  /** One per slot the coordinator's admission check counts; null where an attachment does not decode. */
+  readonly occupants: readonly (Occupant | null)[]
+  /** Socket messages and background work its host has not finished. */
+  readonly pendingWork: number
 }
 export interface CoordinatorCapacity {
   readonly kind: AdmissionChannel
@@ -37,69 +39,44 @@ export interface CapacitySnapshot {
   readonly coordinators: readonly CoordinatorCapacity[]
 }
 
-interface IdentityAttachment {
-  readonly tokenHash?: unknown
-  readonly clientHash?: unknown
-  readonly anonymous?: unknown
-  readonly closed?: unknown
-}
-
-const HASH = /^[0-9a-f]{64}$/
-
-const attachmentOf = (socket: LiveSocket): IdentityAttachment | null => {
-  const attachment = socket.deserializeAttachment()
-  return typeof attachment === 'object' && attachment !== null
-    ? (attachment as IdentityAttachment)
-    : null
-}
-
 /**
  * Authenticated sockets belong to their credential. Anonymous frontend sockets share the read
  * token, so their client hash (read token plus client id) identifies the browser instead.
  */
-export const userKey = (attachment: IdentityAttachment | null): string | null => {
-  if (attachment === null) return null
-  if (attachment.anonymous === true)
-    return typeof attachment.clientHash === 'string' && HASH.test(attachment.clientHash)
-      ? `client:${attachment.clientHash}`
-      : null
-  return typeof attachment.tokenHash === 'string' && HASH.test(attachment.tokenHash)
-    ? `token:${attachment.tokenHash}`
-    : null
+const userKey = (occupant: Occupant | null): string | null => {
+  if (occupant === null) return null
+  if (occupant.anonymous === true)
+    return isSha256Hex(occupant.clientHash) ? `client:${occupant.clientHash}` : null
+  return isSha256Hex(occupant.tokenHash) ? `token:${occupant.tokenHash}` : null
 }
 
-/** Count sockets the same way each coordinator's admission check counts them. */
-const occupied = (kind: AdmissionChannel, host: CapacityHost): LiveSocket[] =>
-  host.getWebSockets().filter((socket) => {
-    if (kind === 'live-sync') return true
-    return attachmentOf(socket)?.closed !== true && (socket.readyState ?? 1) === 1
-  })
-
+/** `liveSubscriberLimit` is the limit live-sync admission uses, which deployments may override. */
 export const snapshotCapacity = (
   coordinators: readonly CapacityCoordinator[],
+  liveSubscriberLimit = MAX_LIVE_SUBSCRIBERS,
 ): CapacitySnapshot => {
   const users = new Set<string>()
   let liveSlots = 0
   let presenceSlots = 0
   let pendingWork = 0
   const measured = new Map<string, CoordinatorCapacity>()
-  for (const { kind, key, host } of coordinators) {
-    const sockets = occupied(kind, host)
-    for (const socket of sockets) {
-      const user = userKey(attachmentOf(socket))
+  for (const coordinator of coordinators) {
+    const { kind, key, occupants } = coordinator
+    for (const occupant of occupants) {
+      const user = userKey(occupant)
       if (user !== null) users.add(user)
     }
-    if (kind === 'live-sync') liveSlots += sockets.length
-    else presenceSlots += sockets.length
-    pendingWork += host.pendingWork
+    if (kind === 'live-sync') liveSlots += occupants.length
+    else presenceSlots += occupants.length
+    pendingWork += coordinator.pendingWork
     // Kinds never contain a colon, so this key cannot collide across kinds.
     const series = `${kind}:${key}`
     const previous = measured.get(series)?.connections ?? 0
     measured.set(series, {
       kind,
       key,
-      connections: Math.max(previous, sockets.length),
-      limit: kind === 'live-sync' ? MAX_LIVE_SUBSCRIBERS : MAX_PRESENCE_SUBSCRIBERS,
+      connections: Math.max(previous, occupants.length),
+      limit: kind === 'live-sync' ? liveSubscriberLimit : MAX_PRESENCE_SUBSCRIBERS,
     })
   }
   return {
@@ -128,10 +105,13 @@ export class AdmissionCounters {
   }
 }
 
-/** Which admission channel a request path belongs to, or null for ordinary HTTP. */
+/**
+ * Which admission channel a request path belongs to, or null for ordinary HTTP. The app serves
+ * each route at `/v1` and at the unversioned alias, so both count.
+ */
 export const admissionChannel = (pathname: string): AdmissionChannel | null => {
-  if (pathname.endsWith('/v1/telemetry/live')) return 'live-sync'
-  if (pathname.endsWith('/v1/telemetry/presence')) return 'presence'
+  if (pathname.endsWith('/telemetry/live')) return 'live-sync'
+  if (pathname.endsWith('/telemetry/presence')) return 'presence'
   return null
 }
 

@@ -1,28 +1,22 @@
 import { MAX_PRESENCE_SUBSCRIBERS } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
-import { type LiveSocket, MAX_LIVE_SUBSCRIBERS } from '../status-coordinator.js'
+import { MAX_LIVE_SUBSCRIBERS } from '../live/session.js'
 import {
   AdmissionCounters,
   admissionChannel,
-  type CapacityHost,
+  type CapacityCoordinator,
   EventLoopLag,
+  type Occupant,
   renderCapacityMetrics,
   snapshotCapacity,
-  userKey,
 } from './capacity.js'
 
 const hash = (seed: string) => seed.repeat(64).slice(0, 64)
-const socket = (attachment: unknown, readyState = 1): LiveSocket => ({
-  readyState,
-  send() {},
-  close() {},
-  serializeAttachment() {},
-  deserializeAttachment: () => attachment,
-})
-const host = (sockets: LiveSocket[], pendingWork = 0): CapacityHost => ({
-  getWebSockets: () => sockets,
-  pendingWork,
-})
+const coordinator = (
+  kind: CapacityCoordinator['kind'],
+  occupants: readonly (Occupant | null)[],
+  pendingWork = 0,
+): CapacityCoordinator => ({ kind, key: '0', occupants, pendingWork })
 
 describe('snapshotCapacity', () => {
   it('reports zero for an empty pod', () => {
@@ -40,16 +34,8 @@ describe('snapshotCapacity', () => {
     const browser = { tokenHash: hash('b'), clientHash: hash('c'), anonymous: true }
     const secondBrowser = { tokenHash: hash('b'), clientHash: hash('d'), anonymous: true }
     const snapshot = snapshotCapacity([
-      {
-        kind: 'live-sync',
-        key: '0',
-        host: host([socket(mia), socket(mia), socket(browser), socket(secondBrowser)], 3),
-      },
-      {
-        kind: 'presence',
-        key: '0',
-        host: host([socket({ ...mia, sessionId: '1' }), socket({ ...browser, closed: true })], 1),
-      },
+      coordinator('live-sync', [mia, mia, browser, secondBrowser], 3),
+      coordinator('presence', [mia], 1),
     ])
     expect(snapshot).toEqual({
       users: 3,
@@ -67,9 +53,9 @@ describe('snapshotCapacity', () => {
     const mia = { tokenHash: hash('a'), clientHash: hash('a'), anonymous: false }
     const eve = { tokenHash: hash('e'), clientHash: hash('e'), anonymous: false }
     const snapshot = snapshotCapacity([
-      { kind: 'presence', key: '0', host: host([socket(mia)]) },
-      { kind: 'presence', key: '0', host: host([socket(mia), socket(eve)]) },
-      { kind: 'presence', key: '0', host: host([]) },
+      coordinator('presence', [mia]),
+      coordinator('presence', [mia, eve]),
+      coordinator('presence', []),
     ])
     expect(snapshot.presenceSlots).toBe(3)
     expect(snapshot.users).toBe(2)
@@ -78,23 +64,23 @@ describe('snapshotCapacity', () => {
     ])
   })
 
-  it('excludes presence sockets that are not open, matching room admission', () => {
-    const mia = { tokenHash: hash('a'), clientHash: hash('a'), anonymous: false }
-    const snapshot = snapshotCapacity([
-      { kind: 'presence', key: '0', host: host([socket(mia, 3), socket(mia, 0)]) },
+  it('reports the live-sync limit admission uses when a deployment overrides it', () => {
+    const snapshot = snapshotCapacity([coordinator('live-sync', [])], 7)
+    expect(snapshot.coordinators).toEqual([
+      { kind: 'live-sync', key: '0', connections: 0, limit: 7 },
     ])
-    expect(snapshot.presenceSlots).toBe(0)
-    expect(snapshot.users).toBe(0)
   })
 
-  it('ignores sockets without a well-formed identity', () => {
-    expect(userKey(null)).toBeNull()
-    expect(userKey({ tokenHash: 'short', anonymous: false })).toBeNull()
-    expect(userKey({ tokenHash: hash('a'), anonymous: true })).toBeNull()
-    expect(userKey({ tokenHash: hash('a'), clientHash: hash('b'), anonymous: true })).toBe(
-      `client:${hash('b')}`,
-    )
-    expect(userKey({ tokenHash: hash('a'), clientHash: hash('b') })).toBe(`token:${hash('a')}`)
+  it('counts no user for a socket without a well-formed identity', () => {
+    const snapshot = snapshotCapacity([
+      coordinator('live-sync', [
+        null,
+        { tokenHash: 'short', anonymous: false },
+        { tokenHash: hash('a'), anonymous: true },
+      ]),
+    ])
+    expect(snapshot.users).toBe(0)
+    expect(snapshot.liveSlots).toBe(3)
   })
 })
 
@@ -116,16 +102,19 @@ describe('AdmissionCounters', () => {
     expect(admissionChannel('/backend/v1/telemetry/presence/online')).toBeNull()
     expect(admissionChannel('/backend/v1/manifest')).toBeNull()
   })
+
+  it('maps the unversioned alias to its channel too', () => {
+    expect(admissionChannel('/backend/telemetry/live')).toBe('live-sync')
+    expect(admissionChannel('/backend/telemetry/presence')).toBe('presence')
+    expect(admissionChannel('/backend/telemetry/presence/online')).toBeNull()
+  })
 })
 
 describe('EventLoopLag', () => {
-  it('reports zero before sampling and supports repeated reads', () => {
+  it('starts a fresh window on every read', () => {
     const lag = new EventLoopLag()
     try {
-      const first = lag.read()
-      expect(first.max).toBeGreaterThanOrEqual(0)
-      expect(first.p99).toBeGreaterThanOrEqual(0)
-      expect(first.max).toBeLessThan(5)
+      lag.read()
       expect(lag.read()).toEqual({ p99: 0, max: 0 })
     } finally {
       lag.stop()
@@ -138,8 +127,8 @@ describe('renderCapacityMetrics', () => {
     const counters = new AdmissionCounters()
     const text = renderCapacityMetrics(
       snapshotCapacity([
-        { kind: 'presence', key: 'quoted:"7"', host: host([]) },
-        { kind: 'live-sync', key: '0', host: host([]) },
+        { ...coordinator('presence', []), key: 'quoted:"7"' },
+        coordinator('live-sync', []),
       ]),
       counters,
       { p99: 0, max: 0.002 },

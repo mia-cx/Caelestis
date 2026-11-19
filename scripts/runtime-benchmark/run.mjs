@@ -160,7 +160,7 @@ try {
     buildHash.update(await readFile(join(backendDirectory, file)))
   }
   report.backendSha256 = buildHash.digest('hex')
-  const statusSource = await readFile(join(backendDirectory, 'status-coordinator.js'), 'utf8')
+  const statusSource = await readFile(join(backendDirectory, 'live/session.js'), 'utf8')
   const currentLimit = Number(statusSource.match(/export const MAX_LIVE_SUBSCRIBERS = (\d+);/)[1])
   report.capacity = {
     productionLimit: currentLimit,
@@ -185,7 +185,7 @@ try {
       `export const MAX_LIVE_SUBSCRIBERS = ${currentLimit};`,
       `export const MAX_LIVE_SUBSCRIBERS = ${users};`,
     )
-    await writeFile(join(backendDirectory, 'status-coordinator.js'), modified)
+    await writeFile(join(backendDirectory, 'live/session.js'), modified)
     report.capacity.compiledStatusSha256 = createHash('sha256').update(modified).digest('hex')
   }
   if (!miniflareOnly)
