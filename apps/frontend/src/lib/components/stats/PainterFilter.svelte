@@ -6,12 +6,8 @@
    */
   import { Icon } from '@caelestis/ui'
   import { Command, Popover } from 'bits-ui'
-  import {
-    type ContributionPainter,
-    painterColour,
-    painterLabel,
-    rankPainters,
-  } from '#lib/components/charts/painter-pace.js'
+  import type { ContributionPainter } from '#lib/components/stats/community.svelte.js'
+  import { painterColour, painterLabel, rankPainters } from '#lib/components/stats/painter-identity.js'
 
   let {
     options,

@@ -36,8 +36,11 @@ import {
   tileImageUrl,
   writeConnection,
 } from '../lib/api/client'
-import { combineArchiveSamples } from '../lib/archive-history'
-import { combineProgressSamples, mergeObservedProgress } from '../lib/progress-history'
+import { combineArchiveSamples } from '../lib/components/stats/archive-history'
+import {
+  combineProgressSamples,
+  mergeObservedProgress,
+} from '../lib/components/stats/progress-history'
 import { adminToken, authorized, createTestBackend, frontendFetch } from './backend'
 
 const fixtureNow = 1_700_010_000

@@ -1,4 +1,10 @@
-import { type Millis, type Seconds, seconds } from '@caelestis/shared'
+import {
+  COUNTER_EXPIRES_AFTER_SECONDS,
+  COUNTER_GRACE_SECONDS,
+  type Millis,
+  type Seconds,
+  seconds,
+} from '@caelestis/shared'
 
 /**
  * Live contribution counters. Durable Object today, a counters table later.
@@ -13,28 +19,17 @@ import { type Millis, type Seconds, seconds } from '@caelestis/shared'
  * and retain activity identically; alarms remain an adapter detail.
  */
 
-export const RESOLUTION_SECONDS: Seconds = seconds(60)
-export const GRACE_SECONDS: Seconds = seconds(30)
-export const RETENTION_SECONDS: Seconds = seconds(3_600)
+export {
+  COUNTER_EXPIRES_AFTER_SECONDS as EXPIRES_AFTER_SECONDS,
+  COUNTER_FLUSHABLE_AFTER_SECONDS as FLUSHABLE_AFTER_SECONDS,
+  COUNTER_GRACE_SECONDS as GRACE_SECONDS,
+  COUNTER_RESOLUTION_SECONDS as RESOLUTION_SECONDS,
+  COUNTER_RETENTION_SECONDS as RETENTION_SECONDS,
+} from '@caelestis/shared'
 
-/**
- * Derived windows, exported so every implementation and the validator share one definition.
- *
- * These were previously recomputed in three places and agreed only by coincidence. Expiry is the
- * sole authority on how late a delta may be, so if the validator's notion of "expired" drifts from
- * the store's by even a second, it accepts a bucket whose retained row has already been pruned — and
- * the promotion join then writes only the late portion, which D1's replace semantics turn into a
- * silent undercount. Derive, never restate.
- *
- * The store's own pruning defends the same boundary from the other side: a retained row outlives its
- * expiry for as long as pending or flush-batch state still references it, so an in-flight rewrite
- * always has its subtrahend.
- */
-export const FLUSHABLE_AFTER_SECONDS: Seconds = seconds(RESOLUTION_SECONDS + GRACE_SECONDS)
-export const EXPIRES_AFTER_SECONDS: Seconds = seconds(FLUSHABLE_AFTER_SECONDS + RETENTION_SECONDS)
 /** Event keys outlive every counter timestamp that could have been valid when first received. */
 export const COUNTER_IDEMPOTENCY_RETENTION_SECONDS: Seconds = seconds(
-  EXPIRES_AFTER_SECONDS + GRACE_SECONDS,
+  COUNTER_EXPIRES_AFTER_SECONDS + COUNTER_GRACE_SECONDS,
 )
 
 /** Prevent unbounded identifiers from creating permanent rows in the shared stores. */

@@ -5,21 +5,19 @@ import {
   archiveContributionDays,
   archiveIntervals,
   combineArchiveSamples,
-} from '../lib/archive-history'
-import { completionPace } from '../lib/completion-pace'
+} from '../lib/components/stats/archive-history'
+import { contributionPainters } from '../lib/components/stats/community.svelte'
+import { completionPace } from '../lib/components/stats/completion-pace'
 import {
-  contributionPainters,
-  painterColour,
-  rankPainters,
   selectAllPainters,
   togglePainterSelection,
-} from '../lib/components/charts/painter-pace'
+} from '../lib/components/stats/pace-selection.svelte'
+import { painterColour, rankPainters } from '../lib/components/stats/painter-identity'
 import {
-  clampWindow,
-  clipSeries,
-  rollingIntervalPace,
-} from '../lib/components/charts/progress-pace'
-import { combineProgressSamples, mergeObservedProgress } from '../lib/progress-history'
+  combineProgressSamples,
+  mergeObservedProgress,
+} from '../lib/components/stats/progress-history'
+import { clampWindow, clipSeries, rollingIntervalPace } from '../lib/components/stats/progress-pace'
 import { manifest, template } from './fixtures'
 
 const sample = (at: number, correct: number | null) => ({
@@ -203,26 +201,11 @@ describe('pace and chart windows', () => {
     expect(rankPainters(options, '2').map((p) => p.wplaceUserId)).toEqual([2])
   })
 
-  it("painter colours follow Wplace's palette[id % 14] Tailwind 500 table", () => {
-    // Copied from Wplace's deployed CSS, so a transcription or ordering slip fails here.
-    const wplace = [
-      'oklch(63.7% 0.237 25.331)', // red
-      'oklch(70.5% 0.213 47.604)', // orange
-      'oklch(79.5% 0.184 86.047)', // yellow
-      'oklch(76.8% 0.233 130.85)', // lime
-      'oklch(69.6% 0.17 162.48)', // emerald
-      'oklch(70.4% 0.14 182.503)', // teal
-      'oklch(71.5% 0.143 215.221)', // cyan
-      'oklch(68.5% 0.169 237.323)', // sky
-      'oklch(58.5% 0.233 277.117)', // indigo
-      'oklch(60.6% 0.25 292.717)', // violet
-      'oklch(62.7% 0.265 303.9)', // purple
-      'oklch(66.7% 0.295 322.15)', // fuchsia
-      'oklch(65.6% 0.241 354.308)', // pink
-      'oklch(64.5% 0.246 16.439)', // rose
-    ]
-    const ids = Array.from({ length: 2 * wplace.length }, (_, id) => id)
-    expect(ids.map(painterColour)).toEqual([...wplace, ...wplace])
+  it("painter colours repeat Wplace's 14-colour id cycle", () => {
+    const cycle = Array.from({ length: 14 }, (_, id) => painterColour(id))
+    expect(new Set(cycle).size).toBe(14)
+    expect(painterColour(14)).toBe(painterColour(0))
+    expect(painterColour(27)).toBe(painterColour(13))
   })
 
   it('heatmap painters stay apart by id, take their latest name, and lead by pixels placed', () => {

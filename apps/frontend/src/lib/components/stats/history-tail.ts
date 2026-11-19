@@ -1,4 +1,9 @@
-import { type HistoryBucket, type Seconds, seconds } from '@caelestis/shared'
+import {
+  COUNTER_EXPIRES_AFTER_SECONDS,
+  type HistoryBucket,
+  type Seconds,
+  seconds,
+} from '@caelestis/shared'
 
 /** What the history routes answer: buckets on one grid, with that grid's width when bounded. */
 export interface HistoryRead<Bucket extends HistoryBucket = HistoryBucket> {
@@ -16,12 +21,10 @@ export interface HeldHistory<Read extends HistoryRead> {
 }
 
 /**
- * How long after a bucket starts its counters normally keep changing: they reach storage 90 s after
- * their minute and accept late reports for an hour after that (the backend's
- * `EXPIRES_AFTER_SECONDS`). Writes delayed further, such as a backlog delivered after an outage,
- * wait for the caller's next full read.
+ * How long after a bucket starts its counters normally keep changing. Writes delayed further, such
+ * as a backlog delivered after an outage, wait for the caller's next full read.
  */
-const MUTABLE_SECONDS = 3_690
+const MUTABLE_SECONDS = COUNTER_EXPIRES_AFTER_SECONDS
 
 /**
  * Bring a held history up to `to`, reading only what changed.

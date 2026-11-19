@@ -1,6 +1,9 @@
 import type { ArchiveProgressSample, ProgressSample } from '@caelestis/shared'
 import { isDailyArchiveInterval } from './archive-history'
 
+/** Archive captures are daily, so only pace windows of a day or more may count their intervals. */
+export const archiveCountsFor = (windowSeconds: number): boolean => windowSeconds >= 86_400
+
 export interface ObservedProgressSample extends ProgressSample {
   readonly archive: boolean
 }

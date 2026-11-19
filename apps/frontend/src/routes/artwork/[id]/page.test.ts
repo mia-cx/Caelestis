@@ -20,7 +20,7 @@ vi.mock('#lib/api/client.js', () => ({
   getArchiveHistory: fixture.archive,
 }))
 // A Svelte 5 component is a function of its anchor and props; these render nothing.
-vi.mock('#lib/components/StatsPanel.svelte', () => ({ default: () => undefined }))
+vi.mock('#lib/components/stats/StatsPanel.svelte', () => ({ default: () => undefined }))
 vi.mock('#lib/components/TemplateViewer.svelte', () => ({ default: () => undefined }))
 
 import Page from './+page.svelte'

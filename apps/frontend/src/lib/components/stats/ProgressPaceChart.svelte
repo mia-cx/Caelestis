@@ -1,26 +1,25 @@
+<script module lang="ts">
+  /** The plot's height, which the panel's loading and error states keep too. */
+  export const CHART_HEIGHT = 240
+</script>
+
 <script lang="ts">
   import {
     formatCount,
     formatExactCount,
     formatPixels,
     type HistoryBucket,
-    type ArchiveProgressSample,
-    type ProgressSample,
     type PainterHistoryBucket,
+    type PainterTotal,
   } from '@caelestis/shared'
   import { untrack } from 'svelte'
   import { cubicOut } from 'svelte/easing'
   import { Tween } from 'svelte/motion'
   import { fade, type TransitionConfig } from 'svelte/transition'
-  import { type Persisted, persisted } from '#lib/persisted.svelte.js'
-  import { STORAGE_KEYS } from '#lib/deployment.js'
-  import {
-    type PainterOption,
-    painterColour,
-    painterLabel,
-  } from '#lib/components/charts/painter-pace.js'
-  import PainterPicker from '#lib/components/charts/PainterPicker.svelte'
-  import PacePicker from '#lib/components/charts/PacePicker.svelte'
+  import { painterColour, painterLabel } from '#lib/components/stats/painter-identity.js'
+  import { type PaceSelection, paceWindowUsable } from '#lib/components/stats/pace-selection.svelte.js'
+  import PainterPicker from '#lib/components/stats/PainterPicker.svelte'
+  import PacePicker from '#lib/components/stats/PacePicker.svelte'
   import {
     availableRangePresets,
     axisScale,
@@ -37,60 +36,45 @@
     timeTickStep,
     type TimeWindow,
     windowKeyStep,
-  } from '#lib/components/charts/progress-pace.js'
-  import { mergeObservedProgress, observedProgressIntervals } from '#lib/progress-history.js'
+  } from '#lib/components/stats/progress-pace.js'
+  import {
+    archiveCountsFor,
+    type ObservedProgressSample,
+    observedProgressIntervals,
+  } from '#lib/components/stats/progress-history.js'
 
   let {
+    samples,
     buckets,
-    archiveSamples: importedSamples = [],
-    progressSamples = [],
     resolution,
     from,
     to,
-    anchorCorrect,
-    anchorMismatched,
-    anchorRevision,
-    finished = false,
-    live = false,
-    painters = [],
-    selectedPainters = new Set<number>(),
-    onTogglePainter = () => {},
-    onSetAllPainters = () => {},
-    painterHistories = [],
-    windows = persisted<string[]>(STORAGE_KEYS.paceWindows, ['1h', '6h']),
+    live,
+    paces,
+    painters,
+    painterHistories,
     playhead = null,
     onSeek,
     onScrubStart,
   }: {
+    /**
+     * Saved observations merged with imported archive samples, ending with the current or frozen
+     * counts at `to`. Placement reports are not a net canvas-change ledger.
+     */
+    samples: readonly ObservedProgressSample[]
     buckets: readonly HistoryBucket[]
-    archiveSamples?: readonly ArchiveProgressSample[]
-    progressSamples?: readonly ProgressSample[]
-    /** Who painted in the range, leading first: the picker's list. */
-    painters?: readonly PainterOption[]
-    /** The painters being drawn; whoever fetches `painterHistories` owns this. */
-    selectedPainters?: ReadonlySet<number>
-    onTogglePainter?: (wplaceUserId: number) => void
-    onSetAllPainters?: (shown: boolean) => void
-    /** The selected painters' retained sources for the enabled rolling windows. */
-    painterHistories?: readonly PainterHistorySource[]
-    /** The enabled rolling windows, shared with whoever fetches the painter sources. */
-    windows?: Persisted<string[]>
     /** Bucket width in seconds; buckets are summed across templates per bucket start. */
     resolution: number
     from: number
     to: number
-    /**
-     * Current or frozen canvas counts are drawn only at `to`. Historical levels come exclusively
-     * from saved observations; placement reports are not a net canvas-change ledger.
-     */
-    anchorCorrect: number
-    anchorMismatched: number
-    /** The current artwork basis, shared with the historical scope revision identifiers. */
-    anchorRevision?: string
-    /** A finished scope has a frozen final observation, even though it has no live pulse. */
-    finished?: boolean
     /** The right edge is now: the canvas is still being painted, so the last point is live. */
-    live?: boolean
+    live: boolean
+    /** Which pace lines are drawn; whoever fetches `painterHistories` reads the same. */
+    paces: PaceSelection
+    /** Who painted in the range, leading first: the picker's list. */
+    painters: readonly PainterTotal[]
+    /** The selected painters' retained sources for the enabled rolling windows. */
+    painterHistories: readonly PainterHistorySource[]
     /** A timelapse's recorded time, drawn as a playhead wherever it falls inside the range. */
     playhead?: number | null
     /**
@@ -103,31 +87,10 @@
     onScrubStart?: () => () => void
   } = $props()
 
-  // The full-range series depend only on the data, so dragging the window never recomputes them.
-  const chartSamples = $derived(
-    mergeObservedProgress(
-      importedSamples,
-      progressSamples,
-      live || finished ? { at: to, correct: anchorCorrect, mismatched: anchorMismatched, revision: anchorRevision } : undefined,
-    ),
-  )
-  const archiveSamples = $derived(chartSamples.filter(sample => sample.archive))
-
-  /**
-   * Saved observations supply completion areas and combined net progress pace on the
-   * right axis. Longer pace windows use darker, thicker lines.
-   */
-  const storedWindows = $derived(windows)
-  const enabledWindows = $derived(new Set(storedWindows.value))
-  const toggleWindow = (key: string): void => {
-    const next = new Set(storedWindows.value)
-    if (!next.delete(key)) next.add(key)
-    storedWindows.value = [...next]
-  }
-
-  /** A rolling window needs at least two samples from whichever retained tier supplies it. */
-  const windowUsable = (seconds: number, bucketSeconds: number): boolean =>
-    seconds >= 2 * bucketSeconds
+  const archiveSamples = $derived(samples.filter((sample) => sample.archive))
+  /** Anything observed before the right edge, as opposed to only the current counts there. */
+  const observed = $derived(samples.some((sample) => sample.at < to))
+  const anchor = $derived(samples.findLast((sample) => sample.at === to))
 
   interface Point {
     t: number
@@ -160,9 +123,8 @@
   // Painter buckets are written per report while template buckets wait for the counter flush, so
   // the plot also opens when only painters have reported yet.
   const hasActivity = $derived(
-    archiveSamples.length > 0 ||
-    progressSamples.length > 0 ||
-    ((live || finished) && anchorCorrect + anchorMismatched > 0) ||
+    observed ||
+    (anchor?.correct ?? 0) + (anchor?.mismatched ?? 0) > 0 ||
     points.some((p) => p.placed > 0) ||
       painterHistories.some((source) => source.history.buckets.length > 0),
   )
@@ -203,10 +165,10 @@
   })
 
 
-  const observedPaces = $derived(observedProgressIntervals(chartSamples))
+  const observedPaces = $derived(observedProgressIntervals(samples))
   const paceWindows = $derived(
     PACE_WINDOWS.map((pace) => {
-      const intervals = observedPaces.filter(interval => interval.to <= to && (!interval.archive || pace.seconds >= 86_400))
+      const intervals = observedPaces.filter(interval => interval.to <= to && (!interval.archive || archiveCountsFor(pace.seconds)))
       const segments = rollingIntervalPace(intervals, pace.seconds)
       return { ...pace, usable: segments.length > 0, segments, importedUntil: intervals.findLast(interval => interval.archive)?.to ?? -Infinity }
     }),
@@ -214,11 +176,9 @@
 
   // Everyone's rolling pace lines are one more entry in the pace picker, pinned at the top, so a
   // reader can leave painters alone on the axis or bring the whole template back.
-  const storedAllUsers = persisted<boolean>(STORAGE_KEYS.paceAllUsers, true)
-  const allUsersShown = $derived(storedAllUsers.value !== false)
   const enabledPaces = $derived(
-    allUsersShown
-      ? paceWindows.filter((pace) => enabledWindows.has(pace.key) && pace.usable)
+    paces.allUsers
+      ? paceWindows.filter((pace) => paces.windows.has(pace.key) && pace.usable)
       : [],
   )
 
@@ -255,7 +215,7 @@
   }
 
   interface PainterLine {
-    readonly painter: PainterOption
+    readonly painter: PainterTotal
     readonly window: (typeof PACE_WINDOWS)[number]['key']
     readonly rank: number
     readonly fullSeries: PaceRatePoint[]
@@ -266,16 +226,16 @@
   const painterLines = $derived.by<PainterLine[]>(() => {
     const lines: PainterLine[] = []
     PACE_WINDOWS.forEach((pace, index) => {
-      if (!enabledWindows.has(pace.key)) return
+      if (!paces.windows.has(pace.key)) return
       const source = painterHistories.find((candidate) => candidate.window === pace.key)?.history
       if (
         source?.resolution === undefined ||
         source.coverageStart === undefined ||
-        !windowUsable(pace.seconds, source.resolution)
+        !paceWindowUsable(pace.seconds, source.resolution)
       )
         return
       for (const painter of painters) {
-        if (!selectedPainters.has(painter.wplaceUserId)) continue
+        if (!paces.painters.has(painter.wplaceUserId)) continue
         const fullSeries = rollingPaceSeries(
           painterPacePoints(
             source.buckets,
@@ -301,7 +261,7 @@
   /** Snap the crosshair to every vertex that is actually rendered, including retained fine data. */
   const hoverSnapTimes = $derived.by(() => {
     const times = new Set<number>()
-    for (const sample of chartSamples) {
+    for (const sample of samples) {
       if (sample.at >= shownView.from && sample.at <= shownView.to) times.add(sample.at)
     }
     for (const pace of activePaces) {
@@ -320,7 +280,7 @@
 
   // ── Geometry ─────────────────────────────────────────────────────────────────────────────────
   let width = $state(640)
-  const height = 240
+  const height = CHART_HEIGHT
   const pad = { top: 18, right: 48, bottom: 22, left: 48 }
   const plotWidth = $derived(Math.max(1, width - pad.left - pad.right))
   const plotHeight = height - pad.top - pad.bottom
@@ -339,7 +299,7 @@
     const segments: ProgressPoint[][] = []
     let segment: ProgressPoint[] | null = null
     let revision: string | undefined
-    for (const sample of chartSamples) {
+    for (const sample of samples) {
       if (sample.correct === null || sample.mismatched === null) {
         segment = null
         continue
@@ -371,8 +331,8 @@
       key: pace.key,
       label: pace.key,
       colour: paceColor(index / (PACE_WINDOWS.length - 1)),
-      selected: enabledWindows.has(pace.key),
-      available: pace.usable || painterHistories.some((source) => source.window === pace.key && source.history.resolution !== undefined && windowUsable(pace.seconds, source.history.resolution) && source.history.buckets.length > 0),
+      selected: paces.windows.has(pace.key),
+      available: pace.usable || painterHistories.some((source) => source.window === pace.key && source.history.resolution !== undefined && paceWindowUsable(pace.seconds, source.history.resolution) && source.history.buckets.length > 0),
       description: 'Rolling average',
     })),
   ])
@@ -563,7 +523,7 @@
       return
     }
     if (hover?.t === t) return
-    const sample = chartSamples.find((sample) => sample.at === t)
+    const sample = samples.find((sample) => sample.at === t)
     const cumCorrect = sample === undefined
       ? visibleProgressSegments.map(segment => interpolateValue(segment, t, point => point.v)).find(value => value !== null) ?? null
       : sample.correct
@@ -699,7 +659,7 @@
   })
 
   const liveEdge = $derived(
-    live && view.to === to ? { t: to, cumCorrect: anchorCorrect } : null,
+    live && view.to === to && anchor?.correct != null ? { t: to, cumCorrect: anchor.correct } : null,
   )
 
   // ── Timelapse playhead ───────────────────────────────────────────────────────────────────────
@@ -887,7 +847,7 @@
 
   /** The full range's observed progress, with placement totals only when observations are absent. */
   const brushGeometry = $derived.by(() => {
-    const segments = archiveSamples.length > 0 || progressSamples.length > 0
+    const segments = observed
       ? progressSegments.map((segment) =>
           clipSeries(segment, from, to, lerpProgress).map((point) => ({
             t: point.t, v: point.v + point.mismatched,
@@ -1098,7 +1058,7 @@
   const chartLabel = $derived(
     `Cumulative pixels painted and rolling pace from ${formatTime(view.from)} to ${formatTime(view.to)}${
       painters.length > 0
-        ? `, with ${painterMetricNoun} pace lines for ${selectedPainters.size} of ${painters.length} painters`
+        ? `, with ${painterMetricNoun} pace lines for ${paces.painters.size} of ${painters.length} painters`
         : ''
     }. Use the arrow keys to read values.${
       linked ? ' Click, or press Enter on a value, to move the timelapse there.' : ''
@@ -1126,7 +1086,7 @@
 
     <div class="flex items-center gap-2" role="group" aria-label="pace lines">
       <span class="text-base-content/65">pace</span>
-      <PacePicker options={paceOptions} onToggle={toggleWindow} />
+      <PacePicker options={paceOptions} onToggle={paces.toggleWindow} />
     </div>
 
     {#if painters.length > 0 || paceWindows.some((pace) => pace.usable)}
@@ -1134,13 +1094,11 @@
         <span class="text-base-content/65">who</span>
         <PainterPicker
           options={painters}
-          selected={selectedPainters}
-          onToggle={onTogglePainter}
-          onSetAll={onSetAllPainters}
-          {allUsersShown}
-          onToggleAllUsers={() => {
-            storedAllUsers.value = !allUsersShown
-          }}
+          selected={paces.painters}
+          onToggle={paces.togglePainter}
+          onSetAll={paces.setAllPainters}
+          allUsersShown={paces.allUsers}
+          onToggleAllUsers={paces.toggleAllUsers}
           onHover={(wplaceUserId) => {
             spotlightPainter = wplaceUserId
           }}
@@ -1488,7 +1446,7 @@
               <span>{hover.cumMismatched?.toLocaleString() ?? 'No coverage'}</span>
             </span>
           </div>
-          {#if archiveSamples.length > 0 && activePaces.some((pace) => hover !== null && pace.seconds >= 86_400 && hover.t - pace.seconds < (points[0]?.t ?? Infinity) && hoverPace(pace.series, hover.t) !== null)}
+          {#if archiveSamples.length > 0 && activePaces.some((pace) => hover !== null && archiveCountsFor(pace.seconds) && hover.t - pace.seconds < (points[0]?.t ?? Infinity) && hoverPace(pace.series, hover.t) !== null)}
             <p class="mt-2 text-base-content/60">Includes imported net progress.</p>
           {/if}
           {#if hoverPaceRows.length > 0}
@@ -1606,7 +1564,8 @@
     </div>
   {:else}
     <div
-      class="flex h-[240px] items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/50"
+      style:height="{CHART_HEIGHT}px"
+      class="flex items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/50"
     >
       No paint activity reported in this window.
     </div>

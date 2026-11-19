@@ -1,4 +1,8 @@
-import { type ObservedProgressSample, observedProgressIntervals } from './progress-history'
+import {
+  archiveCountsFor,
+  type ObservedProgressSample,
+  observedProgressIntervals,
+} from './progress-history'
 
 /** Average signed progress within each artwork revision; null uses the full elapsed lifetime. */
 export const completionPace = (
@@ -28,7 +32,7 @@ export const completionPace = (
   for (const interval of observedProgressIntervals(samples)) {
     const duration = interval.to - interval.from
     if (interval.to > to) continue
-    if (duration > windowSeconds && !(interval.dailyObservation && windowSeconds >= 86_400))
+    if (duration > windowSeconds && !(interval.dailyObservation && archiveCountsFor(windowSeconds)))
       continue
     const covered = interval.to - Math.max(interval.from, from)
     if (covered <= 0) continue

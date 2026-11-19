@@ -53,10 +53,11 @@ export interface DashboardSnapshot {
   readonly leaderboard: LeaderboardResponse
 }
 
-interface DashboardSubscription {
+/** What one dashboard panel streams: contributions from a time and a leaderboard of a length. */
+export interface DashboardSubscription {
   readonly templateIds: readonly string[]
   readonly contributionsFrom: number
-  readonly listener: (snapshot: DashboardSnapshot) => void
+  readonly leaderboardLimit: number
 }
 
 export class AppState {
@@ -86,7 +87,10 @@ export class AppState {
   private liveReconnect: ReturnType<typeof setTimeout> | null = null
   private liveAttempts = 0
   private readonly liveSnapshots = new LiveSnapshotAssembler()
-  private readonly dashboardSubscriptions = new Map<string, DashboardSubscription>()
+  private readonly dashboardSubscriptions = new Map<
+    string,
+    DashboardSubscription & { readonly listener: (snapshot: DashboardSnapshot) => void }
+  >()
 
   constructor(bootstrap: AppBootstrap) {
     this.server = bootstrap.server
@@ -175,14 +179,13 @@ export class AppState {
   }
 
   subscribeDashboard = (
-    templateIds: readonly string[],
-    contributionsFrom: number,
+    subscription: DashboardSubscription,
     listener: (snapshot: DashboardSnapshot) => void,
   ): (() => void) => {
     const subscriptionId = uuidV7()
     this.dashboardSubscriptions.set(subscriptionId, {
-      templateIds: [...templateIds],
-      contributionsFrom,
+      ...subscription,
+      templateIds: [...subscription.templateIds],
       listener,
     })
     this.sendDashboardSubscription(subscriptionId)
@@ -280,7 +283,7 @@ export class AppState {
           subscriptionId,
           templateIds: subscription.templateIds,
           contributionsFrom: subscription.contributionsFrom,
-          leaderboardLimit: 100,
+          leaderboardLimit: subscription.leaderboardLimit,
         },
       }),
     )

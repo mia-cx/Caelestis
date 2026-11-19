@@ -8,13 +8,9 @@
    */
   import { Icon } from '@caelestis/ui'
   import { Command, Popover } from 'bits-ui'
-  import {
-    MAX_SELECTED_PAINTERS,
-    type PainterOption,
-    painterColour,
-    painterLabel,
-    rankPainters,
-  } from '#lib/components/charts/painter-pace.js'
+  import type { PainterTotal } from '@caelestis/shared'
+  import { MAX_SELECTED_PAINTERS } from '#lib/components/stats/pace-selection.svelte.js'
+  import { painterColour, painterLabel, rankPainters } from '#lib/components/stats/painter-identity.js'
 
   let {
     options,
@@ -27,7 +23,7 @@
     pageSize = 50,
     max = MAX_SELECTED_PAINTERS,
   }: {
-    options: readonly PainterOption[]
+    options: readonly PainterTotal[]
     /** Painters currently drawn. */
     selected: ReadonlySet<number>
     onToggle: (wplaceUserId: number) => void

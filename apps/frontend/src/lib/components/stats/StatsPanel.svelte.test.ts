@@ -4,7 +4,8 @@ import type { Progress } from '@caelestis/shared'
 import { millis, seconds, type Template } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { template } from '../../tests/fixtures'
+import type { AppState } from '#lib/state/app.svelte.js'
+import { appState, template } from '../../../tests/fixtures'
 
 const client = vi.hoisted(() => ({
   getArchiveHistory: vi.fn(),
@@ -16,7 +17,12 @@ const client = vi.hoisted(() => ({
   getPainterTotals: vi.fn(),
 }))
 vi.mock('#lib/api/client.js', () => client)
-vi.mock('#lib/components/charts/ProgressPaceChart.svelte', () => ({ default: () => undefined }))
+const fixture = vi.hoisted(() => ({ app: null as unknown as AppState }))
+vi.mock('#lib/state/app.svelte.js', async (original) => ({
+  ...(await original<typeof import('#lib/state/app.svelte.js')>()),
+  useApp: () => fixture.app,
+}))
+vi.mock('./ProgressPaceChart.svelte', () => ({ default: () => undefined, CHART_HEIGHT: 240 }))
 
 import StatsPanel from './StatsPanel.svelte'
 
@@ -24,10 +30,7 @@ const start = 1_800_000_000
 const progress: Progress = { completed: 1, mismatched: 0, unpainted: 3, known: 4, total: 4 }
 const live = (id: string): Template =>
   template({ id, createdAt: millis(start * 1_000), version: `${id}-v1` })
-const subscribeDashboard = vi.fn(
-  (_templateIds: readonly string[], _contributionsFrom: number, _listener: unknown) => () =>
-    undefined,
-)
+const subscribeDashboard = vi.fn<AppState['subscribeDashboard']>()
 
 let mounted: ReturnType<typeof mount> | null = null
 
@@ -52,7 +55,11 @@ beforeEach(() => {
     ],
   })
   client.getPainterTotals.mockReset().mockResolvedValue({ painters: [] })
-  subscribeDashboard.mockClear()
+  fixture.app = appState()
+  // Streamed dashboards are the path these tests pin; the subscription itself is AppState's.
+  fixture.app.live = true
+  subscribeDashboard.mockReset().mockReturnValue(() => undefined)
+  fixture.app.subscribeDashboard = subscribeDashboard
 })
 
 afterEach(() => {
@@ -62,7 +69,7 @@ afterEach(() => {
 })
 
 const render = (templates: readonly Template[]) => {
-  const props = $state({ templates, season: 0, liveDashboard: true, progress, subscribeDashboard })
+  const props = $state({ templates, progress })
   mounted = mount(StatsPanel, { target: document.body, props })
   return props
 }

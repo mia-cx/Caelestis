@@ -3,7 +3,7 @@
   import { ProgressMeter } from '@caelestis/ui'
   import type { Snippet } from 'svelte'
   import ColourProgress from '#lib/components/ColourProgress.svelte'
-  import StatsPanel from '#lib/components/StatsPanel.svelte'
+  import StatsPanel from '#lib/components/stats/StatsPanel.svelte'
   import TimelapsePanel from '#lib/components/TimelapsePanel.svelte'
   import { pageTitle } from '#lib/server-info.js'
   import { useApp } from '#lib/state/app.svelte.js'
@@ -93,10 +93,7 @@
       <TimelapsePanel {player} label={scope.title} />
       <StatsPanel
         {templates}
-        season={app.manifest.season}
-        liveDashboard={app.live}
         {progress}
-        subscribeDashboard={app.subscribeDashboard}
         playhead={player.live ? null : player.playhead}
         onSeek={player.timeline.length > 0 ? player.seekTo : undefined}
         onScrubStart={player.beginScrub}

@@ -21,7 +21,7 @@ vi.mock('#lib/api/client.js', () => ({
   getArchiveHistory: fixture.archive,
 }))
 // A Svelte 5 component is a function of its anchor and props; these only keep the props.
-vi.mock('#lib/components/StatsPanel.svelte', () => ({
+vi.mock('#lib/components/stats/StatsPanel.svelte', () => ({
   default: (_anchor: unknown, props: { onSeek?: (time: number) => void }) => {
     fixture.stats = props
   },

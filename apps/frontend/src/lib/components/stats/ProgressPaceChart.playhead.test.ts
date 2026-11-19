@@ -3,6 +3,7 @@ import { type HistoryBucket, type ProgressSample, seconds } from '@caelestis/sha
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ProgressPaceChart from './ProgressPaceChart.svelte'
+import { PaceSelection } from './pace-selection.svelte'
 
 let mounted: ReturnType<typeof mount> | null = null
 const stored = new Map<string, string>()
@@ -51,22 +52,28 @@ const mountThreeDays = (
     progressSamples?: readonly ProgressSample[]
   } = {},
 ): void => {
+  const {
+    progressSamples = Array.from({ length: 73 }, (_, hour) => ({
+      at: hour * 3600,
+      correct: Math.min(hour + 1, 72),
+      mismatched: 0,
+      total: 100,
+    })),
+    ...links
+  } = extra
   mounted = mount(ProgressPaceChart, {
     target: document.body,
     props: {
+      samples: progressSamples.map((sample) => ({ ...sample, archive: false })),
       buckets: Array.from({ length: 72 }, (_, hour) => bucket(hour * 3_600)),
       resolution: 3_600,
       from: 0,
       to: THREE_DAYS,
-      anchorCorrect: 72,
-      anchorMismatched: 0,
-      progressSamples: Array.from({ length: 73 }, (_, hour) => ({
-        at: hour * 3600,
-        correct: Math.min(hour + 1, 72),
-        mismatched: 0,
-        total: 100,
-      })),
-      ...extra,
+      live: false,
+      paces: new PaceSelection(() => []),
+      painters: [],
+      painterHistories: [],
+      ...links,
     },
   })
   flushSync()

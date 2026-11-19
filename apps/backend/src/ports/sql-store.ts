@@ -1,6 +1,7 @@
 import {
   type Alarm,
   type ContributionDay,
+  type DecayEdge,
   type LeaderboardEntry,
   type Millis,
   PALETTE_SIZE,
@@ -72,11 +73,7 @@ export const tooManyTemplateIds = (count: number, method = 'readBuckets'): Error
 /** Bucket widths the decay ladder folds to, matching `telemetry_buckets_resolution_check`. */
 export const LADDER_RESOLUTIONS: readonly number[] = [60, 300, 900, 3_600, 21_600]
 
-export interface DecayEdge {
-  readonly source: number
-  readonly target: number
-  readonly retainSeconds: number
-}
+export { type DecayEdge, TILE_HISTORY_DECAY_EDGES } from '@caelestis/shared'
 
 /** Delta buckets compact only after the complete target window has aged past this boundary. */
 export const TELEMETRY_DECAY_EDGES: readonly DecayEdge[] = [
@@ -343,12 +340,6 @@ export const rankLeaderboard = (
 
 /** Bucket widths `tile_history` folds to, matching `tile_history_resolution_s_check`. 0 is raw. */
 export const TILE_HISTORY_RESOLUTIONS: readonly number[] = [0, 3_600, 21_600, 86_400]
-
-export const TILE_HISTORY_DECAY_EDGES: readonly DecayEdge[] = [
-  { source: 0, target: 3_600, retainSeconds: 86_400 },
-  { source: 3_600, target: 21_600, retainSeconds: 7 * 86_400 },
-  { source: 21_600, target: 86_400, retainSeconds: 30 * 86_400 },
-]
 
 /** One physical reporter row carried between tile-history tiers. */
 export interface TileHistoryReporterRow {
