@@ -1550,9 +1550,10 @@ const buildSvelteMenu = (
   menu.dataset.caelestisTemplate = template.id
   menu.setAttribute('role', 'dialog')
   menu.setAttribute('aria-label', `${template.name} display options`)
-  // A control can leave between the request and the rebuild — a slider that only exists for some
-  // appearances, a Hide disabled by a delete. The menu then focuses its close button, which is
-  // always there and never disabled.
+  // Rail actions sit outside the menu, so a request for one gives the menu no focus. `'close'` asks
+  // for the close button, which is always there and never disabled. A remembered menu control is
+  // keyed by position: if a control before it left in the meantime (a slider only some appearances
+  // have), focus lands on the control now in that position, or on Close when none is.
   menu.model =
     focus === null || actionSpecs.some((spec) => spec.control === focus)
       ? overlayModel(template)

@@ -16,7 +16,11 @@ export interface OverlayControlsModel {
   }
   readonly failures: readonly OverlayFailureModel[]
   readonly appearance: AppearanceEditorModel
-  /** The control to focus when the menu mounts, by a key from a `focus` intent; else the close button. */
+  /**
+   * The control to focus when the menu mounts: `'close'` for the close button, or a key from a
+   * `focus` intent. A key is a position, so it lands on whatever control holds that position now,
+   * else on the close button. Omitted, the menu takes no focus.
+   */
   readonly focus?: string
 }
 

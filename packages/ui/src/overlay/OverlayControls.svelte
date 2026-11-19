@@ -21,7 +21,8 @@
 
   onMount(() => {
     if (model.focus === undefined) return
-    ;(focusables().find((_, index) => String(index) === model.focus) ?? closeButton)?.focus()
+    const control = model.focus === 'close' ? undefined : focusables()[Number(model.focus)]
+    ;(control ?? closeButton)?.focus()
   })
   const onAppearance = (intent: AppearanceEditorIntent): void => emit({ type: 'appearance', intent })
 
