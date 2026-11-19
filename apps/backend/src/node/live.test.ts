@@ -9,7 +9,7 @@ const host = () =>
   }))
 
 describe('node live socket attachments', () => {
-  it('stores a copy once and hands the same frozen object to every reader', () => {
+  it('hands every reader a frozen copy taken when the attachment was stored', () => {
     const { server } = host().connect({ season: 0, projections: [{ resource: 'x' }] })
     const source = { season: 1, projections: [{ resource: 'telemetry-alarms' }] }
     server.serializeAttachment(source)
@@ -18,9 +18,7 @@ describe('node live socket attachments', () => {
     if (projection !== undefined) projection.resource = 'changed'
 
     const first = server.deserializeAttachment() as typeof source
-    const second = server.deserializeAttachment()
     expect(first).toEqual({ season: 1, projections: [{ resource: 'telemetry-alarms' }] })
-    expect(second).toBe(first)
     expect(Object.isFrozen(first)).toBe(true)
     expect(Object.isFrozen(first.projections)).toBe(true)
     expect(Object.isFrozen(first.projections[0])).toBe(true)

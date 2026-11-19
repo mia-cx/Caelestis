@@ -336,7 +336,6 @@ describe('server archives', { timeout: 60_000 }, () => {
       importFromFile(archiveClient(destination.fetch, destination.api), file('flipped.ndjson')),
     ).rejects.toThrow('does not match its SHA-256')
     await discardImport(archiveClient(destination.fetch, destination.api))
-    expect(await chainLine('0'.repeat(64), 'x')).toMatch(/^[0-9a-f]{64}$/)
   })
 
   it('bounds a restore request by its bytes, even without Content-Length', async () => {

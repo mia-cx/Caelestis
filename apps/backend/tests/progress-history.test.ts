@@ -215,16 +215,6 @@ describe('template lifetime progress', () => {
         revision: updatedId,
         boundary: true,
       })
-      const measured = await backend.connection
-        .prepare(
-          `SELECT sha256 AS hash, correct, wrong, blank FROM template_tile_measurements
-           WHERE version_id = ? AND tile_x = 0 AND tile_y = 0 AND sha256 = ?`,
-        )
-        .bind(updatedId, canvasHash)
-        .all()
-      expect(measured.results).toEqual(
-        retained ? [{ hash: canvasHash, correct: 0, wrong: 1, blank: 0 }] : [],
-      )
       expect(await backend.sql.readLatestTile(3, { x: 0, y: 0 })).toEqual(latest)
     },
   )

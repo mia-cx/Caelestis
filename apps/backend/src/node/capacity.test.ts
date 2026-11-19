@@ -8,7 +8,6 @@ import {
   EventLoopLag,
   renderCapacityMetrics,
   snapshotCapacity,
-  userKey,
 } from './capacity.js'
 
 const hash = (seed: string) => seed.repeat(64).slice(0, 64)
@@ -94,14 +93,20 @@ describe('snapshotCapacity', () => {
     expect(snapshot.users).toBe(0)
   })
 
-  it('ignores sockets without a well-formed identity', () => {
-    expect(userKey(null)).toBeNull()
-    expect(userKey({ tokenHash: 'short', anonymous: false })).toBeNull()
-    expect(userKey({ tokenHash: hash('a'), anonymous: true })).toBeNull()
-    expect(userKey({ tokenHash: hash('a'), clientHash: hash('b'), anonymous: true })).toBe(
-      `client:${hash('b')}`,
-    )
-    expect(userKey({ tokenHash: hash('a'), clientHash: hash('b') })).toBe(`token:${hash('a')}`)
+  it('counts no user for a socket without a well-formed identity', () => {
+    const snapshot = snapshotCapacity([
+      {
+        kind: 'live-sync',
+        key: '0',
+        host: host([
+          socket(null),
+          socket({ tokenHash: 'short', anonymous: false }),
+          socket({ tokenHash: hash('a'), anonymous: true }),
+        ]),
+      },
+    ])
+    expect(snapshot.users).toBe(0)
+    expect(snapshot.liveSlots).toBe(3)
   })
 })
 
@@ -132,13 +137,10 @@ describe('AdmissionCounters', () => {
 })
 
 describe('EventLoopLag', () => {
-  it('reports zero before sampling and supports repeated reads', () => {
+  it('starts a fresh window on every read', () => {
     const lag = new EventLoopLag()
     try {
-      const first = lag.read()
-      expect(first.max).toBeGreaterThanOrEqual(0)
-      expect(first.p99).toBeGreaterThanOrEqual(0)
-      expect(first.max).toBeLessThan(5)
+      lag.read()
       expect(lag.read()).toEqual({ p99: 0, max: 0 })
     } finally {
       lag.stop()

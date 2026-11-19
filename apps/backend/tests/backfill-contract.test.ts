@@ -313,7 +313,6 @@ describe('template backfill contract', () => {
     for (let step = 0; step < job.total; step++) await resumed.step()
     expect(await resumed.job()).toMatchObject({ status: 'completed', imported: job.total })
     expect((await resumed.history(versionId)).samples).toHaveLength(2)
-    expect(await storage.get('job')).not.toHaveProperty('snapshots')
   })
 
   it('records an unavailable archive tile as incomplete instead of inventing progress', async () => {

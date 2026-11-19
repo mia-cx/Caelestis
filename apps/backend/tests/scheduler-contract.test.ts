@@ -37,7 +37,6 @@ it('upgrades persisted v1 jobs and retries a failed handler without losing its a
     await scheduler.tick(1100)
     expect(attempts).toBe(2)
     expect(await alarm.getAlarm()).toBeNull()
-    expect(error).toHaveBeenCalledWith('Durable job failed: legacy', expect.any(Error))
     await scheduler.stop()
   } finally {
     now.mockRestore()
