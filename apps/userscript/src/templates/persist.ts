@@ -13,6 +13,13 @@ import { warn } from '../debug.js'
 import type { Appearance, AppearanceGroup } from './appearance.js'
 import { storedAuthoring } from './authoring.js'
 import {
+  blockedOpenSettled,
+  LOCAL_TAGS_STORE,
+  LOCAL_TEMPLATE_VERSIONS_STORE,
+  LOCAL_TEMPLATES_STORE,
+  openCaelestisDb,
+} from './caelestis-db.js'
+import {
   type ImportedTemplate,
   MAX_TEMPLATE_ID_LENGTH,
   MAX_TEMPLATE_NAME_LENGTH,
@@ -21,7 +28,6 @@ import {
 import {
   hasCurrentPalette,
   markCurrentPalette,
-  migrateTemplateStorePalette,
   remapPaletteIndices,
   remapStoredAppearance,
 } from './palette-migration.js'
@@ -33,52 +39,12 @@ import {
   type SparsePixels,
   unpackPixels,
 } from './sparse-pixels.js'
-import { LOCAL_TAG_STORE, upgradeLocalTags } from './tag-schema.js'
+import { forgetTemplateTags } from './tag-schema.js'
 
-/**
- * Local templates on disk.
- *
- * IndexedDB rather than `GM_setValue` or `localStorage`, for a reason that is not preference: the
- * observed `.wplace` file is 11 MB and its decoded index array is 4 MB, which is past what a string
- * store will hold and would have to be base64'd to get there. IndexedDB takes a `Uint8Array`
- * directly.
- *
- * This is what makes navigating to an imported template survivable. There is no reachable MapLibre
- * instance, so going to a coordinate means a page load — and without persistence the import would
- * be destroyed by the very navigation meant to show it off.
- */
-
-const DB_NAME = 'caelestis'
-const STORE = 'local-templates'
-// Shared with server-cache.ts: one database, one version, every store created in either upgrade.
-// v8 packs pixels into chunks; the bump closes older tabs out, since they read packed records as
-// corrupt and would delete them.
-const VERSION = 8
-const VERSIONS_STORE = 'local-template-versions'
-/** Server template pixels on disk, so an evicted copy reloads without downloading it again. */
-export const SERVER_PIXELS_STORE = 'server-pixels'
+const STORE = LOCAL_TEMPLATES_STORE
+const VERSIONS_STORE = LOCAL_TEMPLATE_VERSIONS_STORE
 const MAX_ARCHIVED_VERSIONS = 256
 const MAX_ARCHIVED_INDEX_PIXELS = 64 * 1024 * 1024
-let blockedOpenRequest: IDBOpenDBRequest | null = null
-let blockedOpenRecovery: Promise<void> | null = null
-let settleBlockedOpen: (() => void) | null = null
-
-const markOpenBlocked = (request: IDBOpenDBRequest): void => {
-  blockedOpenRequest = request
-  if (blockedOpenRecovery !== null) return
-  blockedOpenRecovery = new Promise<void>((resolve) => {
-    settleBlockedOpen = resolve
-  })
-}
-
-const finishBlockedOpen = (request: IDBOpenDBRequest): void => {
-  if (blockedOpenRequest !== request) return
-  blockedOpenRequest = null
-  const settle = settleBlockedOpen
-  settleBlockedOpen = null
-  blockedOpenRecovery = null
-  settle?.()
-}
 
 export interface StoredTemplate extends Omit<ImportedTemplate, 'indices'> {
   /**
@@ -122,62 +88,12 @@ export interface StoredTemplate extends Omit<ImportedTemplate, 'indices'> {
   readonly tileKeys?: readonly string[]
 }
 
-const open = (): Promise<IDBDatabase> => {
-  if (blockedOpenRequest !== null) {
-    return Promise.reject(new Error('indexedDB.open is still blocked by another connection'))
-  }
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, VERSION)
-    let abandoned = false
-    request.onupgradeneeded = (event) => {
-      const db = request.result
-      upgradeLocalTags(db)
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' })
-      if (!db.objectStoreNames.contains(VERSIONS_STORE)) {
-        db.createObjectStore(VERSIONS_STORE, { keyPath: ['id', 'revision'] })
-      }
-      if (!db.objectStoreNames.contains('server-cache')) {
-        db.createObjectStore('server-cache', { keyPath: 'url' })
-      }
-      if (!db.objectStoreNames.contains(SERVER_PIXELS_STORE)) {
-        db.createObjectStore(SERVER_PIXELS_STORE, { keyPath: 'key' })
-      }
-      if (event.oldVersion < 4) {
-        const templates = request.transaction?.objectStore(STORE)
-        if (templates !== undefined) migrateTemplateStorePalette(templates)
-      }
-    }
-    request.onblocked = () => {
-      abandoned = true
-      markOpenBlocked(request)
-      reject(new Error('indexedDB.open blocked by another connection'))
-    }
-    request.onsuccess = () => {
-      const db = request.result
-      finishBlockedOpen(request)
-      if (abandoned) {
-        db.close()
-        return
-      }
-      db.onversionchange = () => db.close()
-      resolve(db)
-    }
-    request.onerror = () => {
-      finishBlockedOpen(request)
-      reject(request.error ?? new Error('indexedDB.open failed'))
-    }
-  })
-}
-
 const normaliseRevision = (value: unknown): number =>
   Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0
 
-/** Share the existing database upgrade and blocked-connection handling with tag persistence. */
-export { open as openTemplateDatabase }
-
 /** Read native identity links without hydrating artwork, including records outside the rendering budget. */
 export const loadNativeTemplateIds = async (): Promise<ReadonlyMap<string, string>> => {
-  const db = await open()
+  const db = await openCaelestisDb()
   try {
     return await new Promise((resolve, reject) => {
       const links = new Map<string, string>()
@@ -223,12 +139,12 @@ const writeVersioned = async (
   history?: 'archive' | 'delete',
 ): Promise<SaveResult> => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<SaveResult>((resolve, reject) => {
         const stores = [STORE]
         if (history !== undefined) stores.push(VERSIONS_STORE)
-        if (history === 'delete') stores.push(LOCAL_TAG_STORE)
+        if (history === 'delete') stores.push(LOCAL_TAGS_STORE)
         const transaction = db.transaction(stores, 'readwrite')
         const templates = transaction.objectStore(STORE)
         const request = templates.get(id)
@@ -412,7 +328,7 @@ export const saveTemplateFolders = async (
   if (updates.length === 0) return { status: 'saved', revisions: new Map() }
   if (new Set(updates.map(({ id }) => id)).size !== updates.length) return { status: 'conflict' }
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<SaveTemplateFoldersResult>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readwrite')
@@ -485,18 +401,7 @@ export const deleteTemplate = async (
     expectedRevision,
     (templates, _revision, _current, transaction) => {
       templates.delete(id)
-      const cursorRequest = transaction.objectStore(LOCAL_TAG_STORE).openCursor()
-      cursorRequest.onsuccess = () => {
-        const cursor = cursorRequest.result
-        if (cursor === null) return
-        const tag = cursor.value as { templateIds: string[] }
-        if (tag.templateIds.includes(String(id)))
-          cursor.update({
-            ...tag,
-            templateIds: tag.templateIds.filter((templateId) => templateId !== id),
-          })
-        cursor.continue()
-      }
+      forgetTemplateTags(transaction, String(id))
       // Record absence is itself the tombstone: a stale mutation requires an existing record with the
       // expected revision, so deleted IDs need no permanent side-store entry.
     },
@@ -812,7 +717,7 @@ const loadRecord = async (
   | Exclude<LoadTemplateResult, { readonly status: 'loaded' }>
 > => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       const value = await new Promise<unknown>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readonly')
@@ -942,7 +847,7 @@ export const saveTemplateTileKeys = async (
 /** Every stored template's id, for walking the store one record at a time. */
 export const loadTemplateIds = async (): Promise<readonly string[]> => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<readonly string[]>((resolve, reject) => {
         const request = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys()
@@ -970,7 +875,7 @@ export const loadTemplateCatalog = async (
   excludedRevisions: ReadonlyMap<string, number> = new Map(),
 ): Promise<TemplateCatalog> => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<TemplateCatalog>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readonly')
@@ -1006,6 +911,6 @@ export const loadTemplateCatalog = async (
     }
   } catch (error) {
     warn('install', 'local template storage unavailable', String(error))
-    return { records: [], invalid: [], retryAfterUnavailable: blockedOpenRecovery }
+    return { records: [], invalid: [], retryAfterUnavailable: blockedOpenSettled() }
   }
 }

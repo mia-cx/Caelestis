@@ -13,8 +13,7 @@ import {
   parseTreeNodes,
   type TreeNode,
 } from './server-manifest.js'
-import { migrateTemplateStorePalette } from './templates/palette-migration.js'
-import { upgradeLocalTags } from './templates/tag-schema.js'
+import { openCaelestisDb, SERVER_CACHE_STORE as STORE } from './templates/caelestis-db.js'
 
 /**
  * What a server told us, kept between sessions.
@@ -26,11 +25,6 @@ import { upgradeLocalTags } from './templates/tag-schema.js'
  * Cached rather than authoritative: it is what the tree draws *first*, and a fresh fetch replaces
  * it as soon as one arrives. Nothing here is trusted for anything but rendering.
  */
-
-const DB_NAME = 'caelestis'
-const STORE = 'server-cache'
-// Shared with local template persistence. Opening an older version after v3 exists is a VersionError.
-const VERSION = 8
 
 export interface CachedServer {
   /** Server URL, which is the identity of the connection. */
@@ -116,51 +110,12 @@ const cachedTemplatesFrom = (value: unknown): readonly ServerTemplate[] | undefi
   return templates
 }
 
-const open = (): Promise<IDBDatabase> =>
-  new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, VERSION)
-    let abandoned = false
-    request.onupgradeneeded = (event) => {
-      const db = request.result
-      upgradeLocalTags(db)
-      // The local-template store lives in the same database and must survive this upgrade.
-      if (!db.objectStoreNames.contains('local-templates')) {
-        db.createObjectStore('local-templates', { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains('local-template-versions')) {
-        db.createObjectStore('local-template-versions', { keyPath: ['id', 'revision'] })
-      }
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'url' })
-      if (!db.objectStoreNames.contains('server-pixels')) {
-        db.createObjectStore('server-pixels', { keyPath: 'key' })
-      }
-      if (event.oldVersion < 4) {
-        const templates = request.transaction?.objectStore('local-templates')
-        if (templates !== undefined) migrateTemplateStorePalette(templates)
-      }
-    }
-    request.onblocked = () => {
-      abandoned = true
-      reject(new Error('indexedDB.open blocked by another connection'))
-    }
-    request.onsuccess = () => {
-      const db = request.result
-      if (abandoned) {
-        db.close()
-        return
-      }
-      db.onversionchange = () => db.close()
-      resolve(db)
-    }
-    request.onerror = () => reject(request.error ?? new Error('indexedDB.open failed'))
-  })
-
 const run = async <T>(
   mode: IDBTransactionMode,
   body: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T | null> => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<T>((resolve, reject) => {
         const transaction = db.transaction(STORE, mode)
@@ -260,7 +215,7 @@ export const loadServerCache = async (
   const unique = [...new Set(configuredUrls)]
   if (unique.length === 0) return []
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<readonly CachedServer[]>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readonly')

@@ -1,6 +1,6 @@
 import { isStoredBlob } from '../cross-realm.js'
 import { warn } from '../debug.js'
-import { openTemplateDatabase, SERVER_PIXELS_STORE } from './persist.js'
+import { openCaelestisDb, SERVER_PIXELS_STORE } from './caelestis-db.js'
 import { cutPixels, packPixels, type SparsePixels, unpackPixels } from './sparse-pixels.js'
 
 /**
@@ -33,7 +33,7 @@ const transact = async <T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => () => T,
 ): Promise<T> => {
-  const db = await openTemplateDatabase()
+  const db = await openCaelestisDb()
   try {
     return await new Promise<T>((resolve, reject) => {
       const transaction = db.transaction(SERVER_PIXELS_STORE, mode)
