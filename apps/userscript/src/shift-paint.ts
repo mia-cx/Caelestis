@@ -1,6 +1,7 @@
 import { WORLD_PIXELS } from '@caelestis/shared'
 import { activeAllianceSurface, currentSurface } from './alliance-surface.js'
 import { getMap } from './map-handle.js'
+import { overlayIndexAt, paintIndexAt, pickerPointAt } from './paint-cell.js'
 import {
   forwardPaintKey,
   forwardPaintMove,
@@ -12,7 +13,6 @@ import {
 import { isMoving } from './templates/move.js'
 import { activeNativeTool, readSelectedColour, typingInTextField } from './wplace-dom.js'
 import { currentPaintSwatches, isPaintOpen } from './wplace-paint.js'
-import { overlayIndexAt, paintIndexAt, pickerPointAt } from './wplace-picker.js'
 
 /**
  * Shift-paint: while Shift and Space are held, Wplace's brush paints only template cells that

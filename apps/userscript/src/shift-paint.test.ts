@@ -35,7 +35,7 @@ vi.mock('./wplace-paint.js', async () => {
     currentPaintSwatches: () => dom.paintPaletteSwatches(document),
   }
 })
-vi.mock('./wplace-picker.js', () => ({
+vi.mock('./paint-cell.js', () => ({
   pickerPointAt: (target: Element, x: number, y: number) =>
     target.tagName === 'CANVAS'
       ? { surface: WORLD_TEMPLATE_SURFACE, x, y, alliance: harness.alliance }

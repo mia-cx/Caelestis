@@ -7,11 +7,12 @@ import {
 import { expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import type { NativePixelSnapshot } from './native-pixels.js'
+import { overlayIndexAt } from './paint-cell.js'
 import { setState } from './settings.js'
 import { installHeldKeyTracker, isForwardedEvent } from './simulated-input.js'
 import { addLocalTemplate, removeLocalTemplate } from './templates/local-store.js'
 import { isPaintOpen, watchPaintSelection } from './wplace-paint.js'
-import { installColourPicker, overlayIndexAt } from './wplace-picker.js'
+import { installColourPicker } from './wplace-picker.js'
 
 // Each test sets the alliance editor it shows and the native art Wplace has drawn in it.
 const page = vi.hoisted(() => ({

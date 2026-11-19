@@ -8,11 +8,11 @@ import {
 } from '@caelestis/shared'
 import { log } from './debug.js'
 import { CLICK_SLOP_PX, swallowNextClick } from './map-pointer.js'
+import { pickerPointAt } from './paint-cell.js'
 import { presenceQuickClaims, setPresenceQuickClaims } from './presence-client.js'
 import { getState, onStateChange } from './settings.js'
 import { showToast } from './ui/notification-host.js'
 import { isPaintOpen, onPaintSelectionChange } from './wplace-paint.js'
-import { pickerPointAt } from './wplace-picker.js'
 
 /**
  * Quick claims: while Wplace's paint drawer is open, Ctrl+drag on the map marks a rectangle as

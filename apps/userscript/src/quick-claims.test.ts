@@ -33,7 +33,7 @@ vi.mock('./wplace-paint.js', () => ({
 }))
 // One client pixel is one canvas pixel. Like the real map, the position is fractional: the pointer
 // lands inside a pixel, never on its corner. Anything but the canvas is off the map.
-vi.mock('./wplace-picker.js', () => ({
+vi.mock('./paint-cell.js', () => ({
   pickerPointAt: (target: Element, x: number, y: number) =>
     target.tagName === 'CANVAS'
       ? { surface: WORLD_TEMPLATE_SURFACE, x: x + 0.75, y: y + 0.25, alliance: null }
