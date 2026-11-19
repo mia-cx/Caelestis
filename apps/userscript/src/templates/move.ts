@@ -8,6 +8,7 @@ import { activeAllianceSurface, allianceSurfaceBounds } from '../alliance-surfac
 import { log, warn } from '../debug.js'
 import { isMapPress, swallowNextClick } from '../map-pointer.js'
 import { canvasPixelAt, cssPixelsPerCanvasPixel, repaint, screenPointFor } from '../map-view.js'
+import { ALLIANCE_PANEL_ID, PANEL_ID } from '../ui/panel-scope.js'
 import {
   clearLocalPreview,
   isDeletingLocal,
@@ -256,7 +257,7 @@ const isDirectControl = (target: EventTarget | null): boolean => {
     element.isContentEditable === true ||
     ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'].includes(element.tagName?.toUpperCase() ?? '') ||
     (element.closest?.(
-      'a,button,input,select,textarea,[contenteditable="true"],[role="button"],[role="link"],#caelestis-panel,#caelestis-alliance-panel',
+      `a,button,input,select,textarea,[contenteditable="true"],[role="button"],[role="link"],#${PANEL_ID},#${ALLIANCE_PANEL_ID}`,
     ) ?? null) !== null
   )
 }
