@@ -117,6 +117,7 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `packages/ui/src/shortcut-help/ShortcutHelp.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/shortcut-help/actions.ts` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
 | `packages/ui/src/tags/TagManager.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
+| `packages/ui/src/template-state/TemplateAlarm.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/template-state/TemplateLifecycle.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/template-state/TemplateState.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/theme.ts` | Integration | Theme application exposes the selected mode and updates host styling. |
