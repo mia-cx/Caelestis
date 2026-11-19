@@ -325,8 +325,9 @@
   .lead { font-size: 1.05rem; }
   .note { margin-block-start: 0.25rem; color: var(--caelestis-muted-text); white-space: pre-line; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-block-start: 1.5rem; }
-  /* Dialog answers are bold, with a 44px touch target, and the deciding one at least 8rem wide. */
-  .dialog-actions :global(button), .copy :global(button) { --button-size: 2.75rem; font-weight: 700; }
+  /* Dialog answers are bold at the dialog's text size, the deciding one at least 8rem wide; copy buttons stay 44px tall. */
+  .dialog-actions :global(button), .copy :global(button) { --button-size: var(--caelestis-touch-target); --button-font-size: 1em; font-weight: 700; }
+  .copy :global(button) { --button-size: 2.75rem; }
   .dialog-actions :global(button.danger) { min-inline-size: 8rem; }
   .secret-value { display: grid; gap: 0.375rem; margin-block-start: 1rem; }
   .secret-row { display: flex; gap: 0.5rem; }
