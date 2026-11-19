@@ -2,8 +2,7 @@
   The native modal role: `dialog.caelestis-modal` scales and fades in on `[open]` and back out on
   close, with a dimmed backdrop. A dialog overrides the `--modal-*` properties to change its
   timing; `--modal-scale: none` drops the scale, so an open dialog is never a transformed
-  ancestor of its fixed-position content. Hosts read `--modal-close-dur` to keep a closing dialog
-  mounted.
+  ancestor of its fixed-position content.
 -->
 <style>
   :global(dialog.caelestis-modal) {

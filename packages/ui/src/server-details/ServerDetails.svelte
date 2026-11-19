@@ -117,7 +117,7 @@
   }
 </script>
 
-<Modal labelledby="server-details-title" describedby="server-details-owner" width="32rem" onClose={() => emit({ type: 'close' })}>
+<Modal open={model.open} labelledby="server-details-title" describedby="server-details-owner" width="32rem" onClose={() => emit({ type: 'close' })} onClosed={() => emit({ type: 'closed' })}>
   <form class="content" onsubmit={(event) => { event.preventDefault(); save() }}>
     <header>
       <div>

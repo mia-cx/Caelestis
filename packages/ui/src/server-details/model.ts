@@ -10,6 +10,8 @@ export interface ServerDetailsFields {
 }
 
 export interface ServerDetailsModel extends ServerDetailsFields {
+  /** False closes the dialog; it emits `closed` once its exit ends, and the host removes it. */
+  readonly open: boolean
   /** Which server this edits, shown so a rack of servers cannot be confused. */
   readonly owner: string
   /** Browser-loadable URLs of the current uploads, or null when none is set. */
@@ -24,6 +26,7 @@ export interface ServerDetailsModel extends ServerDetailsFields {
 
 export type ServerDetailsIntent =
   | { readonly type: 'close' }
+  | { readonly type: 'closed' }
   | { readonly type: 'save'; readonly fields: ServerDetailsFields }
   | { readonly type: 'upload'; readonly kind: ServerAssetKind; readonly file: File }
   | { readonly type: 'clear-asset'; readonly kind: ServerAssetKind }

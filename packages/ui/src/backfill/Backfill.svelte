@@ -15,7 +15,7 @@
   const cancel = (): void => emit({ type: running ? 'cancel' : 'close' })
 </script>
 
-<Modal labelledby="backfill-title" width="32rem" lightDismiss={false} onClose={() => emit({ type: 'close' })}>
+<Modal open={model.open} labelledby="backfill-title" width="32rem" lightDismiss={false} onClose={() => emit({ type: 'close' })} onClosed={() => emit({ type: 'closed' })}>
   <header>
     <h2 id="backfill-title">{model.templates === null ? 'Backfill template tiles and progress data' : 'Backfill folder tiles and progress data'}</h2>
     <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => emit({ type: 'close' })}><Icon name="close" /></Button>

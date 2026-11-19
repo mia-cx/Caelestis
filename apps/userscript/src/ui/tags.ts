@@ -8,7 +8,6 @@ import {
   onServerContents,
 } from '../state.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
-import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree.js'
 
@@ -36,6 +35,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   let reloadPending = false
   let closed = false
   let model: TagManagerModel = {
+    open: true,
     owner: server === null ? 'Local · This browser' : `${server.info?.name ?? server.url} · Server`,
     ...(templateId === undefined && folderId === undefined ? {} : { targetName: target.name }),
     tags: [],
@@ -128,16 +128,15 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
       : undefined
   const close = (): void => {
     if (closed) return
+    update({ open: false })
     closed = true
     unsubscribe()
     unsubscribeLocal?.()
-    closeDialogHost(manager)
-    if (restoreFocus?.isConnected) restoreFocus.focus()
     if (closeManager === close) closeManager = undefined
   }
   closeManager = close
   const mutate = async (
-    intent: Exclude<TagManagerIntent, { type: 'close' | 'retry' }>,
+    intent: Exclude<TagManagerIntent, { type: 'close' | 'closed' | 'retry' }>,
   ): Promise<void> => {
     if (model.busy || model.loading || !model.ready) return
     update({ busy: true, error: undefined })
@@ -173,8 +172,13 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   manager.model = model
   applyWplaceTheme(manager)
   manager.addEventListener('caelestis-tag-manager-intent', (event) => {
-    if (closed) return
     const intent = event.detail
+    if (intent.type === 'closed') {
+      manager.remove()
+      if (restoreFocus?.isConnected) restoreFocus.focus()
+      return
+    }
+    if (closed) return
     if (intent.type === 'close') {
       close()
       return

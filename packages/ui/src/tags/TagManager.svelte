@@ -29,7 +29,7 @@
   const focusInput = (input: HTMLInputElement): void => { input.focus(); input.select() }
 </script>
 
-<Modal labelledby="tag-title" describedby="tag-owner" onClose={() => emit({ type: 'close' })}>
+<Modal open={model.open} labelledby="tag-title" describedby="tag-owner" onClose={() => emit({ type: 'close' })} onClosed={() => emit({ type: 'closed' })}>
   <div class="content">
     <header>
       <div><h2 id="tag-title">{model.targetName === undefined ? 'Manage tags' : `Tags for ${model.targetName}`}</h2><p id="tag-owner">{model.owner}</p></div>

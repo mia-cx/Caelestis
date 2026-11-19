@@ -1,6 +1,8 @@
 import type { BackfillCoverage, BackfillProgress } from '@caelestis/shared'
 
 export interface BackfillModel {
+  /** False closes the dialog; it emits `closed` once its exit ends, and the host removes it. */
+  readonly open: boolean
   readonly name: string
   /** Templates a folder import covers; null when the form imports one template. */
   readonly templates: number | null
@@ -14,5 +16,5 @@ export interface BackfillModel {
 }
 
 export type BackfillIntent =
-  | { readonly type: 'close' | 'reload' | 'start' | 'cancel' }
+  | { readonly type: 'close' | 'closed' | 'reload' | 'start' | 'cancel' }
   | { readonly type: 'select'; readonly snapshotId: number }
