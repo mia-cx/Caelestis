@@ -24,6 +24,7 @@ import {
 import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { transferAuthoring } from '../application/template-authoring.js'
+import { holdDeleting, templateBusy } from '../application/template-busy.js'
 import {
   isUpdatingTemplateArtwork,
   requestTemplateArtworkUpdate,
@@ -60,7 +61,6 @@ import { hiddenColoursFor } from '../templates/colour-filter.js'
 import {
   appearanceOf,
   forgetServerTemplate,
-  isDeletingLocal,
   isServerTemplate,
   isTemplateVisible,
   localTemplates,
@@ -393,7 +393,6 @@ const aborting = new Set<string>()
  */
 const abortAttempts = new Map<string, number>()
 const MAX_ABORT_ATTEMPTS = 2
-const deleting = new Set<string>()
 
 /**
  * One write at a time per template, with the payload composed at dispatch.
@@ -513,12 +512,11 @@ const flushDrafts = (id: string): void => {
 /**
  * Is this template condemned, by any surface?
  *
- * Our own set only knows about deletes started from this menu. The panel's delete sets the store's
- * terminal guard and then does its IndexedDB work with the record still present, and during that
- * window a menu reading only its own flag will start a placement, or offer a second delete that the
+ * The panel's delete does its IndexedDB work with the record still present, and during that window
+ * a menu that only knew its own deletes would start a placement, or offer a second delete that the
  * store refuses — reporting "could not delete" over a delete that is succeeding.
  */
-const isDoomed = (id: string): boolean => deleting.has(id) || isDeletingLocal(id)
+const isDoomed = (id: string): boolean => templateBusy(id, 'deleting')
 
 /**
  * The frame's own view of the store.
@@ -725,7 +723,6 @@ const forget = (id: string): void => {
   queues.delete(id)
   overlayFailures.forget(id)
   confirming.delete(id)
-  deleting.delete(id)
 }
 
 /** Every template this module still remembers anything about, whether or not it has a button. */
@@ -739,7 +736,6 @@ const remembered = (): Set<string> =>
     ...queues.keys(),
     ...overlayFailures.ids(),
     ...confirming,
-    ...deleting,
   ])
 
 const enqueue = async <T>(id: string, run: () => Promise<T>): Promise<T> => {
@@ -1408,7 +1404,7 @@ const confirmDelete = (id: string, rerender: () => void): void => {
       return
     }
   }
-  deleting.add(id)
+  const releaseDeleting = holdDeleting(id)
   clearFailure(id, 'delete')
   rerender()
   let serverRemovalFailure: string | null = null
@@ -1429,7 +1425,7 @@ const confirmDelete = (id: string, rerender: () => void): void => {
         })
   void removal.then(
     (removed) => {
-      deleting.delete(id)
+      releaseDeleting()
       if (!removed) {
         recordFailure(
           id,
@@ -1446,7 +1442,7 @@ const confirmDelete = (id: string, rerender: () => void): void => {
       rerender()
     },
     (error: unknown) => {
-      deleting.delete(id)
+      releaseDeleting()
       warn('install', `delete for ${nameFor(id)} threw`, error)
       recordFailure(id, 'delete', (name) => `Could not delete “${name}”.`)
       rerender()
