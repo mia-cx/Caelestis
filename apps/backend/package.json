@@ -3,6 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.bun.json",
     "start:node": "cd ../.. && node apps/backend/dist/node/main.js",

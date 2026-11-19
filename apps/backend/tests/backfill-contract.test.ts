@@ -13,61 +13,14 @@ import { describe, expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { EralyonArchive, parseSnapshots } from '../src/backfill/eralyon.js'
-import {
-  type ArchiveSource,
-  type BackfillStorage,
-  TemplateBackfill,
-} from '../src/backfill/import.js'
+import { type ArchiveSource, TemplateBackfill } from '../src/backfill/import.js'
+import { MemoryBackfillStorage } from '../src/testing.js'
 import { archiveWeek } from './support/eralyon.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
 const versionId = '01890f3e-7b2c-7abc-8def-012345678902'
 const chunkHash = 'a'.repeat(64)
 const snapshot = { id: 1, at: 100 } satisfies ArchiveSnapshot
-
-class MemoryBackfillStorage implements BackfillStorage {
-  readonly alarms: number[] = []
-  private readonly values = new Map<string, unknown>()
-
-  async get<T>(key: string): Promise<T | undefined> {
-    return this.values.get(key) as T | undefined
-  }
-
-  async put<T>(key: string, value: T): Promise<void> {
-    this.values.set(key, value)
-  }
-
-  async list<T>(options: {
-    prefix: string
-    startAfter?: string
-    limit?: number
-  }): Promise<Map<string, T>> {
-    return new Map(
-      [...this.values]
-        .filter(([key]) => key.startsWith(options.prefix))
-        .filter(([key]) => options.startAfter === undefined || key > options.startAfter)
-        .sort(([left], [right]) => (left < right ? -1 : 1))
-        .slice(0, options.limit)
-        .map(([key, value]) => [key, value as T]),
-    )
-  }
-
-  async delete(keys: string[]): Promise<number> {
-    return keys.filter((key) => this.values.delete(key)).length
-  }
-
-  async getAlarm(): Promise<number | null> {
-    return this.alarms.at(-1) ?? null
-  }
-
-  async setAlarm(at: number): Promise<void> {
-    this.alarms.push(at)
-  }
-
-  async deleteAlarm(): Promise<void> {
-    this.alarms.length = 0
-  }
-}
 
 const createImporter = async (archive: ArchiveSource) => {
   const sql = new MemorySqlStore()

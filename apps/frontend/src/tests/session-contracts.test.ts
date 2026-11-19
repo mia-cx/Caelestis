@@ -9,7 +9,7 @@ import {
 } from '../lib/api/client'
 import { persisted } from '../lib/persisted.svelte'
 import { AppState } from '../lib/state/app.svelte'
-import { adminToken, authorized, createTestBackend } from './backend'
+import { adminToken, authorized, createTestBackend, frontendFetch } from './backend'
 
 const empty = {
   server: null,
@@ -42,19 +42,7 @@ afterEach(() => {
 const connect = async () => {
   const backend = await createTestBackend({ openAccess: true })
   const requests: Request[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>(async (input, init) => {
-      const url = new URL(
-        input instanceof Request ? input.url : String(input),
-        'https://frontend.test',
-      )
-      const path = url.pathname.replace(/^\/(?:api|backend)(?=\/)/, '')
-      const request = new Request(`https://backend.test${path}${url.search}`, init)
-      requests.push(request)
-      return backend.app.fetch(request)
-    }),
-  )
+  vi.stubGlobal('fetch', vi.fn(frontendFetch(backend.app, requests)))
   return { ...backend, requests }
 }
 
@@ -86,15 +74,7 @@ describe('frontend session through the backend HTTP boundary', () => {
   it('a protected server rejects stale credentials and the client opens authentication state', async () => {
     const backend = await createTestBackend()
     writeConnection('https://backend.test', 'revoked-token')
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof fetch>(async (input, init) => {
-        const url = new URL(String(input))
-        return backend.app.fetch(
-          new Request(`https://backend.test${url.pathname.replace('/backend', '')}`, init),
-        )
-      }),
-    )
+    vi.stubGlobal('fetch', vi.fn(frontendFetch(backend.app)))
     const state = makeState()
     await state.load()
     expect(state.authRequired).toBe(true)

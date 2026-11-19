@@ -1,4 +1,12 @@
 // @vitest-environment happy-dom
+
+import {
+  type ArchiveSource,
+  type BackfillClients,
+  localBackfillClient,
+  MemoryBackfillStorage,
+  TemplateBackfill,
+} from '@caelestis/backend/testing'
 import {
   encodeIndexedPng,
   millis,
@@ -8,12 +16,6 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  type ArchiveSource,
-  type BackfillStorage,
-  TemplateBackfill,
-} from '../../../backend/dist/backfill/import.js'
-import { type BackfillClients, localBackfillClient } from '../../../backend/dist/backfill/port.js'
 import {
   type ApiError,
   chunkImageUrl,
@@ -45,50 +47,6 @@ const json = (body: unknown): RequestInit => ({
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify(body),
 })
-
-class MemoryBackfillStorage implements BackfillStorage {
-  private readonly values = new Map<string, unknown>()
-  private alarm: number | null = null
-
-  async get<T>(key: string): Promise<T | undefined> {
-    return this.values.get(key) as T | undefined
-  }
-
-  async put<T>(key: string, value: T): Promise<void> {
-    this.values.set(key, value)
-  }
-
-  async list<T>(options: {
-    prefix: string
-    startAfter?: string
-    limit?: number
-  }): Promise<Map<string, T>> {
-    return new Map(
-      [...this.values]
-        .filter(([key]) => key.startsWith(options.prefix))
-        .filter(([key]) => options.startAfter === undefined || key > options.startAfter)
-        .sort(([left], [right]) => (left < right ? -1 : 1))
-        .slice(0, options.limit)
-        .map(([key, value]) => [key, value as T]),
-    )
-  }
-
-  async delete(keys: string[]): Promise<number> {
-    return keys.filter((key) => this.values.delete(key)).length
-  }
-
-  async getAlarm(): Promise<number | null> {
-    return this.alarm
-  }
-
-  async setAlarm(at: number): Promise<void> {
-    this.alarm = at
-  }
-
-  async deleteAlarm(): Promise<void> {
-    this.alarm = null
-  }
-}
 
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(fixtureNow * 1_000)
