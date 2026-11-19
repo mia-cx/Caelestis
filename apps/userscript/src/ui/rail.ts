@@ -1,5 +1,6 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import type { CaelestisRailControl, RailControlModel } from '@caelestis/ui/elements'
+import { onAlarmBadgeChange, unacknowledgedAlarmCount } from '../alarms.js'
 import { type ActiveAllianceSurface, activeAllianceSurface } from '../alliance-surface.js'
 import { ALLIANCE_PANEL_ID, ALLIANCE_RAIL_ID, PANEL_ID } from '../chrome-ids.js'
 import {
@@ -79,7 +80,6 @@ const APP_NAME = 'Caelestis'
 const buttonTooltip = (): string => `${APP_NAME} — shared templates${shortcutHint('toggle-panel')}`
 
 let panel: RailPanel | null = null
-let alarmBadge = 0
 
 const railControl = (id: string, doc: Document = document): CaelestisRailControl | null =>
   doc.getElementById(id) as CaelestisRailControl | null
@@ -96,13 +96,14 @@ const syncModel = (id: string, model: RailControlModel): void => {
  */
 const panelButtonModel = (scope: PanelScope): RailControlModel => {
   const open = panel?.isOpen(scope) ?? false
+  const badge = scope === 'world' ? unacknowledgedAlarmCount() : 0
   return {
     id: scope === 'alliance' ? 'alliance-panel' : 'panel',
     label: buttonTooltip(),
     pressed: open,
     expanded: open,
     controls: scope === 'alliance' ? ALLIANCE_PANEL_ID : PANEL_ID,
-    ...(scope === 'world' && alarmBadge > 0 ? { badge: alarmBadge } : {}),
+    ...(badge > 0 ? { badge } : {}),
   }
 }
 
@@ -186,16 +187,6 @@ const syncAllianceModes = (active = activeAllianceSurface()): void => {
   if (active === null) return
   syncModel(ALLIANCE_COLOUR_MODE_ID, colourModel(active.surface))
   syncModel(ALLIANCE_MISMATCH_MODE_ID, allianceMismatchModel(active.surface))
-}
-
-/**
- * The unacknowledged-alarm count. Not "how many alarms are active" — that number stays lit for
- * hours on a griefed template and stops being read. This one means "something new since you last
- * looked", so it clears itself by being seen.
- */
-export const setAlarmBadge = (count: number): void => {
-  alarmBadge = Math.max(0, count)
-  syncPanelButtons()
 }
 
 /** Every world rail button in rail order; the first ones win the slots when the column is short. */
@@ -483,6 +474,7 @@ export const installRail = (owner: RailPanel): void => {
   panel = owner
   positionRail()
   syncPanelButtons()
+  onAlarmBadgeChange(syncPanelButtons)
   syncColourMode()
   syncMismatchMode()
   syncPresenceMode()

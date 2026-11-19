@@ -1,10 +1,9 @@
 import type { Alarm } from '@caelestis/shared'
+import { notifyListeners } from './listeners.js'
 import { activeServerAlarms, onServerAlarmChange } from './server-alarms.js'
-import { getState } from './settings.js'
+import { getState, type ServerConnection } from './settings.js'
 import { storedValue, storeValue } from './stored-values.js'
 import { showAmbientToast } from './ui/notification-host.js'
-import { isWorldTemplatePresented, onWorldTemplateTreeVisible } from './ui/panel.js'
-import { setAlarmBadge } from './ui/rail.js'
 import { isPaintOpen } from './wplace-paint.js'
 
 const ACKNOWLEDGED_KEY = 'caelestis.acknowledged-alarms.v1'
@@ -45,22 +44,44 @@ const notice = (name: string, alarm: Alarm): string =>
 let installed = false
 let acknowledged = new Set<string>()
 let known = new Set<string>()
+let isPresented: (server: ServerConnection, templateId: string) => boolean = () => false
+const badgeListeners = new Set<() => void>()
 
-const acknowledgeVisible = (): void => {
-  const current = activeServerAlarms()
+/**
+ * The unacknowledged-alarm count. Not "how many alarms are active" — that number stays lit for
+ * hours on a griefed template and stops being read. This one means "something new since you last
+ * looked", so it clears itself by being seen.
+ */
+export const unacknowledgedAlarmCount = (): number =>
+  activeServerAlarms().filter(
+    ({ server, alarm }) => !acknowledged.has(alarmFingerprint(server.url, alarm)),
+  ).length
+
+/** Follow {@link unacknowledgedAlarmCount}. */
+export const onAlarmBadgeChange = (listener: () => void): void => {
+  badgeListeners.add(listener)
+}
+
+/** Count every alarm on a template the panel presents now as seen. */
+export const acknowledgeVisibleAlarms = (): void => {
   let changed = false
-  for (const { server, alarm } of current) {
-    if (!isWorldTemplatePresented(server, alarm.templateId)) continue
+  for (const { server, alarm } of activeServerAlarms()) {
+    if (!isPresented(server, alarm.templateId)) continue
     const fingerprint = alarmFingerprint(server.url, alarm)
     if (acknowledged.has(fingerprint)) continue
     acknowledged.add(fingerprint)
     changed = true
   }
   if (changed) writeAcknowledged(acknowledged)
-  setAlarmBadge(
-    current.filter(({ server, alarm }) => !acknowledged.has(alarmFingerprint(server.url, alarm)))
-      .length,
-  )
+  notifyListeners(badgeListeners, 'alarm badge observer failed')
+}
+
+/** How to tell whether the panel presents a template, so an alarm on it counts as seen. */
+export const setAlarmPresenter = (
+  presented: (server: ServerConnection, templateId: string) => boolean,
+): void => {
+  isPresented = presented
+  acknowledgeVisibleAlarms()
 }
 
 const syncAlarms = (): void => {
@@ -68,7 +89,7 @@ const syncAlarms = (): void => {
   const fingerprints = new Set(
     current.map(({ server, alarm }) => alarmFingerprint(server.url, alarm)),
   )
-  acknowledgeVisible()
+  acknowledgeVisibleAlarms()
 
   for (const { server, template, alarm } of current) {
     const fingerprint = alarmFingerprint(server.url, alarm)
@@ -91,6 +112,5 @@ export const installAlarmNotifications = (): void => {
   installed = true
   acknowledged = readAcknowledged()
   onServerAlarmChange(syncAlarms)
-  onWorldTemplateTreeVisible(acknowledgeVisible)
   syncAlarms()
 }

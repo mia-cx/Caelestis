@@ -15,6 +15,7 @@ import {
   openSurface,
   surfaceCloseDurationMs,
 } from '@caelestis/ui/motion'
+import { acknowledgeVisibleAlarms, setAlarmPresenter } from '../alarms.js'
 import { onAllianceManifestChange } from '../alliance-server-sync.js'
 import {
   type ActiveAllianceSurface,
@@ -136,7 +137,6 @@ let panelSurface: TemplateSurface = WORLD_TEMPLATE_SURFACE
 let panelHost: HTMLElement | null = null
 let allianceStage: HTMLElement | null = null
 const allianceDrawerInset = new AllianceDrawerInset()
-const worldTreeVisibleListeners = new Set<() => void>()
 
 const currentView = (): PanelView => panelSessions.view()
 const panelOpen = (): boolean => panelSessions.isOpen()
@@ -164,8 +164,7 @@ const panelModel = (width = panelWidthForViewport(getState().panelWidth)): Panel
 })
 
 const notifyWorldTreeVisible = (): void => {
-  if (!panelSessions.isWorldTreeVisible()) return
-  for (const listener of worldTreeVisibleListeners) listener()
+  if (panelSessions.isWorldTreeVisible()) acknowledgeVisibleAlarms()
 }
 
 const syncSettingsVisible = (): void =>
@@ -538,13 +537,8 @@ const selectAlliancePanelSurface = (active: ActiveAllianceSurface | null): void 
 }
 
 /** Whether the open world tree presents this template after search, filters, and collapse. */
-export const isWorldTemplatePresented = (server: ServerConnection, templateId: string): boolean =>
+const isWorldTemplatePresented = (server: ServerConnection, templateId: string): boolean =>
   panelSessions.isWorldTreeVisible() && treeViewPresents(serverTemplateTreeKey(server, templateId))
-
-export const onWorldTemplateTreeVisible = (listener: () => void): (() => void) => {
-  worldTreeVisibleListeners.add(listener)
-  return () => worldTreeVisibleListeners.delete(listener)
-}
 
 /** The panel hides while the template studio is open, and comes back if it was open before. */
 let hiddenForStudio = false
@@ -604,6 +598,7 @@ export const installPanel = (): void => {
   )
   onViewChange(followViewFocus, 'Template tree focus')
   onTemplateStudioChange(followTemplateStudio)
+  setAlarmPresenter(isWorldTemplatePresented)
   window.addEventListener('resize', () => {
     invalidateOverlayControlsEdge()
     closePanelForMobileDrawing()
