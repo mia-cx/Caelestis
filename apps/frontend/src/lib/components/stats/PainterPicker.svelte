@@ -4,7 +4,6 @@
    * template's own pace lines, stays pinned at the top whatever the search says.
    */
   import type { PainterTotal } from '@caelestis/shared'
-  import { Icon } from '@caelestis/ui'
   import { MAX_SELECTED_PAINTERS } from './pace-selection.svelte.js'
   import { painterColour, painterLabel, rankPainters } from './painter-identity.js'
   import SearchableMenu from './SearchableMenu.svelte'
@@ -53,10 +52,12 @@
   disabled={(painter) => full && !selected.has(painter.wplaceUserId)}
   onSelect={(painter) => onToggle(painter.wplaceUserId)}
   onHighlight={(painter) => onHover(painter?.wplaceUserId ?? null)}
+  checked={(painter) => selected.has(painter.wplaceUserId)}
+  states={['drawn', 'not drawn']}
   pinned={{
+    label: 'All users',
     swatch: 'var(--pace-short)',
     checked: allUsersShown,
-    state: allUsersShown ? 'drawn' : 'not drawn',
     onSelect: onToggleAllUsers,
   }}
   empty="No painters have reported yet."
@@ -76,21 +77,15 @@
     {/if}
   {/snippet}
   {#snippet row(painter)}
-    {@const isSelected = selected.has(painter.wplaceUserId)}
     <span
       class="size-2.5 shrink-0 rounded-full"
       style:background={painterColour(painter.wplaceUserId)}
-      style:opacity={isSelected ? 1 : 0.4}
+      style:opacity={selected.has(painter.wplaceUserId) ? 1 : 0.4}
       aria-hidden="true"
     ></span>
     <span class="min-w-0 flex-1 truncate">{painterLabel(painter)}</span>
     <span class="shrink-0 text-[10px] tabular-nums text-base-content/50">
       {painter.placed.toLocaleString()} px
-    </span>
-    <!-- `aria-selected` is the command cursor, so the drawn state is read out as text. -->
-    <span class="sr-only">{isSelected ? 'drawn' : 'not drawn'}</span>
-    <span class="flex size-3 shrink-0 items-center justify-center">
-      {#if isSelected}<Icon name="check" class="size-4.5" />{/if}
     </span>
   {/snippet}
 </SearchableMenu>

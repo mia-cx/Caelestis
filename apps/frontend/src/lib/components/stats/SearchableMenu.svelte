@@ -24,6 +24,8 @@
     onSelect,
     onHighlight,
     row,
+    checked,
+    states,
     pinned,
     header,
     empty,
@@ -44,13 +46,16 @@
     onSelect: (row: Row) => void
     /** The row under the pointer or the keyboard cursor, or null when none is. */
     onHighlight?: (row: Row | null) => void
+    /** A row's swatch, label and extras; the menu adds its state and check mark. */
     row: Snippet<[Row]>
+    checked: (row: Row) => boolean
+    /** Read out in place of the check mark when checked and when not, such as drawn / not drawn. */
+    states: readonly [checked: string, unchecked: string]
     /** A row above the separator that no search hides, such as "All users". */
     pinned?: {
+      readonly label: string
       readonly swatch: string
       readonly checked: boolean
-      /** Read out in place of the check mark, such as "drawn". */
-      readonly state: string
       readonly onSelect: () => void
     }
     header?: Snippet
@@ -66,6 +71,14 @@
   const hidden = $derived(matches.length - page.length)
   const rowByKey = $derived(new Map(page.map((entry) => [key(entry), entry])))
 </script>
+
+<!-- `aria-selected` is the command cursor, so the checked state is read out as text. -->
+{#snippet check(on: boolean)}
+  <span class="sr-only">{on ? states[0] : states[1]}</span>
+  <span class="flex size-3 shrink-0 items-center justify-center">
+    {#if on}<Icon name="check" class="size-4.5" />{/if}
+  </span>
+{/snippet}
 
 <Popover.Root
   bind:open
@@ -106,11 +119,8 @@
                   style:opacity={pinned.checked ? 1 : 0.4}
                   aria-hidden="true"
                 ></span>
-                <span class="min-w-0 flex-1 truncate font-medium">All users</span>
-                <span class="sr-only">{pinned.state}</span>
-                <span class="flex size-3 shrink-0 items-center justify-center">
-                  {#if pinned.checked}<Icon name="check" class="size-4.5" />{/if}
-                </span>
+                <span class="min-w-0 flex-1 truncate font-medium">{pinned.label}</span>
+                {@render check(pinned.checked)}
               </Command.Item>
               <Command.Separator forceMount class="my-1 h-px bg-base-300" />
             {/if}
@@ -125,6 +135,7 @@
                 onpointerleave={() => onHighlight?.(null)}
               >
                 {@render row(entry)}
+                {@render check(checked(entry))}
               </Command.Item>
             {/each}
             {#if rows.length === 0 && empty !== undefined}

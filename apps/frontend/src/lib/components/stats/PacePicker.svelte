@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { Icon } from '@caelestis/ui'
   import SearchableMenu from './SearchableMenu.svelte'
 
   interface PaceOption {
@@ -31,17 +30,14 @@
   disabled={(option) => !option.available}
   title={(option) => (option.available ? 'Rolling average' : 'No suitable history')}
   onSelect={(option) => onToggle(option.key)}
+  checked={(option) => option.selected && option.available}
+  states={['drawn', 'not drawn']}
   noMatch="No matching pace lines."
 >
   {#snippet trigger()}<span>{summary}</span>{/snippet}
   {#snippet row(option)}
-    {@const shown = option.selected && option.available}
     <span class="h-0.5 w-3 shrink-0 rounded-full" style:background={option.colour} aria-hidden="true"></span>
     <span class="min-w-0 flex-1 font-medium">{option.key}</span>
     {#if !option.available}<span class="sr-only">No suitable history</span>{/if}
-    <span class="sr-only">{shown ? 'drawn' : 'not drawn'}</span>
-    <span class="flex size-3 shrink-0 items-center justify-center">
-      {#if shown}<Icon name="check" class="size-4.5" />{/if}
-    </span>
   {/snippet}
 </SearchableMenu>

@@ -3,7 +3,6 @@
    * Chooses whose contributions the heatmap shows: everyone, or one painter. Rows show the Wplace id
    * so namesakes stay apart, and the choice is that id, so renames and refreshes keep it.
    */
-  import { Icon } from '@caelestis/ui'
   import type { ContributionPainter } from './community.svelte.js'
   import { painterColour, painterLabel, rankPainters } from './painter-identity.js'
   import SearchableMenu from './SearchableMenu.svelte'
@@ -46,11 +45,13 @@
   search={rankPainters}
   key={(painter) => String(painter.wplaceUserId)}
   onSelect={(painter) => choose(painter.wplaceUserId)}
+  checked={(painter) => painter.wplaceUserId === selected}
+  states={['shown', 'not shown']}
   pinned={{
+    label: 'All users',
     // The heatmap's own ramp: everyone is what the heatmap draws by default.
     swatch: 'var(--heat-4)',
     checked: selected === null,
-    state: selected === null ? 'shown' : 'not shown',
     onSelect: () => choose(null),
   }}
   empty="No painters have reported yet."
@@ -64,7 +65,6 @@
     {#if selected !== null}<span class="text-base-content/50">#{selected}</span>{/if}
   {/snippet}
   {#snippet row(painter)}
-    {@const isSelected = painter.wplaceUserId === selected}
     <span
       class="size-2.5 shrink-0 rounded-full"
       style:background={painterColour(painter.wplaceUserId)}
@@ -76,10 +76,6 @@
     </span>
     <span class="shrink-0 text-[10px] tabular-nums text-base-content/50">
       {painter.placed.toLocaleString()} px
-    </span>
-    <span class="sr-only">{isSelected ? 'shown' : 'not shown'}</span>
-    <span class="flex size-3 shrink-0 items-center justify-center">
-      {#if isSelected}<Icon name="check" class="size-4.5" />{/if}
     </span>
   {/snippet}
 </SearchableMenu>
