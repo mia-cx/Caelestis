@@ -81,6 +81,12 @@ const parseRange = (
 const optionalWholeNumber = (value: string | undefined): number | undefined | null =>
   value === undefined ? undefined : parseWholeNumber(value)
 
+/** The `limit` query value: `fallback` when absent, null when it is not a whole number. */
+const parseLimit = (c: Context, fallback: number): number | null => {
+  const limit = optionalWholeNumber(c.req.query('limit'))
+  return limit === undefined ? fallback : limit
+}
+
 const parseMaxResolution = (c: Context): number | undefined | null => {
   const maxResolution = optionalWholeNumber(c.req.query('maxResolution'))
   return maxResolution !== null &&
@@ -247,7 +253,7 @@ export const createTelemetryReadRoutes = (
     if (templateIds === null) return c.json({ error: TEMPLATE_IDS_ERROR }, 400)
     const range = parseRange(c)
     if (range === null) return c.json({ error: RANGE_ERROR }, 400)
-    const limit = optionalWholeNumber(c.req.query('limit')) ?? MAX_PAINTER_TOTALS
+    const limit = parseLimit(c, MAX_PAINTER_TOTALS)
     if (limit === null || limit < 1) {
       return c.json({ error: 'limit must be a positive integer' }, 400)
     }
@@ -288,7 +294,7 @@ export const createTelemetryReadRoutes = (
     if (from === null || to === null || (from !== undefined && to !== undefined && to <= from)) {
       return c.json({ error: RANGE_ERROR }, 400)
     }
-    const limit = optionalWholeNumber(c.req.query('limit')) ?? DEFAULT_LEADERBOARD_LIMIT
+    const limit = parseLimit(c, DEFAULT_LEADERBOARD_LIMIT)
     if (limit === null || limit < 1 || limit > MAX_LEADERBOARD_LIMIT) {
       return c.json({ error: `limit must be 1..${MAX_LEADERBOARD_LIMIT}` }, 400)
     }
