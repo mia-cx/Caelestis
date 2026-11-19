@@ -1,8 +1,9 @@
-import type {
-  HistoryBucket,
-  HistoryResponse,
-  PainterHistoryResponse,
-  PainterTotal,
+import {
+  type HistoryBucket,
+  type HistoryResponse,
+  HOUR_SECONDS,
+  type PainterHistoryResponse,
+  type PainterTotal,
 } from '@caelestis/shared'
 import { untrack } from 'svelte'
 import { getHistory, getPainterHistory, getPainterTotals } from '#lib/api/client.js'
@@ -16,7 +17,7 @@ import type { StatsScope } from './stats-scope.svelte.js'
  * Each tick reads only the buckets that can still change. An hourly full read lets the server choose
  * a tier for the grown range again and picks up writes delayed past that window.
  */
-const FULL_READ_SECONDS = 3_600
+const FULL_READ_SECONDS = HOUR_SECONDS
 /** Who painted is one bounded list per scope, summed by the server, refreshed on its own slow clock. */
 const PAINTERS_REFRESH_SECONDS = 5 * 60
 

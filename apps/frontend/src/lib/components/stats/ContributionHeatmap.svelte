@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { ContributionDay } from '@caelestis/shared'
+import { type ContributionDay, DAY_SECONDS } from '@caelestis/shared'
 
 let {
   days,
@@ -12,7 +12,6 @@ let {
   weeks?: number
 } = $props()
 
-const DAY = 86_400
 const MIN_CELL = 10
 const LABEL = 24
 const EMPTY_CELL = 'color-mix(in oklab, var(--color-base-content) 8%, transparent)'
@@ -48,14 +47,14 @@ const shown = $derived(layout.shown)
 
 // GitHub-style: one column per week, top row Monday, the grid ends on today's UTC day.
 const grid = $derived.by(() => {
-  const today = Math.floor(Date.now() / 1000 / DAY) * DAY
-  const weekday = (Math.floor(today / DAY) + 3) % 7 // 1970-01-01 was a Thursday; 0 = Monday.
-  const lastMonday = today - weekday * DAY
+  const today = Math.floor(Date.now() / 1000 / DAY_SECONDS) * DAY_SECONDS
+  const weekday = (Math.floor(today / DAY_SECONDS) + 3) % 7 // 1970-01-01 was a Thursday; 0 = Monday.
+  const lastMonday = today - weekday * DAY_SECONDS
   const columns: { day: number; placed: number | null }[][] = []
   for (let w = shown - 1; w >= 0; w--) {
     const column: { day: number; placed: number | null }[] = []
     for (let d = 0; d < 7; d++) {
-      const day = lastMonday - w * 7 * DAY + d * DAY
+      const day = lastMonday - w * 7 * DAY_SECONDS + d * DAY_SECONDS
       column.push({ day, placed: day > today ? null : (byDay.get(day) ?? 0) })
     }
     columns.push(column)

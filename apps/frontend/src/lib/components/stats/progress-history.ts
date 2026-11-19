@@ -1,8 +1,13 @@
-import type { ArchiveProgressSample, ProgressSample } from '@caelestis/shared'
-import { isDailyArchiveInterval } from './archive-history'
+import { type ArchiveProgressSample, DAY_SECONDS, type ProgressSample } from '@caelestis/shared'
+
+/** Consecutive UTC capture dates count as daily observations despite hour-level drift. */
+const isDailyArchiveInterval = (interval: {
+  readonly from: number
+  readonly to: number
+}): boolean => Math.floor(interval.to / DAY_SECONDS) - Math.floor(interval.from / DAY_SECONDS) <= 1
 
 /** Archive captures are daily, so only pace windows of a day or more may count their intervals. */
-export const archiveCountsFor = (windowSeconds: number): boolean => windowSeconds >= 86_400
+export const archiveCountsFor = (windowSeconds: number): boolean => windowSeconds >= DAY_SECONDS
 
 export interface ObservedProgressSample extends ProgressSample {
   readonly archive: boolean

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Progress, Template } from '@caelestis/shared'
+  import { DAY_SECONDS, HOUR_SECONDS, type Progress, type Template } from '@caelestis/shared'
   import Select from '#lib/components/Select.svelte'
   import { STORAGE_KEYS } from '#lib/deployment.js'
   import { persisted } from '#lib/persisted.svelte.js'
@@ -15,7 +15,7 @@
   import { mergeObservedProgress } from './progress-history.js'
   import { ProgressReads } from './progress-reads.svelte.js'
   import ProgressPaceChart, { CHART_HEIGHT } from './ProgressPaceChart.svelte'
-  import { DAY_SECONDS, StatsScope } from './stats-scope.svelte.js'
+  import { StatsScope } from './stats-scope.svelte.js'
 
   let {
     templates,
@@ -90,11 +90,11 @@
   const eta = $derived(
     pace === null || pace.correct <= 0 || remainingPixels <= 0
       ? null
-      : (remainingPixels / pace.correct) * 3_600,
+      : (remainingPixels / pace.correct) * HOUR_SECONDS,
   )
 
   const formatEta = (seconds: number): string => {
-    if (seconds < 3_600 * 36) return `~${Math.max(1, Math.round(seconds / 3_600))} h`
+    if (seconds < HOUR_SECONDS * 36) return `~${Math.max(1, Math.round(seconds / HOUR_SECONDS))} h`
     if (seconds >= DAY_SECONDS * 365) return `~${(seconds / (DAY_SECONDS * 365)).toLocaleString(undefined, { maximumFractionDigits: 1 })} y`
     return `~${Math.round(seconds / DAY_SECONDS)} d`
   }

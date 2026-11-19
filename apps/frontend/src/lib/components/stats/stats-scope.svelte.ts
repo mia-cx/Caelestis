@@ -1,6 +1,5 @@
-import type { Template } from '@caelestis/shared'
+import { DAY_SECONDS, type Template } from '@caelestis/shared'
 
-export const DAY_SECONDS = 86_400
 const TICK_MS = 15_000
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1_000)

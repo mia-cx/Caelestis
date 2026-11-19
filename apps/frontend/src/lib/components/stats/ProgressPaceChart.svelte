@@ -4,7 +4,7 @@
 </script>
 
 <script lang="ts">
-  import { formatCount, formatPixels, type HistoryBucket, type PainterTotal } from '@caelestis/shared'
+  import { DAY_SECONDS, formatCount, formatPixels, type HistoryBucket, type PainterTotal } from '@caelestis/shared'
   import { prefersReducedMotion } from '@caelestis/ui/motion'
   import { untrack } from 'svelte'
   import { cubicOut } from 'svelte/easing'
@@ -43,7 +43,6 @@
   } from './progress-pace.js'
   import RangeBrush from './RangeBrush.svelte'
   import RangePresets from './RangePresets.svelte'
-  import { DAY_SECONDS } from './stats-scope.svelte.js'
   import { ChartWindow, type TimeWindow } from './time-window.svelte.js'
 
   let {

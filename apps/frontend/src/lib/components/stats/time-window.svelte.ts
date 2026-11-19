@@ -1,3 +1,5 @@
+import { DAY_SECONDS, HOUR_SECONDS } from '@caelestis/shared'
+
 export interface TimeWindow {
   readonly from: number
   readonly to: number
@@ -21,11 +23,11 @@ export const clampWindow = (
 }
 
 const RANGE_PRESETS = [
-  { key: '6h', seconds: 6 * 3_600, label: 'the last 6 hours' },
-  { key: '1d', seconds: 86_400, label: 'the last day' },
-  { key: '3d', seconds: 3 * 86_400, label: 'the last 3 days' },
-  { key: '7d', seconds: 7 * 86_400, label: 'the last 7 days' },
-  { key: '30d', seconds: 30 * 86_400, label: 'the last 30 days' },
+  { key: '6h', seconds: 6 * HOUR_SECONDS, label: 'the last 6 hours' },
+  { key: '1d', seconds: DAY_SECONDS, label: 'the last day' },
+  { key: '3d', seconds: 3 * DAY_SECONDS, label: 'the last 3 days' },
+  { key: '7d', seconds: 7 * DAY_SECONDS, label: 'the last 7 days' },
+  { key: '30d', seconds: 30 * DAY_SECONDS, label: 'the last 30 days' },
 ] as const
 
 /** One arrow-key nudge: about a hundredth of the history, never finer than a bucket. */

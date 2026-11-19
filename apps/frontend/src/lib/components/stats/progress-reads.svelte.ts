@@ -1,5 +1,7 @@
 import {
   type ArchiveHistory,
+  DAY_SECONDS,
+  HOUR_SECONDS,
   HOURLY_TILE_HISTORY_SECONDS,
   type ProgressSample,
   RAW_TILE_HISTORY_SECONDS,
@@ -7,9 +9,8 @@ import {
 import { getArchiveHistory, getTemplateProgressHistory } from '#lib/api/client.js'
 import { combineArchiveSamples } from './archive-history.js'
 import { combineProgressSamples } from './progress-history.js'
-import { DAY_SECONDS, type StatsScope } from './stats-scope.svelte.js'
+import type { StatsScope } from './stats-scope.svelte.js'
 
-const HOUR_SECONDS = 3_600
 /** Current counts stream separately; saved history needs only a slow refresh. */
 const REFRESH_SECONDS = 5 * 60
 

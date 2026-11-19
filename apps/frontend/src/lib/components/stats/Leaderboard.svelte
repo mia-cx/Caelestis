@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { LeaderboardEntry } from '@caelestis/shared'
+import { DAY_SECONDS, type LeaderboardEntry } from '@caelestis/shared'
 
 let { entries }: { entries: readonly LeaderboardEntry[] } = $props()
 
@@ -13,7 +13,7 @@ const medal = (rank: number): string | null =>
         : null
 
 const relativeDay = (day: number): string => {
-  const days = Math.floor(Date.now() / 1000 / 86_400) - Math.floor(day / 86_400)
+  const days = Math.floor(Date.now() / 1000 / DAY_SECONDS) - Math.floor(day / DAY_SECONDS)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
   return `${days} days ago`

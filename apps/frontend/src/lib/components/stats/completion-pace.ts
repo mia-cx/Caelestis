@@ -1,3 +1,4 @@
+import { HOUR_SECONDS } from '@caelestis/shared'
 import {
   archiveCountsFor,
   type ObservedProgressSample,
@@ -23,7 +24,7 @@ export const completionPace = (
         ? total
         : total + sample.correct - before.correct
     }, 0)
-    const hours = (to - first.at) / 3_600
+    const hours = (to - first.at) / HOUR_SECONDS
     return { correct: pixels / hours, hours }
   }
   const from = to - windowSeconds
@@ -36,7 +37,7 @@ export const completionPace = (
       continue
     const covered = interval.to - Math.max(interval.from, from)
     if (covered <= 0) continue
-    hours += covered / 3_600
+    hours += covered / HOUR_SECONDS
     correct += (interval.pixels * covered) / duration
   }
   return hours > 0 ? { correct: correct / hours, hours } : null

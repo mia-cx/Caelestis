@@ -1,4 +1,5 @@
-import type { ArchiveHistory, ArchiveProgressSample } from '@caelestis/shared'
+import { type ArchiveHistory, type ArchiveProgressSample, DAY_SECONDS } from '@caelestis/shared'
+import { observedProgressIntervals } from './progress-history.js'
 
 /** Sum only complete observations for the entire selected scope, preserving explicit gaps. */
 export const combineArchiveSamples = (
@@ -35,39 +36,18 @@ export const combineArchiveSamples = (
     })
 }
 
-/** Net changes retain their observed intervals and signed regressions. */
-const archiveIntervals = (samples: readonly ArchiveProgressSample[]) =>
-  samples.flatMap((sample, index) => {
-    const before = samples[index - 1]
-    if (sample.correct === null || before?.correct == null || sample.at <= before.at) return []
-    return [
-      {
-        from: before.at,
-        to: sample.at,
-        startCorrect: before.correct,
-        endCorrect: sample.correct,
-      },
-    ]
-  })
-
-/** Consecutive UTC capture dates count as daily observations despite hour-level drift. */
-export const isDailyArchiveInterval = (interval: {
-  readonly from: number
-  readonly to: number
-}): boolean => Math.floor(interval.to / 86_400) - Math.floor(interval.from / 86_400) <= 1
-
 /** Credit daily gains to the newer capture's UTC date; omit missed capture dates and live days. */
 export const archiveContributionDays = (
   samples: readonly ArchiveProgressSample[],
   liveFrom: number,
 ): ReadonlyMap<number, number> => {
-  const daySeconds = 86_400
-  const liveDay = Math.floor(liveFrom / daySeconds) * daySeconds
+  const liveDay = Math.floor(liveFrom / DAY_SECONDS) * DAY_SECONDS
   const days = new Map<number, number>()
-  for (const interval of archiveIntervals(samples)) {
-    const day = Math.floor(interval.to / daySeconds) * daySeconds
-    if (!isDailyArchiveInterval(interval) || day >= liveDay) continue
-    days.set(day, (days.get(day) ?? 0) + Math.max(0, interval.endCorrect - interval.startCorrect))
+  const observed = samples.map((sample) => ({ ...sample, archive: true }))
+  for (const interval of observedProgressIntervals(observed)) {
+    const day = Math.floor(interval.to / DAY_SECONDS) * DAY_SECONDS
+    if (!interval.dailyObservation || day >= liveDay) continue
+    days.set(day, (days.get(day) ?? 0) + Math.max(0, interval.pixels))
   }
   return days
 }

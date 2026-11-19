@@ -1,13 +1,14 @@
-import type {
-  ContributionDay,
-  LeaderboardEntry,
-  PainterIdentity,
-  WplaceUserId,
+import {
+  type ContributionDay,
+  DAY_SECONDS,
+  type LeaderboardEntry,
+  type PainterIdentity,
+  type WplaceUserId,
 } from '@caelestis/shared'
 import { untrack } from 'svelte'
 import { getContributions, getLeaderboard } from '#lib/api/client.js'
 import { useApp } from '#lib/state/app.svelte.js'
-import { DAY_SECONDS, type StatsScope } from './stats-scope.svelte.js'
+import type { StatsScope } from './stats-scope.svelte.js'
 
 /** The heatmap draws up to a year of weeks, and that is all the contribution read is for. */
 const CONTRIBUTION_SECONDS = DAY_SECONDS * 7 * 53

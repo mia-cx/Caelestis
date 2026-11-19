@@ -1,3 +1,5 @@
+import { HOUR_SECONDS } from '@caelestis/shared'
+
 /** Find the latest observation at a recorded time in an ascending timeline. */
 export const frameAt = (timeline: readonly number[], time: number): number => {
   let low = 0
@@ -38,7 +40,7 @@ export const transportScale = (start: number, end: number): TransportScale => {
 }
 
 // Preserve the original hourly playback pace while allowing arbitrary snapshot intervals.
-const RECORDED_SECONDS_PER_MS = 3_600 / 350
+const RECORDED_SECONDS_PER_MS = HOUR_SECONDS / 350
 const PLAYHEAD_UPDATE_MS = 1_000 / 60
 
 /** The slowest playback speed; anything slower holds one snapshot for minutes. Faster is unbounded. */

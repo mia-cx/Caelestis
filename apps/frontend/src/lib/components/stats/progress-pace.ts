@@ -1,16 +1,16 @@
-import type { PainterHistoryResponse } from '@caelestis/shared'
+import { DAY_SECONDS, HOUR_SECONDS, type PainterHistoryResponse } from '@caelestis/shared'
 
 export const PACE_WINDOWS = [
   { key: '30m', seconds: 1_800 },
-  { key: '1h', seconds: 3_600 },
+  { key: '1h', seconds: HOUR_SECONDS },
   { key: '2h', seconds: 7_200 },
   { key: '3h', seconds: 10_800 },
   { key: '6h', seconds: 21_600 },
   { key: '12h', seconds: 43_200 },
-  { key: '1d', seconds: 86_400 },
-  { key: '3d', seconds: 3 * 86_400 },
-  { key: '7d', seconds: 7 * 86_400 },
-  { key: '30d', seconds: 30 * 86_400 },
+  { key: '1d', seconds: DAY_SECONDS },
+  { key: '3d', seconds: 3 * DAY_SECONDS },
+  { key: '7d', seconds: 7 * DAY_SECONDS },
+  { key: '30d', seconds: 30 * DAY_SECONDS },
 ] as const
 
 type PaceWindowKey = (typeof PACE_WINDOWS)[number]['key']
@@ -91,7 +91,9 @@ export const rollingIntervalPace = (
     .sort((a, b) => a - b)
   const series = times.map((t) => ({
     t,
-    v: ((cumulativeAt(run, t) - cumulativeAt(run, t - windowSeconds)) * 3_600) / windowSeconds,
+    v:
+      ((cumulativeAt(run, t) - cumulativeAt(run, t - windowSeconds)) * HOUR_SECONDS) /
+      windowSeconds,
   }))
   return series.length === 0 ? [] : [series]
 }
@@ -112,18 +114,18 @@ export const rollingPaceSeries = (
   rollingIntervalPace(paceIntervals(source, bucketSeconds), windowSeconds).flat()
 
 const TIME_TICK_STEPS = [
-  3_600,
-  4 * 3_600,
-  6 * 3_600,
-  12 * 3_600,
-  86_400,
-  2 * 86_400,
-  7 * 86_400,
-  14 * 86_400,
-  30 * 86_400,
-  90 * 86_400,
-  180 * 86_400,
-  365 * 86_400,
+  HOUR_SECONDS,
+  4 * HOUR_SECONDS,
+  6 * HOUR_SECONDS,
+  12 * HOUR_SECONDS,
+  DAY_SECONDS,
+  2 * DAY_SECONDS,
+  7 * DAY_SECONDS,
+  14 * DAY_SECONDS,
+  30 * DAY_SECONDS,
+  90 * DAY_SECONDS,
+  180 * DAY_SECONDS,
+  365 * DAY_SECONDS,
 ] as const
 
 /** Pick a readable fixed time step for the available horizontal space. */
