@@ -19,6 +19,14 @@ const host = () =>
     model: NotificationsModel
   }
 
+const button = (root: ParentNode | null | undefined, name: string): HTMLButtonElement => {
+  const found = [...(root?.querySelectorAll('button') ?? [])].find(
+    (candidate) => candidate.textContent?.trim() === name,
+  )
+  if (found === undefined) throw new Error(`Missing ${name} button`)
+  return found
+}
+
 it.each(['confirm', 'cancel', 'escape'] as const)(
   'resolves %s immediately through the real owner while retaining the closed confirmation shell',
   async (path) => {
@@ -38,8 +46,7 @@ it.each(['confirm', 'cancel', 'escape'] as const)(
     expect(dialog.open).toBe(true)
 
     if (path === 'escape') dialog.dispatchEvent(new Event('cancel', { cancelable: true }))
-    else
-      (dialog.querySelector(path === 'confirm' ? '.danger' : '.quiet') as HTMLButtonElement).click()
+    else button(dialog, path === 'confirm' ? 'Delete' : 'Cancel').click()
 
     expect(owner.model.confirm).toBeNull()
     expect(dialog.open).toBe(false)
@@ -68,7 +75,7 @@ it('keeps the one-time secret acknowledgement immediate and still refuses Escape
   expect(cancelEvent.defaultPrevented).toBe(true)
   expect(dialog.open).toBe(true)
 
-  ;(dialog.querySelector('.quiet') as HTMLButtonElement).click()
+  button(dialog, 'Done').click()
   expect(owner.model.oneTimeSecret).toBeNull()
   expect(dialog.open).toBe(false)
   await result
@@ -90,11 +97,10 @@ it('lets an invite be selected after clipboard denial without losing the token c
   await vi.advanceTimersByTimeAsync(0)
   const owner = host()
   const root = owner.shadowRoot
-  const copyToken = root?.querySelector<HTMLButtonElement>('[aria-label="Copy token"]')
-  const copyInvite = root?.querySelector<HTMLButtonElement>('[aria-label="Copy invite link"]')
+  const copyToken = button(root, 'Copy token')
+  const copyInvite = button(root, 'Copy invite link')
   const inviteField = root?.querySelector<HTMLInputElement>('input[aria-label="Invite link"]')
-  if (copyToken == null || copyInvite == null || inviteField == null)
-    throw new Error('Missing token and invite dialog')
+  if (inviteField == null) throw new Error('Missing token and invite dialog')
   copyToken.click()
   await vi.advanceTimersByTimeAsync(0)
   expect(copyToken.textContent).toBe('Copied token')
@@ -108,7 +114,7 @@ it('lets an invite be selected after clipboard denial without losing the token c
   expect(root?.activeElement).toBe(inviteField)
   expect(inviteField.selectionStart).toBe(0)
   expect(inviteField.selectionEnd).toBe(invite.length)
-  root?.querySelector<HTMLButtonElement>('.quiet')?.click()
+  button(root, 'Done').click()
   await result
   expect(owner.model.oneTimeSecret).toBeNull()
 })

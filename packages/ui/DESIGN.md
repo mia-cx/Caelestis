@@ -10,7 +10,7 @@ Every rectangular surface and control uses `--caelestis-radius`, including menus
 
 Pixel mirrors Wplace's game UI. Both radius tokens are `0`, shadows are flat offsets in Wplace's `--pixel-shadow`, and text uses Wplace's `--font-sans`. The bridge maps Wplace's `--pixel-*` palette onto `--caelestis-pixel-*` tokens with fallbacks from the DaisyUI colours.
 
-Shared roles live in `foundations/PixelStyles.svelte`, which every element renders: `caelestis-surface` (menus, popovers, toasts), `caelestis-panel-surface` (the panel and modal dialogs), `caelestis-field`, `caelestis-badge`, and `caelestis-bevel` (Wplace's button bevel). Tag an element with its role instead of drawing a frame locally. Foundations whose controls Wplace draws differently (button, rail control, switch, checkbox, slider) keep their pixel rules next to their classic rules. In forced colours, pixel rules fall back to system colours like Wplace's own.
+Shared roles live in `foundations/PixelStyles.svelte`, which every element renders: `caelestis-surface` (menus, popovers, toasts), `caelestis-panel-surface` (the panel and modal dialogs), `caelestis-field`, `caelestis-badge`, and `caelestis-bevel` (Wplace's button bevel). Tag an element with its role instead of drawing a frame locally. Modal dialogs use `foundations/Modal.svelte`, which owns the frame, the open and close transition from `ModalStyles.svelte`, and the rule that only a press starting on the backdrop dismisses. Foundations whose controls Wplace draws differently (button, rail control, switch, checkbox, slider) keep their pixel rules next to their classic rules. In forced colours, pixel rules fall back to system colours like Wplace's own.
 
 ## Shapes in both styles
 

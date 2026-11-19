@@ -3,6 +3,7 @@
   import { cancelSurfaceClose, closeSurface, prefersReducedMotion, shift, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
+  import ModalStyles from '../foundations/ModalStyles.svelte'
   import AppearanceEditor from '../appearance/AppearanceEditor.svelte'
   import TemplateTree from '../tree/TemplateTree.svelte'
   import WorkSummary from '../work/WorkSummary.svelte'
@@ -19,7 +20,7 @@
   let poppedOut = $state(false)
   let closingPopout = $state(false)
   let dialog = $state<HTMLDialogElement>()
-  let dockedPanel = $state<HTMLElement>()
+  let popoutButton = $state<HTMLButtonElement>()
 
   /**
    * Morph between the dialog's box and the docked panel's box. The dialog's parent is `.pane`,
@@ -67,9 +68,7 @@
     closeSurface(dialog, () => {
       poppedOut = false
       closingPopout = false
-      void tick().then(() => {
-        dockedPanel?.querySelector<HTMLButtonElement>('[aria-label="Pop out menu"]')?.focus()
-      })
+      void tick().then(() => popoutButton?.focus())
     })
   }
 
@@ -176,7 +175,7 @@
     <Button label="Reload tiles" title="Reload tiles" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'reload-tiles' })}>
       <Icon name="reset" />
     </Button>
-    <Button label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} title={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
+    <Button bind:element={popoutButton} label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} title={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
       <Icon name={poppedOut ? 'dock' : 'popout'} />
     </Button>
     <Button label="Appearance" title="Appearance" kind="ghost" size="compact" iconOnly pressed={model.view === 'appearance'} onclick={() => navigate('appearance')}>
@@ -211,42 +210,24 @@
 </section>
 {/snippet}
 
+<ModalStyles />
+
 {#if poppedOut}
-  <dialog bind:this={dialog} aria-label="Caelestis menu" oncancel={(event) => { event.preventDefault(); if (model.tree?.contextMenu === undefined) void dock() }} onclick={(event) => { if (event.target === dialog) void dock() }}>
+  <dialog bind:this={dialog} class="caelestis-modal" aria-label="Caelestis menu" oncancel={(event) => { event.preventDefault(); if (model.tree?.contextMenu === undefined) void dock() }} onclick={(event) => { if (event.target === dialog) void dock() }}>
     {@render contents()}
   </dialog>
 {:else}
-  <div class="docked" bind:this={dockedPanel}>{@render contents()}</div>
+  <div class="docked">{@render contents()}</div>
 {/if}
 
 <style>
   .docked { block-size: 100%; min-block-size: 0; }
+  /* The popout morphs out of the docked panel instead of scaling, so it only fades. */
   dialog {
     --modal-open-dur: var(--caelestis-duration-medium);
     --modal-close-dur: var(--caelestis-duration-fast);
-    --caelestis-surface-close-duration: var(--modal-close-dur);
-    --modal-ease: var(--caelestis-ease-smooth-out);
+    --modal-scale: none;
     position: fixed; inset: 0; inline-size: 96vw; block-size: 96dvh; max-inline-size: none; max-block-size: none; margin: auto; padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: visible; color: inherit; background: transparent;
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      opacity   var(--modal-close-dur) var(--modal-ease),
-      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
-  }
-  dialog[open] {
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      opacity   var(--modal-open-dur) var(--modal-ease),
-      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
-    @starting-style { opacity: 0; }
-  }
-  dialog::backdrop { background: rgb(0 0 0 / 0.4); opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
-  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) {
-    dialog, dialog::backdrop { transition: none !important; }
   }
   dialog .panel { border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); }
   .panel { container: panel / inline-size; }

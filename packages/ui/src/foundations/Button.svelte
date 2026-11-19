@@ -5,7 +5,7 @@
     type?: 'button' | 'submit'
     label: string
     title?: string
-    kind?: 'default' | 'primary' | 'danger' | 'danger-ghost' | 'ghost'
+    kind?: 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'danger-ghost' | 'ghost'
     size?: 'compact' | 'small' | 'normal'
     pressed?: boolean
     popup?: 'dialog' | 'menu' | undefined
@@ -13,6 +13,8 @@
     ariaDisabled?: boolean
     iconOnly?: boolean
     control?: string
+    /** The rendered `<button>`, for callers that move focus to it. */
+    element?: HTMLButtonElement | undefined
     onclick?: (event: MouseEvent) => void
     children?: Snippet
   }
@@ -29,18 +31,22 @@
     ariaDisabled = false,
     iconOnly = false,
     control,
+    element = $bindable(),
     onclick,
     children,
   }: Props = $props()
 </script>
 
 <button
+  bind:this={element}
   {type}
   class="caelestis-bevel"
   class:icon-only={iconOnly}
   class:compact={size === 'compact'}
   class:small={size === 'small'}
   class:primary={kind === 'primary'}
+  class:success={kind === 'success'}
+  class:warning={kind === 'warning'}
   class:danger={kind === 'danger'}
   class:danger-ghost={kind === 'danger-ghost'}
   class:ghost={kind === 'ghost'}
@@ -91,6 +97,8 @@
   button.small { --button-size: 2rem; --button-padding: 0.75rem; --button-font-size: 0.75rem; }
   button.icon-only { inline-size: var(--button-size); padding-inline: 0; border-radius: var(--caelestis-pill-radius, 999px); }
   button.primary { --button-colour: var(--caelestis-primary, var(--color-primary, oklch(0.58 0.17 252))); --button-foreground: var(--color-primary-content, white); }
+  button.success { --button-colour: var(--caelestis-success); --button-foreground: var(--color-success-content, white); }
+  button.warning { --button-colour: var(--caelestis-warning); --button-foreground: var(--color-warning-content, black); }
   button.danger { --button-colour: var(--caelestis-danger, var(--color-error, oklch(0.59 0.2 27))); --button-foreground: var(--color-error-content, white); }
   button.ghost, button.danger-ghost { border-color: transparent; background: transparent; box-shadow: none; }
   button.danger-ghost { color: var(--caelestis-danger, var(--color-error, currentColor)); }
@@ -109,7 +117,7 @@
 
   @media (forced-colors: active) {
     button { border-color: ButtonText; }
-    button.primary, button.danger { background: Highlight; color: HighlightText; }
+    button:is(.primary, .success, .warning, .danger) { background: Highlight; color: HighlightText; }
   }
 
   /* Pixel chrome: the .caelestis-bevel stack from PixelStyles does the drawing; these rules only
@@ -125,13 +133,14 @@
     --button-foreground: var(--color-primary-content, white);
     background: var(--bevel-stack);
   }
-  :host([data-caelestis-style='pixel']) button.danger {
-    --bevel-color: var(--caelestis-danger);
+  :host([data-caelestis-style='pixel']) button:is(.success, .warning, .danger) {
     --bevel-light: color-mix(in srgb, var(--bevel-color) 65%, white);
     --bevel-dark: color-mix(in srgb, var(--bevel-color) 62%, black);
-    --button-foreground: var(--color-error-content, white);
     background: var(--bevel-stack);
   }
+  :host([data-caelestis-style='pixel']) button.success { --bevel-color: var(--caelestis-success); }
+  :host([data-caelestis-style='pixel']) button.warning { --bevel-color: var(--caelestis-warning); }
+  :host([data-caelestis-style='pixel']) button.danger { --bevel-color: var(--caelestis-danger); }
   :host([data-caelestis-style='pixel']) button:is(.ghost, .danger-ghost) {
     --bevel-fill: transparent;
     --bevel-frame: transparent;

@@ -1,29 +1,32 @@
 <script lang="ts">
-  import { tick } from 'svelte'
-  import { cancelSurfaceClose, closeSurface, surfaceCloseDurationMs } from '../foundations/motion.js'
+  import { flushSync } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import type { IconName } from '../foundations/icons.svelte.js'
+  import Modal from '../foundations/Modal.svelte'
+  import { prefersReducedMotion, surfaceCloseDurationMs } from '../foundations/motion.js'
   import type { ConfirmDialogModel, NotificationsIntent, NotificationsModel, OneTimeSecretDialogModel, ToastKind, ToastModel } from './model.js'
 
   const KIND_ICON: Record<ToastKind, IconName> = { info: 'info', warning: 'warning', error: 'error' }
 
   let { model, onIntent }: { model: NotificationsModel; onIntent?: (intent: NotificationsIntent) => void } = $props()
-  let dialog = $state<HTMLDialogElement>()
   let cancel = $state<HTMLButtonElement>()
-  let secretDialog = $state<HTMLDialogElement>()
   let copySecret = $state<HTMLButtonElement>()
   let secretField = $state<HTMLInputElement>()
   let inviteField = $state<HTMLInputElement>()
-  let resolvedId: string | null = null
-  let resolvedSecretId: string | null = null
-  let focusedSecretId: string | null = null
+  let resolvedId = $state<string | null>(null)
+  let resolvedSecretId = $state<string | null>(null)
   // Live models resolve immediately; these copies only retain the closing visual shells.
   let confirm = $state<ConfirmDialogModel | null>(null)
   let secret = $state<OneTimeSecretDialogModel | null>(null)
   let expanded = $state(false)
   const liveConfirm = $derived(model.confirm)
   const liveSecret = $derived(model.oneTimeSecret ?? null)
+  const confirmOpen = $derived(liveConfirm !== null && liveConfirm.id !== resolvedId)
+  const secretOpen = $derived(liveSecret !== null && liveSecret.id !== resolvedSecretId)
+
+  $effect(() => { if (liveConfirm !== null) confirm = liveConfirm })
+  $effect(() => { if (liveSecret !== null) secret = liveSecret })
 
   // Errors are announced at once and stay until dismissed; everything else waits its turn.
   const errors = $derived(model.toasts.filter((toast) => toast.kind === 'error'))
@@ -37,74 +40,23 @@
     if (stack.length <= 1) expanded = false
   })
 
+  // Both resolve paths close the dialog before telling the host, so the page leaves modality at once.
   const answer = (value: boolean): void => {
     const current = model.confirm
     if (current === null || resolvedId === current.id) return
-    resolvedId = current.id
-    if (dialog?.open === true) dialog.close()
+    flushSync(() => { resolvedId = current.id })
     onIntent?.({ type: 'resolve-confirm', id: current.id, value })
   }
 
   const resolveSecret = (): void => {
     const current = model.oneTimeSecret
     if (current == null || resolvedSecretId === current.id) return
-    resolvedSecretId = current.id
-    secretDialog?.close()
+    flushSync(() => { resolvedSecretId = current.id })
     onIntent?.({ type: 'resolve-one-time-secret', id: current.id })
   }
 
-  const backdrop = (event: MouseEvent): void => {
-    if (event.target === dialog) answer(false)
-  }
-
-  $effect(() => {
-    const current = liveConfirm
-    if (current === null) {
-      if (dialog == null) return
-      dialog.close()
-      return closeSurface(dialog, () => { confirm = null })
-    }
-    confirm = current
-    if (dialog == null) return
-    const currentDialog = dialog
-    cancelSurfaceClose(currentDialog)
-    let active = true
-    void tick().then(() => {
-      if (!active || resolvedId === current.id) return
-      if (!currentDialog.open) currentDialog.showModal()
-      cancel?.focus()
-    })
-    return () => { active = false }
-  })
-
-  $effect(() => {
-    const current = liveSecret
-    if (current === null) {
-      if (secretDialog == null) return
-      secretDialog.close()
-      return closeSurface(secretDialog, () => { secret = null })
-    }
-    secret = current
-    if (secretDialog == null) return
-    const currentDialog = secretDialog
-    cancelSurfaceClose(currentDialog)
-    let active = true
-    void tick().then(() => {
-      if (!active || resolvedSecretId === current.id) return
-      if (!currentDialog.open) currentDialog.showModal()
-      // Clipboard feedback updates this model; only a new dialog should move focus.
-      if (focusedSecretId !== current.id) {
-        focusedSecretId = current.id
-        copySecret?.focus()
-      }
-    })
-    return () => { active = false }
-  })
-
-  const dismiss = (id: string): void => {
-    const intent: NotificationsIntent = { type: 'dismiss-toast', id }
-    onIntent?.(intent)
-  }
+  const copyKind = (status: OneTimeSecretDialogModel['copyStatus']): 'primary' | 'success' | 'warning' =>
+    status === 'copied' ? 'success' : status === 'unavailable' ? 'warning' : 'primary'
 
   /**
    * Keeps a dismissed toast mounted for its declared close duration while `data-state="closing"`
@@ -112,9 +64,7 @@
    */
   const toastOut = (node: HTMLElement): { duration: number } => {
     node.dataset.state = 'closing'
-    const reduced =
-      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
-    return { duration: reduced ? 0 : surfaceCloseDurationMs(node) }
+    return { duration: prefersReducedMotion() ? 0 : surfaceCloseDurationMs(node) }
   }
 </script>
 
@@ -132,7 +82,7 @@
       {#if behind > 0}
         <Button label="+{behind} more" kind="ghost" size="small" onclick={() => (expanded = true)} />
       {/if}
-      <Button label={dismissLabel} title={dismissLabel} kind="ghost" size="small" iconOnly onclick={() => dismiss(toast.id)}>
+      <Button label={dismissLabel} title={dismissLabel} kind="ghost" size="small" iconOnly onclick={() => onIntent?.({ type: 'dismiss-toast', id: toast.id })}>
         <Icon name="close" />
       </Button>
     </span>
@@ -167,8 +117,8 @@
 {#if secret !== null}
   {@const tokenCopyLabel = secret.copyStatus === 'copied' ? 'Copied token' : secret.copyStatus === 'unavailable' ? 'Select token' : 'Copy token'}
   {@const inviteCopyLabel = secret.inviteCopyStatus === 'copied' ? 'Copied link' : secret.inviteCopyStatus === 'unavailable' ? 'Select link' : 'Copy invite link'}
-  <dialog bind:this={secretDialog} class="caelestis-panel-surface token-dialog" oncancel={(event) => event.preventDefault()} aria-labelledby="secret-title">
-    <div class="dialog-box">
+  <Modal open={secretOpen} labelledby="secret-title" initialFocus={copySecret} onClosed={() => (secret = null)}>
+    <div class="dialog-box token-box">
       <header><h2 id="secret-title">Access token created</h2></header>
       <div class="dialog-body">
         <p class="lead">For {secret.label}.</p>
@@ -177,10 +127,10 @@
           <label for="access-token-value">Access token</label>
           <div class="secret-row">
             <input id="access-token-value" bind:this={secretField} class="secret caelestis-field" aria-label="Access token" readonly value={secret.value} onfocus={(event) => event.currentTarget.select()} />
-            <button bind:this={copySecret} aria-label={tokenCopyLabel} aria-live="polite" class:success={secret.copyStatus === 'copied'} class:warning={secret.copyStatus === 'unavailable'} class="button primary caelestis-bevel" type="button" onclick={() => {
+            <span class="copy" aria-live="polite"><Button bind:element={copySecret} label={tokenCopyLabel} kind={copyKind(secret.copyStatus)} onclick={() => {
               if (model.oneTimeSecret?.copyStatus === 'unavailable') { secretField?.focus(); secretField?.select() }
               else onIntent?.({ type: 'copy-one-time-secret', id: model.oneTimeSecret?.id ?? '' })
-            }}>{tokenCopyLabel}</button>
+            }} /></span>
           </div>
         </div>
         {#if secret.inviteUrl !== undefined}
@@ -188,39 +138,35 @@
             <label for="invite-link-value">Invite link</label>
             <div class="secret-row">
               <input id="invite-link-value" bind:this={inviteField} class="secret caelestis-field" aria-label="Invite link" readonly value={secret.inviteUrl} onfocus={(event) => event.currentTarget.select()} />
-              <button aria-label={inviteCopyLabel} aria-live="polite" class:success={secret.inviteCopyStatus === 'copied'} class:warning={secret.inviteCopyStatus === 'unavailable'} class="button primary caelestis-bevel" type="button" onclick={() => {
+              <span class="copy" aria-live="polite"><Button label={inviteCopyLabel} kind={copyKind(secret.inviteCopyStatus)} onclick={() => {
                 if (model.oneTimeSecret?.inviteCopyStatus === 'unavailable') { inviteField?.focus(); inviteField?.select() }
                 else onIntent?.({ type: 'copy-one-time-invite', id: model.oneTimeSecret?.id ?? '' })
-              }}>{inviteCopyLabel}</button>
+              }} /></span>
             </div>
           </div>
         {/if}
         <div class="dialog-actions">
-          <button class="button quiet caelestis-bevel" type="button" onclick={resolveSecret}>Done</button>
+          <Button label="Done" onclick={resolveSecret} />
         </div>
       </div>
     </div>
-  </dialog>
+  </Modal>
 {/if}
 
 {#if confirm !== null}
-  <dialog bind:this={dialog} class="caelestis-panel-surface" oncancel={(event) => { event.preventDefault(); answer(false) }} onclick={backdrop} aria-labelledby="confirm-title">
+  <Modal open={confirmOpen} labelledby="confirm-title" initialFocus={cancel} onClose={() => answer(false)} onClosed={() => (confirm = null)}>
     <div class="dialog-box">
       <header><h2 id="confirm-title">{confirm.title}</h2></header>
       <div class="dialog-body">
         <p class="lead">{confirm.body}</p>
         <p class="note">{confirm.note}</p>
         <div class="dialog-actions">
-          <button bind:this={cancel} class="button quiet caelestis-bevel" type="button" onclick={() => answer(false)}>
-            Cancel
-          </button>
-          <button class="button danger caelestis-bevel" type="button" onclick={() => answer(true)}>
-            {confirm.confirmLabel}
-          </button>
+          <Button bind:element={cancel} label="Cancel" onclick={() => answer(false)} />
+          <Button label={confirm.confirmLabel} kind="danger" onclick={() => answer(true)} />
         </div>
       </div>
     </div>
-  </dialog>
+  </Modal>
 {/if}
 
 <style>
@@ -360,53 +306,12 @@
     .peek { transition: translate var(--caelestis-duration-fast), scale var(--caelestis-duration-fast), opacity var(--caelestis-duration-fast); }
   }
 
-  dialog {
-    --modal-open-dur: var(--caelestis-duration-fast);
-    --modal-close-dur: var(--caelestis-duration-quick);
-    --caelestis-surface-close-duration: var(--modal-close-dur);
-    --modal-scale: var(--caelestis-scale-large);
-    --modal-scale-close: var(--caelestis-scale-large);
-    --modal-ease: var(--caelestis-ease-smooth-out);
-    inline-size: min(28rem, calc(100vw - 2rem));
-    max-inline-size: none;
+  .dialog-box {
+    display: flex;
+    flex-direction: column;
     max-block-size: min(85vh, 42rem);
-    padding: 0;
-    border: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
     overflow: hidden;
-    background: var(--caelestis-surface, oklch(0.97 0.01 264));
-    color: var(--caelestis-text, oklch(0.26 0.025 264));
-    box-shadow: var(--caelestis-shadow, 0 24px 80px rgb(0 0 0 / 0.35));
-    font: 500 0.95rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    transform-origin: center;
-    transform: scale(var(--modal-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--modal-close-dur) var(--modal-ease),
-      opacity   var(--modal-close-dur) var(--modal-ease),
-      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
-    will-change: transform, opacity;
-  }
-
-  dialog[open] {
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      transform var(--modal-open-dur) var(--modal-ease),
-      opacity   var(--modal-open-dur) var(--modal-ease),
-      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
-    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
-  }
-
-  dialog::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(2px); opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
-  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
-
-  @media (prefers-reduced-motion: reduce) {
-    dialog, dialog::backdrop { transition: none !important; }
+    font: 500 0.95rem/1.45 var(--caelestis-font);
   }
 
   header {
@@ -416,53 +321,27 @@
   }
 
   h2 { margin: 0; font-size: 1.25rem; line-height: 1.2; }
-  .dialog-body { padding: 1rem 1.25rem 1.25rem; overflow: auto; }
-  .token-dialog[open] { display: flex; flex-direction: column; }
-  .token-dialog .dialog-box { display: flex; flex: 1 1 auto; min-block-size: 0; flex-direction: column; }
-  .token-dialog header { flex-shrink: 0; }
-  .token-dialog .dialog-body { flex: 1 1 auto; min-block-size: 0; }
+  header { flex-shrink: 0; }
+  .dialog-body { flex: 1 1 auto; min-block-size: 0; padding: 1rem 1.25rem 1.25rem; overflow: auto; }
   p { margin: 0; }
   .lead { font-size: 1.05rem; }
   .note { margin-block-start: 0.25rem; color: var(--caelestis-muted-text, color-mix(in oklab, currentColor 68%, transparent)); white-space: pre-line; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-block-start: 1.5rem; }
-
-  .button {
-    min-block-size: var(--caelestis-touch-target, 2.75rem);
-    padding-inline: 1rem;
-    border: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
-    border-radius: var(--caelestis-radius, calc(0.7rem + 1px));
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-  }
-
-  .button:hover { background: color-mix(in oklab, currentColor 8%, transparent); }
-  .button.danger { min-inline-size: 8rem; border-color: transparent; background: var(--caelestis-danger, oklch(0.59 0.2 27)); color: white; }
-  .button.primary { min-inline-size: 8rem; border-color: transparent; background: var(--caelestis-primary, oklch(0.58 0.17 252)); color: white; }
-  .button.success { background: var(--caelestis-success, oklch(0.63 0.16 154)); }
-  .button.warning { background: var(--caelestis-warning, oklch(0.68 0.15 75)); color: black; }
   .secret-value { display: grid; gap: 0.375rem; margin-block-start: 1rem; }
   .secret-row { display: flex; gap: 0.5rem; }
-  .secret-row .button { flex: 0 0 9.5rem; min-block-size: 2.75rem; padding-inline: 0.5rem; white-space: nowrap; }
-  .secret { inline-size: 100%; min-inline-size: 0; min-block-size: 2.5rem; padding-inline: 0.65rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); background: var(--caelestis-raised-surface, color-mix(in oklab, var(--caelestis-surface) 88%, black)); color: inherit; font: 500 0.85rem var(--caelestis-mono-font, ui-monospace, monospace); }
-  .button:focus-visible, .toast-action:focus-visible { outline: 2px solid var(--caelestis-focus, oklch(0.62 0.17 252)); outline-offset: 2px; }
+  .copy { display: flex; flex: 0 0 9.5rem; }
+  .copy :global(button) { flex: 1; white-space: nowrap; }
+  .secret { inline-size: 100%; min-inline-size: 0; min-block-size: 2.5rem; padding-inline: 0.65rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-raised-surface); color: inherit; font: 500 0.85rem var(--caelestis-mono-font); }
+  .toast-action:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: 2px; }
 
   @media (max-width: 26rem) {
     .secret-row { flex-direction: column; }
-    .secret-row .button { flex-basis: auto; min-inline-size: 0; min-block-size: 3rem; white-space: normal; }
+    .copy { flex-basis: auto; }
+    .copy :global(button) { white-space: normal; }
   }
 
   @media (forced-colors: active) {
-    .toast, .toast-action, .peek, dialog, .button { border-color: CanvasText; }
+    .toast, .toast-action, .peek { border-color: CanvasText; }
     .toast :global(.kind) { color: CanvasText; }
-    .button.danger { background: Highlight; color: HighlightText; }
   }
-
-  :host([data-caelestis-style='pixel']) .button.primary { --bevel-color: var(--caelestis-primary); --bevel-light: var(--caelestis-pixel-primary-light); --bevel-dark: var(--caelestis-pixel-primary-shade); }
-  :host([data-caelestis-style='pixel']) .button:is(.danger, .success, .warning) { --bevel-light: color-mix(in srgb, var(--bevel-color) 65%, white); --bevel-dark: color-mix(in srgb, var(--bevel-color) 62%, black); }
-  :host([data-caelestis-style='pixel']) .button.danger { --bevel-color: var(--caelestis-danger); }
-  :host([data-caelestis-style='pixel']) .button.success { --bevel-color: var(--caelestis-success); }
-  :host([data-caelestis-style='pixel']) .button.warning { --bevel-color: var(--caelestis-warning); color: var(--color-warning-content, black); }
 </style>

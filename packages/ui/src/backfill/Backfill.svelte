@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
+  import Modal from '../foundations/Modal.svelte'
   import type { BackfillIntent, BackfillModel } from './model.js'
 
   let { model, onIntent }: { model: BackfillModel; onIntent: (intent: BackfillIntent) => void } = $props()
-  let dialog: HTMLDialogElement
-  onMount(() => { dialog.showModal() })
   const running = $derived(model.job?.status === 'running')
   const selected = $derived(model.preview?.snapshots.filter((snapshot) => model.selectedSnapshot !== null && snapshot.id >= model.selectedSnapshot) ?? [])
   const gaps = $derived(selected.filter((snapshot, index) => index > 0 && snapshot.at - (selected[index - 1]?.at ?? snapshot.at) > 36 * 3_600).length)
@@ -14,7 +12,7 @@
   const cancel = (): void => onIntent({ type: running ? 'cancel' : 'close' })
 </script>
 
-<dialog bind:this={dialog} class="caelestis-panel-surface" aria-labelledby="backfill-title" oncancel={(event) => { event.preventDefault(); onIntent({ type: 'close' }) }}>
+<Modal labelledby="backfill-title" width="32rem" lightDismiss={false} onClose={() => onIntent({ type: 'close' })}>
   <header>
     <h2 id="backfill-title">{model.templates === null ? 'Backfill template tiles and progress data' : 'Backfill folder tiles and progress data'}</h2>
     <Button label="Close backfill" kind="ghost" size="small" iconOnly onclick={() => onIntent({ type: 'close' })}><Icon name="close" /></Button>
@@ -59,43 +57,9 @@
     {#if !running}<Button label={model.job?.status === 'failed' || model.job?.status === 'cancelled' ? 'Retry backfill' : 'Backfill'} kind="primary"
       disabled={model.busy || model.loading || selected.length === 0} onclick={() => onIntent({ type: 'start' })} />{/if}
   </footer>
-</dialog>
+</Modal>
 
 <style>
-  dialog {
-    --modal-open-dur: var(--caelestis-duration-fast);
-    --modal-close-dur: var(--caelestis-duration-quick);
-    --modal-scale: var(--caelestis-scale-large);
-    --modal-scale-close: var(--caelestis-scale-large);
-    --modal-ease: var(--caelestis-ease-smooth-out);
-    box-sizing: border-box; inline-size: min(32rem, calc(100vw - 2rem)); max-block-size: calc(100dvh - 2rem); padding: 0; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-box-radius, var(--caelestis-radius, 1rem)); background: var(--caelestis-surface, white); color: var(--caelestis-text, #222); box-shadow: var(--caelestis-shadow); font: 0.875rem/1.45 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
-    transform-origin: center;
-    transform: scale(var(--modal-scale));
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      transform var(--modal-close-dur) var(--modal-ease),
-      opacity   var(--modal-close-dur) var(--modal-ease),
-      overlay   var(--modal-close-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-close-dur) var(--modal-ease) allow-discrete;
-    will-change: transform, opacity;
-  }
-  dialog[open] {
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
-    transition:
-      transform var(--modal-open-dur) var(--modal-ease),
-      opacity   var(--modal-open-dur) var(--modal-ease),
-      overlay   var(--modal-open-dur) var(--modal-ease) allow-discrete,
-      display   var(--modal-open-dur) var(--modal-ease) allow-discrete;
-    @starting-style { transform: scale(var(--modal-scale)); opacity: 0; }
-  }
-  dialog::backdrop { background: #0008; opacity: 0; transition: opacity var(--modal-close-dur) var(--modal-ease), overlay var(--modal-close-dur) var(--modal-ease) allow-discrete, display var(--modal-close-dur) var(--modal-ease) allow-discrete; }
-  dialog[open]::backdrop { opacity: 1; transition-duration: var(--modal-open-dur); @starting-style { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) {
-    dialog, dialog::backdrop { transition: none !important; }
-  }
   header, footer { display: flex; align-items: center; gap: 0.75rem; padding: 1rem; }
   header { align-items: start; border-block-end: 1px solid var(--caelestis-border); }
   h2 { margin: 0; flex: 1; font-size: 1.15rem; line-height: 1.3; }
