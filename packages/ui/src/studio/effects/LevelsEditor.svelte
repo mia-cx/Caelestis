@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { EffectChannel, LevelsEffect } from '../ditherette.js'
   import RangeField from '../RangeField.svelte'
+  import { BYTE } from './graph.js'
   import Segmented from './Segmented.svelte'
 
   let { step, onChange }: { step: LevelsEffect; onChange: (step: LevelsEffect) => void } = $props()
@@ -12,8 +13,6 @@
     { id: 'green', label: 'G', title: 'Green' },
     { id: 'blue', label: 'B', title: 'Blue' },
   ]
-  /** Levels reads in byte units, like every editor's Levels panel. */
-  const BYTE = 255
   const toByte = (value: number): number => value * BYTE
   const fromByte = (value: number): number => value / BYTE
 

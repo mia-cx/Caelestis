@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { type ColourChannel, type Curve, type CurvesEffect, MAX_CURVES } from '../ditherette.js'
+  import { type Curve, type CurvesEffect, MAX_CURVES } from '../ditherette.js'
   import Button from '../../foundations/Button.svelte'
   import { selectFace } from '../../foundations/select-face.js'
   import Icon from '../../foundations/Icon.svelte'
   import {
     CURVE_CHANNELS,
+    channelFor,
+    channelInfo,
     channelKey,
     channelLabel,
     FLAT,
@@ -45,15 +47,12 @@
    * "Hue × Lightness vs Chroma (OKLCH)" for a two-input curve.
    */
   const curveName = (c: Curve): string => {
-    const parts = [c.x, ...(c.x2 ? [c.x2] : []), c.y].map((channel) => channelLabel(channel).split(' · '))
-    const models = new Set(parts.map(([model]) => model))
-    const part = (index: number): readonly string[] => parts[index] ?? []
-    const name = (index: number): string =>
-      models.size === 1 ? (part(index)[1] ?? '') : `${part(index)[1]} (${part(index)[0]})`
-    const suffix = models.size === 1 ? ` (${part(0)[0]})` : ''
-    if (c.kind === 'remap') return `${part(0)[1]} (${part(0)[0]})`
-    const inputs = c.x2 ? `${name(0)} × ${name(1)}` : name(0)
-    return `${inputs} vs ${name(parts.length - 1)}${suffix}`
+    const [x, x2, y] = [channelInfo(c.x), c.x2 && channelInfo(c.x2), channelInfo(c.y)]
+    if (c.kind === 'remap') return `${x.name} (${x.model})`
+    const oneModel = x.model === y.model && (!x2 || x2.model === x.model)
+    const name = (part: typeof x): string => (oneModel ? part.name : `${part.name} (${part.model})`)
+    const inputs = x2 ? `${name(x)} × ${name(x2)}` : name(x)
+    return `${inputs} vs ${name(y)}${oneModel ? ` (${x.model})` : ''}`
   }
 
   /** A hue input wraps for adjustments; hue remaps read their input straight across. */
@@ -81,9 +80,6 @@
     onChange({ ...step, curves })
     selected = to
   }
-
-  const channelFor = (key: string): ColourChannel | undefined =>
-    CURVE_CHANNELS.find(({ channel }) => channelKey(channel) === key)?.channel
 
   /** A curve drawn over one input means nothing over another, so a new input starts neutral. */
   const setInput = (key: string): void => {

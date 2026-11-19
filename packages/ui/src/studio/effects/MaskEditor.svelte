@@ -4,7 +4,7 @@
   import { selectFace } from '../../foundations/select-face.js'
   import Icon from '../../foundations/Icon.svelte'
   import RangeField from '../RangeField.svelte'
-  import { CURVE_CHANNELS, channelKey, channelLabel, sameChannel } from './catalog.js'
+  import { CURVE_CHANNELS, channelFor, channelInfo, channelKey, channelLabel, sameChannel } from './catalog.js'
   import CurveGraph from './CurveGraph.svelte'
   import CurveGridGraph from './CurveGridGraph.svelte'
   import { neutralGrid } from './grid.js'
@@ -46,7 +46,7 @@
 
   /** A preset's curve is named after it; others by what they read. */
   const curveName = (item: MaskCurve): string => {
-    if (item.x2) return `${channelLabel(item.x)} × ${channelLabel(item.x2).split(' · ')[1]}`
+    if (item.x2) return `${channelLabel(item.x)} × ${channelInfo(item.x2).name}`
     return MASK_PRESETS.find((family) => presetIndex([item], family) === 0)?.label ?? channelLabel(item.x)
   }
 
@@ -70,9 +70,6 @@
     onChange(mask.filter((_, index) => index !== active))
     selected = Math.max(0, active - 1)
   }
-
-  const channelFor = (key: string): ColourChannel | undefined =>
-    CURVE_CHANNELS.find(({ channel }) => channelKey(channel) === key)?.channel
 
   /** A curve drawn over one input means nothing over another, so a new input starts at full strength. */
   const setInput = (key: string): void => {

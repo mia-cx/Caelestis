@@ -245,6 +245,29 @@ export const underLayer = (density: Float32Array): Layer => ({
   strength: UNDER,
 })
 
+/**
+ * The layers for one or two stages: a stage alone draws in colour; with two, the earlier draws
+ * neutral under the later one's colours.
+ */
+export const stageLayers = <T>(
+  under: T | undefined,
+  over: T | undefined,
+  coloured: (stage: T) => Layer[],
+  neutral: (stage: T) => Layer,
+): Layer[] => [
+  ...(under === undefined ? [] : over === undefined ? coloured(under) : [neutral(under)]),
+  ...(over === undefined ? [] : coloured(over)),
+]
+
+/** A scatter's layers, coloured by the average colour of each cell's samples. */
+export const scatterLayers = (under: Scatter | undefined, over: Scatter | undefined): Layer[] =>
+  stageLayers(
+    under,
+    over,
+    ({ density, sums }) => [{ density, colour: sums }],
+    ({ density }) => underLayer(density),
+  )
+
 /** Adds each channel's density into one, for an earlier stage drawn neutral under a later one. */
 export const combined = (grids: readonly Float32Array[]): Float32Array => {
   const sum = new Float32Array(grids[0]?.length ?? 0)

@@ -5,6 +5,16 @@ export type CurvePoint = readonly [number, number]
 const read = (list: readonly number[], index: number): number => list[index] ?? 0
 
 /**
+ * One cubic Hermite segment, `s` along it: from `y0` over `width`, with end tangents `m0` and
+ * `m1` and the segment's secant `slope`.
+ */
+const hermite = (y0: number, m0: number, m1: number, width: number, slope: number, s: number) => {
+  const c2 = (3 * slope - 2 * m0 - m1) / width
+  const c3 = (m0 + m1 - 2 * slope) / (width * width)
+  return y0 + s * (m0 + s * (c2 + s * c3))
+}
+
+/**
  * Evaluate the monotone cubic Hermite spline the curves effect applies, with Fritsch–Butland
  * tangents, as Ditherette's `spec/effects/curves.md` defines it. The studio draws with this;
  * Ditherette applies it.
@@ -23,11 +33,14 @@ export function evaluateCurve(points: readonly CurvePoint[], value: number): num
     return tangent(read(d, k - 1), read(d, k), read(h, k - 1), read(h, k))
   }
   const k = xs.findIndex((x, index) => index > 0 && x > v) - 1
-  const [m0, m1, width, slope] = [tangentAt(k), tangentAt(k + 1), read(h, k), read(d, k)]
-  const s = v - read(xs, k)
-  const c2 = (3 * slope - 2 * m0 - m1) / width
-  const c3 = (m0 + m1 - 2 * slope) / (width * width)
-  return read(ys, k) + s * (m0 + s * (c2 + s * c3))
+  return hermite(
+    read(ys, k),
+    tangentAt(k),
+    tangentAt(k + 1),
+    read(h, k),
+    read(d, k),
+    v - read(xs, k),
+  )
 }
 
 /** The Fritsch–Butland tangent between two secants, zero at a turning point. */
@@ -55,11 +68,7 @@ export function evaluatePeriodicCurve(points: readonly CurvePoint[], value: numb
   const x = ((value % 1) + 1) % 1
   let k = xs.findIndex((px, index) => index > 0 && x < px) - 1
   if (k < 0) k = last - 1
-  const [m0, m1, h, slope] = [tangentAt(k), tangentAt(k + 1), width(k), secant(k)]
-  const s = x - read(xs, k)
-  const c2 = (3 * slope - 2 * m0 - m1) / h
-  const c3 = (m0 + m1 - 2 * slope) / (h * h)
-  return read(ys, k) + s * (m0 + s * (c2 + s * c3))
+  return hermite(read(ys, k), tangentAt(k), tangentAt(k + 1), width(k), secant(k), x - read(xs, k))
 }
 
 /**
@@ -83,9 +92,5 @@ export function evaluateClosedCurve(
   if (x < read(positions, 0)) x += 1
   let k = n - 1
   for (let index = 0; index < n - 1; index++) if (x >= at(index) && x < at(index + 1)) k = index
-  const [m0, m1, h, slope] = [tangentAt(k), tangentAt(k + 1), width(k), secant(k)]
-  const s = x - at(k)
-  const c2 = (3 * slope - 2 * m0 - m1) / h
-  const c3 = (m0 + m1 - 2 * slope) / (h * h)
-  return read(values, k) + s * (m0 + s * (c2 + s * c3))
+  return hermite(read(values, k), tangentAt(k), tangentAt(k + 1), width(k), secant(k), x - at(k))
 }

@@ -2,8 +2,9 @@
   import { type CurvePoints, MAX_CURVE_POINTS, MIN_CURVE_GAP } from '../ditherette.js'
   import { tick } from 'svelte'
   import Button from '../../foundations/Button.svelte'
+  import { BYTE, GRAPH_SIZE as SIZE, LARGE_STEP, type Neutral, NEUTRAL_LINE } from './graph.js'
   import { type CurvePoint, evaluateCurve, evaluatePeriodicCurve } from './spline.js'
-  import { type Neutral, tonePath } from './tone.js'
+  import { tonePath } from './tone.js'
 
   /**
    * An editable curve, as Ditherette web's curve graph: click to add a point, drag points to
@@ -41,10 +42,6 @@
     spectrum,
   }: Props = $props()
 
-  /** Edited points sit on the byte grid, so neighbours stay well above the package's x gap. */
-  const BYTE = 255
-  const LARGE_STEP = 16
-  const SIZE = 256
   const SAMPLES = 128
   const HIT_RADIUS_PX = 10
 
@@ -168,8 +165,7 @@
     event.preventDefault()
   }
 
-  const start = $derived({ diagonal: SIZE, flat: SIZE / 2, full: 0 }[neutral])
-  const end = $derived({ diagonal: 0, flat: SIZE / 2, full: 0 }[neutral])
+  const [start, end] = $derived(NEUTRAL_LINE[neutral])
 </script>
 
 <svg
