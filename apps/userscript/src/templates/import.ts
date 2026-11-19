@@ -17,6 +17,7 @@ import {
   uuidV7,
   WORLD_PIXELS,
   WORLD_TILES,
+  WPLACE_PALETTE,
 } from '@caelestis/shared'
 import { log, warn } from '../debug.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
@@ -289,7 +290,9 @@ const quantise = async (
   return { indices, moved, opaque, ...(movedPixels === undefined ? {} : { movedPixels }) }
 }
 
-const FREE_COLOURS = 31
+const FREE_COLOURS: readonly number[] = WPLACE_PALETTE.filter(({ kind }) => kind === 'free').map(
+  ({ index }) => index,
+)
 
 /**
  * The palette a Wplace preset meant when this template was processed. Account presets resolve
@@ -301,10 +304,9 @@ const wplacePalette = async (
 ): Promise<readonly number[]> => {
   if (mode === 'all') return ALL_COLOURS
   if (mode === 'template') return [...templateColorIdxs].map((id) => id - 1).sort((a, b) => a - b)
-  const free = ALL_COLOURS.slice(0, FREE_COLOURS)
-  if (mode === 'free') return free
+  if (mode === 'free') return FREE_COLOURS
   await loadAccount()
-  return [...new Set([...free, ...(ownedColours() ?? [])])].sort((a, b) => a - b)
+  return [...new Set([...FREE_COLOURS, ...(ownedColours() ?? [])])].sort((a, b) => a - b)
 }
 
 /** The native record that makes Wplace's worker run exactly this recipe at this placement. */
