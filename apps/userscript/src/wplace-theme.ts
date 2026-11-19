@@ -45,7 +45,7 @@ let syncing = false
 const root = (): HTMLElement => document.documentElement
 
 /** The theme Wplace currently applies, from the attribute first and storage second. */
-export const currentWplaceTheme = (): string => {
+const currentWplaceTheme = (): string => {
   const applied = root().getAttribute('data-theme')
   let theme = applied !== null && applied !== '' ? applied : null
   if (theme === null) {
@@ -60,7 +60,7 @@ export const currentWplaceTheme = (): string => {
   return resolved
 }
 
-export const isWplaceDarkTheme = (): boolean => currentWplaceTheme() === DARK_THEME
+const isWplaceDarkTheme = (): boolean => currentWplaceTheme() === DARK_THEME
 
 const nextTheme = (): string => (isWplaceDarkTheme() ? rememberedLight : DARK_THEME)
 

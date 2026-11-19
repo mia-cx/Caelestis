@@ -92,7 +92,7 @@ export const spendCharges = (painted: number, at = Date.now()): void => {
   notify()
 }
 
-/** The charges right now, or null until Wplace has reported them. */
+/** Null until Wplace has reported charges. */
 export const chargeForecast = (now = Date.now()): ChargeForecast | null => {
   if (snapshot === null) return null
   const count = projectedCount(snapshot, now)
@@ -115,7 +115,6 @@ export const formatCountdown = (ms: number): string => {
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`
 }
 
-/** Test seam: forget the reading and every listener. */
 export const resetCharges = (): void => {
   snapshot = null
   listeners.clear()

@@ -15,7 +15,6 @@ import { getMap } from './map-handle.js'
 import { canvasPixelAt } from './map-view.js'
 import { nativePixelAt } from './native-pixels.js'
 import { forwardPaintMove, isForwardedPaintKey, isForwardedPaintMove } from './paint-cursor.js'
-import { pickerIndex } from './picker-source.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import { claimedHiddenFor } from './templates/colour-filter.js'
 import {
@@ -169,7 +168,7 @@ const allianceIndexAt = (
 const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null => {
   const template = overlayIndexAt(surface, x, y)
   const pixelArt = alliance === null ? placedIndexAt(x, y) : allianceIndexAt(alliance, x, y, false)
-  return pickerIndex({ template, pixelArt })
+  return template ?? pixelArt
 }
 
 /** Uncomposited colour under the brush on either surface, including the current native draft. */

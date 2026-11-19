@@ -81,11 +81,6 @@ export const accountIdentity = (): PainterIdentity | null => identity
 /** Whether Wplace definitively rejected or omitted the identity, rather than a request failing. */
 export const accountIdentityKnownUnavailable = (): boolean => identityUnavailable
 
-const replaceOwned = (next: ReadonlySet<number> | null): void => {
-  if (owned === next || (owned === null && next === null)) return
-  owned = next
-}
-
 const replaceIdentity = (next: PainterIdentity | null): void => {
   identity = next
   identityUnavailable = next === null
@@ -105,7 +100,7 @@ const fetchAccount = async (): Promise<void> => {
     })
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
-        replaceOwned(null)
+        owned = null
         replaceIdentity(null)
         forgetCharges()
       }
@@ -114,7 +109,7 @@ const fetchAccount = async (): Promise<void> => {
     }
     const body = await readBoundedJson(response)
     if (!isRecord(body)) {
-      replaceOwned(null)
+      owned = null
       replaceIdentity(null)
       forgetCharges()
       return
@@ -137,7 +132,7 @@ const fetchAccount = async (): Promise<void> => {
       !Number.isSafeInteger(mask) ||
       (mask !== -1 && (mask < 0 || mask > 0xffff_ffff))
     ) {
-      replaceOwned(null)
+      owned = null
       return
     }
 
@@ -146,7 +141,7 @@ const fetchAccount = async (): Promise<void> => {
     premiumIndices().forEach((paletteIndex, bit) => {
       if (mask === -1 || (mask & (1 << bit)) !== 0) set.add(paletteIndex)
     })
-    replaceOwned(set)
+    owned = set
     log('install', 'owned colours read from /me', { premium: set.size, mask })
   } catch (error) {
     // Signed out, offline, or blocked. The preset simply stays unavailable.

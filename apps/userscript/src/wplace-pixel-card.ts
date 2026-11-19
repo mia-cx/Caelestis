@@ -28,7 +28,7 @@ export const dismissWplacePixelCard = (root: ParentNode = document): boolean => 
   let closed = false
   for (const button of buttons) {
     if (button.closest('dialog,[role="dialog"]') !== null) continue
-    if (button.closest('#caelestis-claim-mode,[id^="caelestis-"]') !== null) continue
+    if (button.closest('[id^="caelestis-"]') !== null) continue
     // The paint drawer's Close discards a draft. It is the panel with Undo and Redo beside it.
     if (insidePaintDrawer(button)) continue
     button.click()
