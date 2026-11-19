@@ -204,7 +204,7 @@
   fieldset { margin: 0; padding: 0.625rem 0.75rem 0.75rem; border: 1px solid color-mix(in oklab, currentColor 15%, transparent); border-radius: 0.5rem; }
   .asset { display: flex; flex-direction: column; gap: 0.5rem; }
   .row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-  .file { position: relative; display: inline-flex; align-items: center; block-size: 2rem; padding-inline: 0.75rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; cursor: pointer; }
+  .file { position: relative; display: inline-flex; align-items: center; box-sizing: content-box; block-size: 2rem; padding-inline: 0.75rem; border: 1px solid color-mix(in oklab, currentColor 25%, transparent); border-radius: 0.5rem; cursor: pointer; }
   .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; inline-size: 100%; }
   .file:has(input:disabled) { opacity: 0.5; cursor: default; }
   img { display: block; background: repeating-conic-gradient(#8884 0 25%, transparent 0 50%) 0 0 / 1rem 1rem; border-radius: 0.375rem; }

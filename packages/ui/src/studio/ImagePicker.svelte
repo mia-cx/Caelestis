@@ -46,6 +46,7 @@
     position: relative;
     display: inline-flex;
     align-items: center;
+    box-sizing: content-box;
     padding: 0 0.75rem;
     min-block-size: 2rem;
     border: 1px solid var(--caelestis-border);
