@@ -1,6 +1,6 @@
 # Two styles
 
-Caelestis draws in one of two styles, set by `data-caelestis-style` on each custom-element host. The userscript's theme bridge sets it from Wplace's root: `pixel` while `data-game-ui` is present and `data-standard-ui` is not, `classic` otherwise, and it repaints every host when those attributes change. Components never read Wplace's attributes themselves. `foundations/ThemeDefaults.svelte` declares every token's default once, at zero specificity; elements render it through `PixelStyles`, and the frontend renders it once in its layout. The frontend never sets the style attribute, so it always renders the classic rules, and `app.css` maps the colour and radius tokens onto its own pixel theme.
+Caelestis draws in one of two styles, set by `data-caelestis-style` on each custom-element host. The userscript's theme bridge sets it from Wplace's root: `pixel` while `data-game-ui` is present and `data-standard-ui` is not, `classic` otherwise, and it repaints every host when those attributes change. Components never read Wplace's attributes themselves. `foundations/ThemeDefaults.svelte` declares every token's default once, at zero specificity; elements render it through `PixelStyles`, and the frontend renders it once in its layout. The frontend never sets the style attribute, so it always renders the classic rules. Its `app.css` maps the colour tokens from its DaisyUI theme, and its DaisyUI and Tailwind radii read `--caelestis-radius`.
 
 ## Classic
 
