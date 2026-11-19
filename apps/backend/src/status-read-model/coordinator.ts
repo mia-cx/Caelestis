@@ -819,6 +819,14 @@ export class StatusCoordinator<Client> implements StatusShard {
     }
   }
 
+  /**
+   * Every socket admission counts against the season's capacity, revoked ones included, with its
+   * attachment or null where that does not decode.
+   */
+  occupants(): readonly (LiveSubscriberAttachment | null)[] {
+    return this.objectState.getWebSockets('status').map(subscriberOf)
+  }
+
   /** Admit one live-sync connection within the season's capacity and its credential's rights. */
   async connect(connection: StatusLiveConnection): Promise<LiveAdmission> {
     const { stateVector, ...held } = connection
@@ -827,15 +835,14 @@ export class StatusCoordinator<Client> implements StatusShard {
     let capacityExceeded = false
     const admitted = await this.liveSessions.attach(
       async () => {
-        const sockets = this.objectState.getWebSockets('status')
-        if (sockets.length >= (this.limits.liveSubscribers ?? MAX_LIVE_SUBSCRIBERS)) {
+        const occupants = this.occupants()
+        if (occupants.length >= (this.limits.liveSubscribers ?? MAX_LIVE_SUBSCRIBERS)) {
           capacityExceeded = true
           return false
         }
         let anonymousConnections = 0
         let clientConnections = 0
-        for (const socket of sockets) {
-          const attachment = subscriberOf(socket)
+        for (const attachment of occupants) {
           if (attachment === null || attachment.revoked === true) continue
           if (attachment.anonymous === true) anonymousConnections += 1
           if (attachment.clientHash === clientHash) clientConnections += 1

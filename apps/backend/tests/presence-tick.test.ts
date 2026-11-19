@@ -4,6 +4,7 @@ import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.j
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import type { LiveSocket } from '../src/live/session.js'
 import { IngestTimings } from '../src/metrics/ingest-timing.js'
+import { snapshotCapacity } from '../src/node/capacity.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { PresenceCoordinator, type PresenceHost } from '../src/presence/coordinator.js'
 
@@ -138,6 +139,25 @@ it('serves the room around a socket whose attachment an earlier deploy wrote', a
   try {
     await coordinator.alarm()
     expect(observer.events.at(-1)).toMatchObject({ type: 'presence-ready', online: 1 })
+  } finally {
+    await store.close()
+  }
+})
+
+it('reports the capacity metric from the sessions room admission counts', async () => {
+  const open = session(1, { x: 0, y: 0 }, Date.now())
+  const closed = session(2, { x: 0, y: 0 }, Date.now())
+  closed.serializeAttachment({ ...(closed.deserializeAttachment() as object), closed: true })
+  const closing = session(3, { x: 0, y: 0 }, Date.now())
+  closing.readyState = 2
+  const legacy = new Socket({ sessionId: 'legacy' })
+  const { store, coordinator } = await openRoom([open, closed, closing, legacy])
+  try {
+    const snapshot = snapshotCapacity([
+      { kind: 'presence', key: '0', occupants: coordinator.occupants(), pendingWork: 0 },
+    ])
+    expect(snapshot.presenceSlots).toBe(await coordinator.online())
+    expect(snapshot).toMatchObject({ presenceSlots: 1, users: 1 })
   } finally {
     await store.close()
   }

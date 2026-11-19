@@ -304,17 +304,19 @@ export const openNodeRuntime = async (
         snapshot: () =>
           snapshotCapacity(
             [
-              ...[...shards.entries()].map(([season, { host }]) => ({
+              ...[...shards.entries()].map(([season, { host, coordinator }]) => ({
                 kind: 'live-sync' as const,
                 key: String(season),
-                host,
+                occupants: coordinator.occupants(),
+                pendingWork: host.pendingWork,
               })),
               // Rooms are keyed by caller-chosen surfaces, so they aggregate per season to keep
               // the metric label domain bounded.
-              ...[...rooms.entries()].map(([, { season, host }]) => ({
+              ...[...rooms.entries()].map(([, { season, host, coordinator }]) => ({
                 kind: 'presence' as const,
                 key: String(season),
-                host,
+                occupants: coordinator.occupants(),
+                pendingWork: host.pendingWork,
               })),
             ],
             config.liveSubscriberLimit,

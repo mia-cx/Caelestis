@@ -595,6 +595,11 @@ export class PresenceCoordinator<Client> {
     return this.sessionsOpen().length
   }
 
+  /** The open sessions admission counts against the room's capacity. */
+  occupants(): readonly PresenceConnection[] {
+    return this.sessionsOpen().map(({ held }) => held)
+  }
+
   /** Reload committed claims and deliver the surface's authoritative region list. */
   async publishRegions(): Promise<void> {
     const { season, surface } = this.room
