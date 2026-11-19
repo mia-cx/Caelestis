@@ -13,9 +13,9 @@ import {
 } from './alliance-surface.js'
 import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/template-studio.js'
 import { isClaimModeActive } from './claim-editor.js'
+import { cycleFocusedColour, navigateFocusedSelectedColour } from './colour-navigation.js'
 import { getMap } from './map-handle.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
-import { cycleFocusedColour, navigateFocusedSelectedColour } from './paint-palette.js'
 import {
   getState,
   getSurfaceAppearance,

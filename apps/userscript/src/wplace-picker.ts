@@ -5,10 +5,10 @@ import {
   TRANSPARENT_INDEX,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { allianceBounds, alliancePointAt } from './alliance-coordinates.js'
+import { readActiveArtboard } from './active-artboard.js'
+import { alliancePointAt } from './alliance-coordinates.js'
 import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
 import { log } from './debug.js'
-import { readArtboardPixels } from './gl/artboard-pixels.js'
 import { showPickCell } from './gl/pick-cell-layer.js'
 import { getMap } from './map-handle.js'
 import { canvasPixelAt } from './map-view.js'
@@ -151,15 +151,8 @@ const allianceIndexAt = (
   y: number,
   includeDraft: boolean,
 ): number | null => {
-  const bounds = allianceBounds(alliance)
-  if (bounds === null) return null
-  const regions = readArtboardPixels(alliance, {
-    originX: bounds.minX,
-    originY: bounds.minY,
-    width: bounds.maxX - bounds.minX,
-    height: bounds.maxY - bounds.minY,
-  })
-  return nativePixelAt(regions, x, y, includeDraft)?.index ?? null
+  const artboard = readActiveArtboard(alliance)
+  return artboard === null ? null : (nativePixelAt(artboard, x, y, includeDraft)?.index ?? null)
 }
 
 const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null => {

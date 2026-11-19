@@ -26,8 +26,8 @@ import {
   screenProjection,
   viewportCentre,
 } from './map-view.js'
-import { installPaintPaletteProgress, refreshPaintPaletteFocus } from './paint-palette.js'
 import { installPaintTargetGuard, syncPaintTargetMap } from './paint-target-guard.js'
+import { installPaintPaletteProgress, refreshPaintPaletteFocus } from './palette-decoration.js'
 import { installPresence, observePresenceFrame, onPresenceChange } from './presence-client.js'
 import { onPresenceHoverChange } from './presence-hover.js'
 import { renderPresenceLabels } from './presence-labels.js'
