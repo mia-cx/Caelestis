@@ -19,7 +19,6 @@ import { horizontalSpans } from '../templates/placement.js'
 import { currentQuads, isDrawingTiles } from '../tile-frame.js'
 import { holdTilePixels } from '../tile-pixels.js'
 import { selectedColour } from '../wplace-paint.js'
-import { prefersReducedMotion } from './appearance-transition.js'
 import { LAYER_IDS } from './layer-stack.js'
 import { markerDensityMemoryBytes, visibleListPoints, visibleSourceRect } from './marker-density.js'
 import { budgetMarkers, markerStyles } from './marker-frame.js'
@@ -119,7 +118,6 @@ const drawVisible = (
     ),
     WORLD_TEMPLATE_SURFACE,
     now,
-    prefersReducedMotion(),
     tiles,
   )
   const sceneMarkers = worldRenderScene.advanceMarkers(

@@ -25,7 +25,6 @@ import { abortMoveOutsideSurface } from '../templates/move.js'
 import { noteTemplatesInView } from '../templates/residency.js'
 import { detachOverlayControls, renderAllianceOverlayControls } from '../ui/overlay-menu.js'
 import { selectedColour } from '../wplace-paint.js'
-import { prefersReducedMotion } from './appearance-transition.js'
 import {
   type ArtboardMarkerBatch,
   ArtboardMarkerIndex,
@@ -665,8 +664,7 @@ class ArtboardRenderer {
     const ids = new Set(all.map(({ id }) => id))
     const now = performance.now()
     const peek = overlayPeekFade(now)
-    const reducedMotion = prefersReducedMotion()
-    const templateScene = this.scene.advanceTemplates(all, this.surface, now, reducedMotion)
+    const templateScene = this.scene.advanceTemplates(all, this.surface, now)
     const templates = templateScene.templates.filter(
       ({ fade, palette }) => fade > 0 && palette !== null,
     )

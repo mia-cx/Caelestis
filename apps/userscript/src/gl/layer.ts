@@ -18,7 +18,6 @@ import { displayTemplatesForSurface, type PlacedTemplate } from '../templates/ca
 import { type HorizontalSpan, horizontalSpans } from '../templates/placement.js'
 import { noteTemplatesInView } from '../templates/residency.js'
 import { currentQuads, isDrawingTiles, underlayQuads } from '../tile-frame.js'
-import { prefersReducedMotion } from './appearance-transition.js'
 import { LAYER_IDS } from './layer-stack.js'
 import { minifyTapCap, SETTLED_TAP_CAP } from './minify-quality.js'
 import { worldRenderScene } from './render-scene.js'
@@ -289,13 +288,7 @@ const drawOverlay = (gl: WebGL2RenderingContext, pass: TemplatePass, store: Temp
   renderGeneration++
   // Switched off is a destination, not an exclusion: a template on its way out is still drawn,
   // at falling opacity, and only leaves once its ramp has run out.
-  const scene = worldRenderScene.advanceTemplates(
-    all,
-    WORLD_TEMPLATE_SURFACE,
-    now,
-    prefersReducedMotion(),
-    tiles,
-  )
+  const scene = worldRenderScene.advanceTemplates(all, WORLD_TEMPLATE_SURFACE, now, tiles)
   const placement = tilePlacement(tiles, gl.drawingBufferWidth, gl.drawingBufferHeight)
   const visible = pass.visible(scene.templates, placement)
   // Offscreen textures can be large. Keep only the templates this frame could actually draw;
@@ -394,7 +387,6 @@ const drawOutline = (gl: WebGL2RenderingContext, pass: TemplatePass, store: Temp
     displayTemplatesForSurface(WORLD_TEMPLATE_SURFACE),
     WORLD_TEMPLATE_SURFACE,
     now,
-    prefersReducedMotion(),
     currentQuads(),
   )
   const settling = scene.animating || !peek.done

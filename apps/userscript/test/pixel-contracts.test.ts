@@ -172,8 +172,8 @@ describe('pixel accounting contracts', () => {
       owns: ['colours'],
     })
 
-    scene.advanceTemplates([owned], WORLD_TEMPLATE_SURFACE, 0, false)
-    const [rendered] = scene.advanceTemplates([owned], WORLD_TEMPLATE_SURFACE, 300, false).templates
+    scene.advanceTemplates([owned], WORLD_TEMPLATE_SURFACE, 0)
+    const [rendered] = scene.advanceTemplates([owned], WORLD_TEMPLATE_SURFACE, 300).templates
     if (rendered?.palette === null || rendered === undefined)
       throw new Error('render scene omitted a visible palette')
 
