@@ -240,7 +240,6 @@ const claimSharedWork = (
   caller: Caller,
 ): Effect.Effect<MutationResult, WorkError, WorkServices> =>
   Effect.gen(function* () {
-    if (caller.scope === 'read') return yield* Effect.fail(new ForbiddenError())
     const sql = yield* SqlStoreService
     const held = yield* readHeld(sql, target)
     if (held === null) return yield* notFound
@@ -273,8 +272,7 @@ const claimTemplate = (
   Effect.gen(function* () {
     const forOther =
       mutation.action === 'assign-template' || mutation.action === 'unassign-template'
-    if (caller.scope === 'read' || (forOther && caller.scope !== 'admin'))
-      return yield* Effect.fail(new ForbiddenError())
+    if (forOther && caller.scope !== 'admin') return yield* Effect.fail(new ForbiddenError())
     const leaving =
       mutation.action === 'release-template' || mutation.action === 'unassign-template'
     const person = forOther ? mutation.claimant : mutation.actor
@@ -318,7 +316,10 @@ const claimTemplate = (
 type WorkError = ValidationError | NotFoundError | ForbiddenError | StorageError
 type WorkServices = SqlStoreService | StatusReadModelService
 
-/** Apply a scoped mutation. Claim identity is self-reported; server credentials enforce action scope. */
+/**
+ * Apply a scoped mutation. Claim identity is self-reported; server credentials enforce action
+ * scope. The route admits report-scope callers only.
+ */
 export const mutateWork = (
   id: string,
   season: number,
