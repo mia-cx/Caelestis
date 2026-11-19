@@ -6,6 +6,8 @@
   import SliderRow from '../foundations/SliderRow.svelte'
   import Toggle from '../foundations/Toggle.svelte'
   import Icon from '../foundations/Icon.svelte'
+  import type { IconName } from '../foundations/icons.svelte.js'
+  import type { Snippet } from 'svelte'
   import ColourInput from './ColourInput.svelte'
   import type {
     AppearanceEditorIntent,
@@ -13,7 +15,7 @@
     AppearanceGroupKey,
     AppearanceNumberKey,
     AppearanceSliderModel,
-  } from '../types.js'
+  } from './model.js'
 
   let { model, onIntent }: { model: AppearanceEditorModel; onIntent?: (intent: AppearanceEditorIntent) => void } = $props()
   const emit = (intent: AppearanceEditorIntent): void => onIntent?.(intent)
@@ -25,17 +27,16 @@
       case 'decimal-pixels': return (value) => `${Number(value.toFixed(2))}px`
     }
   }
-  const markerSizeSlider = $derived<AppearanceSliderModel>({ key: 'markerSize', label: 'Size', value: model.values.markerSize, defaultValue: 9, min: 3, max: 33, step: 1, format: 'pixels', disabled: !model.values.markMismatch })
-  const unpaintedSlider = $derived<AppearanceSliderModel>({ key: 'unpaintedLimit', label: 'Only under', value: model.values.unpaintedLimit, defaultValue: 0.05, min: 0, max: 0.2, step: 0.005, format: 'percent', disabled: !model.values.markMismatch || !model.values.markUnpainted })
-  const otherOpacitySlider = $derived<AppearanceSliderModel>({ key: 'otherOpacity', label: 'Faded to', value: model.values.otherOpacity, defaultValue: 0.15, min: 0.05, max: 1, step: 0.05, format: 'percent', disabled: !model.values.markMismatch || !model.values.dimOthers })
-  const selectedMarkerSizeSlider = $derived<AppearanceSliderModel>({ key: 'selectedMarkerSize', label: 'Size', value: model.values.selectedMarkerSize, defaultValue: 9, min: 3, max: 33, step: 1, format: 'pixels', disabled: !model.values.markSelectedColour })
-
+  const pickerChange = (open: boolean): void => emit({ type: 'picker', open })
   const sliderInput = (key: AppearanceNumberKey, value: number): void =>
     emit({ type: 'preview-number', key, value })
   const sliderCommit = (key: AppearanceNumberKey, value: number): void =>
     emit({ type: 'commit-number', key, value })
+  const pixelSliders = $derived(model.sliders.filter((slider) => slider.group === 'pixels'))
+  const markerSlider = (key: AppearanceNumberKey): AppearanceSliderModel | undefined =>
+    model.sliders.find((slider) => slider.key === key)
   const group = (key: AppearanceGroupKey) => model.groups?.[key]
-  const compact = $derived(model.groups !== undefined)
+  const compact = $derived(model.variant === 'overlay')
   const groupDisabled = (key: AppearanceGroupKey): boolean =>
     model.disabled === true || group(key)?.owned === false
   // svelte-ignore state_referenced_locally -- group ownership chooses only the initial disclosure;
@@ -58,23 +59,36 @@
 
 <MenuStyles />
 
-<div class:compact class="editor" data-caelestis-scroller>
+{#snippet section(key: AppearanceGroupKey, title: string, icon: IconName, body: Snippet)}
   <section>
-    <SectionHeader title={compact ? 'Pixels' : 'Appearance'} icon={compact ? undefined : 'tune'} expanded={expanded.pixels} onToggle={compact ? () => toggleGroup('pixels') : undefined}>
+    <SectionHeader {title} icon={compact ? undefined : icon} expanded={expanded[key]} onToggle={compact ? () => toggleGroup(key) : undefined}>
       {#snippet actions()}
-        {#if group('pixels') !== undefined}
-        <label class="defaults"><Toggle label="Use default pixels" compact checked={!group('pixels')?.owned} disabled={model.disabled || group('pixels')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'pixels', owned: !checked })} /> Use defaults</label>
+        {#if group(key) !== undefined}
+        <label class="defaults"><Toggle label={`Use default ${key}`} compact checked={!group(key)?.owned} disabled={model.disabled || group(key)?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: key, owned: !checked })} /> Use defaults</label>
         {/if}
       {/snippet}
     </SectionHeader>
-    <div class="acc" data-open={String(expanded.pixels)}>
-      <div class="acc-panel" inert={!expanded.pixels} aria-hidden={!expanded.pixels} ontransitionend={groupSettled}>
-    <fieldset class="acc-inner" disabled={groupDisabled('pixels')}>
+    <div class="acc" data-open={String(expanded[key])}>
+      <div class="acc-panel" inert={!expanded[key]} aria-hidden={!expanded[key]} ontransitionend={groupSettled}>
+        <fieldset class="acc-inner" disabled={groupDisabled(key)}>{@render body()}</fieldset>
+      </div>
+    </div>
+  </section>
+{/snippet}
+
+{#snippet nestedSlider(key: AppearanceNumberKey, depth: number)}
+  {@const slider = markerSlider(key)}
+  {#if slider !== undefined}
+    <SliderRow {...slider} {compact} {depth} resettable={false} format={format(slider)} onInput={(value) => sliderInput(key, value)} onCommit={(value) => sliderCommit(key, value)} onReset={(value) => sliderCommit(key, value)} />
+  {/if}
+{/snippet}
+
+{#snippet pixels()}
     <SettingRow label="Pixel style" {compact}>
       {#snippet children()}
         <div class="presets" role="group" aria-label="Pixel style">
           {#each model.pixelPresets as preset (preset.id)}
-            <button class="pixel-preset caelestis-bevel" type="button" data-caelestis-pixel-preset={preset.id} class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} aria-label={preset.label} title={preset.label} onclick={() => emit({ type: 'pixel-preset', id: preset.id })}>
+            <button class="pixel-preset caelestis-bevel" type="button" class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} aria-label={preset.label} title={preset.label} onclick={() => emit({ type: 'pixel-preset', id: preset.id })}>
               <span class={`preset-icon ${preset.id}`} aria-hidden="true"></span>
             </button>
           {/each}
@@ -83,31 +97,17 @@
     </SettingRow>
     <SettingRow label="Contrast outline" hint={compact ? undefined : 'Visible behind the overlay until Wplace art covers it'} {compact}>
       {#snippet children()}
-        <Toggle label="Contrast outline" control="contrastOutline" checked={model.values.contrastOutline} {compact} onChange={(value) => emit({ type: 'set-boolean', key: 'contrastOutline', value })} />
+        <Toggle label="Contrast outline" checked={model.values.contrastOutline} {compact} onChange={(value) => emit({ type: 'set-boolean', key: 'contrastOutline', value })} />
       {/snippet}
     </SettingRow>
     <div class="sliders">
-      {#each model.sliders as slider (slider.key)}
-        <SliderRow {...slider} {compact} control={slider.key} format={format(slider)} onInput={(value) => sliderInput(slider.key, value)} onCommit={(value) => sliderCommit(slider.key, value)} onReset={(value) => sliderCommit(slider.key, value)} />
+      {#each pixelSliders as slider (slider.key)}
+        <SliderRow {...slider} {compact} format={format(slider)} onInput={(value) => sliderInput(slider.key, value)} onCommit={(value) => sliderCommit(slider.key, value)} onReset={(value) => sliderCommit(slider.key, value)} />
       {/each}
     </div>
-    </fieldset>
-      </div>
-    </div>
-  </section>
+{/snippet}
 
-  {#if model.showMarkers !== false}
-  <section>
-    <SectionHeader title="Markers" icon={compact ? undefined : 'search'} expanded={expanded.markers} onToggle={compact ? () => toggleGroup('markers') : undefined}>
-      {#snippet actions()}
-        {#if group('markers') !== undefined}
-        <label class="defaults"><Toggle label="Use default markers" compact checked={!group('markers')?.owned} disabled={model.disabled || group('markers')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'markers', owned: !checked })} /> Use defaults</label>
-        {/if}
-      {/snippet}
-    </SectionHeader>
-    <div class="acc" data-open={String(expanded.markers)}>
-      <div class="acc-panel" inert={!expanded.markers} aria-hidden={!expanded.markers} ontransitionend={groupSettled}>
-    <fieldset class="acc-inner" disabled={groupDisabled('markers')}>
+{#snippet markers()}
     <div class="marker-settings">
     <SettingRow label="Mark mismatched pixels" {compact} depth={0}>
       {#snippet children()}
@@ -115,10 +115,10 @@
       {/snippet}
     </SettingRow>
     <div class:disabled={!model.values.markMismatch} class="nested">
-      <SliderRow {...markerSizeSlider} {compact} depth={1} resettable={false} format={format(markerSizeSlider)} onInput={(value) => sliderInput('markerSize', value)} onCommit={(value) => sliderCommit('markerSize', value)} onReset={(value) => sliderCommit('markerSize', value)} />
+      {@render nestedSlider('markerSize', 1)}
       <SettingRow label="Colour" {compact} depth={1}>
         {#snippet children()}
-          <ColourInput label="Marker colour" value={model.values.markerColour} disabled={!model.values.markMismatch} onPreview={(value) => emit({ type: 'preview-colour', key: 'markerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'markerColour', value })} />
+          <ColourInput label="Marker colour" value={model.values.markerColour} disabled={!model.values.markMismatch} onPreview={(value) => emit({ type: 'preview-colour', key: 'markerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'markerColour', value })} onOpenChange={pickerChange} />
         {/snippet}
       </SettingRow>
       <SettingRow label="Include unpainted pixels" {compact} depth={1}>
@@ -126,18 +126,18 @@
           <Toggle label="Include unpainted pixels" checked={model.values.markUnpainted} {compact} disabled={!model.values.markMismatch} onChange={(value) => emit({ type: 'set-boolean', key: 'markUnpainted', value })} />
         {/snippet}
       </SettingRow>
-      <SliderRow {...unpaintedSlider} {compact} depth={2} resettable={false} format={format(unpaintedSlider)} onInput={(value) => sliderInput('unpaintedLimit', value)} onCommit={(value) => sliderCommit('unpaintedLimit', value)} onReset={(value) => sliderCommit('unpaintedLimit', value)} />
+      {@render nestedSlider('unpaintedLimit', 2)}
       <SettingRow label="Dim other colours" hint="While following the selected colour" {compact} depth={1}>
         {#snippet children()}
           <Toggle label="Dim other colours" checked={model.values.dimOthers} {compact} disabled={!model.values.markMismatch} onChange={(value) => emit({ type: 'set-boolean', key: 'dimOthers', value })} />
         {/snippet}
       </SettingRow>
       <div>
-        <SliderRow {...otherOpacitySlider} {compact} depth={2} resettable={false} format={format(otherOpacitySlider)} onInput={(value) => sliderInput('otherOpacity', value)} onCommit={(value) => sliderCommit('otherOpacity', value)} onReset={(value) => sliderCommit('otherOpacity', value)} />
+        {@render nestedSlider('otherOpacity', 2)}
         <SettingRow label="Marked in" {compact} depth={2}>
           {#snippet children()}
             <div class="same-colour">
-              <ColourInput label="Colour for other colours" value={model.values.otherColour ?? model.values.markerColour} disabled={!model.values.markMismatch || !model.values.dimOthers} onPreview={(value) => emit({ type: 'preview-colour', key: 'otherColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'otherColour', value })} />
+              <ColourInput label="Colour for other colours" value={model.values.otherColour ?? model.values.markerColour} disabled={!model.values.markMismatch || !model.values.dimOthers} onPreview={(value) => emit({ type: 'preview-colour', key: 'otherColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'otherColour', value })} onOpenChange={pickerChange} />
               <button class="choice caelestis-bevel" type="button" class:active={model.values.otherColour === null} aria-pressed={model.values.otherColour === null} disabled={!model.values.markMismatch || !model.values.dimOthers} onclick={() => emit({ type: 'set-colour', key: 'otherColour', value: null })}>Same</button>
             </div>
           {/snippet}
@@ -151,10 +151,10 @@
       {/snippet}
     </SettingRow>
     <div class:disabled={!model.values.markSelectedColour} class="nested">
-      <SliderRow {...selectedMarkerSizeSlider} {compact} depth={1} resettable={false} format={format(selectedMarkerSizeSlider)} onInput={(value) => sliderInput('selectedMarkerSize', value)} onCommit={(value) => sliderCommit('selectedMarkerSize', value)} onReset={(value) => sliderCommit('selectedMarkerSize', value)} />
+      {@render nestedSlider('selectedMarkerSize', 1)}
       <SettingRow label="Colour" {compact} depth={1}>
         {#snippet children()}
-          <ColourInput label="Selected colour marker colour" value={model.values.selectedMarkerColour} disabled={!model.values.markSelectedColour} onPreview={(value) => emit({ type: 'preview-colour', key: 'selectedMarkerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'selectedMarkerColour', value })} />
+          <ColourInput label="Selected colour marker colour" value={model.values.selectedMarkerColour} disabled={!model.values.markSelectedColour} onPreview={(value) => emit({ type: 'preview-colour', key: 'selectedMarkerColour', value })} onCommit={(value) => emit({ type: 'commit-colour', key: 'selectedMarkerColour', value })} onOpenChange={pickerChange} />
         {/snippet}
       </SettingRow>
     </div>
@@ -169,27 +169,13 @@
         {/snippet}
       </SettingRow>
     {/if}
-    </fieldset>
-      </div>
-    </div>
-  </section>
-  {/if}
+{/snippet}
 
-  <section>
-    <SectionHeader title="Colours" icon={compact ? undefined : 'palette'} expanded={expanded.colours} onToggle={compact ? () => toggleGroup('colours') : undefined}>
-      {#snippet actions()}
-        {#if group('colours') !== undefined}
-        <label class="defaults"><Toggle label="Use default colours" compact checked={!group('colours')?.owned} disabled={model.disabled || group('colours')?.locked === true} onChange={(checked) => emit({ type: 'set-group-owned', group: 'colours', owned: !checked })} /> Use defaults</label>
-        {/if}
-      {/snippet}
-    </SectionHeader>
-    <div class="acc" data-open={String(expanded.colours)}>
-      <div class="acc-panel" inert={!expanded.colours} aria-hidden={!expanded.colours} ontransitionend={groupSettled}>
-    <fieldset class="acc-inner" disabled={groupDisabled('colours')}>
+{#snippet colours()}
     <div class="colour-toolbar">
       <div class="presets" role="group" aria-label="Colour presets">
         {#each model.colourPresets as preset (preset.id)}
-          <button class="choice caelestis-bevel" type="button" data-caelestis-preset={preset.id} class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} onclick={() => emit({ type: 'colour-preset', id: preset.id })}>{preset.label}</button>
+          <button class="choice caelestis-bevel" type="button" class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} onclick={() => emit({ type: 'colour-preset', id: preset.id })}>{preset.label}</button>
         {/each}
       </div>
       {#if model.showOnlySelectedColour !== false}
@@ -201,20 +187,22 @@
     <div class="swatches">
       <div class="palette" role="group" aria-label="Visible colours">
         {#each model.palette as colour (colour.index)}
-          <button type="button" class="palette-swatch" data-on={colour.visible} data-caelestis-control={`swatch:${colour.index}`} style:background={colour.hex} aria-label={`${colour.name}, ${colour.kind}`} aria-pressed={colour.visible} aria-disabled={model.disabled} title={`${colour.name} · ${colour.kind}`} onclick={() => { if (!model.disabled) emit({ type: 'toggle-colour', index: colour.index, visible: !colour.visible }) }}>
+          <button type="button" class="palette-swatch" data-on={colour.visible} style:background={colour.hex} aria-label={`${colour.name}, ${colour.kind}`} aria-pressed={colour.visible} aria-disabled={model.disabled} title={`${colour.name} · ${colour.kind}`} onclick={() => { if (!model.disabled) emit({ type: 'toggle-colour', index: colour.index, visible: !colour.visible }) }}>
             <span class="swatch-badge" aria-hidden="true"><span><Icon name={colour.visible ? 'eye' : 'eyeOff'} size="78%" /></span></span>
           </button>
         {/each}
       </div>
     </div>
-    </fieldset>
-      </div>
-    </div>
-  </section>
+{/snippet}
+
+<div class:compact class="editor">
+  {@render section('pixels', compact ? 'Pixels' : 'Appearance', 'tune', pixels)}
+  {#if model.showMarkers !== false}{@render section('markers', 'Markers', 'search', markers)}{/if}
+  {@render section('colours', 'Colours', 'palette', colours)}
 </div>
 
 <style>
-  .editor { flex: 1; min-block-size: 0; overflow-y: auto; padding-block-end: 0.75rem; color: var(--caelestis-text); font: 400 0.875rem/1.3 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); }
+  .editor { flex: 1; min-block-size: 0; overflow-y: auto; padding-block-end: 0.75rem; color: var(--caelestis-text); font: 400 0.875rem/1.3 var(--caelestis-font); }
   .editor.compact { padding: 0; font-size: 0.75rem; }
   .editor:not(.compact) > section { max-inline-size: 48rem; margin-inline: auto; }
   .defaults { display: flex; align-items: center; gap: 0.5rem; color: var(--caelestis-muted-text); font-size: 0.75rem; font-weight: 400; white-space: nowrap; }
@@ -236,12 +224,12 @@
   .compact .sliders, .compact .marker-settings { padding-inline: 0.25rem; }
   .disabled { opacity: 0.45; }
   .presets, .same-colour, .colour-toolbar { display: flex; align-items: center; gap: 0.25rem; }
-  .pixel-preset, .choice { --button-colour: var(--caelestis-raised-surface, var(--color-base-200)); display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; border: var(--border, 1px) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--depth, 1) * 5%)); outline-color: var(--button-colour); background: var(--button-colour); color: var(--caelestis-text); box-shadow: 0 0.5px 0 0.5px oklch(100% 0 0 / calc(var(--depth, 1) * 6%)) inset, 0 3px 2px -2px color-mix(in oklab, var(--button-colour) calc(var(--depth, 1) * 30%), transparent); font: 600 0.75rem/1 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif); cursor: pointer; }
-  .pixel-preset { inline-size: 2rem; block-size: 2rem; padding: 0; border-radius: var(--caelestis-pill-radius, 999px); }
-  .choice { block-size: 1.5rem; padding-inline: 0.5rem; border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); font-size: 0.6875rem; }
+  .pixel-preset, .choice { --button-colour: var(--caelestis-raised-surface); display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; border: var(--caelestis-border-width) solid color-mix(in oklab, var(--button-colour), #000 calc(var(--caelestis-depth) * 5%)); outline-color: var(--button-colour); background: var(--button-colour); color: var(--caelestis-text); box-shadow: 0 0.5px 0 0.5px oklch(100% 0 0 / calc(var(--caelestis-depth) * 6%)) inset, 0 3px 2px -2px color-mix(in oklab, var(--button-colour) calc(var(--caelestis-depth) * 30%), transparent); font: 600 0.75rem/1 var(--caelestis-font); cursor: pointer; }
+  .pixel-preset { inline-size: 2rem; block-size: 2rem; padding: 0; border-radius: var(--caelestis-pill-radius); }
+  .choice { block-size: 1.5rem; padding-inline: 0.5rem; border-radius: var(--caelestis-radius); font-size: 0.6875rem; }
   .only-selected { inline-size: 1.5rem; padding-inline: 0; }
-  .pixel-preset.active { --button-colour: color-mix(in oklab, var(--caelestis-raised-surface, var(--color-base-200)) 95%, #000); box-shadow: none; }
-  .choice.active { --button-colour: var(--caelestis-primary, var(--color-primary)); color: var(--color-primary-content, white); box-shadow: none; }
+  .pixel-preset.active { --button-colour: color-mix(in oklab, var(--caelestis-raised-surface) 95%, #000); box-shadow: none; }
+  .choice.active { --button-colour: var(--caelestis-primary); color: var(--caelestis-primary-content); box-shadow: none; }
   @media (hover: hover) { .pixel-preset:hover, .choice:hover { --button-colour: color-mix(in oklab, var(--button-colour), #000 7%); } }
   .preset-icon { display: block; position: relative; inline-size: 1rem; block-size: 1rem; box-sizing: border-box; overflow: hidden; border: 1.5px solid currentColor; }
   .preset-icon.small::after { content: ''; position: absolute; display: block; inset: 0.21875rem; background: currentColor; }
@@ -255,12 +243,12 @@
   @container (min-width: 17.5rem) { .palette { grid-template-columns: repeat(8, 1fr); } }
   @container (min-width: 35.5rem) { .palette { grid-template-columns: repeat(16, 1fr); } }
   @container (min-width: 71.5rem) { .palette { grid-template-columns: repeat(32, 1fr); } }
-  .palette-swatch { position: relative; min-inline-size: 1.5rem; aspect-ratio: 1; padding: 0; border: 1px solid rgb(0 0 0 / 0.25); border-radius: var(--caelestis-pill-radius, var(--caelestis-radius, calc(0.7rem + 1px))); outline: 2px solid transparent; outline-offset: 1px; opacity: 0.7; cursor: pointer; transition: opacity 100ms ease-out, outline-color 100ms ease-out; }
+  .palette-swatch { position: relative; min-inline-size: 1.5rem; aspect-ratio: 1; padding: 0; border: 1px solid rgb(0 0 0 / 0.25); border-radius: var(--caelestis-pill-radius); outline: 2px solid transparent; outline-offset: 1px; opacity: 0.7; cursor: pointer; transition: opacity 100ms ease-out, outline-color 100ms ease-out; }
   .palette-swatch[data-on='true'] { outline-color: var(--caelestis-text); opacity: 1; }
-  .palette-swatch[data-on='false']::after { content: ''; position: absolute; inset-inline-start: 15%; inset-block-start: calc(50% - 1px); inline-size: 70%; block-size: 2px; border-radius: var(--caelestis-pill-radius, 999px); background: currentColor; box-shadow: 0 0 0 1px var(--caelestis-surface, white); transform: rotate(-45deg); pointer-events: none; }
+  .palette-swatch[data-on='false']::after { content: ''; position: absolute; inset-inline-start: 15%; inset-block-start: calc(50% - 1px); inline-size: 70%; block-size: 2px; border-radius: var(--caelestis-pill-radius); background: currentColor; box-shadow: 0 0 0 1px var(--caelestis-surface); transform: rotate(-45deg); pointer-events: none; }
   .swatch-badge { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 80ms ease-out; pointer-events: none; }
   .palette-swatch:hover .swatch-badge, .palette-swatch:focus-visible .swatch-badge { opacity: 1; }
-  .swatch-badge > span { display: flex; align-items: center; justify-content: center; inline-size: 72%; block-size: 72%; border-radius: var(--caelestis-pill-radius, var(--caelestis-radius, calc(0.7rem + 1px))); box-sizing: border-box; }
+  .swatch-badge > span { display: flex; align-items: center; justify-content: center; inline-size: 72%; block-size: 72%; border-radius: var(--caelestis-pill-radius); box-sizing: border-box; }
   .palette-swatch[data-on='true'] .swatch-badge > span { background: var(--caelestis-text); color: var(--caelestis-surface); }
   .palette-swatch[data-on='false'] .swatch-badge > span { border: 1.5px solid var(--caelestis-text); background: var(--caelestis-surface); color: var(--caelestis-text); }
 

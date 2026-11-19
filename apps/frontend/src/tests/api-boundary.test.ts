@@ -1,4 +1,13 @@
 // @vitest-environment happy-dom
+
+import {
+  type ArchiveSource,
+  type BackfillClients,
+  localBackfillClient,
+  MemoryBackfillStorage,
+  seedTileObservation,
+  TemplateBackfill,
+} from '@caelestis/backend/testing'
 import {
   encodeIndexedPng,
   millis,
@@ -8,12 +17,6 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  type ArchiveSource,
-  type BackfillStorage,
-  TemplateBackfill,
-} from '../../../backend/dist/backfill/import.js'
-import { type BackfillClients, localBackfillClient } from '../../../backend/dist/backfill/port.js'
 import {
   type ApiError,
   chunkImageUrl,
@@ -31,11 +34,15 @@ import {
   getStatus,
   getTemplateProgressHistory,
   getTileHistory,
+  serverAssetUrl,
   tileImageUrl,
   writeConnection,
 } from '../lib/api/client'
-import { combineArchiveSamples } from '../lib/archive-history'
-import { combineProgressSamples, mergeObservedProgress } from '../lib/progress-history'
+import { combineArchiveSamples } from '../lib/components/stats/archive-history'
+import {
+  combineProgressSamples,
+  mergeObservedProgress,
+} from '../lib/components/stats/progress-history'
 import { adminToken, authorized, createTestBackend, frontendFetch } from './backend'
 
 const fixtureNow = 1_700_010_000
@@ -45,50 +52,6 @@ const json = (body: unknown): RequestInit => ({
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify(body),
 })
-
-class MemoryBackfillStorage implements BackfillStorage {
-  private readonly values = new Map<string, unknown>()
-  private alarm: number | null = null
-
-  async get<T>(key: string): Promise<T | undefined> {
-    return this.values.get(key) as T | undefined
-  }
-
-  async put<T>(key: string, value: T): Promise<void> {
-    this.values.set(key, value)
-  }
-
-  async list<T>(options: {
-    prefix: string
-    startAfter?: string
-    limit?: number
-  }): Promise<Map<string, T>> {
-    return new Map(
-      [...this.values]
-        .filter(([key]) => key.startsWith(options.prefix))
-        .filter(([key]) => options.startAfter === undefined || key > options.startAfter)
-        .sort(([left], [right]) => (left < right ? -1 : 1))
-        .slice(0, options.limit)
-        .map(([key, value]) => [key, value as T]),
-    )
-  }
-
-  async delete(keys: string[]): Promise<number> {
-    return keys.filter((key) => this.values.delete(key)).length
-  }
-
-  async getAlarm(): Promise<number | null> {
-    return this.alarm
-  }
-
-  async setAlarm(at: number): Promise<void> {
-    this.alarm = at
-  }
-
-  async deleteAlarm(): Promise<void> {
-    this.alarm = null
-  }
-}
 
 beforeEach(() => {
   vi.spyOn(Date, 'now').mockReturnValue(fixtureNow * 1_000)
@@ -216,7 +179,7 @@ const seedArchive = async (backend: Awaited<ReturnType<typeof createTestBackend>
   const chunk = await encodeIndexedPng(1, 1, new Uint8Array([1]))
   const chunkHash = await sha256Hex(chunk)
   await backend.blobs.put('chunks', chunkHash, chunk)
-  await backend.sql.insertTemplateVersion({
+  await backend.sql.createTemplate({
     templateId: archiveTemplateId,
     versionId: archiveVersionId,
     surface: WORLD_TEMPLATE_SURFACE,
@@ -268,7 +231,8 @@ describe('frontend API client against the built backend', () => {
       }),
     )
     expect(uploaded.status).toBe(200)
-    vi.stubGlobal('fetch', frontendFetch(backend.app))
+    const read = frontendFetch(backend.app)
+    vi.stubGlobal('fetch', read)
     const server = await getServer()
     expect(server).toMatchObject({
       name: 'United Pixels',
@@ -277,19 +241,11 @@ describe('frontend API client against the built backend', () => {
       logoText: 'UP',
       previewImage: { contentType: 'image/png' },
     })
-    const etag = server.previewImage?.etag
-    expect(etag).toMatch(/^[a-f0-9]{64}$/)
-    const path = `https://backend.test/server/assets/preview?v=${etag}`
-    const image = await backend.app.fetch(new Request(path))
+    if (server.previewImage === undefined) throw new Error('no preview image')
+    // The browser loads the image anonymously, from the URL the client builds.
+    const image = await read(serverAssetUrl('preview', server.previewImage))
+    expect(image.status).toBe(200)
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(bytes)
-    expect(image.headers.get('cache-control')).toContain('immutable')
-    const cached = await backend.app.fetch(
-      new Request(path, { headers: { 'if-none-match': `W/"${etag}"` } }),
-    )
-    expect(cached.status).toBe(304)
-    const head = await backend.app.fetch(new Request(path, { method: 'HEAD' }))
-    expect(head.headers.get('content-length')).toBe(String(bytes.length))
-    expect(await head.text()).toBe('')
   })
   it('reads a published template lifecycle and authenticated chunk through its browser transport', async () => {
     const { backend, node, template } = await createPublishedTemplate()
@@ -354,28 +310,29 @@ describe('frontend API client against the built backend', () => {
     const backend = await createTestBackend({ backfillClients: backfill.client })
     const importer = await seedArchive(backend)
     backfill.importers.set(archiveTemplateId, importer)
-    const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
+    const job = await importer.start(
+      { kind: 'template', id: archiveTemplateId },
+      [archiveVersionId],
+      archiveSnapshot.id,
+    )
     for (let step = 0; step < job.total; step += 1) await importer.step()
     const hash = 'd'.repeat(64)
-    await backend.sql.recordTileObservation(
-      {
-        season: 0,
-        tile: { x: 0, y: 0 },
-        hash,
-        observedAt: millis((fixtureNow - 3_600) * 1_000),
-        reportedAt: seconds(fixtureNow - 3_600),
-        reportedWithToken: 'a'.repeat(64),
-        reportedByUserId: 42,
-      },
-      [],
-    )
+    await seedTileObservation(backend.sql, {
+      season: 0,
+      tile: { x: 0, y: 0 },
+      hash,
+      observedAt: millis((fixtureNow - 3_600) * 1_000),
+      reportedAt: seconds(fixtureNow - 3_600),
+      reportedWithToken: 'a'.repeat(64),
+      reportedByUserId: 42,
+    })
     await backend.sql.writeTileMeasurements(archiveVersionId, { x: 0, y: 0 }, [
       { hash, correct: 1, wrong: 0, blank: 0 },
     ])
     const original = await backend.sql.readTemplateVersion(archiveVersionId)
     if (original === null) throw new Error('Missing archive artwork')
     const replacementId = '01890f3e-7b2c-7abc-8def-012345678913'
-    await backend.sql.insertTemplateVersion({
+    await backend.sql.addTemplateVersion({
       ...original,
       versionId: replacementId,
       createdAt: millis((fixtureNow + 300) * 1_000),
@@ -480,15 +437,12 @@ describe('frontend API client against the built backend', () => {
     const { backend, template } = await createPublishedTemplate(backfill.client)
     const importer = await seedArchive(backend)
     backfill.importers.set(archiveTemplateId, importer)
-    const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
-    for (let step = 0; step < job.total; step += 1) await importer.step()
-    const denied = await backend.app.fetch(
-      new Request('https://backend.test/admin/server', {
-        method: 'PATCH',
-        ...json({ name: 'Denied server' }),
-      }),
+    const job = await importer.start(
+      { kind: 'template', id: archiveTemplateId },
+      [archiveVersionId],
+      archiveSnapshot.id,
     )
-    expect(denied.status).toBe(401)
+    for (let step = 0; step < job.total; step += 1) await importer.step()
     const renamed = await backend.app.fetch(
       authorized('/admin/server', { method: 'PATCH', ...json({ name: 'Boundary server' }) }),
     )

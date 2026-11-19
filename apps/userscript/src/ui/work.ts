@@ -8,7 +8,7 @@ import {
   type WorkCollection,
   workClaimants,
 } from '@caelestis/shared'
-import type { TemplateClaimsModel, TemplateTreeModel } from '@caelestis/ui/elements'
+import type { FavouritesModel, TemplateTreeModel } from '@caelestis/ui/elements'
 import { errorText } from '../error-text.js'
 import { isCurrentServerConnection, serverConnectionSignal } from '../server-connections.js'
 import { admittedManifest, manifestRows } from '../server-manifests.js'
@@ -52,7 +52,7 @@ const previewKey = (server: ServerConnection, surface: TemplateSurface): string 
 
 /** Aggregate template participants across admitted servers and local storage. Live revisions refresh remote claims. */
 export const workSectionModel = (surface: TemplateSurface, changed: () => void) => {
-  const templates = new Map<string, TemplateClaimsModel>()
+  const templates = new Map<string, FavouritesModel>()
   const errors: string[] = []
   const identity = accountIdentity()
   const painterId = identity?.wplaceUserId
@@ -167,24 +167,14 @@ export const withTemplateClaims = (
     return [
       {
         ...entry,
-        claims: participants,
+        favourites: participants,
         ...(showOtherClaims === undefined
           ? {}
           : { depth: 0, branches: [], parentKey: null, draggable: false }),
       },
     ]
   })
-  return {
-    ...tree,
-    entries:
-      showOtherClaims === undefined
-        ? entries
-        : entries.map((entry, index) =>
-            entry.type === 'row'
-              ? { ...entry, positionInSet: index + 1, setSize: entries.length }
-              : entry,
-          ),
-  }
+  return { ...tree, entries }
 }
 
 /** Apply a personal claim or an admin assignment, preserving every other painter's claim. */

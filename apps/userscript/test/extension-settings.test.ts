@@ -3,6 +3,7 @@ import { importStateModules } from './state-modules.js'
 
 const STATE_KEY = 'caelestis.state.v2'
 const SHARE_TILES_KEY = 'caelestis.setting.shareTiles'
+const SHIFT_PAINT_KEY = 'caelestis.setting.simulatedInput.shift-paint'
 
 /**
  * A tab or the popup: its modules over its own cache of one shared extension store. Writes reach
@@ -74,6 +75,22 @@ describe('global settings in the extension', () => {
     const loaded = (await extensionContext(store)).state.loadState()
 
     expect(loaded.shareTiles).toBe(false)
+  })
+
+  it('Dangerous switches flipped in a tab and the popup at once both stand', async () => {
+    const store = sharedStore({ simulatedInput: { 'cycle-colour': true } })
+    const tab = await extensionContext(store)
+    const popup = await extensionContext(store)
+    tab.state.loadState()
+
+    tab.state.setState({ simulatedInput: {} })
+    popup.state.storeSimulatedInput('shift-paint', true)
+    tab.adopt({ [SHIFT_PAINT_KEY]: store.get(SHIFT_PAINT_KEY) ?? null })
+
+    expect(tab.state.getState().simulatedInput).toEqual({ 'shift-paint': true })
+    expect((await extensionContext(store)).state.loadState().simulatedInput).toEqual({
+      'shift-paint': true,
+    })
   })
 
   it('a tab save keeps a popup switch it has not heard about yet', async () => {

@@ -6,6 +6,7 @@ import {
   parseDiscordInviteUrl,
   parseHomeCopy,
   parseServerAsset,
+  parseServerPresentation,
   serverAssetPath,
   sniffServerAssetContentType,
 } from './server-branding.js'
@@ -121,5 +122,30 @@ describe('server assets', () => {
     expect(serverAssetPath('logo', asset ?? { etag: '', contentType: 'image/png' })).toBe(
       `/server/assets/logo?v=${'a'.repeat(64)}`,
     )
+  })
+})
+
+describe('parseServerPresentation', () => {
+  it('drops branding a malicious server could turn into a script or a bad URL', () => {
+    expect(
+      parseServerPresentation({
+        discordInviteUrl: 'javascript:alert(1)',
+        homeCopy: '[x](javascript:alert(1))',
+        logoText: 'a\u0000b',
+        logoImage: { etag: '../../etc/passwd', contentType: 'image/png' },
+        previewImage: { etag: 'a'.repeat(64), contentType: 'image/svg+xml' },
+      }),
+    ).toEqual({})
+  })
+
+  it('keeps branding that passes the shared rules unchanged', () => {
+    const branded = {
+      discordInviteUrl: 'https://discord.gg/abc',
+      homeCopy: '## Hi\n\n[Join](https://example.com)',
+      logoText: 'Allies',
+      logoImage: { etag: 'a'.repeat(64), contentType: 'image/png' as const },
+      previewImage: { etag: 'b'.repeat(64), contentType: 'image/webp' as const },
+    }
+    expect(parseServerPresentation(branded)).toEqual(branded)
   })
 })

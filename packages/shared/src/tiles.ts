@@ -1,4 +1,5 @@
 import type { BoundingBox } from './manifest.js'
+import { parseWholeNumber } from './numbers.js'
 
 /**
  * wplace serves the world canvas as PNG tiles from
@@ -33,23 +34,14 @@ export type TileKey = `${number}/${number}`
 
 export const tileKey = (t: TileCoord): TileKey => `${t.x}/${t.y}`
 
-/**
- * Matched against each segment rather than parsing with `Number`, which accepts far too much:
- * `Number('')` is 0, so an empty segment would silently become tile 0, and `Number(' 1')` and
- * `Number('1e3')` both parse cleanly into coordinates nobody wrote.
- */
-const CANONICAL_NON_NEGATIVE_INTEGER = /^(0|[1-9]\d*)$/
-
 export const parseTileKey = (key: string): TileCoord | null => {
   const parts = key.split('/')
   if (parts.length !== 2) return null
 
-  const [x, y] = parts
-  if (x === undefined || y === undefined) return null
-  if (!CANONICAL_NON_NEGATIVE_INTEGER.test(x) || !CANONICAL_NON_NEGATIVE_INTEGER.test(y))
-    return null
+  const [x, y] = parts.map(parseWholeNumber)
+  if (x == null || y == null) return null
 
-  const tile = { x: Number(x), y: Number(y) }
+  const tile = { x, y }
   if (tile.x >= WORLD_TILES || tile.y >= WORLD_TILES) return null
   return tile
 }
@@ -66,13 +58,28 @@ export const WORLD_TILES = 2 ** CANVAS_ZOOM
 /** Number of pixels on each edge of the world canvas. */
 export const WORLD_PIXELS = WORLD_TILES * TILE_SIZE
 
-/** The world-pixel rectangle captured for each template timelapse. */
-export interface TimelapseCaptureRect {
+/** A rectangle in world pixels. */
+export interface CanvasRect {
   readonly x: number
   readonly y: number
   readonly width: number
   readonly height: number
 }
+
+/**
+ * Bounds as a drawable rectangle. `maxX <= minX` means the artwork wraps through longitude zero; the
+ * rectangle is unrolled past the seam so drawing stays a single translate, and tile lookups fold x
+ * back into the world.
+ */
+export const boundsRect = (bounds: BoundingBox): CanvasRect => ({
+  x: bounds.minX,
+  y: bounds.minY,
+  width:
+    bounds.maxX > bounds.minX
+      ? bounds.maxX - bounds.minX
+      : bounds.maxX + WORLD_PIXELS - bounds.minX,
+  height: bounds.maxY - bounds.minY,
+})
 
 export const TIMELAPSE_ASPECT_RATIO = 16 / 9
 
@@ -80,15 +87,12 @@ export const TIMELAPSE_ASPECT_RATIO = 16 / 9
 export const MAX_TIMELAPSE_CAPTURE_TILES = 1_000
 
 /** Centre the template in the smallest 16:9 rectangle that fully contains its painted bounds. */
-export const timelapseCaptureRect = (bounds: BoundingBox): TimelapseCaptureRect => {
-  const templateWidth =
-    bounds.maxX > bounds.minX ? bounds.maxX - bounds.minX : bounds.maxX + WORLD_PIXELS - bounds.minX
-  const templateHeight = bounds.maxY - bounds.minY
-  const width = Math.max(templateWidth, templateHeight * TIMELAPSE_ASPECT_RATIO)
-  const unclampedHeight = width / TIMELAPSE_ASPECT_RATIO
-  const height = Math.min(unclampedHeight, WORLD_PIXELS)
-  const x = bounds.minX + templateWidth / 2 - width / 2
-  const centredY = bounds.minY + templateHeight / 2 - height / 2
+export const timelapseCaptureRect = (bounds: BoundingBox): CanvasRect => {
+  const art = boundsRect(bounds)
+  const width = Math.max(art.width, art.height * TIMELAPSE_ASPECT_RATIO)
+  const height = Math.min(width / TIMELAPSE_ASPECT_RATIO, WORLD_PIXELS)
+  const x = art.x + art.width / 2 - width / 2
+  const centredY = art.y + art.height / 2 - height / 2
   const y = clamp(centredY, 0, WORLD_PIXELS - height)
   return { x, y, width, height }
 }
@@ -141,6 +145,43 @@ export const planTimelapseTiles = (templates: readonly BoundingBox[]): TileCoord
     }
   }
   return [...planned.values()]
+}
+
+/** A template chunk's rectangle in tile-local pixels. */
+export interface ChunkRect {
+  readonly left: number
+  readonly top: number
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * Where a template's bounds cross one canvas tile, or null when they miss it. A box whose `maxX`
+ * is not past its `minX` wraps the antimeridian, as `timelapseCaptureRect` reads it.
+ */
+export const chunkRect = (bounds: BoundingBox, tile: TileCoord): ChunkRect | null => {
+  const tileLeft = tile.x * TILE_SIZE
+  const tileTop = tile.y * TILE_SIZE
+  const spans =
+    bounds.minX < bounds.maxX
+      ? [{ start: bounds.minX, end: bounds.maxX }]
+      : [
+          { start: bounds.minX, end: WORLD_PIXELS },
+          { start: 0, end: bounds.maxX },
+        ]
+  const span = spans.find(({ start, end }) => start < tileLeft + TILE_SIZE && end > tileLeft)
+  if (span === undefined) return null
+  const startX = Math.max(span.start, tileLeft)
+  const endX = Math.min(span.end, tileLeft + TILE_SIZE)
+  const startY = Math.max(bounds.minY, tileTop)
+  const endY = Math.min(bounds.maxY, tileTop + TILE_SIZE)
+  if (startX >= endX || startY >= endY) return null
+  return {
+    left: startX - tileLeft,
+    top: startY - tileTop,
+    width: endX - startX,
+    height: endY - startY,
+  }
 }
 
 const DEGREES_PER_RADIAN = 180 / Math.PI

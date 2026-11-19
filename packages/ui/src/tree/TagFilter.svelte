@@ -1,8 +1,9 @@
 <script lang="ts">
   import MenuStyles from '../foundations/MenuStyles.svelte'
-  import { onMount, tick } from 'svelte'
-  import type { TemplateTreeModel } from '../types.js'
+  import { tick } from 'svelte'
+  import type { TemplateTreeModel } from './model.js'
   import Icon from '../foundations/Icon.svelte'
+  import { anchorPopover } from '../foundations/popover.js'
 
   let { options, selected, active, onChange }: {
     options: NonNullable<TemplateTreeModel['tagOptions']>
@@ -17,21 +18,17 @@
   let query = $state('')
   let open = $state(false)
   let current = $state(0)
-  let left = $state(0)
-  let top = $state(0)
   let width = $state(0)
+  let placement: ReturnType<typeof anchorPopover> | undefined
   const available = $derived(options.filter(option => !selected.includes(option.id) && option.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())))
   const optionId = (index: number) => `${id}-option-${index}`
   const close = (): void => { open = false; list?.hidePopover() }
   const show = (): void => {
-    if (!active) return
-    const rect = box.getBoundingClientRect()
-    left = rect.left
-    width = rect.width
-    top = rect.bottom + 4
+    if (!active || open) return
+    width = box.getBoundingClientRect().width
     open = true
     list.showPopover()
-    if (top + list.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - list.offsetHeight - 4)
+    placement = anchorPopover(list, { anchor: () => box.getBoundingClientRect(), gap: 4 })
   }
   const select = (tagId: string): void => {
     onChange([...selected, tagId])
@@ -65,18 +62,12 @@
     } else if (event.key === 'Tab') close()
   }
   $effect(() => { if (!active) { query = ''; close() } })
-  $effect(() => { selected; query; if (open) void tick().then(() => { if (open) show() }) })
-  onMount(() => {
-    const scope = box.getRootNode()
-    const scroll = (event: Event): void => { if (!event.composedPath().includes(list)) close() }
-    scope.addEventListener('scroll', scroll, true)
-    return () => scope.removeEventListener('scroll', scroll, true)
-  })
+  // Chips added or removed move the box the list hangs from.
+  $effect(() => { selected; if (open) void tick().then(() => placement?.place()) })
+  $effect(() => () => placement?.stop())
 </script>
 
 <MenuStyles />
-
-<svelte:window onresize={close} />
 <div class="tag-filter" onfocusout={(event) => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) close() }}>
   <label class="title" for={id}>Tags</label>
   <div class="box caelestis-field" bind:this={box}>
@@ -89,7 +80,7 @@
     {/each}
     <input bind:this={input} id={id} role="combobox" aria-label="Search tags" aria-expanded={open} aria-controls={`${id}-list`} aria-autocomplete="list" aria-activedescendant={open && available[current] !== undefined ? optionId(current) : undefined} autocomplete="off" placeholder="Search tags..." bind:value={query} onfocus={show} oninput={() => { current = 0; show() }} onkeydown={keydown} />
   </div>
-  <div bind:this={list} id={`${id}-list`} class="suggestions caelestis-menu" popover="manual" role="listbox" aria-label="Tags" aria-multiselectable="true" style:left={`${left}px`} style:top={`${top}px`} style:width={`${width}px`}>
+  <div bind:this={list} id={`${id}-list`} class="suggestions caelestis-menu" popover="manual" role="listbox" aria-label="Tags" aria-multiselectable="true" style:width={`${width}px`}>
     {#each available as option, index (option.id)}
       <button id={optionId(index)} class="caelestis-menu-item" class:highlighted={index === current} type="button" role="option" aria-selected="false" tabindex="-1" onpointerdown={(event) => event.preventDefault()} onclick={() => select(option.id)}>
         <span>{option.name}</span><small>{option.owner}</small>
@@ -101,7 +92,7 @@
 <style>
   .tag-filter { min-inline-size: 0; padding: 0.625rem 0.25rem 0.25rem; }
   .title { display: block; margin: 0 0.5rem 0.375rem; color: var(--caelestis-muted-text); font-size: 0.75rem; font-weight: 600; }
-  .box { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-block-size: 2.25rem; padding: 0.375rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-field-radius, 0.5rem); background: var(--caelestis-surface); }
+  .box { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; min-block-size: 2.25rem; padding: 0.375rem; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius); background: var(--caelestis-surface); }
   .box:focus-within { outline: 2px solid var(--caelestis-focus); outline-offset: 1px; }
   .chip { display: inline-flex; align-items: center; max-inline-size: 100%; padding-inline-start: 0.375rem; border-radius: 0.25rem; background: var(--caelestis-raised-surface); font-size: 0.75rem; }
   .chip > span { overflow-wrap: anywhere; min-inline-size: 0; }

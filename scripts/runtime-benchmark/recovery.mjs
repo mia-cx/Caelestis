@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -19,21 +20,23 @@ for (const claims of [37, 512]) {
     for (const variant of pair % 2 ? ['candidate', 'baseline'] : ['baseline', 'candidate']) {
       const root = resolve(variant === 'baseline' ? baseline : candidate)
       const load = (file) => import(pathToFileURL(`${root}/${file}`).href)
-      const [
-        { PresenceCoordinator },
-        { sqliteConnection },
-        { RelationalSqlStore },
-        { IngestTimings },
-      ] = await Promise.all([
-        load('presence-coordinator.js'),
-        load('node/database.js'),
-        load('adapters/relational-sql-store.js'),
-        load('telemetry/ingest-timing.js'),
-      ])
+      // Builds that predate the per-feature split keep these modules at their old paths, and their
+      // coordinator takes no room identity or revocation routing.
+      const featureLayout = existsSync(`${root}/presence/coordinator.js`)
+      const coordinatorFile = featureLayout ? 'presence/coordinator.js' : 'presence-coordinator.js'
+      const [{ PresenceCoordinator }, { sqliteConnection }, relational, { IngestTimings }] =
+        await Promise.all([
+          load(coordinatorFile),
+          load('node/database.js'),
+          load('adapters/relational-sql-store.js'),
+          load(featureLayout ? 'metrics/ingest-timing.js' : 'telemetry/ingest-timing.js'),
+        ])
       const database = sqliteConnection(':memory:')
       try {
         database.migrate(resolve('apps/backend/migrations'))
-        const sql = new RelationalSqlStore(database)
+        // Baseline builds that predate the per-feature split export the class instead.
+        const sql =
+          relational.relationalSqlStore?.(database) ?? new relational.RelationalSqlStore(database)
         const expected = []
         for (let index = 0; index < claims; index++) {
           const id = `00000000-0000-7000-8000-${String(index).padStart(12, '0')}`
@@ -101,18 +104,17 @@ for (const claims of [37, 512]) {
             }
           })
           const timings = new IngestTimings()
-          const room = new PresenceCoordinator(
-            {
-              getWebSockets: () => sockets,
-              storage: {
-                get: async () => undefined,
-                getAlarm: async () => null,
-                setAlarm: async () => {},
-              },
+          const host = {
+            getWebSockets: () => sockets,
+            storage: {
+              get: async () => undefined,
+              getAlarm: async () => null,
+              setAlarm: async () => {},
             },
-            sql,
-            timings,
-          )
+          }
+          const room = featureLayout
+            ? new PresenceCoordinator(host, { season: 0, surface }, sql, timings, async () => {})
+            : new PresenceCoordinator(host, sql, timings)
           const cpu = process.cpuUsage()
           const started = performance.now()
           await room.alarm()
@@ -150,7 +152,7 @@ for (const claims of [37, 512]) {
           runtime: process.versions,
           samples,
           coordinatorSha256: createHash('sha256')
-            .update(await readFile(`${root}/presence-coordinator.js`))
+            .update(await readFile(`${root}/${coordinatorFile}`))
             .digest('hex'),
           correctness: true,
         })

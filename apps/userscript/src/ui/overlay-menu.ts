@@ -4,11 +4,7 @@ import {
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type {
-  CaelestisRailControl,
-  OverlayControlsIntent,
-  RailControlModel,
-} from '@caelestis/ui/elements'
+import type { RailControlModel } from '@caelestis/ui/elements'
 import {
   closeSurface,
   openSurface,
@@ -39,7 +35,6 @@ import {
 } from '../templates/move.js'
 import { OPEN_DIALOG } from '../wplace-dom.js'
 import { handleAppearanceIntent } from './appearance.js'
-import { deepActiveElement } from './focus.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import {
   actionIds,
@@ -61,7 +56,7 @@ import {
   writtenIds,
 } from './overlay-writes.js'
 import { allianceRailTop } from './panel-scope.js'
-import { mountRailButton } from './rail-button.js'
+import { mountRailButton, type RailControl } from './rail-button.js'
 import { createRangeGestures } from './range-gestures.js'
 import { requestTemplateArtworkUpdate } from './template-artwork-update.js'
 import { applyWplaceTheme } from './theme.js'
@@ -341,11 +336,11 @@ let focusRequest: string | null = null
  * `getElementById` every frame would let it substitute a convincing fake in the exact spot the
  * user expects a control.
  */
-const buttons = new Map<string, CaelestisRailControl>()
+const buttons = new Map<string, RailControl>()
 
 interface PlacementRail {
-  readonly apply: CaelestisRailControl
-  readonly cancel: CaelestisRailControl
+  readonly apply: RailControl
+  readonly cancel: RailControl
 }
 
 const placementRails = new Map<string, PlacementRail>()
@@ -360,9 +355,10 @@ let controlSurface: string | null = null
 let lastRerender: (() => void) | null = null
 const rangeGestures = createRangeGestures()
 
-const isAnyColourPickerOpen = (): boolean =>
-  (menuNode?.shadowRoot?.querySelector('[data-caelestis-colour-picker]:popover-open') ?? null) !==
-  null
+/** Whether a colour picker in the menu is open, as the menu last reported. */
+let colourPickerOpen = false
+/** The menu control that last took focus, as the menu reported it, so a rebuild can restore it. */
+let menuFocusedControl: string | null = null
 
 /**
  * Still on the page.
@@ -409,8 +405,8 @@ const overlayRailControl = (
   model: RailControlModel,
   control: string,
   activate: () => void,
-): CaelestisRailControl => {
-  const element = mountRailButton({ model, activate, hostClick: true })
+): RailControl => {
+  const element = mountRailButton({ model, activate })
   element.dataset[CONTROL] = control
   Object.assign(element.style, {
     position: 'fixed',
@@ -459,8 +455,7 @@ const menuHost = (rerender: () => void): MenuHost => ({
   close: closeOverlayMenu,
   handBack,
   refocus: (id, control) => {
-    if (openFor === id && menuOwner === id && menuNode !== null)
-      focusControl(builtControl(menuNode, control))
+    if (openFor === id && menuOwner === id && menuNode !== null) railAction(control)?.focus()
   },
 })
 
@@ -476,22 +471,35 @@ interface BuiltOverlayMenu {
   readonly actions: readonly HTMLElement[]
 }
 
-/** Svelte owns the visible menu and its separately positioned action rail. */
-const buildMenu = (template: PlacedTemplate, rerender: () => void): BuiltOverlayMenu => {
+/**
+ * Svelte owns the visible menu and its separately positioned action rail. `focus` names the
+ * control that should hold the keyboard once the rebuilt menu mounts.
+ */
+const buildMenu = (
+  template: PlacedTemplate,
+  rerender: () => void,
+  focus: string | null,
+): BuiltOverlayMenu => {
   const { id } = template
-  const actions = overlayActions(template, menuHost(rerender)).map(
-    ({ model, control, activate }) => {
-      const action = overlayRailControl(model, control, activate)
-      action.setAttribute('data-caelestis-rail-action', '')
-      return action
-    },
-  )
+  const specs = overlayActions(template, menuHost(rerender))
+  const actions = specs.map(({ model, control, activate }) => {
+    const action = overlayRailControl(model, control, activate)
+    action.dataset.enter = 'drop'
+    return action
+  })
   const menu = document.createElement('caelestis-overlay-controls')
   menu.id = MENU_ID
   menu.dataset.caelestisTemplate = id
   menu.setAttribute('role', 'dialog')
   menu.setAttribute('aria-label', `${template.name} display options`)
-  menu.model = overlayModel(template)
+  // Rail actions sit outside the menu, so a request for one gives the menu no focus. `'close'` asks
+  // for the close button, which is always there and never disabled. A remembered menu control is
+  // keyed by position: if a control before it left in the meantime (a slider only some appearances
+  // have), focus lands on the control now in that position, or on Close when none is.
+  menu.model =
+    focus === null || specs.some((spec) => spec.control === focus)
+      ? overlayModel(template)
+      : { ...overlayModel(template), focus }
   Object.assign(menu.style, {
     position: 'fixed',
     zIndex: MENU_Z,
@@ -515,9 +523,12 @@ const buildMenu = (template: PlacedTemplate, rerender: () => void): BuiltOverlay
       else menuBox.height = window.innerHeight
       rerender()
     },
+    picker: (open: boolean) => {
+      colourPickerOpen = open
+    },
   }
-  menu.addEventListener('caelestis-overlay-intent', (event) => {
-    const intent = (event as CustomEvent<OverlayControlsIntent>).detail
+  menu.addEventListener('caelestis-overlay-controls-intent', (event) => {
+    const intent = event.detail
     switch (intent.type) {
       case 'update-artwork':
         requestTemplateArtworkUpdate(id, rerender)
@@ -527,6 +538,9 @@ const buildMenu = (template: PlacedTemplate, rerender: () => void): BuiltOverlay
         break
       case 'appearance':
         handleAppearanceIntent(appearance, intent.intent)
+        break
+      case 'focus':
+        menuFocusedControl = intent.control
         break
     }
   })
@@ -613,8 +627,7 @@ export const refreshOverlayMenu = (): void => {
  */
 const handBack = (id: string): void => {
   if (isMoving()) return
-  const button = buttons.get(id)
-  ;(button?.shadowRoot?.querySelector<HTMLButtonElement>('button') ?? button)?.focus()
+  buttons.get(id)?.focus()
 }
 
 const removeRailActions = (): void => {
@@ -625,13 +638,13 @@ const removeRailActions = (): void => {
 const placementModels = (finishing: boolean) =>
   ({
     apply: {
-      id: 'placement-apply',
+      icon: 'check',
       label: 'Apply template position',
       pressed: true,
       disabled: finishing,
     },
     cancel: {
-      id: 'placement-cancel',
+      icon: 'close',
       label: 'Cancel template move',
       pressed: false,
       disabled: finishing,
@@ -650,13 +663,13 @@ const placementRailFor = (id: string, host: HTMLElement): PlacementRail => {
     model: RailControlModel,
     control: string,
     finish: () => Promise<unknown>,
-  ): CaelestisRailControl => {
+  ): RailControl => {
     const action = overlayRailControl(model, control, () => {
       if (movingId() !== id || isFinishing()) return
       void finish()
       lastRerender?.()
     })
-    action.setAttribute('data-caelestis-placement-action', '')
+    action.dataset.enter = 'pop'
     return action
   }
   const rail = {
@@ -740,27 +753,12 @@ const sweepControls = (live: ReadonlySet<string>): void => {
   if (openFor !== null && !live.has(openFor)) closeOverlayMenu()
 }
 
-/** The control carrying `key`, found by scanning rather than by building a selector from it. */
-const controlIn = (menu: HTMLElement, key: string): HTMLElement | null => {
-  const root = menu.shadowRoot
-  for (const scope of root === null ? [menu] : [menu, root]) {
-    for (const candidate of scope.querySelectorAll('[data-caelestis-control]')) {
-      if (candidate instanceof HTMLElement && candidate.dataset[CONTROL] === key) return candidate
-    }
-  }
-  return key === 'close' ? (root?.querySelector<HTMLElement>('[aria-label="Close"]') ?? null) : null
-}
-
-const builtControl = (menu: HTMLElement, key: string): HTMLElement | null =>
-  controlIn(menu, key) ?? railActions.find((action) => action.dataset[CONTROL] === key) ?? null
-
-const focusControl = (control: HTMLElement | null): void => {
-  const target = control?.shadowRoot?.querySelector<HTMLElement>('[data-caelestis-control], button')
-  ;(target ?? control)?.focus()
-}
+/** The rail action built for `key`; rail controls delegate focus to their button. */
+const railAction = (key: string | null): HTMLElement | undefined =>
+  key === null ? undefined : railActions.find((action) => action.dataset[CONTROL] === key)
 
 const gearModel = (template: PlacedTemplate): RailControlModel => ({
-  id: 'overlay-menu',
+  icon: 'kebab',
   label: `${template.name} display options`,
   pressed: openFor === template.id,
   expanded: openFor === template.id,
@@ -772,7 +770,7 @@ const mountGear = (
   template: PlacedTemplate,
   host: HTMLElement,
   rerender: () => void,
-): CaelestisRailControl => {
+): RailControl => {
   const { id } = template
   const gear = overlayRailControl(gearModel(template), 'open-menu', () => {
     if (openFor === id) dismiss(id, rerender)
@@ -826,7 +824,7 @@ const syncMenu = (template: PlacedTemplate, host: HTMLElement, rerender: () => v
     // *Any* of them: two pointers can be down at once on a touch device, and rebuilding when the
     // first is released takes the second one's element away mid-gesture. The picker lives outside
     // the menu, but its anchor is inside it and must remain attached for the same duration.
-    (rangeGestures.isHeldWithin(menuNode) || isAnyColourPickerOpen())
+    (rangeGestures.isHeldWithin(menuNode) || colourPickerOpen)
   if (dragging || (!stale && menuNode?.dataset.caelestisSignature === signature)) return
   // Rebuilt from state, never patched, and never carrying a node over: the menu's structure depends
   // on what it draws, and anything kept in the old element is either lost or, worse, re-parented
@@ -837,17 +835,22 @@ const syncMenu = (template: PlacedTemplate, host: HTMLElement, rerender: () => v
   const opening = previous === null || previousOwner !== template.id || !onPage(previous)
   // Sampled before anything is discarded: removing the node takes the keyboard with it.
   const scrollTop = previous?.scrollTop ?? 0
-  const active = deepActiveElement()
+  const focusedAction = railActions.find((action) => action.contains(document.activeElement))
   const focusedKey =
-    active !== null &&
-    (rangeGestures.isHeldWithin(previous) ||
-      previous?.contains(document.activeElement) === true ||
-      railActions.some((action) => action.contains(document.activeElement)))
-      ? (active.dataset[CONTROL] ?? null)
-      : null
+    focusedAction !== undefined
+      ? (focusedAction.dataset[CONTROL] ?? null)
+      : rangeGestures.isHeldWithin(previous) || previous?.contains(document.activeElement)
+        ? menuFocusedControl
+        : null
+  // Focus this module *asks* for is dropped while something is being placed; focus it merely finds
+  // is kept. An action that asks (opening the delete question) can be deferred by a held slider,
+  // which suppresses the rebuild that would consume it, and a placement can begin in the meantime.
+  // Applying it then is this module moving the keyboard off a running placement, which is not the
+  // same as the user having left it inside the menu.
+  const wanted = (isMoving() ? null : focusRequest) ?? focusedKey
   previous?.remove()
   removeRailActions()
-  const built = buildMenu(template, rerender)
+  const built = buildMenu(template, rerender, wanted)
   const menu = built.menu
   menuNode = menu
   railActions = [...built.actions]
@@ -863,7 +866,7 @@ const syncMenu = (template: PlacedTemplate, host: HTMLElement, rerender: () => v
   if (opening) {
     openSurface(menu)
     for (const [index, action] of railActions.entries()) {
-      action.style.setProperty('--rail-action-index', String(index))
+      action.style.setProperty('--stagger-index', String(index))
       openSurface(action)
     }
   }
@@ -876,23 +879,13 @@ const syncMenu = (template: PlacedTemplate, host: HTMLElement, rerender: () => v
     rerender()
   }, 0)
   menu.scrollTop = scrollTop
-  // Focus this module *asks* for is dropped while something is being placed; focus it merely finds
-  // is kept. An action that asks (opening the delete question) can be deferred by a held slider,
-  // which suppresses the rebuild that would consume it, and a placement can begin in the meantime.
-  // Applying it then is this module moving the keyboard off a running placement, which is not the
-  // same as the user having left it inside the menu.
-  const wanted = (isMoving() ? null : focusRequest) ?? focusedKey
-  // A control can leave between the request and the rebuild (a slider that only exists for some
-  // appearances, a Hide disabled by a delete). The header close button is always there and never
-  // disabled, so it is where the keyboard lands when what was asked for has gone.
+  // The menu focuses a control it owns as it mounts; a rail action is focused here, again once its
+  // shadow content has rendered.
   const restore = (): void => {
     if (menuNode === null || menuOwner !== template.id) return
-    focusControl(
-      wanted === null ? null : (builtControl(menuNode, wanted) ?? controlIn(menuNode, 'close')),
-    )
+    railAction(wanted)?.focus()
   }
   restore()
-  // Again once the element has rendered, for a control its first render had not produced yet.
   if (wanted !== null) setTimeout(restore, 0)
   focusRequest = null
 }
@@ -932,7 +925,7 @@ const renderFrame = (
     openFor !== null &&
     menuNode !== null &&
     !rangeGestures.isHeldWithin(menuNode) &&
-    !isAnyColourPickerOpen()
+    !colourPickerOpen
   )
     flush(openFor)
   // While something is being placed, the keyboard is not on a gear.

@@ -13,6 +13,10 @@
       "types": "./dist/elements/index.d.ts",
       "default": "./dist/elements/index.js"
     },
+    "./studio": {
+      "types": "./dist/studio/index.d.ts",
+      "default": "./dist/studio/index.js"
+    },
     "./theme": {
       "types": "./dist/theme.d.ts",
       "default": "./dist/theme.js"
@@ -38,6 +42,7 @@
     "@iconify-icons/simple-icons": "^2.0.9"
   },
   "peerDependencies": {
+    "ditherette": "1.0.3",
     "svelte": "^5.57.3"
   },
   "devDependencies": {

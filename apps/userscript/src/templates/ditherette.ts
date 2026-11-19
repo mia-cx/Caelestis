@@ -2,7 +2,7 @@ import gpuWasm from 'ditherette:gpu-wasm'
 import scalarWasm from 'ditherette:scalar-wasm'
 import workerSource from 'ditherette:worker'
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
-import type { Samples } from '@caelestis/ui/elements'
+import type { Samples } from '@caelestis/ui/studio'
 import type { Curve, Progress, Rgba8Image } from 'ditherette'
 import { warn } from '../debug.js'
 import {

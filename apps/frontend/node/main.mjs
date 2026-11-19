@@ -1,3 +1,4 @@
+import { BACKEND_MOUNT } from '@caelestis/shared'
 import { nodeObjectStorage } from '@caelestis/storage/node'
 import { createFrontendServer, ORIGIN_PROTOCOL_HEADER } from './server.mjs'
 
@@ -8,7 +9,7 @@ const { handler } = await import('../build/handler.js')
 
 const objects = nodeObjectStorage(process.env)
 const { server, close } = createFrontendServer(handler, {
-  backend: process.env.CAELESTIS_SERVER ?? 'http://backend:3000/backend',
+  backend: process.env.CAELESTIS_SERVER ?? `http://backend:3000${BACKEND_MOUNT}`,
   readToken: process.env.CAELESTIS_READ_TOKEN,
   objects,
   origin,

@@ -9,18 +9,20 @@ import {
 } from '@caelestis/shared'
 import { expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../src/adapters/memory/memory-counter-store.js'
-import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { openMemoryStores } from '../src/node/memory-stores.js'
+import type { SqlStore } from '../src/ports/sql-store.js'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
-import { offerTilesWithOutcome, type TileMetadata, uploadTile } from '../src/telemetry/ingest.js'
-import { openRelationalStore } from './support/relational.js'
+import { RelationalTileBlobStore } from '../src/telemetry/blobs/relational.js'
+import { offerTiles, type TileMetadata, uploadTile } from '../src/telemetry/ingest.js'
+import { RelationalTileStore } from '../src/telemetry/tiles/relational.js'
 
-const seed = async (sql: RelationalSqlStore, blobs: MemoryBlobStore) => {
+const seed = async (sql: SqlStore, blobs: MemoryBlobStore) => {
   const at = Math.floor(Date.now() / 1000) - 10
   const chunk = await encodeIndexedPng(2, 1, new Uint8Array([1, 1]))
   const chunkHash = await sha256Hex(chunk)
   await blobs.put('chunks', chunkHash, chunk)
-  await sql.insertTemplateVersion({
+  await sql.createTemplate({
     templateId: uuidV7(),
     versionId: uuidV7(),
     surface: WORLD_TEMPLATE_SURFACE,
@@ -62,36 +64,37 @@ const seed = async (sql: RelationalSqlStore, blobs: MemoryBlobStore) => {
 it.each(['before-put', 'before-commit'])(
   'shares uploaded bytes between reporters overlapping %s',
   async (phase) => {
-    const opened = await openRelationalStore()
     const gate = Promise.withResolvers<void>()
     const entered = Promise.withResolvers<void>()
     const reserved = Promise.withResolvers<void>()
     let reservations = 0
     let commits = 0
     let tilePuts = 0
-    class DelayedStore extends RelationalSqlStore {
+    class DelayedStore extends RelationalTileBlobStore {
       override async reserveTileBlobUpload(
-        ...args: Parameters<RelationalSqlStore['reserveTileBlobUpload']>
+        ...args: Parameters<RelationalTileBlobStore['reserveTileBlobUpload']>
       ) {
         const value = await super.reserveTileBlobUpload(...args)
         if (++reservations === 2) reserved.resolve()
         return value
       }
-      override async readTileBlob(...args: Parameters<RelationalSqlStore['readTileBlob']>) {
+      override async readTileBlob(...args: Parameters<RelationalTileBlobStore['readTileBlob']>) {
         if (phase === 'before-put') {
           entered.resolve()
           await gate.promise
         }
         return super.readTileBlob(...args)
       }
-      override async commitTileBlobReservation(
-        ...args: Parameters<RelationalSqlStore['commitTileBlobReservation']>
+    }
+    class DelayedCommits extends RelationalTileStore {
+      override async commitTileObservation(
+        ...args: Parameters<RelationalTileStore['commitTileObservation']>
       ) {
         if (phase === 'before-commit' && ++commits === 1) {
           entered.resolve()
           await gate.promise
         }
-        return super.commitTileBlobReservation(...args)
+        return super.commitTileObservation(...args)
       }
     }
     class CountingObjects extends MemoryBlobStore {
@@ -100,14 +103,16 @@ it.each(['before-put', 'before-commit'])(
         return super.put(...args)
       }
     }
+    const opened = await openMemoryStores({
+      sql: (connection) =>
+        relationalSqlStore(connection, { tileBlobs: DelayedStore, tiles: DelayedCommits }),
+    })
     const pending: Promise<unknown>[] = []
     try {
-      const sql = new DelayedStore(opened.connection)
+      const { sql, counters } = opened
       const blobs = new CountingObjects()
       const { bytes, metadata, history } = await seed(sql, blobs)
-      const runtime = createBackendRuntime(
-        makeBackendContext(blobs, sql, new MemoryCounterStore(sql)),
-      )
+      const runtime = createBackendRuntime(makeBackendContext(blobs, sql, counters))
       pending.push(runtime.run(uploadTile(metadata(1), bytes)))
       await entered.promise
       pending.push(runtime.run(uploadTile(metadata(2), bytes)))
@@ -126,14 +131,13 @@ it.each(['before-put', 'before-commit'])(
 )
 
 it('settles started offers before reporting batch failure and never starts queued offers', async () => {
-  const opened = await openRelationalStore()
   const gate = Promise.withResolvers<void>()
   const entered = Promise.withResolvers<void>()
   const started = new Set<number>()
   let delaying = false
-  class FailingTargets extends RelationalSqlStore {
+  class FailingTargets extends RelationalTileStore {
     override async listTelemetryTargets(
-      ...args: Parameters<RelationalSqlStore['listTelemetryTargets']>
+      ...args: Parameters<RelationalTileStore['listTelemetryTargets']>
     ) {
       if (delaying) {
         const x = args[1].x
@@ -145,14 +149,14 @@ it('settles started offers before reporting batch failure and never starts queue
       return super.listTelemetryTargets(...args)
     }
   }
+  const opened = await openMemoryStores({
+    sql: (connection) => relationalSqlStore(connection, { tiles: FailingTargets }),
+  })
   let batch: Promise<unknown> | undefined
   try {
-    const sql = new FailingTargets(opened.connection)
-    const blobs = new MemoryBlobStore()
+    const { sql, blobs, counters } = opened
     const { bytes, metadata, history } = await seed(sql, blobs)
-    const runtime = createBackendRuntime(
-      makeBackendContext(blobs, sql, new MemoryCounterStore(sql)),
-    )
+    const runtime = createBackendRuntime(makeBackendContext(blobs, sql, counters))
     await runtime.run(uploadTile(metadata(1), bytes))
     // Keep the offered hash stored but no longer current, so tile 0 must enter ingestion.
     const newerPixels = new Uint8Array(1_000_000).fill(TRANSPARENT_INDEX)
@@ -163,12 +167,16 @@ it('settles started offers before reporting batch failure and never starts queue
     let settled = false
     batch = runtime
       .run(
-        offerTilesWithOutcome(
-          Array.from({ length: 6 }, (_, x) => ({
-            key: `${x}/0`,
-            metadata: metadata(3, x),
+        offerTiles({
+          season: 3,
+          reporter: metadata(3),
+          includeUnpublished: true,
+          offers: Array.from({ length: 6 }, (_, x) => ({
+            tile: `${x}/0`,
+            sha256: metadata(3).hash,
+            ts: metadata(3).observedAt,
           })),
-        ),
+        }),
       )
       .then(
         () => {

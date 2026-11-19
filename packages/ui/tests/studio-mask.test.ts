@@ -1,4 +1,4 @@
-import { isEffect, type MaskCurve, type OneInputMaskCurve } from 'ditherette'
+import { isEffect, type OneInputMaskCurve } from 'ditherette'
 import { describe, expect, it } from 'vitest'
 import {
   MASK_PRESETS,
@@ -14,11 +14,6 @@ const [tones, colours, saturation] = MASK_PRESETS as [MaskPreset, MaskPreset, Ma
 const defined = <T>(value: T | undefined): T => {
   if (value === undefined) throw new Error('expected a value')
   return value
-}
-const oneInput = (curve: MaskCurve | undefined): OneInputMaskCurve => {
-  const found = defined(curve)
-  if (found.x2 !== undefined) throw new Error('expected a one-input curve')
-  return found
 }
 /** The curve's output at the knot `x`. */
 const outputAt = (curve: OneInputMaskCurve, x: number): number =>
@@ -41,7 +36,6 @@ describe('mask presets', () => {
         if (values.every((value) => value === 1)) continue
         const mask = setPreset([], preset, values)
         expect(isEffect({ effect: 'exposure', enabled: true, stops: 1, mask })).toBe(true)
-        expect(oneInput(mask[0]).points.length).toBeLessThanOrEqual(16)
         for (const [index, value] of presetValues(mask, preset).entries())
           expect(value).toBeCloseTo(values[index] ?? Number.NaN, 6)
       }

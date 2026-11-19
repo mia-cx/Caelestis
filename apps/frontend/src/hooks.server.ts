@@ -3,11 +3,12 @@ import { R2ObjectStorage } from '@caelestis/storage/r2'
 import type { Handle } from '@sveltejs/kit/hooks'
 import {
   DASHBOARD_ORIGIN,
+  DEV_TUNNEL_HOST,
   FORMER_DASHBOARD_ORIGIN,
-  leaveFormerHost,
-  MOVE_PATH,
-  receiveMove,
-} from '#lib/server/dashboard-move.js'
+  STORAGE_KEYS,
+  THEMES,
+} from '#lib/deployment.js'
+import { leaveFormerHost, MOVE_PATH, receiveMove } from '#lib/server/dashboard-move.js'
 import { dev } from '$app/env'
 
 /** The Caelestis docs site. Every dashboard forwards its `/docs` paths there. */
@@ -32,8 +33,14 @@ export const handle: Handle = ({ event, resolve }) => {
     node?.objectStorage ??
     (env.SOCIAL_IMAGES === undefined ? undefined : new R2ObjectStorage(env.SOCIAL_IMAGES))
   // Preserve the public HTTPS origin when cloudflared forwards to Vite over HTTP.
-  if (dev && event.url.hostname === 'caelestis-dev-frontend.mia.cx') {
+  if (dev && event.url.hostname === DEV_TUNNEL_HOST) {
     event.url.protocol = 'https:'
   }
-  return resolve(event)
+  return resolve(event, {
+    transformPageChunk: ({ html }) =>
+      html
+        .replace('%caelestis.theme-key%', STORAGE_KEYS.theme)
+        .replace('%caelestis.theme-light%', THEMES.light)
+        .replace('%caelestis.theme-dark%', THEMES.dark),
+  })
 }

@@ -122,14 +122,14 @@ const focusedTreeModel = (): { readonly focusedKey?: string } => {
 }
 
 /** The Painters drawer's model, which only the world canvas has. */
-export const presenceField = (): Pick<NonNullable<PanelModel['work']>, 'presence'> => {
+export const presenceField = (): Pick<NonNullable<PanelModel['drawers']>, 'presence'> => {
   if (host?.surface().kind !== 'world') return {}
   const presence = presenceSummaryModel()
   return presence === undefined ? {} : { presence }
 }
 
 /** Both trees' part of the panel model, rebuilding the claimed list only when its rows moved. */
-export const treeViewModel = (): Pick<PanelModel, 'tree' | 'work' | 'showOtherClaims'> => {
+export const treeViewModel = (): Pick<PanelModel, 'tree' | 'drawers'> => {
   if (active === null || host === null) return {}
   const { adapter, claims } = active
   const keys = [...claims.templates]
@@ -155,18 +155,18 @@ export const treeViewModel = (): Pick<PanelModel, 'tree' | 'work' | 'showOtherCl
     claimedStale = false
   }
   return {
-    showOtherClaims,
     tree: {
       ...withTemplateClaims(adapter.model, claims),
       ...focusedTreeModel(),
       ...treeActionPresentation(),
     },
-    work: {
+    drawers: {
       tree: {
         ...withTemplateClaims(claimed.adapter.model, claims, showOtherClaims),
         ...focusedTreeModel(),
       },
       canShowOthers: claims.canShowOthers,
+      showOthers: showOtherClaims,
       error: claims.error,
       ...presenceField(),
     },
@@ -217,7 +217,7 @@ const applyToolbarIntent = (intent: TemplateTreeIntent, view: TreeViewHost): boo
 /** One tree intent, from the main tree or the claimed list; only the main tree has a toolbar. */
 export const handleTreeIntent = (intent: TemplateTreeIntent, from: 'tree' | 'claimed'): void => {
   if (host === null) return
-  if (intent.type === 'template-claim') {
+  if (intent.type === 'favourite') {
     changeTemplateClaim(intent.key, host.surface(), host.rerender, intent.release, intent.person)
     return
   }

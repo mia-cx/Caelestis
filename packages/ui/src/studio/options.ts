@@ -28,19 +28,14 @@ export const RESIZE_MODES = [
   { id: 'area', label: 'Area / Box' },
 ] as const satisfies readonly { id: ResizeId; label: string }[]
 
-/** Which part of the source stays pinned when the output's proportions differ; Area ignores it. */
-export type ResizeAnchor =
-  | 'top-left'
-  | 'top'
-  | 'top-right'
-  | 'left'
-  | 'center'
-  | 'right'
-  | 'bottom-left'
-  | 'bottom'
-  | 'bottom-right'
+import type { ResizeAnchor } from './ditherette.js'
 
-/** Row-major, so arrow keys move by one across and three down. */
+/** Which part of the source stays pinned when the output's proportions differ; Area ignores it. */
+export type { ResizeAnchor }
+
+/** A square grid this many across and down. */
+export const ANCHOR_COLUMNS = 3
+/** Row-major, so arrow keys move by one across and `ANCHOR_COLUMNS` down. */
 export const ANCHORS = [
   { id: 'top-left', label: 'Top left' },
   { id: 'top', label: 'Top' },

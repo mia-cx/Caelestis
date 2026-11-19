@@ -18,6 +18,7 @@ import {
 import {
   APPEARANCE_CONTROLS,
   type Appearance,
+  appearanceSliders,
   DEFAULT_APPEARANCE,
   GROUP_FIELDS,
   PIXEL_STYLE_PRESETS,
@@ -49,9 +50,6 @@ const COLOUR_PRESETS: readonly (readonly [ColourPresetId, string])[] = [
 const isColourPreset = (id: string): id is ColourPresetId =>
   COLOUR_PRESETS.some(([preset]) => preset === id)
 
-const sliderFormat = (key: (typeof APPEARANCE_CONTROLS)[number]['key']) =>
-  key === 'rotation' ? 'degrees' : key === 'contrastOutlineSize' ? 'decimal-pixels' : 'percent'
-
 interface AppearanceSource {
   /** The values on screen, any unsaved preview included. */
   readonly values: Appearance
@@ -79,19 +77,7 @@ export const appearanceEditorModel = ({
   const activePreset = activeColourPreset(values.hiddenColours)
   return {
     values,
-    sliders: APPEARANCE_CONTROLS.map((control) => ({
-      key: control.key,
-      label: control.label,
-      value: values[control.key],
-      defaultValue: defaults[control.key],
-      min: control.min,
-      max: control.max,
-      step: control.step,
-      format: sliderFormat(control.key),
-      ...(disabled || (control.key === 'contrastOutlineSize' && !values.contrastOutline)
-        ? { disabled: true }
-        : {}),
-    })),
+    sliders: appearanceSliders(values, defaults, disabled),
     pixelPresets: PIXEL_STYLE_PRESETS.map((preset) => ({
       id: preset.id,
       label: preset.label,
@@ -142,6 +128,8 @@ export interface AppearanceStore {
   readonly commit: (change: AppearanceChange) => void
   readonly toggleColour: (index: number, visible: boolean) => void
   readonly layout?: (settled: boolean) => void
+  /** A colour picker opened or closed; the host holds rebuilds while one is open. */
+  readonly picker?: (open: boolean) => void
   readonly onlySelectedColour?: (on: boolean) => void
   readonly markerBudget?: (budget: number) => void
   readonly groupOwned?: (group: AppearanceGroupKey, owned: boolean) => void
@@ -155,6 +143,9 @@ export const handleAppearanceIntent = (
   switch (intent.type) {
     case 'layout':
       store.layout?.(intent.settled === true)
+      break
+    case 'picker':
+      store.picker?.(intent.open)
       break
     case 'preview-number':
       store.preview(intent.key, intent.value)
@@ -215,6 +206,7 @@ export const surfaceAppearanceModel = (surface: TemplateSurface): AppearanceEdit
   const selected = selectedColour()
   const selectedColourName = selected === null ? undefined : WPLACE_PALETTE[selected]?.name
   return {
+    variant: 'defaults',
     ...appearanceEditorModel({
       values,
       defaults: DEFAULT_APPEARANCE,

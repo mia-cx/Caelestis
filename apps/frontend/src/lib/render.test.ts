@@ -5,7 +5,7 @@ import { template } from '../tests/fixtures'
 const chunkImageUrl = vi.hoisted(() => vi.fn(async (hash: string) => `blob:${hash}`))
 vi.mock('#lib/api/client.js', () => ({ chunkImageUrl, tileImageUrl: chunkImageUrl }))
 
-import { chunkImage, IMAGE_CACHE_PIXELS, timelapseLayout } from './render'
+import { chunkImage, timelapseLayout } from './render'
 
 const at = (id: string, minX: number, minY: number, size = 100) =>
   template({
@@ -102,16 +102,16 @@ it('keeps decoded images within the pixel budget, dropping the least recently us
       }
     },
   )
-  const capacity = IMAGE_CACHE_PIXELS / MEGAPIXEL_SIDE ** 2
-  for (let index = 0; index < capacity; index++) await chunkImage(`full-${index}`)
-  await chunkImage('full-0')
-
-  await chunkImage('overflow')
+  // Far past any sensible budget; the one image reused after every load must survive it.
+  await chunkImage('reused')
+  for (let index = 0; index < 256; index++) {
+    await chunkImage(`once-${index}`)
+    await chunkImage('reused')
+  }
   chunkImageUrl.mockClear()
-  await chunkImage('full-0')
-  await chunkImage('full-1')
+  await chunkImage('reused')
+  await chunkImage('once-0')
 
-  // The recently reused image stays; the oldest untouched one was dropped and loads again.
-  expect(chunkImageUrl.mock.calls).toEqual([['full-1']])
+  expect(chunkImageUrl.mock.calls).toEqual([['once-0']])
   vi.unstubAllGlobals()
 })

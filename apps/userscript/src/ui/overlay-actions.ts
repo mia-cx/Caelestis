@@ -562,8 +562,7 @@ export const overlayActions = (template: PlacedTemplate, host: MenuHost): Overla
     actions.push(
       {
         model: {
-          id: 'overlay-finished',
-          control: 'finished',
+          icon: 'check',
           label:
             pending === 'finished'
               ? 'Saving completion…'
@@ -579,8 +578,7 @@ export const overlayActions = (template: PlacedTemplate, host: MenuHost): Overla
       },
       {
         model: {
-          id: 'overlay-frozen',
-          control: 'frozen',
+          icon: 'snowflake',
           label:
             pending === 'frozen'
               ? 'Saving timelapse state…'
@@ -599,8 +597,7 @@ export const overlayActions = (template: PlacedTemplate, host: MenuHost): Overla
   }
   actions.push({
     model: {
-      id: 'overlay-visible',
-      control: 'hide',
+      icon: 'image',
       label: visible ? 'Hide this overlay' : 'Show this overlay',
       ...(visible ? {} : { pressed: true }),
       disabled: deleting,
@@ -612,8 +609,7 @@ export const overlayActions = (template: PlacedTemplate, host: MenuHost): Overla
   actions.push(
     {
       model: {
-        id: 'overlay-move',
-        control: 'move',
+        icon: 'move',
         label: serverProtected ? 'Unpublish before moving this overlay' : 'Move this overlay',
         pressed: false,
         disabled: deleting || serverProtected,
@@ -623,8 +619,7 @@ export const overlayActions = (template: PlacedTemplate, host: MenuHost): Overla
     },
     {
       model: {
-        id: 'overlay-delete',
-        control: 'delete',
+        icon: 'trash',
         label: serverProtected ? 'Unpublish before deleting this template' : 'Delete this template',
         pressed: false,
         disabled: deleting || movingId() === id || serverProtected,
@@ -663,6 +658,7 @@ export const overlayModel = (template: PlacedTemplate): OverlayControlsModel => 
       announce: failure.announce,
     })),
     appearance: {
+      variant: 'overlay',
       ...appearanceEditorModel({
         values: draftedAppearanceFor(id),
         defaults: getSurfaceAppearance(surface),

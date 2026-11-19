@@ -9,7 +9,9 @@ import {
   PALETTE_SIZE,
   type PainterIdentity,
   parseTemplateFilters,
+  SIMULATED_INPUT_IDS,
   type ShortcutOverrides,
+  type SimulatedInput,
   type SimulatedInputSwitches,
   type TemplateFilters,
   type TemplateSortOrder,
@@ -18,7 +20,7 @@ import {
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { DEFAULT_STUDIO_LAYOUT, parseStudioLayout, type StudioLayout } from '@caelestis/ui/elements'
+import { DEFAULT_STUDIO_LAYOUT, parseStudioLayout, type StudioLayout } from '@caelestis/ui/studio'
 import { log, warn } from './debug.js'
 import { notifyListeners } from './listeners.js'
 import { DEFAULT_MARKER_BUDGET, normaliseMarkerBudget } from './marker-budget.js'
@@ -458,7 +460,8 @@ const FIELDS = {
     default: 'unpainted-first',
     decode: (stored) => (stored === 'mismatched-first' ? 'mismatched-first' : 'unpainted-first'),
   },
-  simulatedInput: { default: {}, decode: normaliseSimulatedInput },
+  // Each switch's own key wins over the record's copy, which a popup change doesn't touch.
+  simulatedInput: { default: {}, decode: (stored) => simulatedInputFrom(stored) },
   markerBudget: { default: DEFAULT_MARKER_BUDGET, decode: normaliseMarkerBudget },
   localFolders: { default: [], decode: decodeLocalFolders },
   localClaims: {
@@ -537,15 +540,51 @@ const storedSwitches = (): Partial<GlobalSettings> => {
   return switches
 }
 
-const storeSwitches = (patch: Partial<State>): void => {
+/** Each Dangerous settings switch, also under its own key for the same reason. */
+const SIMULATED_INPUT_PREFIX = `${SWITCH_PREFIX}simulatedInput.`
+
+/** The Dangerous settings switches: each one's own key wins over its copy in `recorded`. */
+const simulatedInputFrom = (recorded: unknown): SimulatedInputSwitches => {
+  const switches: Partial<Record<SimulatedInput, true>> = { ...normaliseSimulatedInput(recorded) }
+  for (const id of SIMULATED_INPUT_IDS) {
+    let value: string | null = null
+    try {
+      value = storedValue(`${SIMULATED_INPUT_PREFIX}${id}`)
+    } catch {
+      // The record's copy stands in.
+    }
+    if (value === 'true') switches[id] = true
+    else if (value === 'false') delete switches[id]
+  }
+  return switches
+}
+
+const sameSwitches = (a: SimulatedInputSwitches, b: SimulatedInputSwitches): boolean =>
+  SIMULATED_INPUT_IDS.every((id) => (a[id] === true) === (b[id] === true))
+
+const storeSwitch = (key: string, value: boolean): void => {
+  try {
+    storeValue(key, String(value))
+  } catch (error) {
+    warn(`could not persist ${key}`, String(error))
+  }
+}
+
+/**
+ * Store each switch `patch` sets under its own key. Of the Dangerous settings, only those that
+ * differ from `previous` are stored, so a copy of the others another context has since changed is
+ * never written back.
+ */
+const storeSwitches = (patch: Partial<State>, previous: SimulatedInputSwitches = {}): void => {
   for (const name of GLOBAL_SETTINGS) {
     const value = patch[name]
-    if (value === undefined) continue
-    try {
-      storeValue(`${SWITCH_PREFIX}${name}`, String(value))
-    } catch (error) {
-      warn(`could not persist ${name}`, String(error))
-    }
+    if (value !== undefined) storeSwitch(`${SWITCH_PREFIX}${name}`, value)
+  }
+  const next = patch.simulatedInput
+  if (next === undefined) return
+  for (const id of SIMULATED_INPUT_IDS) {
+    const on = next[id] === true
+    if (on !== (previous[id] === true)) storeSwitch(`${SIMULATED_INPUT_PREFIX}${id}`, on)
   }
 }
 
@@ -614,6 +653,18 @@ export const currentGlobalSettings = (): GlobalSettings => globalSettingsFrom(st
 export const storeGlobalSetting = (key: keyof GlobalSettings, value: boolean): void =>
   storeSwitches({ [key]: value })
 
+/** The Dangerous settings switches as stored right now. */
+export const storedSimulatedInput = (): SimulatedInputSwitches =>
+  simulatedInputFrom(storedRecord().simulatedInput)
+
+/** Switch one Dangerous setting in storage; the toolbar popup's write. */
+export const storeSimulatedInput = (id: SimulatedInput, value: boolean): void =>
+  storeSwitch(`${SIMULATED_INPUT_PREFIX}${id}`, value)
+
+/** The shortcut keys as stored, which the toolbar popup's hints name. */
+export const storedShortcutOverrides = (): ShortcutOverrides =>
+  normaliseShortcutOverrides(storedRecord().shortcutOverrides)
+
 /**
  * A global setting changed in the toolbar popup or another tab applies here without a reload. Only
  * those switches are adopted: the rest of this tab's state, such as its live server connections,
@@ -622,8 +673,13 @@ export const storeGlobalSetting = (key: keyof GlobalSettings, value: boolean): v
 const adoptStoredGlobalSettings = (key: string): void => {
   if (key !== STORAGE_KEY && !key.startsWith(SWITCH_PREFIX)) return
   const next = storedGlobalSettings()
-  if (GLOBAL_SETTINGS.every((name) => state[name] === next[name])) return
-  state = { ...state, ...next }
+  const simulatedInput = storedSimulatedInput()
+  if (
+    sameSwitches(simulatedInput, state.simulatedInput) &&
+    GLOBAL_SETTINGS.every((name) => state[name] === next[name])
+  )
+    return
+  state = { ...state, ...next, simulatedInput }
   notifyStateListeners()
 }
 
@@ -638,7 +694,11 @@ export const loadState = (): State => {
   const storedRaw = readRaw()
   if (storedRaw === null) {
     // No record yet, but the switches may already be set, from the extension's popup.
-    state = { ...state, ...globalSettingsFrom(storedSwitches()) }
+    state = {
+      ...state,
+      ...globalSettingsFrom(storedSwitches()),
+      simulatedInput: simulatedInputFrom(undefined),
+    }
     return state
   }
   try {
@@ -774,9 +834,10 @@ export const setSurfaceAppearance = (
 export const setState = (patch: Partial<State>): State => {
   if (patch.appearance !== undefined) globalAppearancePreview = null
   if (patch.allianceSurfaceAppearances !== undefined) allianceAppearancePreviews.clear()
+  const previous = state.simulatedInput
   state = { ...state, ...patch }
   writeRaw(JSON.stringify(state))
-  storeSwitches(patch)
+  storeSwitches(patch, previous)
   notifyStateListeners()
   return state
 }
@@ -785,7 +846,7 @@ export const setState = (patch: Partial<State>): State => {
 export const commitState = (patch: Partial<State>): boolean => {
   const next = { ...state, ...patch }
   if (!writeRaw(JSON.stringify(next))) return false
-  storeSwitches(patch)
+  storeSwitches(patch, state.simulatedInput)
   state = next
   notifyStateListeners()
   return true

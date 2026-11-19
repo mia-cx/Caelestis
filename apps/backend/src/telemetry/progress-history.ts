@@ -4,17 +4,34 @@ import {
   type Seconds,
   seconds,
   type TemplateProgressHistoryResponse,
+  tileKey,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { MeasuredTileFrame, TemplateVersionRecord } from '../ports/sql-store.js'
+import type { BlobStore } from '../ports/index.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
-import { SqlStoreReadError, TelemetryStorageError } from '../runtime/errors.js'
-import { readHistoricalTileMeasurement } from './ingest.js'
+import { NotFoundError, StorageError, storage } from '../runtime/errors.js'
+import type { TemplateVersionRecord } from '../templates/store.js'
+import type { TileBlobStore } from './blobs/store.js'
+import { type ClassificationTarget, classifyTarget, readDecodedCanvas } from './classification.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
+import type { MeasuredTileFrame, TileMeasurement, TileStore } from './tiles/store.js'
+
+/** Derive counts for a retained canvas image against one artwork revision. */
+const readHistoricalTileMeasurement = async (
+  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
+  target: ClassificationTarget,
+  hash: string,
+): Promise<TileMeasurement | null> => {
+  const canvas = await readDecodedCanvas(ports, hash)
+  if (canvas === null) return null
+  const classified = await classifyTarget(ports, target, canvas, hash)
+  if (classified === null) return null
+  const { correct, wrong, blank } = classified
+  return { hash, correct, wrong, blank }
+}
 
 /** Unmeasured frames classified at once: each holds a decoded 1000×1000 canvas while it runs. */
 const CLASSIFY_CONCURRENCY = 8
-const tileOf = (x: number, y: number): string => `${x}/${y}`
 
 /** Replay retained canvas images, caching missing classifications against their historical artwork. */
 export const readProgressHistory = (
@@ -23,43 +40,38 @@ export const readProgressHistory = (
   resolution = selectTileHistoryResolution(range),
   lifetime?: HistoryRange,
   initialAt?: Seconds,
-): Effect.Effect<
-  ProgressHistoryResponse,
-  SqlStoreReadError | TelemetryStorageError,
-  SqlStoreService | BlobStoreService
-> =>
+): Effect.Effect<ProgressHistoryResponse, StorageError, SqlStoreService | BlobStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     if (version.surface.kind !== 'world')
       return { versionId: version.versionId, resolution, samples: [] }
     const changes = new Map<number, Map<string, MeasuredTileFrame>>()
-    const frames = yield* Effect.tryPromise({
-      try: () =>
-        sql.readTemplateProgressFrames(
-          version.versionId,
-          range.fromSeconds,
-          range.toSeconds,
-          resolution,
-          lifetime,
-        ),
-      catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateProgressFrames', cause }),
-    })
+    const frames = yield* storage('readTemplateProgressFrames', () =>
+      sql.readTemplateProgressFrames(
+        version.versionId,
+        range.fromSeconds,
+        range.toSeconds,
+        resolution,
+        lifetime,
+      ),
+    )
     // Canvas observations survive artwork updates. Reclassify the last known frame on each
     // tile against the new artwork instead of waiting for every tile to be reported again.
     const initial =
       initialAt === undefined
         ? []
-        : yield* Effect.tryPromise({
-            try: () => sql.readTemplateProgressAt(version.versionId, initialAt),
-            catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateProgressAt', cause }),
-          })
+        : yield* storage('readTemplateProgressAt', () =>
+            sql.readTemplateProgressAt(version.versionId, initialAt),
+          )
     const blobs = yield* BlobStoreService
-    const chunks = new Map(version.chunks.map((chunk) => [tileOf(chunk.tileX, chunk.tileY), chunk]))
+    const chunks = new Map(
+      version.chunks.map((chunk) => [tileKey({ x: chunk.tileX, y: chunk.tileY }), chunk]),
+    )
     const classified = new Map<MeasuredTileFrame, MeasuredTileFrame>()
     yield* Effect.forEach(
       [...initial, ...frames],
       (frame) => {
-        const chunk = chunks.get(tileOf(frame.tileX, frame.tileY))
+        const chunk = chunks.get(tileKey({ x: frame.tileX, y: frame.tileY }))
         if (chunk === undefined || (frame.correct !== null && frame.wrong !== null))
           return Effect.void
         const target = {
@@ -74,7 +86,6 @@ export const readProgressHistory = (
               { blobs, sql },
               target,
               frame.hash,
-              frame.bucketStart * 1_000,
             )
             if (measurement === null) return
             await sql.writeTileMeasurements(version.versionId, { x: chunk.tileX, y: chunk.tileY }, [
@@ -86,8 +97,7 @@ export const readProgressHistory = (
               wrong: measurement.wrong,
             })
           },
-          catch: (cause) =>
-            new TelemetryStorageError({ operation: 'classifyProgressHistory', cause }),
+          catch: (cause) => new StorageError({ operation: 'classifyProgressHistory', cause }),
         })
       },
       { concurrency: CLASSIFY_CONCURRENCY, discard: true },
@@ -98,7 +108,7 @@ export const readProgressHistory = (
       const at = Math.min(frame.bucketStart + resolution, (lifetime?.toSeconds ?? Infinity) - 1)
       if (at >= range.toSeconds) continue
       const entries = changes.get(at) ?? new Map<string, MeasuredTileFrame>()
-      entries.set(tileOf(frame.tileX, frame.tileY), frame)
+      entries.set(tileKey({ x: frame.tileX, y: frame.tileY }), frame)
       changes.set(at, entries)
     }
     // Running totals over the latest frame per tile, so each sample costs only its own changes.
@@ -119,7 +129,7 @@ export const readProgressHistory = (
       if (frame.correct === null || frame.wrong === null) unmeasured++
     }
     for (const frame of initial)
-      hold(tileOf(frame.tileX, frame.tileY), classified.get(frame) ?? frame)
+      hold(tileKey({ x: frame.tileX, y: frame.tileY }), classified.get(frame) ?? frame)
     if (initialAt !== undefined && !changes.has(initialAt)) changes.set(initialAt, new Map())
     const samples: ProgressSample[] = []
     for (const [at, entries] of [...changes].sort(([a], [b]) => a - b)) {
@@ -142,16 +152,15 @@ export const readTemplateProgressHistory = (
   range: HistoryRange,
 ): Effect.Effect<
   TemplateProgressHistoryResponse,
-  SqlStoreReadError | TelemetryStorageError,
+  StorageError,
   SqlStoreService | BlobStoreService
 > =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const resolution = selectTileHistoryResolution(range)
-    const versions = yield* Effect.tryPromise({
-      try: () => sql.listTemplateVersions(templateId),
-      catch: (cause) => new SqlStoreReadError({ operation: 'listTemplateVersions', cause }),
-    })
+    const versions = yield* storage('listTemplateVersions', () =>
+      sql.listTemplateVersions(templateId),
+    )
     const samples: ProgressSample[] = []
     for (const [index, revision] of versions.entries()) {
       const start = Math.max(range.fromSeconds, Math.floor(revision.createdAt / 1_000))
@@ -167,10 +176,9 @@ export const readTemplateProgressHistory = (
         next === undefined ? Infinity : Math.floor(next.createdAt / 1_000),
       )
       if (start >= end) continue
-      const version = yield* Effect.tryPromise({
-        try: () => sql.readTemplateVersion(revision.versionId),
-        catch: (cause) => new SqlStoreReadError({ operation: 'readTemplateVersion', cause }),
-      })
+      const version = yield* storage('readTemplateVersion', () =>
+        sql.readTemplateVersion(revision.versionId),
+      )
       if (version === null || version.surface.kind !== 'world') continue
       const from = resolution === 0 ? start : Math.floor(start / resolution) * resolution
       const history = yield* readProgressHistory(
@@ -189,4 +197,30 @@ export const readTemplateProgressHistory = (
       }
     }
     return { templateId, resolution, samples }
+  })
+
+/**
+ * One template's progress across its versions, or one version's when `versionId` is named. An
+ * unpublished template answers as though it did not exist.
+ */
+export const readVisibleProgressHistory = (
+  templateId: string,
+  versionId: string | undefined,
+  range: HistoryRange,
+  includeUnpublished: boolean,
+): Effect.Effect<
+  TemplateProgressHistoryResponse | ProgressHistoryResponse,
+  StorageError | NotFoundError,
+  SqlStoreService | BlobStoreService
+> =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const template = yield* storage('readTemplate', () => sql.readTemplate(templateId))
+    if (template === null || (!includeUnpublished && !template.published))
+      return yield* Effect.fail(new NotFoundError({ message: 'Template not found.' }))
+    if (versionId === undefined) return yield* readTemplateProgressHistory(templateId, range)
+    const version = yield* storage('readTemplateVersion', () => sql.readTemplateVersion(versionId))
+    if (version?.templateId !== templateId)
+      return yield* Effect.fail(new NotFoundError({ message: 'Template version not found.' }))
+    return yield* readProgressHistory(version, range)
   })

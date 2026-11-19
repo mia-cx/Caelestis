@@ -10,10 +10,11 @@
  * input surface costs an operator one clear error message and removes a large class of parser bug
  * from a path that writes to permanent storage.
  *
- * Supported on the way in: 8-bit non-interlaced greyscale, RGB, indexed, greyscale+alpha and RGBA.
- * Rejected: 16-bit, interlaced, and anything whose header does not parse.
+ * Supported on the way in: non-interlaced 8-bit greyscale, RGB, greyscale+alpha and RGBA, and
+ * indexed at 1, 2, 4 or 8 bits. Wplace serves sparse canvas tiles at the low indexed depths.
+ * Rejected: 16-bit, sub-byte greyscale, interlaced, and anything whose header does not parse.
  *
- * Out: 8-bit indexed with a transparent entry at index 0.
+ * Out: 8-bit indexed with a transparent entry at index 63.
  *
  * Deflate comes from the platform (`CompressionStream`), which both workerd and Node provide, so
  * there is no bundled zlib.
@@ -25,6 +26,11 @@ const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
 
 /** Bytes per pixel for each supported colour type, indexed by the type's own code. */
 const CHANNELS: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }
+
+const INDEXED = 3
+
+/** Bit depths below 8 that an indexed PNG may pack its palette indices at. */
+const PACKED_INDEX_DEPTHS = new Set([1, 2, 4])
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
@@ -165,6 +171,8 @@ interface ParsedPng {
   readonly width: number
   readonly height: number
   readonly colourType: number
+  /** Bits per sample: 8, or 1, 2 or 4 for indexed images. */
+  readonly depth: number
   readonly palette: Uint8Array | null
   readonly alphas: Uint8Array | null
   readonly idat: readonly Uint8Array[]
@@ -177,7 +185,7 @@ const parsePng = (bytes: Uint8Array): ParsedPng => {
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let offset = SIGNATURE.length
-  let header: { width: number; height: number; colourType: number } | null = null
+  let header: { width: number; height: number; colourType: number; depth: number } | null = null
   let palette: Uint8Array | null = null
   let alphas: Uint8Array | null = null
   const idat: Uint8Array[] = []
@@ -201,15 +209,18 @@ const parsePng = (bytes: Uint8Array): ParsedPng => {
       if (length !== 13) throw new PngError('IHDR must be 13 bytes')
       const depth = data[8] ?? 0
       const colourType = data[9] ?? 0
-      if (depth !== 8) throw new PngError(`unsupported bit depth ${depth}; only 8 is accepted`)
       if (CHANNELS[colourType] === undefined) {
         throw new PngError(`unsupported colour type ${colourType}`)
+      }
+      if (depth !== 8 && !(colourType === INDEXED && PACKED_INDEX_DEPTHS.has(depth))) {
+        throw new PngError(`unsupported bit depth ${depth} for colour type ${colourType}`)
       }
       if (data[12] !== 0) throw new PngError('interlaced PNGs are not accepted')
       header = {
         width: view.getUint32(dataAt),
         height: view.getUint32(dataAt + 4),
         colourType,
+        depth,
       }
     } else if (type === 'PLTE') palette = data
     else if (type === 'tRNS') alphas = data
@@ -232,16 +243,15 @@ const parsePng = (bytes: Uint8Array): ParsedPng => {
  * Undo the per-scanline filter, compacting scanlines over their own filter bytes.
  *
  * Filters are defined over the *reconstructed* bytes of the previous scanline, so this has to run in
- * order and cannot be parallelised. `bpp` is the byte distance to the pixel on the left, which is
- * 1 for sub-byte-per-pixel formats — but we only accept 8-bit depths, so it is the channel count.
+ * order and cannot be parallelised. `stride` is the scanline length in bytes. `bpp` is the byte
+ * distance to the pixel on the left: the channel count at 8 bits, and 1 for packed indices.
  */
 const unfilterInPlace = (
   raw: Uint8Array,
-  width: number,
+  stride: number,
   height: number,
   bpp: number,
 ): Uint8Array => {
-  const stride = width * bpp
   let previous = new Uint8Array(stride)
   let line = new Uint8Array(stride)
   let source = 0
@@ -291,17 +301,47 @@ const unfilterInPlace = (
   return raw.subarray(0, stride * height)
 }
 
+/**
+ * Spread indices packed at `depth` bits, most significant first with each row padded to a whole
+ * byte, out to one byte per pixel.
+ */
+const unpackIndices = (
+  packed: Uint8Array,
+  width: number,
+  height: number,
+  depth: number,
+): Uint8Array => {
+  const stride = Math.ceil((width * depth) / 8)
+  const mask = (1 << depth) - 1
+  const indices = new Uint8Array(width * height)
+  for (let row = 0; row < height; row += 1) {
+    for (let column = 0; column < width; column += 1) {
+      const bit = column * depth
+      const byte = packed[row * stride + (bit >> 3)] ?? 0
+      indices[row * width + column] = (byte >> (8 - depth - (bit & 7))) & mask
+    }
+  }
+  return indices
+}
+
 /** Decode a PNG to straight (non-premultiplied) RGBA. */
 export const decodePng = async (bytes: Uint8Array): Promise<RgbaImage> => {
-  const { width, height, colourType, palette, alphas, idat } = parsePng(bytes)
+  const { width, height, colourType, depth, palette, alphas, idat } = parsePng(bytes)
 
   // biome-ignore lint/style/noNonNullAssertion: colourType was checked against CHANNELS above
   const channels = CHANNELS[colourType]!
+  const stride = Math.ceil((width * channels * depth) / 8)
   // A filter byte per row, then the row. PNG says IDAT inflates to exactly this, so a shorter buffer
   // is truncated and a longer one is lying — and short used to be zero-filled silently, turning a
   // one-pixel image into that pixel plus a black one.
-  const expected = (width * channels + 1) * height
-  const raw = unfilterInPlace(await inflateExact(idat, expected), width, height, channels)
+  const expected = (stride + 1) * height
+  const unfiltered = unfilterInPlace(
+    await inflateExact(idat, expected),
+    stride,
+    height,
+    depth === 8 ? channels : 1,
+  )
+  const raw = depth === 8 ? unfiltered : unpackIndices(unfiltered, width, height, depth)
 
   // tRNS on a greyscale or RGB image names one sample as fully transparent, and ignoring it forced
   // every pixel opaque — so a template with a transparent background was quantised and stored as
@@ -377,7 +417,7 @@ export const decodePng = async (bytes: Uint8Array): Promise<RgbaImage> => {
  */
 export const decodeWplaceIndexedPng = async (bytes: Uint8Array): Promise<IndexedImage | null> => {
   const parsed = parsePng(bytes)
-  if (parsed.colourType !== 3) return null
+  if (parsed.colourType !== INDEXED || parsed.depth !== 8) return null
   const { palette, alphas, width, height } = parsed
   if (palette === null || palette.length !== PALETTE_SIZE * 3) return null
   if (alphas === null || alphas.length !== PALETTE_SIZE) return null

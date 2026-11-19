@@ -74,6 +74,7 @@ const chooseShowOnly = (key: string, query = ''): void => {
     type: 'context-menu-action',
     menuId: menu.id,
     actionId: item.id,
+    returnToCanvas: item.returnToCanvas === true,
   })
 }
 

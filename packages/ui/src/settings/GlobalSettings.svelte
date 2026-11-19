@@ -2,7 +2,8 @@
   import SectionHeader from '../foundations/SectionHeader.svelte'
   import SettingRow from '../foundations/SettingRow.svelte'
   import Toggle from '../foundations/Toggle.svelte'
-  import type { GlobalSettingsIntent, GlobalSettingsModel, SettingsBooleanKey } from '../types.js'
+  import { SIMULATED_INPUT, SIMULATED_INPUT_IDS, shortcutLabel, simulatedInputOn } from '@caelestis/shared'
+  import type { GlobalSettingsIntent, GlobalSettingsModel, SettingsBooleanKey } from './model.js'
 
   /**
    * One section of the settings that apply to every Wplace tab. The panel's Settings view places
@@ -13,7 +14,7 @@
     model,
     onIntent,
   }: {
-    section: 'notifications' | 'contribution' | 'painters' | 'wplace-performance' | 'diagnostics' | 'accessibility'
+    section: 'notifications' | 'contribution' | 'painters' | 'wplace-performance' | 'diagnostics' | 'accessibility' | 'dangerous'
     model: GlobalSettingsModel
     onIntent?: ((intent: GlobalSettingsIntent) => void) | undefined
   } = $props()
@@ -58,8 +59,29 @@
   <SectionHeader title="Accessibility" icon="eye" />
   <SettingRow label="FalseType font">{#snippet children()}<Toggle label="FalseType font" checked={accessibility.falseType} onChange={(value) => onIntent?.({ type: 'set-accessibility', key: 'falseType', value })} />{/snippet}</SettingRow>
   <SettingRow label="Caelestis cursors">{#snippet children()}<Toggle label="Caelestis cursors" checked={accessibility.cursors} onChange={(value) => onIntent?.({ type: 'set-accessibility', key: 'cursors', value })} />{/snippet}</SettingRow>
+{:else if section === 'dangerous'}
+  <SectionHeader title="Dangerous settings" icon="flag" />
+  <p class="subtle">These quality-of-life patches don't technically break Wplace's rules, but they use functionality that trips flags in Pawtect, Wplace's anticheat, which are sent with every paint. These flags don't get you banned automatically, especially on a high-trust account with no other evidence of rule-breaking, but Caelestis can't guarantee they won't, so these settings are off by default. With them off, Caelestis trips no Pawtect flags.</p>
+  <p class="subtle">Alliance canvases (HQ, avatar and banner) don't check for simulated input, so these features always work there.</p>
+  {#each SIMULATED_INPUT_IDS as id (id)}
+    {@const feature = SIMULATED_INPUT[id]}
+    <SettingRow label={feature.label}>
+      {#snippet hint()}{#each feature.hint as part}{#if typeof part === 'string'}{part}{:else if 'fixed' in part}<kbd class="hint-key">{part.fixed}</kbd>{:else}<kbd class="hint-key">{shortcutLabel(model.shortcuts.bindings[part.key], model.shortcuts.platform) || 'not set'}</kbd>{/if}{/each}{/snippet}
+      {#snippet details()}<small class="flags">Trips: {#each feature.flags as flag}<code>{flag}</code>{/each}</small>{/snippet}
+      {#snippet children()}
+        <Toggle
+          label={feature.label}
+          checked={simulatedInputOn(model.simulatedInput, id)}
+          disabled={feature.extends !== undefined && !simulatedInputOn(model.simulatedInput, feature.extends)}
+          onChange={(value) => onIntent?.({ type: 'set-simulated-input', id, value })}
+        />
+      {/snippet}
+    </SettingRow>
+  {/each}
 {/if}
 
 <style>
   .subtle { margin: 0.3rem var(--caelestis-content-inset, 1rem); color: var(--caelestis-muted-text); font-size: 0.72rem; }
+  .flags { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.25rem; margin-block-start: 0.25rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
+  .hint-key, .flags code { padding: 0.05rem 0.3rem; border: 1px solid var(--caelestis-border); border-radius: 0.3rem; background: var(--caelestis-raised-surface); color: var(--caelestis-text); font: 0.7rem/1.3 var(--caelestis-mono-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace); }
 </style>

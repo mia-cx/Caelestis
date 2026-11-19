@@ -1,11 +1,6 @@
 import { WORLD_PIXELS, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import {
-  DEFAULT_STUDIO_LAYOUT,
-  type EffectLayer,
-  registerCaelestisUi,
-  TEMPLATE_STUDIO_TAG,
-  type TemplateStudioModel,
-} from '@caelestis/ui/elements'
+import { registerCaelestisUi } from '@caelestis/ui/elements'
+import { DEFAULT_STUDIO_LAYOUT, type EffectLayer } from '@caelestis/ui/studio'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 // The confirmation dialog is the author's answer; each test gives it.
@@ -109,8 +104,7 @@ describe('template studio', () => {
       save: async () => true,
     })
     const shown = () =>
-      (document.querySelector(TEMPLATE_STUDIO_TAG) as HTMLElement & { model: TemplateStudioModel })
-        .model.palette.ownedKnown
+      document.querySelector('caelestis-template-studio')?.model.palette.ownedKnown
     expect(shown()).toBe(false)
 
     account.owned = new Set()
@@ -280,7 +274,7 @@ describe('template studio', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       save: async () => true,
     })
-    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    const root = document.querySelector('caelestis-template-studio')?.shadowRoot
     const field = () =>
       root?.querySelector<HTMLInputElement>('[data-window="dimensions"] input[type="number"]')
     await vi.waitFor(() => expect(field()).toBeTruthy())
@@ -306,7 +300,7 @@ describe('template studio', () => {
     })
     // By default Size is in front, Dither behind it.
     handleTemplateStudioIntent({ type: 'layout', layout: DEFAULT_STUDIO_LAYOUT })
-    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    const root = document.querySelector('caelestis-template-studio')?.shadowRoot
     const tab = () => root?.querySelector('[data-tab="dither"]')
     await vi.waitFor(() => expect(tab()).toBeTruthy())
 
@@ -355,7 +349,7 @@ describe('template studio', () => {
         ],
       },
     })
-    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    const root = document.querySelector('caelestis-template-studio')?.shadowRoot
     // The header's empty end, past the tabs, of the lower panel in the window.
     const header = () => root?.querySelector('[data-window="effects"] [role="tablist"]')
     await vi.waitFor(() => expect(header()).toBeTruthy())
@@ -386,7 +380,7 @@ describe('template studio', () => {
     })
     await vi.waitFor(() =>
       expect(
-        document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot?.querySelector('.studio'),
+        document.querySelector('caelestis-template-studio')?.shadowRoot?.querySelector('.studio'),
       ).toBeTruthy(),
     )
     const drop = new Event('drop', { bubbles: true, cancelable: true })
@@ -410,7 +404,7 @@ describe('template studio', () => {
       surface: WORLD_TEMPLATE_SURFACE,
       save: async () => true,
     })
-    const root = document.querySelector(TEMPLATE_STUDIO_TAG)?.shadowRoot
+    const root = document.querySelector('caelestis-template-studio')?.shadowRoot
     const header = () => root?.querySelector('[data-window="dimensions"] header')
     await vi.waitFor(() => expect(header()).toBeTruthy())
     const before = templateStudioModel().layout

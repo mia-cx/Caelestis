@@ -301,6 +301,3 @@ export type ClaimModeIntent =
   | { readonly type: 'confirm' }
   | { readonly type: 'capture'; readonly action: CaptureAction }
   | { readonly type: 'cancel' }
-
-/** The event `<caelestis-claim-mode>` dispatches with a `ClaimModeIntent` as its detail. */
-export const CLAIM_MODE_INTENT = 'caelestis-claim-mode-intent'

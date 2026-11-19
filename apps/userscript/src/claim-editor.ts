@@ -1,9 +1,7 @@
 import type { RegionDocument, RegionShapePixels } from '@caelestis/shared'
 import {
-  type CaelestisClaimMode,
+  type CaelestisElement,
   type CaptureAction,
-  CLAIM_MODE_INTENT,
-  CLAIM_MODE_TAG,
   type ClaimModeIntent,
   type ClaimModeModel,
   type ClaimTool,
@@ -111,9 +109,11 @@ let consumedPress: number | null = null
 let drawingTouch = false
 let appliedCursor = ''
 let overlay: SVGSVGElement | null = null
-let mode: CaelestisClaimMode | null = null
+type ClaimModeElement = CaelestisElement<'caelestis-claim-mode'>
+
+let mode: ClaimModeElement | null = null
 /** A mode element still running its exit transition — reclaimable if the editor restarts. */
-let closingMode: CaelestisClaimMode | null = null
+let closingMode: ClaimModeElement | null = null
 const listeners: (() => void)[] = []
 
 const notify = (): void => {
@@ -478,7 +478,7 @@ export const handleClaimModeIntent = (intent: ClaimModeIntent): void => {
 
 /* Chrome: the mode element and the SVG overlay. */
 
-const ensureMode = (): CaelestisClaimMode => {
+const ensureMode = (): ClaimModeElement => {
   if (mode?.isConnected) return mode
   // A restart while the old element is still closing reclaims it — never two nodes with one id.
   if (closingMode?.isConnected && cancelSurfaceClose(closingMode)) {
@@ -488,7 +488,7 @@ const ensureMode = (): CaelestisClaimMode => {
     return mode
   }
   closingMode = null
-  const element = document.createElement(CLAIM_MODE_TAG)
+  const element = document.createElement('caelestis-claim-mode')
   element.id = MODE_ID
   Object.assign(element.style, {
     position: 'fixed',
@@ -498,8 +498,8 @@ const ensureMode = (): CaelestisClaimMode => {
     pointerEvents: 'none',
   } satisfies Partial<CSSStyleDeclaration>)
   applyWplaceTheme(element)
-  element.addEventListener(CLAIM_MODE_INTENT, (event) => {
-    handleClaimModeIntent((event as CustomEvent<ClaimModeIntent>).detail)
+  element.addEventListener('caelestis-claim-mode-intent', (event) => {
+    handleClaimModeIntent(event.detail)
   })
   document.body.appendChild(element)
   openSurface(element)

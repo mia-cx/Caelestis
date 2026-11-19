@@ -6,6 +6,7 @@ import { canWriteClaims, claimServers, serverClaims } from '../claim-store.js'
 import { claimAvailability, shapesName } from '../claims.js'
 import { type PresenceView, presenceView } from '../presence-client.js'
 import { presenceCss } from '../presence-colour.js'
+import { shortcutHint } from '../shortcuts.js'
 import { navigateTo } from '../templates/navigate.js'
 import { showToast } from './notification-host.js'
 
@@ -128,6 +129,7 @@ export const presenceSummaryModel = (): PresenceSummaryModel | undefined => {
     players: painterRows(view),
     claims: claimRows(view),
     canClaim: availability.ready && !isClaimModeActive(),
+    claimShortcut: shortcutHint('claim-mode'),
     ...(availability.ready ? {} : { message: availability.reason }),
   }
 }

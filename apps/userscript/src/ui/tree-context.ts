@@ -1,6 +1,6 @@
 import type { TemplateFilters, TemplateSurface } from '@caelestis/shared'
 import type {
-  TemplateClaimsModel,
+  FavouritesModel,
   TemplateTreeIntent,
   TemplateTreeModel,
   TreeIcon,
@@ -140,7 +140,7 @@ export interface TreeOptions {
   readonly includeCollapsed?: boolean
   /** List only these template rows, flat: the claimed list. */
   readonly templateKeys?: ReadonlySet<string> | undefined
-  readonly claims?: ReadonlyMap<string, TemplateClaimsModel> | undefined
+  readonly claims?: ReadonlyMap<string, FavouritesModel> | undefined
 }
 
 /** Progress of drawn and server templates, read once per build. */
@@ -168,7 +168,7 @@ export interface TreeContext {
   readonly reveal: boolean
   readonly includeCollapsed: boolean
   readonly templateKeys: ReadonlySet<string> | undefined
-  readonly claims: ReadonlyMap<string, TemplateClaimsModel> | undefined
+  readonly claims: ReadonlyMap<string, FavouritesModel> | undefined
   /** Category keys in display order, Local first. */
   readonly categories: readonly string[]
   readonly rank: ReadonlyMap<string, number>

@@ -1,210 +1,116 @@
 import type { ServerInfo } from '@caelestis/shared'
-import { Effect, Context as Services } from 'effect'
+import { Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { ArchiveHost } from './archive/port.js'
-import type { BackfillClients } from './backfill/port.js'
-import type { ConnectPresence, PresenceOnline } from './presence/port.js'
-import { createArchiveAdminRoutes } from './routes/archive.js'
-import { createArchiveRoutes, createBackfillAdminRoutes } from './routes/backfill.js'
+import { requireScopeEffect } from './auth/middleware.js'
+import { archiveHold, createArchiveAdminRoutes } from './routes/archive.js'
+import { createBackfillAdminRoutes, createCanvasHistoryRoutes } from './routes/backfill.js'
 import { createManifestRoutes } from './routes/manifest.js'
 import { createNodeRoutes } from './routes/nodes.js'
-import { createServerAdminRoutes, createServerRoutes } from './routes/server.js'
+import {
+  createServerAdminRoutes,
+  createServerAssetRoutes,
+  createServerRoutes,
+} from './routes/server.js'
 import { createTagRoutes } from './routes/tags.js'
 import { createTelemetryRoutes } from './routes/telemetry.js'
-import {
-  createChunkRoutes,
-  createRecipeRoutes,
-  createSourceRoutes,
-  createTemplateRoutes,
-  createTileRoutes,
-} from './routes/templates.js'
+import { createBlobRoutes, createRecipeRoutes, createTemplateRoutes } from './routes/templates.js'
 import { createTokenRoutes } from './routes/tokens.js'
 import { createWorkRoutes } from './routes/work.js'
 import {
   type BackendContext,
   createBackendRuntime,
   SqlStoreService,
-  StatusReadModelService,
 } from './runtime/backend-runtime.js'
-import { runBackendHttp } from './runtime/hono.js'
+import { errorResponse } from './runtime/hono.js'
 
-/**
- * The Hono app, deliberately free of any runtime binding.
- *
- * Entry points adapt this app to a runtime; the app itself stays portable and only depends on the
- * use-case-shaped ports.
- *
- * @see https://github.com/mia-cx/Caelestis/issues/12
- */
 export interface AppOptions {
-  /** Relational runtimes can export and restore complete server archives. */
-  readonly archive?: ArchiveHost
-  readonly connectPresence?: ConnectPresence
-  readonly presenceOnline?: PresenceOnline
-  readonly backfillClients?: BackfillClients
+  /** What `/server` and every manifest advertise; hosts build it with `serverInfo`. */
+  readonly server: ServerInfo
+  readonly currentSeason: number
   /**
    * The operator's bootstrap credential. Absent means the server has no bootstrap path, which is
    * the right state once a real admin token has been minted.
    */
   readonly bootstrapAdminToken?: string | undefined
-  readonly serverId?: string | undefined
-  readonly serverName?: string | undefined
-  readonly serverDescription?: string | undefined
-  /** Backend package version reported on `/server`. */
-  readonly version?: string | undefined
-  /** Deploy/build identifier reported on `/server`, e.g. the first 12 characters of the release SHA. */
-  readonly build?: string | undefined
-  readonly openAccess?: boolean | undefined
-  readonly currentSeason?: number | undefined
-  readonly connectStatusLive?:
-    | ((
-        request: Request,
-        connection: {
-          readonly season: number
-          readonly scope: 'public' | 'admin'
-          readonly credentialScope: 'read' | 'report' | 'admin'
-          readonly tokenHash: string
-          readonly clientHash: string
-          readonly anonymous: boolean
-          readonly revocable: boolean
-          readonly lastRevision: number | null
-          readonly metricClient: string
-          readonly metricClientVersion: string
-          readonly protocol: 1 | 2
-        },
-      ) => Promise<Response>)
-    | undefined
+  /** Relational runtimes can export and restore complete server archives. */
+  readonly archive?: ArchiveHost | undefined
 }
 
-export const createApp = (context: BackendContext, options: AppOptions = {}) => {
+/** The Hono app over the context's ports. It holds no runtime binding; `composeBackend` adds them. */
+export const createApp = (context: BackendContext, options: AppOptions) => {
   const app = new Hono()
-  const v1Routes = new Hono()
   const runtime = createBackendRuntime(context)
+  const { server, currentSeason } = options
   const auth = {
     bootstrapAdminToken: options.bootstrapAdminToken,
-    openAccess: options.openAccess,
+    // What `/server` advertises is what the server enforces.
+    openAccess: server.auth === 'none',
   }
-  // `??` guards `undefined` and nothing else, and every one of these is a wrangler.toml var an
-  // operator edits by hand. A non-UUIDv7 id, an empty name or an empty description all passed
-  // through and then failed the wire schema — so the deployment's own manifest became undecodable
-  // and the operator heard about it from a client, if at all. Refuse at startup instead.
-  const configured = <T>(value: T, valid: (value: T) => boolean, name: string): T => {
-    if (!valid(value)) throw new Error(`${name} is not valid: ${JSON.stringify(value)}`)
-    return value
-  }
-  const serverBase = {
-    id: configured(
-      options.serverId ?? '00000000-0000-7000-8000-000000000000',
-      (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id),
-      'serverId',
-    ),
-    name: configured(
-      options.serverName ?? 'Template Server',
-      (name) => name.length > 0 && name.length <= 256,
-      'serverName',
-    ),
-    auth: options.openAccess === true ? 'none' : 'access_token',
-    ...(options.version === undefined ? {} : { version: options.version }),
-    ...(options.build === undefined ? {} : { build: options.build }),
-    ...(options.connectPresence === undefined ? {} : { presence: 1 as const }),
-    ...(options.connectStatusLive === undefined
-      ? {}
-      : {
-          liveSync: 1 as const,
-          liveSyncMax: 2 as const,
-          liveTileOffers: 1 as const,
-          livePaintParts: 1 as const,
-        }),
-  } as const
-  const server: ServerInfo =
-    options.serverDescription === undefined
-      ? serverBase
-      : {
-          ...serverBase,
-          description: configured(
-            options.serverDescription,
-            (description) => description.length > 0 && description.length <= 4_096,
-            'serverDescription',
-          ),
-        }
-  const currentSeason = options.currentSeason ?? 0
+  const bootstrapConfigured = options.bootstrapAdminToken !== undefined
 
-  // The userscript runs on wplace.live and calls this server cross-origin.
-  // `ETag` has to be named explicitly. It is not a CORS-safelisted response header, and Hono only
-  // emits `Access-Control-Expose-Headers` when `exposeHeaders` is non-empty — so the userscript,
-  // which is cross-origin by definition, read `null` from `response.headers.get('etag')` and could
-  // never build an `If-None-Match`. The whole 304 path was unreachable for the only client it
-  // exists for, which is also what `assembleManifest` goes to the trouble of being deterministic
-  // for. `/chunks` was unaffected: it signals with `Cache-Control`, which is safelisted.
-  // Every request it makes carries an `Authorization` header, which is not a CORS-simple header, so
-  // *each one* is preceded by an `OPTIONS` preflight — and the default `maxAge` is unset, meaning
-  // the browser may not reuse the answer at all. That is what fills the log with 204s: one per
-  // manifest poll, one per chunk, one per admin action. The answer cannot vary here — the policy is
-  // a constant, not derived from the request — so caching it is free. Browsers clamp this hard
-  // (Chromium at 2 hours, Safari at 10 minutes), which is why the number is a ceiling to be ignored
-  // rather than a promise to be kept.
+  // The userscript runs on wplace.live and calls this server cross-origin. `ETag` is not a
+  // CORS-safelisted response header, so it must be exposed or the userscript reads `null` and can
+  // never send `If-None-Match`. Every request carries `Authorization`, so each one is preflighted;
+  // the policy is constant, so the preflight answer is cached. Browsers clamp `maxAge` (Chromium at
+  // 2 hours, Safari at 10 minutes), so the number is only a ceiling.
   app.use('/*', cors({ origin: '*', exposeHeaders: ['ETag'], maxAge: 86_400 }))
 
-  // While an archive operation holds the server, only health, identity, and the archive routes
-  // answer. An export keeps the dataset still; a restore keeps a partial dataset out of sight.
-  const sql = Services.get(context, SqlStoreService)
-  app.use('/*', async (c, next) => {
-    const path = c.req.path.replace(/^\/v1(?=\/)/, '')
-    if (path === '/health' || path === '/server' || path.startsWith('/admin/archive')) return next()
-    if (!(await sql.archiveOperationActive())) return next()
-    c.header('retry-after', '60')
-    return c.json({ error: 'This server is being archived or restored. Try again later.' }, 503)
-  })
+  app.onError((error, c) => errorResponse(c, error))
+  app.get('/health', (c) => c.json({ ok: true }))
 
-  app.get('/health', (c) =>
-    runBackendHttp(c, runtime, Effect.succeed({ ok: true }), (health) => c.json(health)),
-  )
-  v1Routes.route('/server', createServerRoutes(runtime, server))
-  v1Routes.route('/admin/server', createServerAdminRoutes(runtime, auth, currentSeason))
-  v1Routes.route('/manifest', createManifestRoutes(runtime, auth, { server, currentSeason }))
+  const admin = requireScopeEffect(runtime, auth, 'admin')
+  const read = requireScopeEffect(runtime, auth, 'read')
 
-  v1Routes.route(
-    '/admin/archive',
-    // Manifests cached while the server was empty are dropped; live clients reconnect into the
-    // restored revisions, which continue from the source's.
-    createArchiveAdminRoutes(runtime, auth, options.archive, async () => {
-      await Services.get(context, StatusReadModelService).notifyManifestChange?.(currentSeason)
-    }),
-  )
-  v1Routes.route('/admin/tokens', createTokenRoutes(runtime, auth, currentSeason))
-  v1Routes.route(
-    '/admin/backfill',
-    createBackfillAdminRoutes(runtime, auth, options.backfillClients),
-  )
-  v1Routes.route('/archive', createArchiveRoutes(runtime, auth, options.backfillClients))
-  v1Routes.route('/work', createWorkRoutes(runtime, auth))
-  v1Routes.route('/admin/nodes', createNodeRoutes(runtime, auth))
-  v1Routes.route('/admin/templates', createTemplateRoutes(runtime, auth))
-  v1Routes.route('/admin/tags', createTagRoutes(runtime, auth, currentSeason))
-  v1Routes.route('/chunks', createChunkRoutes(runtime, auth))
-  v1Routes.route('/sources', createSourceRoutes(runtime, auth))
-  v1Routes.route('/recipes', createRecipeRoutes(runtime, auth))
-  v1Routes.route('/tiles', createTileRoutes(runtime, auth))
-  v1Routes.route(
-    '/telemetry',
-    createTelemetryRoutes(runtime, auth, {
-      currentSeason,
-      server,
-      ...(options.connectPresence === undefined
-        ? {}
-        : { connectPresence: options.connectPresence }),
-      ...(options.presenceOnline === undefined ? {} : { presenceOnline: options.presenceOnline }),
-      ...(options.connectStatusLive === undefined
-        ? {}
-        : { connectStatusLive: options.connectStatusLive }),
-    }),
-  )
+  // Answers while an archive operation holds the server: identity, and the archive itself.
+  const open = new Hono()
+  open.route('/server', createServerRoutes(runtime, server))
+  open.use('/admin/archive/*', admin)
+  open.route('/admin/archive', createArchiveAdminRoutes(options.archive))
 
-  // Both mounts share these exact route objects. Compatibility aliases can therefore preserve old
-  // clients without gaining handlers or contracts that differ from the versioned API.
-  app.route('/v1', v1Routes)
-  app.route('/', v1Routes)
+  // Everything else waits out an archive operation. Each mount declares its scope; a route that
+  // needs more than its mount, such as a `report` write under `read`, says so itself. `open`
+  // mounts authenticate per route or not at all.
+  const gated = new Hono()
+  gated.use('/*', archiveHold(Services.get(context, SqlStoreService)))
+  gated.use('/admin/*', admin)
+  const mounts: readonly (readonly [
+    path: string,
+    routes: Hono,
+    scope: 'admin' | 'read' | 'open',
+  ])[] = [
+    ['/server/assets', createServerAssetRoutes(runtime), 'open'],
+    ['/admin/server', createServerAdminRoutes(runtime, currentSeason), 'admin'],
+    ['/admin/tokens', createTokenRoutes(runtime, { currentSeason, bootstrapConfigured }), 'admin'],
+    ['/admin/backfill', createBackfillAdminRoutes(runtime), 'admin'],
+    ['/admin/nodes', createNodeRoutes(runtime), 'admin'],
+    ['/admin/templates', createTemplateRoutes(runtime), 'admin'],
+    ['/admin/tags', createTagRoutes(runtime, currentSeason), 'admin'],
+    ['/manifest', createManifestRoutes(runtime, { server, currentSeason }), 'read'],
+    ['/archive', createCanvasHistoryRoutes(runtime), 'read'],
+    ['/work', createWorkRoutes(runtime), 'read'],
+    ['/chunks', createBlobRoutes(runtime, 'chunks'), 'read'],
+    ['/sources', createBlobRoutes(runtime, 'sources'), 'read'],
+    ['/tiles', createBlobRoutes(runtime, 'tiles'), 'read'],
+    ['/recipes', createRecipeRoutes(runtime), 'read'],
+    ['/telemetry', createTelemetryRoutes(runtime, auth, { currentSeason, server }), 'open'],
+  ]
+  for (const [path, routes, scope] of mounts) {
+    // `/admin/*` above guards every admin mount, so its place in the path is its scope.
+    if ((scope === 'admin') !== path.startsWith('/admin/'))
+      throw new Error(`${path}: admin routes mount under /admin, and only they do`)
+    if (scope === 'read') gated.use(`${path}/*`, read)
+    gated.route(path, routes)
+  }
+
+  // Both mounts share these exact route objects, so compatibility aliases cannot gain handlers or
+  // contracts that differ from the versioned API. `open` mounts first: Hono runs handlers in
+  // registration order, so its routes answer before `gated`'s hold can see them.
+  for (const prefix of ['/v1', '/']) {
+    app.route(prefix, open)
+    app.route(prefix, gated)
+  }
 
   return app
 }

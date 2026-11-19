@@ -13,7 +13,7 @@
   } from '@caelestis/shared'
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
-  import type { ShortcutHelpIntent, ShortcutHelpModel, ShortcutHelpPlatform } from '../types.js'
+  import type { ShortcutHelpIntent, ShortcutHelpModel, ShortcutHelpPlatform } from './model.js'
 
   interface ShortcutRow {
     readonly key: string

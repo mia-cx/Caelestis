@@ -96,7 +96,7 @@ try {
   }
   const reply = (data) => console.log(JSON.stringify({ benchmark: true, ...data }))
   const status = await readFile(
-    new URL('../../apps/backend/src/status-coordinator.ts', import.meta.url),
+    new URL('../../apps/backend/src/live/session.ts', import.meta.url),
     'utf8',
   )
   reply({

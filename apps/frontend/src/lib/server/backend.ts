@@ -1,3 +1,4 @@
+import { BACKEND_MOUNT } from '@caelestis/shared'
 import type { RequestEvent } from '@sveltejs/kit'
 import { frontendClientAccept } from '#lib/api/client-metrics.js'
 
@@ -19,7 +20,7 @@ export const fetchBackend = (
 ): Promise<Response> => {
   const environment = event.locals.backendEnvironment
   const configuredBase = environment.CAELESTIS_SERVER ?? import.meta.env.VITE_CAELESTIS_SERVER
-  const base = (configuredBase ?? new URL('/backend', event.url).href).replace(/\/+$/, '')
+  const base = (configuredBase ?? new URL(BACKEND_MOUNT, event.url).href).replace(/\/+$/, '')
   const headers = new Headers(init.headers)
   headers.delete('cookie')
   headers.set('authorization', `Bearer ${readToken(event)}`)

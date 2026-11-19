@@ -1,12 +1,9 @@
 import type { Manifest, ServerInfo, Template, TemplateStatus } from '@caelestis/shared'
-import { serverAssetPath } from '@caelestis/shared'
-import {
-  DEFAULT_SOCIAL_IMAGE,
-  SOCIAL_IMAGE_HEIGHT,
-  SOCIAL_IMAGE_WIDTH,
-  socialImageKey,
-} from '@caelestis/social'
-import type { ObjectInfo, ObjectStorage } from '@caelestis/storage'
+import { API_VERSION_PATH, progressFromStatus, serverAssetPath } from '@caelestis/shared'
+import { DEFAULT_SOCIAL_IMAGE, SOCIAL_IMAGE_HEIGHT, SOCIAL_IMAGE_WIDTH } from '@caelestis/social'
+import type { ObjectInfo } from '@caelestis/storage'
+import { READ_PROXY } from '#lib/deployment.js'
+import { pageTitle } from '#lib/server-info.js'
 import { discordComponentEmbed } from './discord-embed.js'
 
 interface SocialContext {
@@ -15,10 +12,10 @@ interface SocialContext {
   statuses: readonly TemplateStatus[]
 }
 
-export const DEFAULT_SOCIAL_DESCRIPTION =
+const DEFAULT_SOCIAL_DESCRIPTION =
   'Follow Wplace pixel art, track template progress, and watch timelapses on Caelestis.'
 
-export interface SocialImage {
+interface SocialImage {
   image: string
   imageType: string
   imageWidth: number | null
@@ -33,7 +30,10 @@ export interface SocialImage {
 const configuredPreview = (url: URL, server: ServerInfo | null): SocialImage | null => {
   if (server?.previewImage === undefined) return null
   return {
-    image: new URL(`/api/v1${serverAssetPath('preview', server.previewImage)}`, url.origin).href,
+    image: new URL(
+      `${READ_PROXY}${API_VERSION_PATH}${serverAssetPath('preview', server.previewImage)}`,
+      url.origin,
+    ).href,
     imageType: server.previewImage.contentType,
     // Dimensions are not known without decoding the upload. Crawlers accept their absence.
     imageWidth: null,
@@ -49,10 +49,9 @@ const configuredPreview = (url: URL, server: ServerInfo | null): SocialImage | n
 export const socialMetadata = async (
   url: URL,
   context: SocialContext,
-  images?: Pick<ObjectStorage, 'head'>,
   ensureImage?: (template: Template) => Promise<ObjectInfo | null>,
 ) => {
-  const metadata = await pageMetadata(url, context, images, ensureImage)
+  const metadata = await pageMetadata(url, context, ensureImage)
   return {
     ...metadata,
     discordEmbed: discordComponentEmbed(metadata, context.server?.discordInviteUrl),
@@ -62,7 +61,6 @@ export const socialMetadata = async (
 const pageMetadata = async (
   url: URL,
   context: SocialContext,
-  images?: Pick<ObjectStorage, 'head'>,
   ensureImage?: (template: Template) => Promise<ObjectInfo | null>,
 ) => {
   const { server, manifest, statuses } = context
@@ -73,7 +71,7 @@ const pageMetadata = async (
     siteName: string
     url: string
   } = {
-    title: siteName === 'Caelestis' ? siteName : `${siteName} · Caelestis`,
+    title: pageTitle(server?.name),
     description: server?.description ?? DEFAULT_SOCIAL_DESCRIPTION,
     siteName,
     url: new URL(url.pathname, url.origin).href,
@@ -95,24 +93,25 @@ const pageMetadata = async (
   if (kind === 'folder') {
     const folder = manifest?.nodes.find((node) => node.id === id)
     if (folder !== undefined) {
-      metadata.title = `${folder.name} · ${siteName}`
+      metadata.title = pageTitle(server?.name, folder.name)
       metadata.description =
         folder.description || `Follow the Wplace templates and painting progress in ${folder.name}.`
     }
   }
   if (kind !== 'artwork') return metadata
   const template = manifest?.templates.find((entry) => entry.id === id && entry.published)
-  if (template === undefined || manifest === null) return metadata
-  metadata.title = `${template.name} · ${siteName}`
-  const status = statuses.find((entry) => entry.templateId === template.id)
-  const progress =
-    status === undefined || status.total === 0
+  if (template === undefined) return metadata
+  metadata.title = pageTitle(server?.name, template.name)
+  const progress = progressFromStatus(
+    template.totalPixels,
+    statuses.find((entry) => entry.templateId === template.id),
+  )
+  const painted =
+    progress === undefined || progress.total === 0
       ? ''
-      : ` ${Math.round((status.correct / status.total) * 100)}% painted correctly.`
-  metadata.description = `${template.totalPixels.toLocaleString('en-US')} pixels on Wplace.${progress} Watch the timelapse and follow its progress.`
-  const image = ensureImage
-    ? await ensureImage(template)
-    : await images?.head(socialImageKey(manifest.season, template))
+      : ` ${Math.round((progress.completed / progress.total) * 100)}% painted correctly.`
+  metadata.description = `${template.totalPixels.toLocaleString('en-US')} pixels on Wplace.${painted} Watch the timelapse and follow its progress.`
+  const image = await ensureImage?.(template)
   if (image != null) {
     const imageUrl = new URL(`/social/template/${encodeURIComponent(template.id)}.gif`, url.origin)
     imageUrl.searchParams.set('v', image.etag)

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { type Neutral, type ToneMap, tonePath } from './tone.js'
+  import { GRAPH_SIZE as SIZE, type Neutral, NEUTRAL_LINE } from './graph.js'
+  import { type ToneMap, tonePath } from './tone.js'
 
   /**
    * A read-only plot of how an effect maps input tone (x) to output tone (y), over quarter
@@ -11,9 +12,7 @@
     neutral = 'diagonal',
   }: { label: string; curves: readonly { map: ToneMap; colour: string }[]; neutral?: Neutral } = $props()
 
-  const SIZE = 256
-  const start = $derived({ diagonal: SIZE, flat: SIZE / 2, full: 0 }[neutral])
-  const end = $derived({ diagonal: 0, flat: SIZE / 2, full: 0 }[neutral])
+  const [start, end] = $derived(NEUTRAL_LINE[neutral])
 </script>
 
 <svg viewBox="0 0 {SIZE} {SIZE}" role="img" aria-label={label}>
@@ -35,7 +34,7 @@
     margin-inline: auto;
     aspect-ratio: 1;
     border: 1px solid var(--caelestis-border);
-    background: color-mix(in oklab, var(--caelestis-raised-surface, #eee) 50%, transparent);
+    background: color-mix(in oklab, var(--caelestis-raised-surface) 50%, transparent);
   }
   .grid { stroke: var(--caelestis-border); }
   .neutral { stroke: color-mix(in oklab, currentColor 40%, transparent); stroke-dasharray: 4 4; }

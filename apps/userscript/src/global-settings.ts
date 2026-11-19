@@ -1,3 +1,4 @@
+import { resolveShortcutBindings } from '@caelestis/shared'
 import type { GlobalSettingsIntent } from '@caelestis/ui/elements'
 import {
   isEnabled as isDebugEnabled,
@@ -7,10 +8,15 @@ import {
 import { isProfileEnabled, setProfileEnabled, storedProfiling, storeProfiling } from './profile.js'
 import {
   currentGlobalSettings,
+  getState,
   setState,
   storedGlobalSettings,
+  storedShortcutOverrides,
+  storedSimulatedInput,
   storeGlobalSetting,
+  storeSimulatedInput,
 } from './settings.js'
+import { activeShortcutBindings, currentShortcutPlatform } from './shortcuts.js'
 import {
   isWplacePatch,
   setWplaceOption,
@@ -30,6 +36,15 @@ export const globalSettingsModel = (context: SettingsContext) => ({
   wplacePatches: wplacePatchSettings(),
   debugLogging: context === 'tab' ? isDebugEnabled() : storedDebugLogging(),
   performanceProfiling: context === 'tab' ? isProfileEnabled() : storedProfiling(),
+  simulatedInput: context === 'tab' ? getState().simulatedInput : storedSimulatedInput(),
+  // The keys the Dangerous settings hints name.
+  shortcuts: {
+    platform: currentShortcutPlatform(),
+    bindings:
+      context === 'tab'
+        ? activeShortcutBindings()
+        : resolveShortcutBindings(storedShortcutOverrides()),
+  },
 })
 
 export const applyGlobalSettingsIntent = (
@@ -51,5 +66,14 @@ export const applyGlobalSettingsIntent = (
     case 'set-accessibility':
       setWplaceOption(intent.key, intent.value)
       break
+    case 'set-simulated-input': {
+      if (context === 'popup') {
+        storeSimulatedInput(intent.id, intent.value)
+        break
+      }
+      const { [intent.id]: _, ...others } = getState().simulatedInput
+      setState({ simulatedInput: intent.value ? { ...others, [intent.id]: true } : others })
+      break
+    }
   }
 }

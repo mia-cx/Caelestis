@@ -1,4 +1,5 @@
 import { PALETTE_SIZE, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
+import type { AppearanceNumberKey, AppearanceSliderModel } from '@caelestis/ui/elements'
 
 /**
  * How one overlay is drawn.
@@ -489,43 +490,42 @@ export const drawableIndices = (): readonly number[] =>
     (index) => index !== TRANSPARENT_INDEX,
   )
 
-/** The controls, in the order they are shown. One row each, all the same shape. */
+/**
+ * Every appearance slider: its group, limits and readout. Pixel sliders show in this order; the
+ * appearance editor places the marker sliders under the switches they depend on.
+ */
 export const APPEARANCE_CONTROLS: ReadonlyArray<{
-  key:
-    | 'size'
-    | 'radius'
-    | 'translateX'
-    | 'translateY'
-    | 'rotation'
-    | 'opacity'
-    | 'contrastOutlineSize'
+  key: AppearanceNumberKey
+  group: 'pixels' | 'markers'
   label: string
   min: number
   max: number
   step: number
-  /** How to read the value back to the user. */
-  format: (value: number) => string
+  format: AppearanceSliderModel['format']
 }> = [
   {
     key: 'size',
+    group: 'pixels',
     label: 'Size',
     min: 0.1,
     // Past 1 the stamp is cropped by its own cell rather than drawn larger, which is what makes a
     // filled corner or a clean half-cell triangle possible at all.
     max: 2,
     step: 0.05,
-    format: (v) => `${Math.round(v * 100)}%`,
+    format: 'percent',
   },
   {
     key: 'radius',
+    group: 'pixels',
     label: 'Rounding',
     min: 0,
     max: 1,
     step: 0.05,
-    format: (v) => `${Math.round(v * 100)}%`,
+    format: 'percent',
   },
   {
     key: 'translateX',
+    group: 'pixels',
     // A full cell each way, not half. Half only reaches the cell's edge, which with an oversized
     // stamp is nowhere near the end of the useful range — sliding a 200% stamp a whole cell is what
     // leaves a thin band or clears the cell entirely, and both are shapes worth having.
@@ -533,38 +533,115 @@ export const APPEARANCE_CONTROLS: ReadonlyArray<{
     min: -1,
     max: 1,
     step: 0.05,
-    format: (v) => `${Math.round(v * 100)}%`,
+    format: 'percent',
   },
   {
     key: 'translateY',
+    group: 'pixels',
     label: 'Offset Y',
     min: -1,
     max: 1,
     step: 0.05,
-    format: (v) => `${Math.round(v * 100)}%`,
+    format: 'percent',
   },
   {
     key: 'rotation',
+    group: 'pixels',
     label: 'Rotation',
     min: 0,
     max: 90,
     step: 1,
-    format: (v) => `${Math.round(v)}°`,
+    format: 'degrees',
   },
   {
     key: 'opacity',
+    group: 'pixels',
     label: 'Opacity',
     min: 0.05,
     max: 1,
     step: 0.05,
-    format: (v) => `${Math.round(v * 100)}%`,
+    format: 'percent',
   },
   {
     key: 'contrastOutlineSize',
+    group: 'pixels',
     label: 'Outline thickness',
     min: 0.25,
     max: 2,
     step: 0.05,
-    format: (v) => `${Number(((v / 8) * 100).toFixed(1))}%`,
+    format: 'decimal-pixels',
+  },
+  {
+    key: 'markerSize',
+    group: 'markers',
+    label: 'Size',
+    min: 3,
+    max: 33,
+    step: 1,
+    format: 'pixels',
+  },
+  {
+    key: 'unpaintedLimit',
+    group: 'markers',
+    label: 'Only under',
+    min: 0,
+    max: UNPAINTED_LIMIT_MAX,
+    step: 0.005,
+    format: 'percent',
+  },
+  {
+    key: 'otherOpacity',
+    group: 'markers',
+    label: 'Faded to',
+    min: 0.05,
+    max: 1,
+    step: 0.05,
+    format: 'percent',
+  },
+  {
+    key: 'selectedMarkerSize',
+    group: 'markers',
+    label: 'Size',
+    min: 3,
+    max: 33,
+    step: 1,
+    format: 'pixels',
   },
 ]
+
+/** A slider is inert while the switch it refines is off, or while the whole editor is. */
+const sliderDisabled = (key: AppearanceNumberKey, values: Appearance): boolean => {
+  switch (key) {
+    case 'contrastOutlineSize':
+      return !values.contrastOutline
+    case 'markerSize':
+      return !values.markMismatch
+    case 'unpaintedLimit':
+      return !values.markMismatch || !values.markUnpainted
+    case 'otherOpacity':
+      return !values.markMismatch || !values.dimOthers
+    case 'selectedMarkerSize':
+      return !values.markSelectedColour
+    default:
+      return false
+  }
+}
+
+/** The appearance editor's sliders for `values`, resetting to `defaults`. */
+export const appearanceSliders = (
+  values: Appearance,
+  defaults: Appearance,
+  disabled = false,
+): AppearanceSliderModel[] =>
+  APPEARANCE_CONTROLS.map(({ key, group, label, min, max, step, format }) => ({
+    key,
+    group,
+    label,
+    value: values[key],
+    defaultValue: defaults[key],
+    min,
+    max,
+    step,
+    format,
+    ...(disabled || sliderDisabled(key, values) ? { disabled: true } : {}),
+  }))

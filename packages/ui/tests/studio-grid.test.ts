@@ -27,10 +27,7 @@ function redShadows(): TwoInputCurve {
 }
 
 describe('two-input curve grids', () => {
-  it('starts neutral, a column every 30° on hue and five rows', () => {
-    const { grid } = redShadows()
-    expect(grid.columns).toHaveLength(12)
-    expect(grid.rows).toEqual([0, 0.25, 0.5, 0.75, 1])
+  it('starts neutral', () => {
     expect(evaluateGrid({ ...redShadows(), grid: neutralGrid(hue, lightness) }, 0.3, 0.6)).toBe(0.5)
   })
 

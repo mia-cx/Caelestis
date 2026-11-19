@@ -1,0 +1,45 @@
+import { DEFAULT_STUDIO_LAYOUT } from '../src/studio/layout.js'
+import type { TemplateStudioModel } from '../src/studio/model.js'
+
+/** A complete studio model before any image loads; tests override the parts they exercise. */
+export const studioModel = (changes: Partial<TemplateStudioModel> = {}): TemplateStudioModel => ({
+  target: { kind: 'create', destination: '' },
+  name: '',
+  source: null,
+  loadingSource: false,
+  crop: { x: 0, y: 0, width: 0, height: 0 },
+  cropping: null,
+  output: {
+    width: 0,
+    height: 0,
+    scale: 1,
+    keepProportions: true,
+    stretched: false,
+    resize: 'area',
+    anchor: 'center',
+    locked: false,
+  },
+  origin: { x: 0, y: 0 },
+  palette: { scope: 'all', ownedKnown: false, colours: [] },
+  alpha: { mode: 'preserve', threshold: 128, matte: 0 },
+  colorSpace: 'oklab',
+  dither: {
+    algorithm: 'none',
+    strength: 0,
+    placement: 'everywhere',
+    placementSampleSize: 8,
+    placementContrastThreshold: 10,
+    serpentine: false,
+    seed: 0,
+    useColorSpace: false,
+  },
+  effects: [],
+  analysingFit: null,
+  scopes: { stages: ['output'], samples: {}, pending: false },
+  engine: null,
+  processing: { state: 'idle' },
+  history: { undo: false, redo: false },
+  pending: false,
+  layout: DEFAULT_STUDIO_LAYOUT,
+  ...changes,
+})

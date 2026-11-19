@@ -96,6 +96,27 @@ describe('openSurface', () => {
     vi.advanceTimersByTime(150)
     expect(finish).toHaveBeenCalledTimes(1)
   })
+
+  it('runs onOpen once the surface is open, and drops it when a close interrupts', () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (run: FrameRequestCallback) => frames.push(run))
+    vi.stubGlobal('cancelAnimationFrame', () => frames.splice(0))
+    const states: (string | undefined)[] = []
+    const el = element()
+    openSurface(el, () => states.push(el.dataset.state))
+    openSurface(el, () => states.push(`second ${el.dataset.state}`))
+    while (frames.length > 0) frames.shift()?.(0)
+    expect(states).toEqual(['open', 'second open'])
+    openSurface(el, () => states.push('already open'))
+    expect(states.at(-1)).toBe('already open')
+
+    const interrupted = element()
+    const onOpen = vi.fn()
+    openSurface(interrupted, onOpen)
+    closeSurface(interrupted, () => {})
+    while (frames.length > 0) frames.shift()?.(0)
+    expect(onOpen).not.toHaveBeenCalled()
+  })
 })
 
 describe('surfaceCloseDurationMs', () => {

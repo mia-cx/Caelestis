@@ -4,7 +4,7 @@
 import { ICONS, type IconData, type IconName } from './icons-material.js'
 import { PIXEL_ICONS } from './icons-pixel.js'
 
-export { ICONS, type IconData, type IconName } from './icons-material.js'
+export type { IconName } from './icons-material.js'
 
 export type IconSet = 'material' | 'pixel'
 

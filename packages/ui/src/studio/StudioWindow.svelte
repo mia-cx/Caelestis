@@ -105,7 +105,7 @@
   }
   .tab {
     /* Square in pixel style, whose radius is 0; gently rounded in classic. */
-    --tab-radius: min(var(--caelestis-radius, 0.4rem), 0.4rem);
+    --tab-radius: min(var(--caelestis-radius), 0.4rem);
     display: flex;
     flex: 0 0 auto;
     align-items: center;
@@ -113,8 +113,8 @@
     color: var(--caelestis-muted-text);
   }
   .tab.active {
-    background: var(--caelestis-raised-surface, oklch(0.92 0.01 264));
-    box-shadow: inset 0 -2px var(--caelestis-primary, oklch(0.68 0.15 244));
+    background: var(--caelestis-raised-surface);
+    box-shadow: inset 0 -2px var(--caelestis-primary);
     color: var(--caelestis-text);
   }
   .tab button {
@@ -125,7 +125,7 @@
   }
   [role='tab'] {
     padding: 0.3rem 0.125rem 0.3rem 0.5rem;
-    font: 600 0.875rem/1.25 var(--caelestis-font, ui-sans-serif, system-ui, sans-serif);
+    font: 600 0.875rem/1.25 var(--caelestis-font);
     cursor: grab;
   }
   .close {
@@ -138,7 +138,7 @@
     opacity: 0.7;
   }
   .close:hover { opacity: 1; }
-  .tab button:focus-visible { outline: 2px solid var(--caelestis-focus, currentColor); outline-offset: -2px; }
+  .tab button:focus-visible { outline: 2px solid var(--caelestis-focus); outline-offset: -2px; }
   @media (pointer: coarse) {
     .close { inline-size: 2.25rem; block-size: 2.25rem; }
   }
@@ -148,6 +148,6 @@
     flex-direction: column;
     gap: 0.5rem;
     padding: 0.75rem var(--caelestis-content-inset) var(--caelestis-content-inset);
-    border-block-start: 1px solid var(--caelestis-border, oklch(0.78 0.025 264 / 0.7));
+    border-block-start: 1px solid var(--caelestis-border);
   }
 </style>

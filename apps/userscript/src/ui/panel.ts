@@ -4,7 +4,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type {
-  CaelestisPanel,
+  CaelestisElement,
   PanelIntent,
   PanelModel,
   SettingsIntent,
@@ -143,13 +143,15 @@ const currentView = (): PanelView => panelSessions.view()
 const panelOpen = (): boolean => panelSessions.isOpen()
 const currentPanelId = (): string =>
   panelSessions.scope() === 'alliance' ? ALLIANCE_PANEL_ID : PANEL_ID
-const currentPanel = (): CaelestisPanel | null =>
-  document.getElementById(currentPanelId()) as CaelestisPanel | null
+type PanelHost = CaelestisElement<'caelestis-panel'>
+
+const currentPanel = (): PanelHost | null =>
+  document.getElementById(currentPanelId()) as PanelHost | null
 /** Settings belong to the whole tab, so only the world panel shows them. */
 const showsSettings = (): boolean => panelSurface.kind === 'world'
 
 /** The panel's laid-out width; a freshly connected element has no box yet, so its model's. */
-const currentPanelWidth = (panel: CaelestisPanel): number =>
+const currentPanelWidth = (panel: PanelHost): number =>
   panel.getBoundingClientRect().width || panel.model.width
 
 const panelModel = (width = panelWidthForViewport(getState().panelWidth)): PanelModel => ({
@@ -198,14 +200,16 @@ const onlyExpansionChanged = (previous: State, next: State): boolean =>
     (key) => key === 'collapsed' || previous[key] === next[key],
   )
 
+/** Whether a colour picker in the panel's appearance view is open, as the view last reported. */
+let colourPickerOpen = false
+
 /** `refreshView` for a change the claimed list cannot see, so its cached build survives. */
 const redrawView = (): void => {
   if (!panelOpen()) return
   const root = document.getElementById(currentPanelId())
   if (root === null) return
   const held =
-    (root.shadowRoot?.querySelector('[data-caelestis-colour-picker]:popover-open') ?? null) !==
-      null ||
+    colourPickerOpen ||
     isTreeDragActive() ||
     heldPanelPointers.size > 0 ||
     (root.contains(document.activeElement) && document.activeElement instanceof HTMLInputElement)
@@ -277,10 +281,10 @@ const followServerSnapshot = (server: ServerConnection, result: ServerSnapshotRe
 const refreshPresenceDrawer = (): void => {
   if (!panelOpen() || currentView() !== 'tree') return
   const panel = currentPanel()
-  const work = panel?.model.work
-  if (panel == null || work === undefined) return
-  const { presence: _previous, ...rest } = work
-  panel.model = { ...panel.model, work: { ...rest, ...presenceField() } }
+  const drawers = panel?.model.drawers
+  if (panel == null || drawers === undefined) return
+  const { presence: _previous, ...rest } = drawers
+  panel.model = { ...panel.model, drawers: { ...rest, ...presenceField() } }
 }
 
 /** Follow a pixel-progress change by updating row progress in both trees, keeping their rows. */
@@ -349,19 +353,19 @@ const insetAllianceDrawer = (width: number): void => {
   if (active !== null) positionAllianceRail(active)
 }
 
-const handlePanelIntent = (panel: CaelestisPanel, intent: PanelIntent): void => {
+const handlePanelIntent = (panel: PanelHost, intent: PanelIntent): void => {
   switch (intent.type) {
     case 'tree':
       handleTreeIntent(intent.intent, 'tree')
       break
-    case 'work-tree':
+    case 'favourites-tree':
       handleTreeIntent(intent.intent, 'claimed')
       break
-    case 'work-retry':
+    case 'favourites-retry':
       retryTemplateClaims(panelSurface, rerenderTree)
       break
-    case 'work-visibility':
-      setShowOtherClaims(intent.showOtherClaims)
+    case 'favourites-visibility':
+      setShowOtherClaims(intent.showOthers)
       break
     case 'region-claim':
       openClaimTool()
@@ -397,7 +401,15 @@ const handlePanelIntent = (panel: CaelestisPanel, intent: PanelIntent): void => 
       insetAllianceDrawer(intent.width)
       break
     case 'appearance':
-      handleAppearanceIntent(surfaceAppearanceStore(panelSurface), intent.intent)
+      handleAppearanceIntent(
+        {
+          ...surfaceAppearanceStore(panelSurface),
+          picker: (open) => {
+            colourPickerOpen = open
+          },
+        },
+        intent.intent,
+      )
       break
     case 'settings':
       handleSettings(intent.intent)
@@ -405,7 +417,7 @@ const handlePanelIntent = (panel: CaelestisPanel, intent: PanelIntent): void => 
   }
 }
 
-const buildPanel = (): CaelestisPanel => {
+const buildPanel = (): PanelHost => {
   const panel = (panelHost?.ownerDocument ?? document).createElement('caelestis-panel')
   const alliance = panelSessions.scope() === 'alliance'
   panel.id = currentPanelId()
@@ -427,7 +439,7 @@ const buildPanel = (): CaelestisPanel => {
   panel.model = panelModel()
   applyWplaceTheme(panel)
   panel.addEventListener('caelestis-panel-intent', (event) =>
-    handlePanelIntent(panel, (event as CustomEvent<PanelIntent>).detail),
+    handlePanelIntent(panel, event.detail),
   )
   return panel
 }

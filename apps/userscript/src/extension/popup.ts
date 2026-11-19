@@ -1,9 +1,4 @@
-import {
-  EXTENSION_SETTINGS_TAG,
-  type ExtensionSettingsModel,
-  type GlobalSettingsIntent,
-  registerCaelestisUi,
-} from '@caelestis/ui/elements'
+import { type ExtensionSettingsModel, registerCaelestisUi } from '@caelestis/ui/elements'
 import { userscriptVersion } from '../client-metrics.js'
 import { applyGlobalSettingsIntent, globalSettingsModel } from '../global-settings.js'
 import { onStoredValueChange, useStoredValues } from '../stored-values.js'
@@ -37,13 +32,13 @@ const start = async (): Promise<void> => {
     }),
   )
   registerCaelestisUi()
-  const view = document.createElement(EXTENSION_SETTINGS_TAG)
+  const view = document.createElement('caelestis-extension-settings')
   applyWplaceTheme(view)
   const render = (): void => {
     view.model = model()
   }
   view.addEventListener('caelestis-extension-settings-intent', (event) => {
-    applyGlobalSettingsIntent((event as CustomEvent<GlobalSettingsIntent>).detail, 'popup')
+    applyGlobalSettingsIntent(event.detail, 'popup')
     render()
   })
   onStoredValueChange(render)

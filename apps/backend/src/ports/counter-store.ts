@@ -1,40 +1,34 @@
-import { type Millis, type Seconds, seconds } from '@caelestis/shared'
+import {
+  COUNTER_EXPIRES_AFTER_SECONDS,
+  COUNTER_GRACE_SECONDS,
+  type Millis,
+  type Seconds,
+  seconds,
+} from '@caelestis/shared'
 
 /**
- * Live contribution counters. Durable Object today, a counters table later.
+ * Live contribution counters, buffered by the telemetry coordinator in front of the time series.
  *
  * The contract is **exactness**, not a storage mechanism: a value read back immediately after a
  * record reflects that record. A Durable Object delivers that through single-threaded execution;
- * Postgres delivers the same thing through row-level atomicity. Neither is more exact than the
- * other, so nothing degrades when this is ported.
+ * a relational coordinator database through transactions.
  *
  * Flushing to the time series is deliberately **not** in this interface. The bucket resolution,
  * grace period, and retention window are contract values because every implementation must assign
  * and retain activity identically; alarms remain an adapter detail.
  */
 
-export const RESOLUTION_SECONDS: Seconds = seconds(60)
-export const GRACE_SECONDS: Seconds = seconds(30)
-export const RETENTION_SECONDS: Seconds = seconds(3_600)
+export {
+  COUNTER_EXPIRES_AFTER_SECONDS as EXPIRES_AFTER_SECONDS,
+  COUNTER_FLUSHABLE_AFTER_SECONDS as FLUSHABLE_AFTER_SECONDS,
+  COUNTER_GRACE_SECONDS as GRACE_SECONDS,
+  COUNTER_RESOLUTION_SECONDS as RESOLUTION_SECONDS,
+  COUNTER_RETENTION_SECONDS as RETENTION_SECONDS,
+} from '@caelestis/shared'
 
-/**
- * Derived windows, exported so every implementation and the validator share one definition.
- *
- * These were previously recomputed in three places and agreed only by coincidence. Expiry is the
- * sole authority on how late a delta may be, so if the validator's notion of "expired" drifts from
- * the store's by even a second, it accepts a bucket whose retained row has already been pruned — and
- * the promotion join then writes only the late portion, which D1's replace semantics turn into a
- * silent undercount. Derive, never restate.
- *
- * The store's own pruning defends the same boundary from the other side: a retained row outlives its
- * expiry for as long as pending or flush-batch state still references it, so an in-flight rewrite
- * always has its subtrahend.
- */
-export const FLUSHABLE_AFTER_SECONDS: Seconds = seconds(RESOLUTION_SECONDS + GRACE_SECONDS)
-export const EXPIRES_AFTER_SECONDS: Seconds = seconds(FLUSHABLE_AFTER_SECONDS + RETENTION_SECONDS)
 /** Event keys outlive every counter timestamp that could have been valid when first received. */
 export const COUNTER_IDEMPOTENCY_RETENTION_SECONDS: Seconds = seconds(
-  EXPIRES_AFTER_SECONDS + GRACE_SECONDS,
+  COUNTER_EXPIRES_AFTER_SECONDS + COUNTER_GRACE_SECONDS,
 )
 
 /** Prevent unbounded identifiers from creating permanent rows in the shared stores. */
@@ -42,9 +36,6 @@ export const MAX_TEMPLATE_ID_LENGTH = 64
 
 /** Bound synchronous validation and writes on the single global counter shard. */
 export const MAX_COUNTER_DELTAS_PER_RECORD = 1_000
-
-/** D1's free plan allows 50 queries per invocation; leave headroom for transaction overhead. */
-export const FLUSH_BATCH_LIMIT = 40
 
 export interface CounterDelta {
   /** Non-empty template identifier. */
@@ -105,19 +96,16 @@ export interface CounterStore {
   /**
    * Number of deltas rejected as invalid or expired.
    *
-   * This counts every rejection. It used to say "without any matching local bucket state", which is
-   * not what happens: at the exact expiry instant a matching flush-batch row can still exist and the
-   * delta is counted anyway. Monitoring cannot infer "nothing local to reconcile against" from it.
+   * This counts every rejection, including one at the exact expiry instant while a matching
+   * flush-batch row still exists, so it does not mean "nothing local to reconcile against".
    */
   readDroppedLateCount(): Promise<number>
 
   /**
    * Consecutive failed flushes to the time series, or 0 when the last flush succeeded.
    *
-   * This exists because the flush path deliberately does not throw — see the note in
-   * `TelemetryShard.alarm()`. A throwing alarm registers as a platform error that is retained and
-   * alertable; returning normally reports success while flushing nothing. This counter is what
-   * replaces that signal, so it must be readable rather than merely written.
+   * The flush deliberately does not throw (see `CounterFlusher.flush`), so the platform records
+   * no error for a failed flush. This counter is the signal that replaces it.
    */
   readFlushFailureCount(): Promise<number>
 }

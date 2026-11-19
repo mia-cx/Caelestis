@@ -105,14 +105,19 @@ describe('access token creation through the backend', () => {
         token: token.value,
         isAdmin: false,
       })
-      const copyToken = root.querySelector<HTMLButtonElement>('[aria-label="Copy token"]')
-      const copyInvite = root.querySelector<HTMLButtonElement>('[aria-label="Copy invite link"]')
-      if (copyToken === null || copyInvite === null) throw new Error('Missing copy actions')
+      const button = (name: string) =>
+        [...root.querySelectorAll('button')].find(
+          (candidate) => candidate.textContent?.trim() === name,
+        )
+      const copyToken = button('Copy token')
+      const copyInvite = button('Copy invite link')
+      if (copyToken === undefined || copyInvite === undefined)
+        throw new Error('Missing copy actions')
       copyToken.click()
       await vi.waitFor(() => expect(copied).toEqual([token.value]))
       copyInvite.click()
       await vi.waitFor(() => expect(copied).toEqual([token.value, invite.value]))
-      root.querySelector<HTMLButtonElement>('.quiet')?.click()
+      button('Done')?.click()
     } finally {
       document.body.replaceChildren()
     }

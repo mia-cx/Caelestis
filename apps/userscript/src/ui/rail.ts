@@ -1,5 +1,5 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import type { CaelestisRailControl, RailControlModel } from '@caelestis/ui/elements'
+import type { RailControlModel } from '@caelestis/ui/elements'
 import { onAlarmBadgeChange, unacknowledgedAlarmCount } from '../alarms.js'
 import { type ActiveAllianceSurface, activeAllianceSurface } from '../alliance-surface.js'
 import { ALLIANCE_PANEL_ID, ALLIANCE_RAIL_ID, PANEL_ID } from '../chrome-ids.js'
@@ -27,7 +27,7 @@ import { positionChargeForecast } from './charge-forecast.js'
 import { EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import { refreshOverlayMenu } from './overlay-menu.js'
 import { allianceRailInlineEnd, allianceRailTop, type PanelScope } from './panel-scope.js'
-import { mountRailButton } from './rail-button.js'
+import { mountRailButton, type RailControl } from './rail-button.js'
 import {
   findWplaceRail,
   onWplaceLayoutChange,
@@ -81,8 +81,8 @@ const buttonTooltip = (): string => `${APP_NAME} — shared templates${shortcutH
 
 let panel: RailPanel | null = null
 
-const railControl = (id: string, doc: Document = document): CaelestisRailControl | null =>
-  doc.getElementById(id) as CaelestisRailControl | null
+const railControl = (id: string, doc: Document = document): RailControl | null =>
+  doc.getElementById(id) as RailControl | null
 
 const syncModel = (id: string, model: RailControlModel): void => {
   const button = railControl(id)
@@ -98,7 +98,7 @@ const panelButtonModel = (scope: PanelScope): RailControlModel => {
   const open = panel?.isOpen(scope) ?? false
   const badge = scope === 'world' ? unacknowledgedAlarmCount() : 0
   return {
-    id: scope === 'alliance' ? 'alliance-panel' : 'panel',
+    icon: 'extension',
     label: buttonTooltip(),
     pressed: open,
     expanded: open,
@@ -118,7 +118,7 @@ const colourModel = (surface: TemplateSurface = WORLD_TEMPLATE_SURFACE): RailCon
   const on = onlySelectedColourFor(surface)
   const label = on ? 'Showing only the selected colour' : 'Show only the selected colour'
   return {
-    id: 'colour',
+    icon: 'palette',
     label: `${isPaintOpen() ? label : `${label} — open wplace's paint drawer to pick one`}${shortcutHint('toggle-colour')}`,
     pressed: on,
   }
@@ -127,13 +127,13 @@ const colourModel = (surface: TemplateSurface = WORLD_TEMPLATE_SURFACE): RailCon
 const mismatchModel = (): RailControlModel => {
   const on = getState().appearance.markMismatch
   const label = on ? 'Hide global mismatch markers' : 'Show global mismatch markers'
-  return { id: 'mismatch', label: `${label}${shortcutHint('toggle-markers')}`, pressed: on }
+  return { icon: 'bug', label: `${label}${shortcutHint('toggle-markers')}`, pressed: on }
 }
 
 const allianceMismatchModel = (surface: TemplateSurface): RailControlModel => {
   const on = getSurfaceAppearance(surface).markMismatch
   return {
-    id: 'mismatch',
+    icon: 'bug',
     label: `${on ? 'Hide' : 'Show'} mismatch markers on this canvas${shortcutHint('toggle-markers')}`,
     pressed: on,
   }
@@ -142,7 +142,7 @@ const allianceMismatchModel = (surface: TemplateSurface): RailControlModel => {
 const presenceModel = (): RailControlModel => {
   const on = getState().showPresence
   return {
-    id: 'presence',
+    icon: 'painters',
     label: `${on ? 'Hide' : 'Show'} other painters and claims${shortcutHint('toggle-presence')}`,
     pressed: on,
   }
@@ -153,7 +153,7 @@ const claimModel = (): RailControlModel => {
   const capturing = isCaptureModeActive()
   const ready = claimAvailability().ready
   return {
-    id: 'claim',
+    icon: 'shapes',
     label: capturing
       ? 'Leave capture mode (Esc)'
       : active
@@ -190,13 +190,12 @@ const syncAllianceModes = (active = activeAllianceSurface()): void => {
 }
 
 /** Every world rail button in rail order; the first ones win the slots when the column is short. */
-const worldButtons = (): CaelestisRailControl[] => [
+const worldButtons = (): RailControl[] => [
   railControl(BUTTON_ID) ??
     mountRailButton({
       id: BUTTON_ID,
       model: panelButtonModel('world'),
       activate: () => panel?.toggleWorld(),
-      hostClick: true,
     }),
   railControl(COLOUR_MODE_ID) ??
     mountRailButton({
@@ -245,7 +244,7 @@ const worldButtons = (): CaelestisRailControl[] => [
 
 /** Wplace's rail spacing, last measured; kept while their rail is gone, as in the paint drawer. */
 let railGap = GAP
-let moreControl: CaelestisRailControl | null = null
+let moreControl: RailControl | null = null
 let tray: HTMLElement | null = null
 
 /**
@@ -274,7 +273,7 @@ const railContainer = (): HTMLElement => {
 const trayOpen = (): boolean => tray !== null && !tray.hidden
 
 const moreModel = (): RailControlModel => ({
-  id: 'more',
+  icon: 'kebab',
   label: 'More Caelestis controls',
   popup: 'menu',
   controls: TRAY_ID,
@@ -307,7 +306,7 @@ const closeTrayOnEscape = (event: KeyboardEvent): void => {
 }
 
 /** The rail's last slot when the column is short: opens the buttons that did not fit. */
-const moreButton = (): CaelestisRailControl => {
+const moreButton = (): RailControl => {
   moreControl ??= mountRailButton({
     id: MORE_ID,
     model: moreModel(),
@@ -330,7 +329,9 @@ const trayContainer = (): HTMLElement => {
   tray.setAttribute('aria-label', 'More Caelestis controls')
   Object.assign(tray.style, { position: 'fixed', zIndex: '30' })
   tray.hidden = true
-  tray.addEventListener('caelestis-rail-intent', () => setTrayOpen(false))
+  tray.addEventListener('click', (event) => {
+    if (event.target !== tray) setTrayOpen(false)
+  })
   document.body.appendChild(tray)
   return tray
 }
@@ -435,7 +436,6 @@ export const mountAllianceRail = (active: ActiveAllianceSurface): void => {
         document: doc,
         model: panelButtonModel('alliance'),
         activate: () => panel?.toggleAlliance(active),
-        hostClick: true,
         isolatePointerDown: true,
       }),
     railControl(ALLIANCE_COLOUR_MODE_ID) ??

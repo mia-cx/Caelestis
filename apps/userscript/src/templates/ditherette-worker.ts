@@ -1,5 +1,5 @@
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
-import type { Samples } from '@caelestis/ui/elements'
+import type { Samples } from '@caelestis/ui/studio'
 import type { Curve, Progress, Rgba8Image } from 'ditherette'
 import { errorText } from '../error-text.js'
 import {

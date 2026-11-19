@@ -2,4 +2,4 @@
 "@caelestis/userscript": patch
 ---
 
-Closing tags, server details or the shortcut reference returns focus to the control that opened it.
+Closing Tags or Server details returns focus to the row that opened it.

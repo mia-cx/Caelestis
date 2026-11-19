@@ -13,18 +13,17 @@ import {
   WORLD_PIXELS,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import {
-  type CaelestisTemplateStudio,
-  type EffectLayer,
-  type Samples,
-  type ScopeStage,
-  type StudioPaletteScope,
-  type StudioRect,
-  TEMPLATE_STUDIO_TAG,
-  type TemplateStudioIntent,
-  type TemplateStudioModel,
-} from '@caelestis/ui/elements'
+import type { CaelestisElement } from '@caelestis/ui/elements'
 import { cancelSurfaceClose, closeSurface, openSurface } from '@caelestis/ui/motion'
+import type {
+  EffectLayer,
+  Samples,
+  ScopeStage,
+  StudioPaletteScope,
+  StudioRect,
+  TemplateStudioIntent,
+  TemplateStudioModel,
+} from '@caelestis/ui/studio'
 import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
 import { activeAllianceDialog } from '../alliance-editor-dom.js'
 import { allianceSurfaceCentre, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
@@ -124,7 +123,7 @@ const STUDIO_ID = 'caelestis-template-studio'
 const CROP_CARD_ROOM = 0.35
 
 let target: TemplateStudioTarget | null = null
-let element: CaelestisTemplateStudio | null = null
+let element: CaelestisElement<'caelestis-template-studio'> | null = null
 let closing: HTMLElement | null = null
 /** Stops watching the alliance editor the studio opened in. */
 let releaseHost: (() => void) | null = null
@@ -277,7 +276,6 @@ export const templateStudioModel = (): TemplateStudioModel => ({
           name: source.name,
           width: source.image.width,
           height: source.image.height,
-          url: source.url,
         },
   loadingSource,
   crop,
@@ -1292,12 +1290,12 @@ const mount = (): void => {
       if (!dialog.isConnected || !dialog.open) closeTemplateStudio()
     })
   if (closing?.parentElement === host && cancelSurfaceClose(closing)) {
-    element = closing as CaelestisTemplateStudio
+    element = closing as CaelestisElement<'caelestis-template-studio'>
     closing = null
     openSurface(element)
     return
   }
-  const created = document.createElement(TEMPLATE_STUDIO_TAG) as CaelestisTemplateStudio
+  const created = document.createElement('caelestis-template-studio')
   created.id = STUDIO_ID
   Object.assign(created.style, {
     position: 'fixed',
@@ -1308,7 +1306,7 @@ const mount = (): void => {
   } satisfies Partial<CSSStyleDeclaration>)
   applyWplaceTheme(created)
   created.addEventListener('caelestis-template-studio-intent', (event) =>
-    handleTemplateStudioIntent((event as CustomEvent<TemplateStudioIntent>).detail),
+    handleTemplateStudioIntent(event.detail),
   )
   host.appendChild(created)
   openSurface(created)

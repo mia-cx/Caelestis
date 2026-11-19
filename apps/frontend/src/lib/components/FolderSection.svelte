@@ -1,20 +1,11 @@
 <script lang="ts">
-import type { CanvasTileSummary, TileKey } from '@caelestis/shared'
+import type { TreeFolder } from '@caelestis/shared'
 import { Icon, ProgressMeter } from '@caelestis/ui'
 import FolderSection from '#lib/components/FolderSection.svelte'
 import TemplateCard from '#lib/components/TemplateCard.svelte'
-import * as Collapsible from '#lib/components/ui/collapsible/index.js'
-import type { TreeFolder } from '#lib/tree.js'
+import { Collapsible } from 'bits-ui'
 
-let {
-  folder,
-  canvas,
-  depth = 0,
-}: {
-  folder: TreeFolder
-  canvas: ReadonlyMap<TileKey, CanvasTileSummary>
-  depth?: number
-} = $props()
+let { folder, depth = 0 }: { folder: TreeFolder; depth?: number } = $props()
 
 // svelte-ignore state_referenced_locally -- the initial value is the point: top levels start
 // open, deeper ones closed, and the user's toggling owns the state from there.
@@ -53,12 +44,12 @@ let open = $state(depth < 2)
         {#if folder.templates.length > 0}
           <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {#each folder.templates as entry (entry.template.id)}
-              <TemplateCard {entry} {canvas} />
+              <TemplateCard {entry} />
             {/each}
           </div>
         {/if}
         {#each folder.folders as child (child.node.id)}
-          <FolderSection folder={child} {canvas} depth={depth + 1} />
+          <FolderSection folder={child} depth={depth + 1} />
         {/each}
         {#if folder.templates.length === 0 && folder.folders.length === 0}
           <p class="py-2 text-center text-sm text-base-content/50">This folder is empty.</p>

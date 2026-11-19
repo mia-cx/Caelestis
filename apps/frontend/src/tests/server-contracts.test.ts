@@ -374,8 +374,9 @@ describe('public social metadata and stored image routes', () => {
         manifest: data,
         statuses: [{ templateId: template().id, correct: 2, total: 4 } as TemplateStatus],
       }
-      const images = { head: async () => ({ etag: 'gif-1' }) as ObjectInfo }
-      const animated = embedOf(await socialMetadata(url, context, images))
+      const animated = embedOf(
+        await socialMetadata(url, context, async () => ({ etag: 'gif-1' }) as ObjectInfo),
+      )
       expect(text(animated)).toContain('4 pixels on Wplace. 50% painted correctly.')
       expect(gallery(animated)).toEqual([
         {
@@ -383,13 +384,28 @@ describe('public social metadata and stored image routes', () => {
           description: 'Painting timelapse of Artwork on Wplace',
         },
       ])
-      const still = embedOf(await socialMetadata(url, context, { head: async () => null }))
+      const still = embedOf(await socialMetadata(url, context, async () => null))
       expect(gallery(still)).toEqual([
         {
           media: { url: 'https://frontend.test/social/site.png' },
           description: expect.any(String),
         },
       ])
+    })
+
+    it("leaves out a replaced artwork's previous progress", async () => {
+      const data = manifest()
+      const metadata = await socialMetadata(
+        new URL(`https://frontend.test/artwork/${template().id}`),
+        {
+          server: data.server,
+          manifest: data,
+          statuses: [{ templateId: template().id, correct: 2, total: 2 } as TemplateStatus],
+        },
+      )
+      expect(metadata.description).toBe(
+        '4 pixels on Wplace. Watch the timelapse and follow its progress.',
+      )
     })
 
     it('reveals nothing about an unpublished template', async () => {
@@ -400,22 +416,6 @@ describe('public social metadata and stored image routes', () => {
       )
       expect(metadata.discordEmbed).not.toContain('Secret plan')
       expect(text(embedOf(metadata))).toContain('## Test world · Caelestis')
-    })
-
-    it('keeps the legacy /template/ path anonymous', async () => {
-      const data = manifest()
-      const context = { server: data.server, manifest: data, statuses: [] }
-      const legacy = await socialMetadata(
-        new URL(`https://frontend.test/template/${template().id}`),
-        context,
-      )
-      expect(legacy.title).toBe('Test world · Caelestis')
-      expect(legacy.image).toContain('/social/site.png')
-      const moved = await socialMetadata(
-        new URL(`https://frontend.test/artwork/${template().id}`),
-        context,
-      )
-      expect(moved.title).toBe('Artwork · Test world')
     })
 
     it.each([

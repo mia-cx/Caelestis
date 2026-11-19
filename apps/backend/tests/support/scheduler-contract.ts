@@ -1,7 +1,7 @@
 import { expect } from 'vitest'
 import { SqlCoordinatorStorage } from '../../src/adapters/node/coordinator-storage.js'
+import { DurableScheduler } from '../../src/adapters/node/scheduler.js'
 import type { CoordinatorDatabase } from '../../src/coordination/database.js'
-import { DurableScheduler } from '../../src/coordination/scheduler.js'
 
 /** Real database fencing contract shared by SQLite, PostgreSQL, and MariaDB. */
 export const schedulerContract = async (database: CoordinatorDatabase) => {

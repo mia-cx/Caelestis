@@ -1,4 +1,4 @@
-import type { ArchiveTileFrame, TileHistoryResponse } from '@caelestis/shared'
+import { type ArchiveTileFrame, archiveTileHash, type TileHistoryResponse } from '@caelestis/shared'
 
 export interface PlaybackFrame {
   readonly bucketStart: number
@@ -20,7 +20,7 @@ export const mergeArchiveFrames = (
     if (frame.at >= firstLive) continue
     frames.push({
       bucketStart: frame.at,
-      hash: frame.hash === null ? undefined : `archive:${frame.hash}`,
+      hash: frame.hash === null ? undefined : archiveTileHash(frame.hash),
       ...(frame.hash === null ? { missing: true } : {}),
     })
   }

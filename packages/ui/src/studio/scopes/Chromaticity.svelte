@@ -1,7 +1,7 @@
 <script lang="ts">
   import { D65, SPECTRAL_LOCUS, SRGB_PRIMARIES, XY_BOUNDS } from '../colour.js'
   import DensityCanvas from './DensityCanvas.svelte'
-  import { chromaticityBackdrop, PLANE_SIZE, paint, type Scatter, underLayer } from './scopes.js'
+  import { chromaticityBackdrop, PLANE_SIZE, paint, type Scatter, scatterLayers } from './scopes.js'
 
   /** Samples on the CIE 1931 xy diagram, inside the spectral locus, against the sRGB gamut. */
   let { under, over }: { under?: Scatter | undefined; over?: Scatter | undefined } = $props()
@@ -10,13 +10,7 @@
   const LABEL_OFFSET = 0.035
   const GRID = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
 
-  const image = $derived(
-    paint(PLANE_SIZE, PLANE_SIZE, [
-      chromaticityBackdrop(),
-      ...(under ? [over ? underLayer(under.density) : { density: under.density, colour: under.sums }] : []),
-      ...(over ? [{ density: over.density, colour: over.sums }] : []),
-    ]),
-  )
+  const image = $derived(paint(PLANE_SIZE, PLANE_SIZE, [chromaticityBackdrop(), ...scatterLayers(under, over)]))
 
   /** xy to the graticule's units, with y up. */
   const point = ([x, y]: readonly [number, number]): readonly [number, number] => [x, XY_BOUNDS.y - y]

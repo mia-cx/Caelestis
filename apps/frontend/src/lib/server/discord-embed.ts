@@ -16,7 +16,6 @@ const MEDIA_GALLERY = 12
 const CONTAINER = 17
 /** Component embeds accept only link buttons. */
 const LINK_STYLE = 5
-/** Caelestis primary blue, #4093E4. */
 const ACCENT_COLOR = 0x4093e4
 const MAX_TITLE_LENGTH = 100
 const MAX_DESCRIPTION_LENGTH = 300

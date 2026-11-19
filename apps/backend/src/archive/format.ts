@@ -1,7 +1,10 @@
+import { isSha256Hex } from '@caelestis/shared'
 import { getTableColumns, getTableName } from 'drizzle-orm'
 import { getTableConfig, type SQLiteColumn, type SQLiteTable } from 'drizzle-orm/sqlite-core'
-import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/telemetry.js'
+import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/counter-tables.js'
 import * as schema from '../db/schema.js'
+import { BLOB_NAMESPACES } from '../ports/blob-store.js'
+import { ArchiveError } from './errors.js'
 
 /**
  * Caelestis server archives: newline-delimited JSON, one record per line.
@@ -126,6 +129,31 @@ export const ARCHIVE_TABLES: readonly ArchiveTable[] = [
   describe(schema.workRegionDeletions),
 ]
 
+/** One pass over a table: its rows, or its deferred references once every row exists. */
+export interface TableStep {
+  readonly kind: 'rows' | 'links'
+  readonly table: ArchiveTable
+}
+
+const withLinks = ARCHIVE_TABLES.filter((table) => table.deferred.length > 0)
+
+/** Export and restore order: every foreign key is satisfied as rows arrive. */
+export const TABLE_EXPORT_ORDER: readonly TableStep[] = [
+  ...ARCHIVE_TABLES.map((table) => ({ kind: 'rows' as const, table })),
+  ...withLinks.map((table) => ({ kind: 'links' as const, table })),
+]
+
+/** Discard order, the reverse: links cleared first, then rows. Seeded rows stay. */
+export const TABLE_DISCARD_ORDER: readonly TableStep[] = [
+  ...withLinks.map((table) => ({ kind: 'links' as const, table })),
+  ...ARCHIVE_TABLES.filter((table) => !table.seeded)
+    .reverse()
+    .map((table) => ({ kind: 'rows' as const, table })),
+]
+
+/** A registry name as an SQL identifier. */
+export const quoted = (name: string) => `"${name}"`
+
 /**
  * Tables deliberately outside the archive. The GC cursor is an object-store listing token that
  * means nothing to another provider, so a restored server starts its scan from the beginning.
@@ -139,19 +167,17 @@ export const UNARCHIVED_TABLES: readonly string[] = [
   schema.archiveLease,
 ].map(getTableName)
 
+/** The table whose ids the backfill steps walk. */
+export const TEMPLATES_TABLE = getTableName(schema.templates)
+
 /**
- * Object-store prefixes the server owns, social previews included. Bytes and metadata travel;
- * provider etags and upload times do not.
+ * Object-store prefixes the server owns: every blob namespace, in its declared order, then the
+ * social previews `@caelestis/social` writes. Bytes and metadata travel; provider etags and upload
+ * times do not. Archives record this list, so a new namespace is appended, never inserted.
  */
-export const ARCHIVE_OBJECT_PREFIXES = [
-  'branding/',
-  'chunks/',
-  'sources/',
-  'archives/',
-  'tiles/',
-  'derived/',
-  'social/',
-] as const
+export const ARCHIVE_OBJECT_PREFIXES: readonly string[] = [...BLOB_NAMESPACES, 'social'].map(
+  (namespace) => `${namespace}/`,
+)
 
 export const archiveTable = (name: string): ArchiveTable | undefined =>
   ARCHIVE_TABLES.find((table) => table.name === name)
@@ -170,19 +196,6 @@ export const archiveSchema = () => ({
   objects: [...ARCHIVE_OBJECT_PREFIXES],
 })
 
-/** An archive problem the administrator can act on. Nothing has been activated when it is thrown. */
-export class ArchiveError extends Error {
-  constructor(
-    message: string,
-    readonly status: 400 | 409 | 413 | 422 = 422,
-    /** When a refused request may be retried unchanged. */
-    readonly retryAt?: number,
-  ) {
-    super(message)
-  }
-}
-
-const SHA256 = /^[0-9a-f]{64}$/
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 const isScalar = (value: unknown): value is ArchiveValue =>
@@ -246,7 +259,7 @@ export const parseArchiveLine = (line: string, position: number): ArchiveRecord 
       if (
         typeof value.key !== 'string' ||
         typeof value.sha256 !== 'string' ||
-        !SHA256.test(value.sha256) ||
+        !isSha256Hex(value.sha256) ||
         typeof value.data !== 'string' ||
         !isStrings(value.metadata) ||
         (value.contentType !== undefined && typeof value.contentType !== 'string')
@@ -258,7 +271,7 @@ export const parseArchiveLine = (line: string, position: number): ArchiveRecord 
         !isRecord(value.counts) ||
         !Object.values(value.counts).every((count) => Number.isSafeInteger(count)) ||
         typeof value.chain !== 'string' ||
-        !SHA256.test(value.chain)
+        !isSha256Hex(value.chain)
       )
         throw invalid('the end record is incomplete')
       return value as unknown as ArchiveRecord

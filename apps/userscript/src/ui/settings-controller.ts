@@ -121,7 +121,6 @@ export const settingsModel = (): SettingsModel => {
     ...(addServerPending ? { addServerPending: true } : {}),
     ...(addServerMessage === undefined ? {} : { addServerMessage }),
     colourNavigationOrder: state.colourNavigationOrder,
-    simulatedInput: state.simulatedInput,
     ...globalSettingsModel('tab'),
     // The extension's store updates it, so there is no update notification to switch.
     notifyUpdates: extension ? undefined : state.notifyUpdates,
@@ -417,12 +416,7 @@ export const handleSettingsIntent = (intent: SettingsIntent): void => {
     case 'set-colour-navigation-order':
       setState({ colourNavigationOrder: intent.value })
       break
-    case 'set-simulated-input': {
-      const { [intent.id]: _, ...others } = getState().simulatedInput
-      setState({ simulatedInput: intent.value ? { ...others, [intent.id]: true } : others })
-      refreshSettings()
-      break
-    }
+    case 'set-simulated-input':
     case 'set-boolean':
       applyGlobalSettingsIntent(intent, 'tab')
       refreshSettings()

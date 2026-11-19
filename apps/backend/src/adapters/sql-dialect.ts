@@ -1,7 +1,9 @@
 import { type AnyColumn, sql } from 'drizzle-orm'
+import { PREVIOUS_CHANGED } from './previous-changes.js'
+import type { SqlDialectName } from './sql-connection.js'
 
-/** The few expressions that differ between SQLite/D1 and PostgreSQL. */
-export const sqlDialect = (dialect: 'sqlite' | 'postgres' | 'mariadb' = 'sqlite') => {
+/** The few expressions that differ between SQLite/D1, PostgreSQL, and MariaDB. */
+export const sqlDialect = (dialect: SqlDialectName) => {
   const postgres = dialect === 'postgres'
   const maria = dialect === 'mariadb'
   return {
@@ -12,11 +14,7 @@ export const sqlDialect = (dialect: 'sqlite' | 'postgres' | 'mariadb' = 'sqlite'
       : postgres
         ? 'jsonb_array_elements(?::jsonb)'
         : 'json_each(?)',
-    previousChanged: maria
-      ? '@caelestis_changed_rows > 0'
-      : postgres
-        ? "current_setting('caelestis.changed_rows')::bigint > 0"
-        : 'changes() > 0',
+    previousChanged: PREVIOUS_CHANGED[dialect],
     jsonField: (field: string, type: 'text' | 'bigint' | 'json' = 'bigint') => {
       if (maria) {
         const value = `JSON_EXTRACT(value, '$.${field}')`

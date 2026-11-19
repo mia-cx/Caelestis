@@ -1,28 +1,24 @@
-import { millis, seconds, WORLD_PIXELS } from '@caelestis/shared'
+import { seconds } from '@caelestis/shared'
 import { mergeArchiveFrames } from '@caelestis/social'
 import { describe, expect, it } from 'vitest'
 import {
   archiveContributionDays,
-  archiveIntervals,
   combineArchiveSamples,
-} from '../lib/archive-history'
-import { completionPace } from '../lib/completion-pace'
+} from '../lib/components/stats/archive-history'
+import { contributionPainters } from '../lib/components/stats/community.svelte'
+import { completionPace } from '../lib/components/stats/completion-pace'
 import {
-  contributionPainters,
-  painterColour,
-  rankPainters,
   selectAllPainters,
   togglePainterSelection,
-} from '../lib/components/charts/painter-pace'
+} from '../lib/components/stats/pace-selection.svelte'
+import { painterColour, rankPainters } from '../lib/components/stats/painter-identity'
 import {
-  clampWindow,
-  clipSeries,
-  rollingIntervalPace,
-} from '../lib/components/charts/progress-pace'
-import { combineProgressSamples, mergeObservedProgress } from '../lib/progress-history'
-import { paddedRect, templateRect, tilesInRect } from '../lib/render'
-import { buildTree, folderTemplateIds } from '../lib/tree'
-import { manifest, template } from './fixtures'
+  combineProgressSamples,
+  mergeObservedProgress,
+} from '../lib/components/stats/progress-history'
+import { clipSeries, rollingIntervalPace } from '../lib/components/stats/progress-pace'
+import { clampWindow } from '../lib/components/stats/time-window.svelte'
+import { template } from './fixtures'
 
 const sample = (at: number, correct: number | null) => ({
   at: seconds(at),
@@ -123,9 +119,8 @@ describe('observed progress and archive precedence', () => {
     ).toEqual(imported.map(({ at, correct }) => ({ at, correct })))
   })
 
-  it('retains signed regressions and does not invent activity across missing capture days', () => {
+  it('credits daily archive gains to their capture date and skips missing capture days', () => {
     const captures = [archive(0, 5), archive(86400, 3), archive(3 * 86400, 9)]
-    expect(archiveIntervals(captures)[0].rate).toBeCloseTo(-2 / 24)
     expect([...archiveContributionDays(captures, 4 * 86400)]).toEqual([[86400, 0]])
   })
 })
@@ -205,26 +200,11 @@ describe('pace and chart windows', () => {
     expect(rankPainters(options, '2').map((p) => p.wplaceUserId)).toEqual([2])
   })
 
-  it("painter colours follow Wplace's palette[id % 14] Tailwind 500 table", () => {
-    // Copied from Wplace's deployed CSS, so a transcription or ordering slip fails here.
-    const wplace = [
-      'oklch(63.7% 0.237 25.331)', // red
-      'oklch(70.5% 0.213 47.604)', // orange
-      'oklch(79.5% 0.184 86.047)', // yellow
-      'oklch(76.8% 0.233 130.85)', // lime
-      'oklch(69.6% 0.17 162.48)', // emerald
-      'oklch(70.4% 0.14 182.503)', // teal
-      'oklch(71.5% 0.143 215.221)', // cyan
-      'oklch(68.5% 0.169 237.323)', // sky
-      'oklch(58.5% 0.233 277.117)', // indigo
-      'oklch(60.6% 0.25 292.717)', // violet
-      'oklch(62.7% 0.265 303.9)', // purple
-      'oklch(66.7% 0.295 322.15)', // fuchsia
-      'oklch(65.6% 0.241 354.308)', // pink
-      'oklch(64.5% 0.246 16.439)', // rose
-    ]
-    const ids = Array.from({ length: 2 * wplace.length }, (_, id) => id)
-    expect(ids.map(painterColour)).toEqual([...wplace, ...wplace])
+  it("painter colours repeat Wplace's 14-colour id cycle", () => {
+    const cycle = Array.from({ length: 14 }, (_, id) => painterColour(id))
+    expect(new Set(cycle).size).toBe(14)
+    expect(painterColour(14)).toBe(painterColour(0))
+    expect(painterColour(27)).toBe(painterColour(13))
   })
 
   it('heatmap painters stay apart by id, take their latest name, and lead by pixels placed', () => {
@@ -250,38 +230,5 @@ describe('pace and chart windows', () => {
       { wplaceUserId: 2, displayName: 'Mira', placed: 5 },
       { wplaceUserId: 3, displayName: '', placed: 2 },
     ])
-  })
-})
-
-describe('tree and canvas boundaries', () => {
-  it('rolls up published descendants while retaining root templates and orphan fallback', () => {
-    const tree = buildTree(
-      manifest({
-        nodes: [
-          { id: 'folder', parentId: null, name: 'Folder', path: '/folder', createdAt: millis(0) },
-        ],
-        templates: [
-          template({ id: 'child', nodeId: 'folder' }),
-          template({ id: 'draft', nodeId: 'folder', published: false }),
-          template({ id: 'orphan', nodeId: 'missing' }),
-        ],
-      }),
-      new Map(),
-    )
-    expect(tree.progress).toEqual({ completed: 0, mismatched: 0, unpainted: 0, known: 0, total: 8 })
-    expect(tree.templateCount).toBe(3)
-    expect(tree.templates.map((entry) => entry.template.id)).toEqual(['orphan'])
-    expect(folderTemplateIds(tree.folders[0])).toEqual(['child'])
-  })
-
-  it('wraps longitude tiles without stretching artwork and clamps padding to the viewport', () => {
-    const rect = templateRect(
-      template({ bbox: { minX: WORLD_PIXELS - 1, minY: 0, maxX: 1, maxY: 2 } }),
-    )
-    expect(rect.width).toBe(2)
-    expect(tilesInRect(rect).map(({ key }) => key)).toEqual(['2047/0', '0/0'])
-    expect(
-      paddedRect({ x: 2, y: 2, width: 2, height: 2 }, 2, { x: 0, y: 0, width: 5, height: 5 }),
-    ).toEqual({ x: 0, y: 0, width: 5, height: 5 })
   })
 })

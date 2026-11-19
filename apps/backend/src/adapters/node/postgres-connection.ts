@@ -1,17 +1,37 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { Pool, type PoolClient, type PoolConfig, types } from 'pg'
-import { ingestTimings } from '../../telemetry/ingest-timing.js'
+import { randomUUID } from 'node:crypto'
+import { getTableName } from 'drizzle-orm'
+import { DatabaseError, Pool, type PoolClient, type PoolConfig, types } from 'pg'
+import {
+  canvasTiles,
+  statusReadModelRevisions,
+  templateAlarmTileStatuses,
+  templateTileMeasurements,
+  templateTileStatuses,
+  tileBlobObjects,
+  tileBlobReservations,
+  tileHistory,
+} from '../../db/schema.js'
+import { type IngestCommand, ingestTimings } from '../../metrics/ingest-timing.js'
+import { causes } from '../../runtime/errors.js'
+import { type SerialQueue, serialQueue } from '../../runtime/serial-queue.js'
+import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
+import { SET_PREVIOUS_CHANGES } from '../previous-changes.js'
 import type {
   SqlConnection,
   SqlResult,
   SqlStatement,
   TransactionalSqlConnection,
 } from '../sql-connection.js'
+import {
+  DriverStatement,
+  type Executed,
+  runBatch,
+  type StatementDriver,
+} from './driver-statement.js'
+import { assertUnchanged, readMigrations } from './migrations.js'
 
 /** Translate parameter markers while preserving quoted strings and identifiers verbatim. */
-export const postgresParameters = (query: string): string => {
+const postgresParameters = (query: string): string => {
   let ordinal = 0
   return query.replace(/'(?:''|[^'])*'|"(?:""|[^"])*"|\?\d*/g, (token) => {
     if (!token.startsWith('?')) return token
@@ -34,80 +54,59 @@ const TRANSACTION_ATTEMPTS = 10
  * Rows alone do not decide conflicts under SERIALIZABLE: these tables are small, so the planner
  * scans them whole and a read locks the relation, and two overlapping transactions that each
  * read and write one of them abort each other however disjoint their rows are. A reservation and
- * a commit both read and write the reservation and object tables, so letting them overlap turned
- * every warmup burst into a retry storm inside the lane.
+ * a commit both read and write the reservation and object tables, so letting them overlap turns
+ * every warmup burst into a retry storm.
  */
-const TILE_LANE_TABLES =
-  /\b(canvas_tiles|status_read_model_revisions|template_alarm_tile_statuses|template_tile_measurements|template_tile_statuses|tile_blob_objects|tile_blob_reservations|tile_history)\b/
-const laneFor = (statements: readonly SqlStatement[]): string | undefined =>
+const TILE_LANE_TABLES = new RegExp(
+  `\\b(${[
+    canvasTiles,
+    statusReadModelRevisions,
+    templateAlarmTileStatuses,
+    templateTileMeasurements,
+    templateTileStatuses,
+    tileBlobObjects,
+    tileBlobReservations,
+    tileHistory,
+  ]
+    .map(getTableName)
+    .join('|')})\\b`,
+)
+/** Each lane is timed under its own command. */
+type Lane = Extract<IngestCommand, 'tileLane' | 'coordinatorLane'>
+const laneFor = (statements: readonly SqlStatement[]): Lane | undefined =>
   statements.some(
-    (statement) => statement instanceof Statement && TILE_LANE_TABLES.test(statement.query),
+    (statement) => statement instanceof DriverStatement && TILE_LANE_TABLES.test(statement.query),
   )
-    ? 'tiles'
+    ? 'tileLane'
     : undefined
 const RETRY_LOG_LIMIT = 20
-const retryable = (error: unknown): boolean => {
-  if (!(error instanceof Error)) return false
-  if ('code' in error && (error.code === '40001' || error.code === '40P01')) return true
-  return error.cause === undefined ? false : retryable(error.cause)
-}
+/** Serialization failure and deadlock: the transaction rolled back and can run again. */
+const RETRYABLE_CODES: readonly unknown[] = ['40001', '40P01']
+const retryable = (error: unknown): boolean =>
+  causes(error).some((cause) => 'code' in cause && RETRYABLE_CODES.includes(cause.code))
 /** The failing statement and the database's reason, for the first few retries in a log. */
-const describeAbort = (error: unknown): string => {
-  if (!(error instanceof Error)) return String(error)
-  const detail = error.cause instanceof Error ? describeAbort(error.cause) : ''
-  const reason = 'detail' in error && typeof error.detail === 'string' ? ` (${error.detail})` : ''
-  return `${error.message.replace(/\s+/g, ' ').slice(0, 300)}${reason}${detail ? `: ${detail}` : ''}`
+const describeAbort = (error: unknown): string =>
+  causes(error)
+    .map((cause) => {
+      const reason =
+        'detail' in cause && typeof cause.detail === 'string' ? ` (${cause.detail})` : ''
+      return `${cause.message.replace(/\s+/g, ' ').slice(0, 300)}${reason}`
+    })
+    .join(': ')
+
+/** SQLSTATE class 23 codes for the constraints the stores distinguish. */
+const CONSTRAINT_CODES: Readonly<Record<string, ConstraintKind>> = {
+  '23505': 'unique',
+  '23503': 'foreign-key',
+  '23514': 'check',
 }
 
-class Statement implements SqlStatement {
-  constructor(
-    readonly owner: PostgresConnection,
-    readonly query: string,
-    readonly values: unknown[] = [],
-    readonly client?: PoolClient,
-  ) {}
-  bind(...values: unknown[]): Statement {
-    return new Statement(this.owner, this.query, values, this.client)
-  }
-
-  async execute(client: PoolClient) {
-    const text = postgresParameters(this.query)
-    const startedAt = performance.now()
-    try {
-      return await client.query<unknown[]>({ text, values: this.values, rowMode: 'array' })
-    } catch (cause) {
-      throw new Error(`PostgreSQL query failed: ${text}`, { cause })
-    } finally {
-      ingestTimings.record('sql', 'statement', performance.now() - startedAt)
-    }
-  }
-
-  async run<T>(): Promise<SqlResult<T>> {
-    const run = async (client: PoolClient): Promise<SqlResult<T>> => {
-      const result = await this.execute(client)
-      return {
-        results: result.rows.map((row) =>
-          Object.fromEntries(result.fields.map((field, index) => [field.name, row[index]])),
-        ) as T[],
-        meta: {
-          changes: ['INSERT', 'UPDATE', 'DELETE'].includes(result.command)
-            ? (result.rowCount ?? 0)
-            : 0,
-        },
-      }
-    }
-    return this.client ? run(this.client) : this.owner.withClient(run)
-  }
-  all<T>(): Promise<SqlResult<T>> {
-    return this.run<T>()
-  }
-  async first<T>(): Promise<T | null> {
-    return (await this.run<T>()).results[0] ?? null
-  }
-  async raw<T>(): Promise<T[]> {
-    const run = async (client: PoolClient) => (await this.execute(client)).rows as T[]
-    return this.client ? run(this.client) : this.owner.withClient(run)
-  }
+const postgresConstraintViolation = (error: unknown): ConstraintViolation | null => {
+  if (!(error instanceof DatabaseError) || error.code === undefined) return null
+  const kind = CONSTRAINT_CODES[error.code]
+  return kind === undefined
+    ? null
+    : new ConstraintViolation(kind, error.constraint ?? null, { cause: error })
 }
 
 const OWNERSHIP_LOCK = "hashtext('caelestis-runtime'), hashtext(current_schema())"
@@ -116,7 +115,7 @@ const SESSION_LOCK = "hashtext('caelestis-runtime-sessions'), hashtext(current_s
 /**
  * PostgreSQL/CNPG through a connection pool, fenced by two advisory locks.
  *
- * The owner session holds the ownership lock exclusively for the life of the process, as before.
+ * The owner session holds the ownership lock exclusively for the life of the process.
  * Every pooled session that carries application work also holds a shared session lock. A
  * replacement owner takes the ownership lock once the old owner session is gone, then must
  * obtain the session lock exclusively before it serves, which the database only grants once every
@@ -124,7 +123,7 @@ const SESSION_LOCK = "hashtext('caelestis-runtime-sessions'), hashtext(current_s
  * once, so no query of a former owner can commit after a replacement starts writing. Reads and
  * single statements run concurrently on the pool; transactions take turns, see `transaction`.
  */
-export class PostgresConnection implements TransactionalSqlConnection {
+export class PostgresConnection implements TransactionalSqlConnection, StatementDriver<PoolClient> {
   readonly dialect = 'postgres'
   readonly pool: Pool
   private owner: PoolClient | undefined
@@ -133,7 +132,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
   private ownerFailure: Error | undefined
   private lostOwnership: ((error: Error) => void) | undefined
   private readonly fenced = new WeakSet<PoolClient>()
-  private readonly lanes = new Map<string, Promise<unknown>>()
+  private readonly lanes = new Map<Lane, SerialQueue>()
   private retriesLogged = 0
   private closing = false
   private ended: Promise<void> | undefined
@@ -166,7 +165,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
     const lost = (error: Error) => {
       this.ownerFailure ??= error
       // Release every session lock now, so a replacement owner is not held up by a process that
-      // has already lost ownership. In-flight queries fail with their connection, as before.
+      // has already lost ownership. In-flight queries fail with their connection.
       // The dead owner client goes back to the pool as broken so draining does not wait on it.
       this.owner?.release(true)
       this.owner = undefined
@@ -262,8 +261,34 @@ export class PostgresConnection implements TransactionalSqlConnection {
     }
   }
 
+  async execute(client: PoolClient, query: string, values: readonly unknown[]): Promise<Executed> {
+    const text = postgresParameters(query)
+    const startedAt = performance.now()
+    try {
+      const result = await client.query<unknown[]>({ text, values: [...values], rowMode: 'array' })
+      return {
+        rows: result.rows,
+        columns: result.fields.map((field) => field.name),
+        changes: ['INSERT', 'UPDATE', 'DELETE'].includes(result.command)
+          ? (result.rowCount ?? 0)
+          : 0,
+      }
+    } catch (cause) {
+      throw (
+        postgresConstraintViolation(cause) ??
+        new Error(`PostgreSQL query failed: ${text}`, { cause })
+      )
+    } finally {
+      ingestTimings.record('sql', 'statement', performance.now() - startedAt)
+    }
+  }
+
+  async setPreviousChanges(client: PoolClient, changes: number): Promise<void> {
+    await client.query(SET_PREVIOUS_CHANGES.postgres, [String(changes)])
+  }
+
   prepare(query: string): SqlStatement {
-    return new Statement(this, query)
+    return new DriverStatement(this, query)
   }
 
   async batch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
@@ -296,70 +321,43 @@ export class PostgresConnection implements TransactionalSqlConnection {
    *
    * Overlapping SERIALIZABLE transactions that read and write the same small tables abort each
    * other, and a commit that exhausts its retries is answered to the client as unavailable.
-   * Batches on the tile tables queue in one lane, as they effectively did on the single session;
-   * the coordinator's callback transactions, on their own tables, queue in another. Everything
-   * else, such as painters and telemetry, runs concurrently and the rare conflict is retried.
+   * Batches on the tile tables queue in one lane; the coordinator's callback transactions, on
+   * their own tables, queue in another. Everything else, such as painters and telemetry, runs
+   * concurrently and the rare conflict is retried.
    */
-  private inLane<T>(lane: string | undefined, run: () => Promise<T>): Promise<T> {
+  private inLane<T>(lane: Lane | undefined, run: () => Promise<T>): Promise<T> {
     if (lane === undefined) return run()
     const requestedAt = performance.now()
     const turn = () => {
-      const command = lane === 'tiles' ? 'tileLane' : 'coordinatorLane'
       const wait = performance.now() - requestedAt
-      // Keep the existing aggregate while separating queue delay from occupied lane time.
+      // Queue delay counts toward the `sql` aggregate and the lane's own `queue` stage.
       ingestTimings.record('sql', 'transaction', wait)
-      ingestTimings.record(command, 'queue', wait)
-      return ingestTimings.timed(command, 'total', run)
+      ingestTimings.record(lane, 'queue', wait)
+      return ingestTimings.timed(lane, 'total', run)
     }
-    const tail = this.lanes.get(lane) ?? Promise.resolve()
-    const running = tail.then(turn, turn)
-    this.lanes.set(
-      lane,
-      running.then(
-        () => undefined,
-        () => undefined,
-      ),
-    )
-    return running
+    let queue = this.lanes.get(lane)
+    if (queue === undefined) {
+      queue = serialQueue()
+      this.lanes.set(lane, queue)
+    }
+    return queue(turn)
   }
 
-  private async executeBatch<T>(
-    client: PoolClient,
-    statements: SqlStatement[],
-  ): Promise<SqlResult<T>[]> {
-    const results: SqlResult<T>[] = []
-    for (const statement of statements) {
-      if (!(statement instanceof Statement) || statement.owner !== this)
-        throw new Error('Statement belongs to another connection')
-      if (statement.query.includes("current_setting('caelestis.changed_rows')")) {
-        await client.query("SELECT set_config('caelestis.changed_rows', $1, true)", [
-          String(results.at(-1)?.meta.changes ?? 0),
-        ])
-      }
-      results.push(await new Statement(this, statement.query, statement.values, client).run<T>())
-    }
-    return results
-  }
-
-  /** A batch is its own transaction; its lane, if any, is chosen by `batch`, not shared with callbacks. */
+  /** A batch is its own transaction, in the lane `batch` chose rather than the callbacks' lane. */
   private commitBatch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
     return this.serializableTransaction((connection) => connection.batch<T>(statements))
   }
 
   /**
-   * Run one serializable transaction.
+   * Run one serializable callback transaction in the coordinator lane (see `inLane`).
    *
-   * Reads and single statements share the pool. Transactions overlap unless they share a lane:
-   * letting every transaction overlap made the ones that touch the same rows abort each other
-   * under SERIALIZABLE, and a commit that exhausts its retries is answered to the client as
-   * unavailable, which is the paint loss the ownership guard exists to prevent. Callback
-   * transactions come from the coordinator's counter accounting and startup; their rows are
-   * shared per template, so they take turns with each other and with nothing else. A
-   * serialization failure is still retried, since a migration or maintenance job may run its
-   * own transaction alongside.
+   * Callback transactions come from the coordinator's counter accounting and startup; their rows
+   * are shared per template, so they take turns with each other and with nothing else. A
+   * serialization failure is still retried, since a migration or maintenance job may run its own
+   * transaction alongside.
    */
   async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
-    return this.inLane('coordinator', () =>
+    return this.inLane('coordinatorLane', () =>
       this.retrying(() => this.serializableTransaction(operation)),
     )
   }
@@ -371,9 +369,9 @@ export class PostgresConnection implements TransactionalSqlConnection {
       await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE')
       try {
         const result = await operation({
-          dialect: 'postgres',
-          prepare: (query) => new Statement(this, query, [], client),
-          batch: <R>(statements: SqlStatement[]) => this.executeBatch<R>(client, statements),
+          dialect: this.dialect,
+          prepare: (query) => new DriverStatement(this, query, [], client),
+          batch: (statements) => runBatch(this, client, statements),
         })
         await client.query('COMMIT')
         return result
@@ -393,22 +391,20 @@ export class PostgresConnection implements TransactionalSqlConnection {
         await client.query(
           'CREATE TABLE IF NOT EXISTS caelestis_migrations (name TEXT PRIMARY KEY, sha256 TEXT NOT NULL)',
         )
-        for (const name of (await readdir(directory))
-          .filter((name) => name.endsWith('.sql'))
-          .sort()) {
-          const source = await readFile(join(directory, name), 'utf8')
-          const digest = createHash('sha256').update(source).digest('hex')
-          const previous = await client.query<{ sha256: string }>(
+        for (const migration of readMigrations(directory)) {
+          const applied = await client.query<{ sha256: string }>(
             'SELECT sha256 FROM caelestis_migrations WHERE name = $1',
-            [name],
+            [migration.name],
           )
-          if (previous.rows[0]) {
-            if (previous.rows[0].sha256 !== digest)
-              throw new Error(`Migration changed after application: ${name}`)
+          if (applied.rows[0]) {
+            assertUnchanged(migration, applied.rows[0].sha256)
             continue
           }
-          await client.query(source)
-          await client.query('INSERT INTO caelestis_migrations VALUES ($1, $2)', [name, digest])
+          await client.query(migration.source)
+          await client.query('INSERT INTO caelestis_migrations VALUES ($1, $2)', [
+            migration.name,
+            migration.digest,
+          ])
         }
         await client.query('COMMIT')
       } catch (error) {

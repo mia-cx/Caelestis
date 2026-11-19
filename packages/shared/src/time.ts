@@ -6,3 +6,6 @@ export const seconds = (value: number): Seconds => value as Seconds
 
 /** Brand a numeric value already expressed in Unix milliseconds; this performs no conversion. */
 export const millis = (value: number): Millis => value as Millis
+
+export const HOUR_SECONDS = 3_600
+export const DAY_SECONDS = 86_400

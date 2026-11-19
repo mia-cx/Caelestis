@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from '../../foundations/Icon.svelte'
   import type { StudioPaletteScope, TemplateStudioIntent, TemplateStudioModel } from '../model.js'
-  import Segmented from '../effects/Segmented.svelte'
+  import Segmented from '../Segmented.svelte'
 
   /** The Wplace colours the template may use, as Ditherette web's palette without custom palettes. */
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
@@ -58,7 +58,7 @@
     aspect-ratio: 1;
     padding: 0;
     border: 1px solid rgb(0 0 0 / 0.25);
-    border-radius: var(--caelestis-pill-radius, var(--caelestis-radius, calc(0.7rem + 1px)));
+    border-radius: var(--caelestis-pill-radius);
     outline: 2px solid transparent;
     outline-offset: 1px;
     opacity: 0.55;
@@ -73,16 +73,16 @@
     inset-block-start: calc(50% - 1px);
     inline-size: 70%;
     block-size: 2px;
-    border-radius: var(--caelestis-pill-radius, 999px);
+    border-radius: var(--caelestis-pill-radius);
     background: currentColor;
-    box-shadow: 0 0 0 1px var(--caelestis-surface, white);
+    box-shadow: 0 0 0 1px var(--caelestis-surface);
     transform: rotate(-45deg);
     pointer-events: none;
   }
-  .swatch:focus-visible { outline-color: var(--caelestis-focus, currentColor); }
+  .swatch:focus-visible { outline-color: var(--caelestis-focus); }
   .badge { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 80ms ease-out; pointer-events: none; }
   .swatch:hover .badge, .swatch:focus-visible .badge { opacity: 1; }
-  .badge > span { display: flex; align-items: center; justify-content: center; inline-size: 72%; block-size: 72%; border-radius: var(--caelestis-pill-radius, 999px); box-sizing: border-box; }
+  .badge > span { display: flex; align-items: center; justify-content: center; inline-size: 72%; block-size: 72%; border-radius: var(--caelestis-pill-radius); box-sizing: border-box; }
   .swatch[data-on='true'] .badge > span { background: var(--caelestis-text); color: var(--caelestis-surface); }
   .swatch[data-on='false'] .badge > span { border: 1.5px solid var(--caelestis-text); background: var(--caelestis-surface); color: var(--caelestis-text); }
   .summary { font-variant-numeric: tabular-nums; }

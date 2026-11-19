@@ -1,8 +1,4 @@
-import {
-  TAG_MANAGER_TAG,
-  type TagManagerIntent,
-  type TagManagerModel,
-} from '@caelestis/ui/elements'
+import type { TagManagerIntent } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { refreshServerSnapshot } from '../application/tree-server-state.js'
 import { errorText, networkFailureText } from '../error-text.js'
@@ -11,21 +7,14 @@ import { isCurrentServerConnection } from '../server-connections.js'
 import { onManifestChange } from '../server-manifests.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
 import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
-import { closeDialogHost } from './dialog.js'
-import { deepActiveElement } from './focus.js'
-import { applyWplaceTheme } from './theme.js'
+import { openModalHost } from './modal-host.js'
 import type { TreeTarget } from './tree-context.js'
-
-let closeManager: (() => void) | undefined
 
 /** Open the same tag workflow for browser-owned and server-owned templates or catalogs. */
 export const openTagManager = (target: TreeTarget, rerender: () => void): void => {
-  closeManager?.()
-  const manager = document.createElement(TAG_MANAGER_TAG)
   const server = target.server
   const templateId =
     server === null ? (localTemplateIdOf(target.key) ?? undefined) : target.templateId
-  const restoreFocus = deepActiveElement()
   const folderId =
     server === null
       ? (localFolderIdOf(target.key) ?? undefined)
@@ -34,22 +23,6 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
         : undefined
   let refreshPending = false
   let reloadPending = false
-  let closed = false
-  let model: TagManagerModel = {
-    owner: server === null ? 'Local · This browser' : `${server.info?.name ?? server.url} · Server`,
-    ...(templateId === undefined && folderId === undefined ? {} : { targetName: target.name }),
-    tags: [],
-    selected: [],
-    loading: true,
-    ready: false,
-    busy: false,
-    revision: 0,
-  }
-  const update = (patch: Partial<TagManagerModel>): void => {
-    if (closed) return
-    model = { ...model, ...patch }
-    manager.model = model
-  }
   const checkConnection = (): void => {
     if (server !== null && !isCurrentServerConnection(server))
       throw new Error('The server connection changed. Close and reopen tags.')
@@ -58,7 +31,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
     checkConnection()
     if (server === null) {
       const tags = await readLocalTags()
-      update({
+      dialog.update({
         tags,
         selected: tags
           .filter((tag) =>
@@ -75,7 +48,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
     const result = await listServerTags(server, templateId, folderId)
     checkConnection()
     if (!result.ok) throw new Error(result.message)
-    update({ tags: result.tags, selected: result.selected, ready: true })
+    dialog.update({ tags: result.tags, selected: result.selected, ready: true })
   }
   const failure = (error: unknown): string =>
     server === null ? errorText(error) : networkFailureText(error, 'reload tags')
@@ -94,47 +67,26 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   }
   const reload = async (): Promise<void> => {
     reloadPending = false
-    update({ loading: true, error: undefined })
+    dialog.update({ loading: true, error: undefined })
     try {
       await read()
       if (refreshPending) await refreshTemplates()
     } catch (error) {
-      update({ error: failure(error) })
+      dialog.update({ error: failure(error) })
     } finally {
-      update({ loading: false })
+      dialog.update({ loading: false })
       reloadIfPending()
     }
   }
   const reloadIfPending = (): void => {
-    if (reloadPending && !closed && !model.busy && !model.loading) void reload()
+    if (reloadPending && !dialog.closed && !dialog.model.busy && !dialog.model.loading)
+      void reload()
   }
-  const unsubscribe = onManifestChange((owner) => {
-    if (server === null || owner.url !== server.url) return
-    reloadPending = true
-    reloadIfPending()
-  })
-  const unsubscribeLocal =
-    server === null
-      ? onLocalTags(() => {
-          reloadPending = true
-          reloadIfPending()
-        })
-      : undefined
-  const close = (): void => {
-    if (closed) return
-    closed = true
-    unsubscribe()
-    unsubscribeLocal?.()
-    closeDialogHost(manager)
-    if (restoreFocus?.isConnected) restoreFocus.focus()
-    if (closeManager === close) closeManager = undefined
-  }
-  closeManager = close
   const mutate = async (
-    intent: Exclude<TagManagerIntent, { type: 'close' | 'retry' }>,
+    intent: Exclude<TagManagerIntent, { type: 'close' | 'closed' | 'retry' }>,
   ): Promise<void> => {
-    if (model.busy || model.loading || !model.ready) return
-    update({ busy: true, error: undefined })
+    if (dialog.model.busy || dialog.model.loading || !dialog.model.ready) return
+    dialog.update({ busy: true, error: undefined })
     let committed = false
     try {
       checkConnection()
@@ -153,32 +105,52 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
       }
       committed = true
       refreshPending = server !== null
-      update({ revision: model.revision + 1 })
+      dialog.update({ revision: dialog.model.revision + 1 })
       await read()
       await refreshTemplates()
     } catch (error) {
-      update({ error: `${committed ? 'Saved. ' : ''}${failure(error)}` })
+      dialog.update({ error: `${committed ? 'Saved. ' : ''}${failure(error)}` })
     } finally {
-      update({ busy: false })
+      dialog.update({ busy: false })
       rerender()
       reloadIfPending()
     }
   }
-  manager.model = model
-  applyWplaceTheme(manager)
-  manager.addEventListener('caelestis-tag-manager-intent', (event) => {
-    if (closed) return
-    const intent = (event as CustomEvent<TagManagerIntent>).detail
-    if (intent.type === 'close') {
-      close()
-      return
-    }
-    if (intent.type === 'retry') {
-      if (!model.busy && !model.loading) void reload()
-      return
-    }
-    void mutate(intent)
+  const dialog = openModalHost(
+    'caelestis-tag-manager',
+    {
+      owner:
+        server === null ? 'Local · This browser' : `${server.info?.name ?? server.url} · Server`,
+      ...(templateId === undefined && folderId === undefined ? {} : { targetName: target.name }),
+      tags: [],
+      selected: [],
+      loading: true,
+      ready: false,
+      busy: false,
+      revision: 0,
+    },
+    {
+      onIntent: (intent) => {
+        if (intent.type !== 'retry') void mutate(intent)
+        else if (!dialog.model.busy && !dialog.model.loading) void reload()
+      },
+      onClose: () => {
+        unsubscribe()
+        unsubscribeLocal?.()
+      },
+    },
+  )
+  const unsubscribe = onManifestChange((owner) => {
+    if (server === null || owner.url !== server.url) return
+    reloadPending = true
+    reloadIfPending()
   })
-  document.body.appendChild(manager)
+  const unsubscribeLocal =
+    server === null
+      ? onLocalTags(() => {
+          reloadPending = true
+          reloadIfPending()
+        })
+      : undefined
   void reload()
 }

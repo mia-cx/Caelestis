@@ -1,7 +1,7 @@
 <script lang="ts">
   import { type ScopeChannel, TRACE } from '../colour.js'
   import DensityCanvas from './DensityCanvas.svelte'
-  import { type Channels, combined, LEVELS, type Layer, paint, underLayer, WAVE_COLUMNS } from './scopes.js'
+  import { type Channels, combined, LEVELS, type Layer, paint, stageLayers, underLayer, WAVE_COLUMNS } from './scopes.js'
 
   /**
    * Level against image column, all channels overlaid or, as a parade, side by side. With two
@@ -24,17 +24,19 @@
   const pick = (grids: Channels, indices: readonly number[]): Float32Array[] =>
     indices.flatMap((index) => grids[index] ?? [])
 
-  /** The layers for the given channels: the earlier stage neutral under the later one. */
-  const layers = (indices: readonly number[]): Layer[] => {
-    const coloured = (grids: Channels): Layer[] =>
-      indices.flatMap((index) => {
-        const density = grids[index]
-        const channel = channels[index]
-        return density === undefined || channel === undefined ? [] : [{ density, colour: TRACE[channel.name] }]
-      })
-    const below = under ? (over ? [underLayer(combined(pick(under, indices)))] : coloured(under)) : []
-    return [...below, ...(over ? coloured(over) : [])]
-  }
+  /** The layers for the given channels, each in its trace colour. */
+  const layers = (indices: readonly number[]): Layer[] =>
+    stageLayers(
+      under,
+      over,
+      (grids) =>
+        indices.flatMap((index) => {
+          const density = grids[index]
+          const channel = channels[index]
+          return density === undefined || channel === undefined ? [] : [{ density, colour: TRACE[channel.name] }]
+        }),
+      (grids) => underLayer(combined(pick(grids, indices))),
+    )
 
   const plots = $derived(
     (parade ? [[0], [1], [2]] : [[0, 1, 2]]).map((indices) => ({

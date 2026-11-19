@@ -10,11 +10,14 @@ import type {
   TileKey,
 } from '@caelestis/shared'
 import {
-  LIVE_PROTOCOL_V1,
+  buildTree,
   LIVE_PROTOCOL_V2,
   LiveSnapshotAssembler,
+  type TemplateTree,
   uuidV7,
 } from '@caelestis/shared'
+import * as Wire from '@caelestis/wire-schema'
+import { Schema } from 'effect'
 import { getContext, setContext } from 'svelte'
 import {
   ApiError,
@@ -28,7 +31,14 @@ import {
   readToken,
   usesServerReadProxy,
 } from '#lib/api/client.js'
-import { buildTree, type TemplateTree } from '#lib/tree.js'
+
+// Live events carry what the backend validated against the same schema; a mismatch closes the socket.
+const decodeManifest = Schema.decodeUnknownSync(Wire.Manifest)
+const decodeStatus = Schema.decodeUnknownSync(Wire.StatusResponse)
+const decodeStatusDelta = Schema.decodeUnknownSync(Wire.StatusDelta)
+const decodeAlarms = Schema.decodeUnknownSync(Wire.AlarmsResponse)
+const decodeContributions = Schema.decodeUnknownSync(Wire.ContributionsResponse)
+const decodeLeaderboard = Schema.decodeUnknownSync(Wire.LeaderboardResponse)
 
 /**
  * The one shared session: which server we're connected to, its manifest, and the current status
@@ -48,15 +58,16 @@ export interface AppBootstrap {
   readonly error: string | null
 }
 
-export interface DashboardSnapshot {
+interface DashboardSnapshot {
   readonly contributions: ContributionsResponse
   readonly leaderboard: LeaderboardResponse
 }
 
+/** What one dashboard panel streams: contributions from a time and a leaderboard of a length. */
 interface DashboardSubscription {
   readonly templateIds: readonly string[]
   readonly contributionsFrom: number
-  readonly listener: (snapshot: DashboardSnapshot) => void
+  readonly leaderboardLimit: number
 }
 
 export class AppState {
@@ -70,7 +81,8 @@ export class AppState {
   /** A 401 or 403 opens the connect dialog. */
   authRequired = $state(false)
   error = $state<string | null>(null)
-  liveProtocol = $state<1 | 2 | null>(null)
+  /** This connection negotiated the live protocol, so dashboard reads subscribe instead of polling. */
+  live = $state(false)
 
   tree = $derived.by<TemplateTree | null>(() =>
     this.manifest === null ? null : buildTree(this.manifest, this.statuses, this.alarms),
@@ -85,7 +97,10 @@ export class AppState {
   private liveReconnect: ReturnType<typeof setTimeout> | null = null
   private liveAttempts = 0
   private readonly liveSnapshots = new LiveSnapshotAssembler()
-  private readonly dashboardSubscriptions = new Map<string, DashboardSubscription>()
+  private readonly dashboardSubscriptions = new Map<
+    string,
+    DashboardSubscription & { readonly listener: (snapshot: DashboardSnapshot) => void }
+  >()
 
   constructor(bootstrap: AppBootstrap) {
     this.server = bootstrap.server
@@ -174,20 +189,19 @@ export class AppState {
   }
 
   subscribeDashboard = (
-    templateIds: readonly string[],
-    contributionsFrom: number,
+    subscription: DashboardSubscription,
     listener: (snapshot: DashboardSnapshot) => void,
   ): (() => void) => {
     const subscriptionId = uuidV7()
     this.dashboardSubscriptions.set(subscriptionId, {
-      templateIds: [...templateIds],
-      contributionsFrom,
+      ...subscription,
+      templateIds: [...subscription.templateIds],
       listener,
     })
     this.sendDashboardSubscription(subscriptionId)
     return () => {
       this.dashboardSubscriptions.delete(subscriptionId)
-      if (this.liveProtocol === 2 && this.liveSocket?.readyState === WebSocket.OPEN)
+      if (this.live && this.liveSocket?.readyState === WebSocket.OPEN)
         this.liveSocket.send(JSON.stringify({ type: 'dashboard-unsubscribe', subscriptionId }))
     }
   }
@@ -196,7 +210,7 @@ export class AppState {
     const socket = this.liveSocket
     this.liveSocket = null
     this.liveSnapshots.clear()
-    this.liveProtocol = null
+    this.live = false
     if (socket !== null && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'retired')
   }
 
@@ -223,13 +237,11 @@ export class AppState {
     socket.addEventListener('open', () => {
       if (this.liveSocket !== socket || this.manifest === null) return
       this.liveAttempts = 0
-      this.liveProtocol =
-        socket.protocol === LIVE_PROTOCOL_V2 ? 2 : socket.protocol === LIVE_PROTOCOL_V1 ? 1 : null
-      if (this.liveProtocol === null) {
+      if (socket.protocol !== LIVE_PROTOCOL_V2) {
         socket.close(1002, 'live protocol not negotiated')
         return
       }
-      if (this.liveProtocol === 1) return
+      this.live = true
       socket.send(
         JSON.stringify({
           type: 'state-vector',
@@ -253,8 +265,7 @@ export class AppState {
         this.sendDashboardSubscription(subscriptionId)
     })
     socket.addEventListener('message', (message) => {
-      if (this.liveSocket !== socket || this.liveProtocol !== 2 || typeof message.data !== 'string')
-        return
+      if (this.liveSocket !== socket || !this.live || typeof message.data !== 'string') return
       try {
         const event = this.liveSnapshots.push(JSON.parse(message.data))
         if (event !== null) this.applyLiveEvent(event)
@@ -272,11 +283,7 @@ export class AppState {
 
   private sendDashboardSubscription(subscriptionId: string): void {
     const subscription = this.dashboardSubscriptions.get(subscriptionId)
-    if (
-      subscription === undefined ||
-      this.liveProtocol !== 2 ||
-      this.liveSocket?.readyState !== WebSocket.OPEN
-    )
+    if (subscription === undefined || !this.live || this.liveSocket?.readyState !== WebSocket.OPEN)
       return
     this.liveSocket.send(
       JSON.stringify({
@@ -286,7 +293,7 @@ export class AppState {
           subscriptionId,
           templateIds: subscription.templateIds,
           contributionsFrom: subscription.contributionsFrom,
-          leaderboardLimit: 100,
+          leaderboardLimit: subscription.leaderboardLimit,
         },
       }),
     )
@@ -308,24 +315,20 @@ export class AppState {
     if (typeof value !== 'object' || value === null || !('type' in value)) return
     const event = value as Record<string, unknown>
     if (event.type === 'manifest-snapshot') {
-      const manifest = event.manifest as Manifest | undefined
-      if (manifest === undefined || manifest.season !== this.manifest?.season)
-        throw new TypeError('invalid live manifest')
+      const manifest = decodeManifest(event.manifest)
+      if (manifest.season !== this.manifest?.season) throw new TypeError('invalid live manifest')
       this.manifest = manifest
       return
     }
     if (event.type === 'status-snapshot') {
-      const status = event.status as { revision?: unknown; templates?: unknown }
-      if (!Number.isSafeInteger(status?.revision) || !Array.isArray(status?.templates))
-        throw new TypeError('invalid live status')
-      this.statuses = new Map(
-        (status.templates as TemplateStatus[]).map((entry) => [entry.templateId, entry]),
-      )
-      this.statusRevision = Number(status.revision)
+      const status = decodeStatus(event.status)
+      if (status.revision === undefined) throw new TypeError('invalid live status')
+      this.statuses = new Map(status.templates.map((entry) => [entry.templateId, entry]))
+      this.statusRevision = status.revision
       return
     }
     if (event.type === 'status-delta') {
-      this.applyLiveStatusDelta(event.delta as StatusDelta)
+      this.applyLiveStatusDelta(decodeStatusDelta(event.delta))
       return
     }
     if (event.type === 'status-reconcile') {
@@ -333,10 +336,9 @@ export class AppState {
       return
     }
     if (event.type === 'alarms-snapshot') {
-      const alarms = event.alarms as { version?: unknown; alarms?: unknown }
-      if (typeof alarms?.version !== 'string' || !Array.isArray(alarms?.alarms))
-        throw new TypeError('invalid live alarms')
-      this.alarms = new Map((alarms.alarms as Alarm[]).map((entry) => [entry.templateId, entry]))
+      const alarms = decodeAlarms(event.alarms)
+      if (alarms.version === undefined) throw new TypeError('invalid live alarms')
+      this.alarms = new Map(alarms.alarms.map((entry) => [entry.templateId, entry]))
       this.alarmsVersion = alarms.version
       return
     }
@@ -344,8 +346,8 @@ export class AppState {
       const subscription = this.dashboardSubscriptions.get(event.subscriptionId)
       if (subscription === undefined) return
       subscription.listener({
-        contributions: event.contributions as ContributionsResponse,
-        leaderboard: event.leaderboard as LeaderboardResponse,
+        contributions: decodeContributions(event.contributions),
+        leaderboard: decodeLeaderboard(event.leaderboard),
       })
     }
   }

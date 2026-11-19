@@ -6,7 +6,7 @@ useIconSet('pixel')
 </script>
 
 <script lang="ts">
-import { Icon } from '@caelestis/ui'
+import { Icon, MenuStyles, ThemeDefaults } from '@caelestis/ui'
 import { page } from '$app/state'
 import { onMount, untrack } from 'svelte'
 import {
@@ -16,6 +16,8 @@ import {
   usesServerReadProxy,
 } from '#lib/api/client.js'
 import ConnectDialog from '#lib/components/ConnectDialog.svelte'
+import { STORAGE_KEYS, THEMES } from '#lib/deployment.js'
+import { pageTitle } from '#lib/server-info.js'
 import SocialMetadata from '#lib/components/SocialMetadata.svelte'
 import { provideApp } from '#lib/state/app.svelte.js'
 import '../app.css'
@@ -47,7 +49,6 @@ onMount(() => {
   return () => app.stopLive()
 })
 
-// An auth failure opens the connect dialog. A valid token fixes it.
 $effect(() => {
   if (app.authRequired) connectOpen = true
 })
@@ -66,10 +67,10 @@ const logoSrc = $derived(
 const toggleTheme = (): void => {
   const current =
     document.documentElement.dataset.theme ??
-    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'caelestis-dark' : 'caelestis')
-  const next = current === 'caelestis-dark' ? 'caelestis' : 'caelestis-dark'
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? THEMES.dark : THEMES.light)
+  const next = current === THEMES.dark ? THEMES.light : THEMES.dark
   document.documentElement.dataset.theme = next
-  localStorage.setItem('caelestis:theme', next)
+  localStorage.setItem(STORAGE_KEYS.theme, next)
 }
 </script>
 
@@ -77,8 +78,12 @@ const toggleTheme = (): void => {
   <SocialMetadata metadata={data.social} />
 {/if}
 
+<!-- Menus anywhere on the page, from the shared UI and the site alike, take these styles. -->
+<ThemeDefaults />
+<MenuStyles />
+
 <svelte:head>
-  <title>{app.server === null || app.server.name === 'Caelestis' ? 'Caelestis' : `${app.server.name} · Caelestis`}</title>
+  <title>{pageTitle(app.server?.name)}</title>
 </svelte:head>
 
 <div class="flex min-h-dvh flex-col">
@@ -125,8 +130,8 @@ const toggleTheme = (): void => {
       </a>
 
       <button class="btn btn-sm btn-ghost btn-circle" onclick={toggleTheme} aria-label="toggle theme">
-        <Icon name="lightMode" class="size-4.5 hidden [[data-theme=caelestis-dark]_&]:block" />
-        <Icon name="darkMode" class="size-4.5 [[data-theme=caelestis-dark]_&]:hidden" />
+        <Icon name="lightMode" class="size-4.5 hidden theme-dark:block" />
+        <Icon name="darkMode" class="size-4.5 theme-dark:hidden" />
       </button>
     </div>
   </header>

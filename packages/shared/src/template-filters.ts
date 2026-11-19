@@ -1,4 +1,5 @@
 import { isRecord } from './guards.js'
+import { isUuidV7 } from './uuid.js'
 
 /** Choices combine with OR within a category and AND between categories. */
 export const TEMPLATE_FILTER_OPTIONS = {
@@ -44,17 +45,7 @@ export const parseTemplateFilters = (value: unknown): TemplateFilters => {
     lifecycle: choices('lifecycle'),
     alarm: choices('alarm'),
     claims: choices('claims'),
-    tags: Array.isArray(saved.tags)
-      ? [
-          ...new Set(
-            saved.tags.filter(
-              (id): id is string =>
-                typeof id === 'string' &&
-                /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id),
-            ),
-          ),
-        ].slice(0, 256)
-      : [],
+    tags: Array.isArray(saved.tags) ? [...new Set(saved.tags.filter(isUuidV7))].slice(0, 256) : [],
   }
 }
 

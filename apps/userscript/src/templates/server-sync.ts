@@ -1,4 +1,5 @@
 import {
+  bboxSize,
   PALETTE_RGB,
   quantiseToPalette,
   sameTemplateSurface,
@@ -160,6 +161,10 @@ const decodeChunk = async (
   }
 }
 
+/** A world bbox whose `minX` is past its `maxX` wraps around the antimeridian. */
+const wrapsWorldEdge = (template: ServerTemplate): boolean =>
+  template.surface.kind === 'world' && template.bbox.minX > template.bbox.maxX
+
 /**
  * Assemble a template's chunks into one bitmap the size of its bounding box.
  *
@@ -167,27 +172,14 @@ const decodeChunk = async (
  * template's box with one tile, so its top-left is the later of the two starts on each axis. That is
  * why the manifest carries only a tile and a hash per chunk.
  */
-/**
- * A template's size on its surface. A world bbox whose `minX` is past its `maxX` wraps around the
- * antimeridian.
- */
-const boxOf = (template: ServerTemplate) => {
-  const { bbox } = template
-  const wrapsX = template.surface.kind === 'world' && bbox.minX > bbox.maxX
-  return {
-    width: wrapsX ? WORLD_PIXELS - bbox.minX + bbox.maxX : bbox.maxX - bbox.minX,
-    height: bbox.maxY - bbox.minY,
-    wrapsX,
-  }
-}
-
 const assemble = async (
   server: ConnectedServer,
   template: ServerTemplate,
   downloadSignal: AbortSignal,
 ): Promise<{ width: number; height: number; indices: Uint8Array } | null> => {
   if (downloadSignal.aborted) return null
-  const { width, height, wrapsX } = boxOf(template)
+  const wrapsX = wrapsWorldEdge(template)
+  const { width, height } = bboxSize(template.surface, template.bbox)
   if (
     width <= 0 ||
     height <= 0 ||
@@ -342,7 +334,7 @@ const serverTemplateRow = (
   version: template.version,
   unpublished: !template.published,
   tileKeys: template.chunks.map((chunk) => chunk.tile),
-  wrapX: boxOf(template).wrapsX,
+  wrapX: wrapsWorldEdge(template),
 })
 
 /**
@@ -421,7 +413,7 @@ const syncServerTemplatesOnce = async (
     // Asked before the download, not after. A server may advertise a template larger than memory
     // could ever hold, and decoding it only to have the store refuse it wastes the entire chunk
     // transfer and assembly on every poll.
-    const { width, height } = boxOf(template)
+    const { width, height } = bboxSize(template.surface, template.bbox)
     const pixels = width * height
     if (!Number.isSafeInteger(pixels) || pixels <= 0 || !hasRoomForCopy(key, pixels)) {
       continue

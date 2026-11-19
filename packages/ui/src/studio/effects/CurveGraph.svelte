@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { CurvePoints } from 'ditherette'
+  import { type CurvePoints, MAX_CURVE_POINTS, MIN_CURVE_GAP } from '../ditherette.js'
   import { tick } from 'svelte'
   import Button from '../../foundations/Button.svelte'
-  import { type CurvePoint, evaluateCurve, evaluatePeriodicCurve, MAX_CURVE_POINTS, MIN_CURVE_POINT_GAP } from './spline.js'
-  import { type Neutral, tonePath } from './tone.js'
+  import { BYTE, GRAPH_SIZE as SIZE, LARGE_STEP, type Neutral, NEUTRAL_LINE } from './graph.js'
+  import { type CurvePoint, evaluateCurve, evaluatePeriodicCurve } from './spline.js'
+  import { tonePath } from './tone.js'
 
   /**
    * An editable curve, as Ditherette web's curve graph: click to add a point, drag points to
@@ -41,10 +42,6 @@
     spectrum,
   }: Props = $props()
 
-  /** Edited points sit on the byte grid, so neighbours stay well above the package's x gap. */
-  const BYTE = 255
-  const LARGE_STEP = 16
-  const SIZE = 256
   const SAMPLES = 128
   const HIT_RADIUS_PX = 10
 
@@ -91,7 +88,7 @@
     // Analysed knots sit off the byte grid, closer than a byte apart. A moved point lands on the
     // grid twice the package's gap from its neighbours, a margin its float32 rounding cannot close;
     // one asked to keep its byte, or that has no such byte, keeps its exact x.
-    const margin = 2 * MIN_CURVE_POINT_GAP
+    const margin = 2 * MIN_CURVE_GAP
     const min = index > 0 ? Math.ceil((xAt(index - 1) + margin) * BYTE) : 0
     const max = index < points.length - 1 ? Math.floor((xAt(index + 1) - margin) * BYTE) : BYTE
     const requested = Math.round(xByte)
@@ -168,8 +165,7 @@
     event.preventDefault()
   }
 
-  const start = $derived({ diagonal: SIZE, flat: SIZE / 2, full: 0 }[neutral])
-  const end = $derived({ diagonal: 0, flat: SIZE / 2, full: 0 }[neutral])
+  const [start, end] = $derived(NEUTRAL_LINE[neutral])
 </script>
 
 <svg
@@ -252,15 +248,15 @@
     inline-size: 100%;
     aspect-ratio: 1;
     border: 1px solid var(--caelestis-border);
-    background: color-mix(in oklab, var(--caelestis-raised-surface, #eee) 50%, transparent);
+    background: color-mix(in oklab, var(--caelestis-raised-surface) 50%, transparent);
     touch-action: none;
     user-select: none;
   }
   .grid { stroke: var(--caelestis-border); }
   .neutral { stroke: color-mix(in oklab, currentColor 40%, transparent); stroke-dasharray: 4 4; }
-  .point { fill: var(--caelestis-surface, white); stroke: currentColor; cursor: grab; outline: none; }
-  .point.active { fill: var(--caelestis-primary, oklch(0.68 0.15 244)); }
-  .point:focus-visible { stroke: var(--caelestis-primary, oklch(0.68 0.15 244)); }
+  .point { fill: var(--caelestis-surface); stroke: currentColor; cursor: grab; outline: none; }
+  .point.active { fill: var(--caelestis-primary); }
+  .point:focus-visible { stroke: var(--caelestis-primary); }
   .spectrum { block-size: 0.5rem; margin-block-start: -0.5rem; border: 1px solid var(--caelestis-border); border-block-start: 0; }
   .point-fields { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 0.35rem; }
   .point-fields .number { flex-direction: column; align-items: stretch; gap: 0.15rem; }

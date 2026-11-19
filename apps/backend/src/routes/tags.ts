@@ -1,92 +1,76 @@
-import { tagName, uuidV7 } from '@caelestis/shared'
-import { Hono } from 'hono'
-import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
+import { isUuidV7, MAX_TAG_NAME_LENGTH, tagName, uuidV7 } from '@caelestis/shared'
+import { type Context, Hono } from 'hono'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
+import type { TagMutation } from '../tags/store.js'
 import { mutateTag, readTags } from '../tags/use-cases.js'
+import { jsonObject } from './params.js'
 
-const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const INVALID_TAG_NAME = `Use 1–${MAX_TAG_NAME_LENGTH} characters without control characters.`
+
+const bodyName = async (c: Context) => tagName((await jsonObject(c))?.name)
 
 /** Tags share the admin boundary of server template metadata. */
-export const createTagRoutes = (
-  runtime: BackendRuntime,
-  auth: AuthOptions,
-  currentSeason: number,
-) => {
+export const createTagRoutes = (runtime: BackendRuntime, currentSeason: number) => {
   const routes = new Hono()
-  routes.use('/*', requireScopeEffect(runtime, auth, 'admin'))
+  const mutate = (mutation: TagMutation) => mutateTag(mutation, currentSeason)
+
   routes.get('/', async (c) => {
     const templateId = c.req.query('templateId')
     const folderId = c.req.query('folderId')
-    if (folderId !== undefined && (!UUID_V7.test(folderId) || templateId !== undefined))
+    if (folderId !== undefined && (!isUuidV7(folderId) || templateId !== undefined))
       return c.json({ error: 'Choose one valid template or folder ID.' }, 400)
-    if (templateId !== undefined && !UUID_V7.test(templateId))
+    if (templateId !== undefined && !isUuidV7(templateId))
       return c.json({ error: 'Invalid template ID.' }, 400)
     return runBackendHttp(c, runtime, readTags(templateId, folderId), (result) => c.json(result))
   })
   routes.post('/', async (c) => {
-    const body: unknown = await c.req.json().catch(() => null)
-    const name = tagName(
-      typeof body === 'object' && body !== null && 'name' in body ? body.name : null,
-    )
-    if (name === null)
-      return c.json({ error: 'Use 1–64 characters without control characters.' }, 400)
-    return runBackendHttp(
-      c,
-      runtime,
-      mutateTag({ type: 'create', id: uuidV7(), name }, currentSeason),
-      (result) => c.json(result, 201),
+    const name = await bodyName(c)
+    if (name === null) return c.json({ error: INVALID_TAG_NAME }, 400)
+    return runBackendHttp(c, runtime, mutate({ type: 'create', id: uuidV7(), name }), (result) =>
+      c.json(result, 201),
     )
   })
+  // Matches `/:id` itself as well as everything below it.
   routes.use('/:id/*', async (c, next) => {
-    if (!UUID_V7.test(c.req.param('id') ?? '')) return c.json({ error: 'Invalid tag ID.' }, 400)
+    if (!isUuidV7(c.req.param('id'))) return c.json({ error: 'Invalid tag ID.' }, 400)
     await next()
   })
   routes.patch('/:id', async (c) => {
-    const id = c.req.param('id')
-    if (!UUID_V7.test(id)) return c.json({ error: 'Invalid tag ID.' }, 400)
-    const body: unknown = await c.req.json().catch(() => null)
-    const name = tagName(
-      typeof body === 'object' && body !== null && 'name' in body ? body.name : null,
-    )
-    if (name === null)
-      return c.json({ error: 'Use 1–64 characters without control characters.' }, 400)
+    const name = await bodyName(c)
+    if (name === null) return c.json({ error: INVALID_TAG_NAME }, 400)
     return runBackendHttp(
       c,
       runtime,
-      mutateTag({ type: 'rename', id, name }, currentSeason),
+      mutate({ type: 'rename', id: c.req.param('id'), name }),
       (result) => c.json(result),
     )
   })
-  routes.delete('/:id', async (c) => {
-    const id = c.req.param('id')
-    if (!UUID_V7.test(id)) return c.json({ error: 'Invalid tag ID.' }, 400)
-    return runBackendHttp(c, runtime, mutateTag({ type: 'delete', id }, currentSeason), () =>
+  routes.delete('/:id', async (c) =>
+    runBackendHttp(c, runtime, mutate({ type: 'delete', id: c.req.param('id') }), () =>
       c.body(null, 204),
-    )
-  })
-  for (const attached of [true, false]) {
-    routes.on(attached ? 'PUT' : 'DELETE', '/:id/folders/:folderId', async (c) => {
-      const id = c.req.param('id')
+    ),
+  )
+
+  const assignments = { PUT: true, DELETE: false } as const
+  for (const [method, attached] of Object.entries(assignments)) {
+    routes.on(method, '/:id/folders/:folderId', async (c) => {
       const folderId = c.req.param('folderId')
-      if (!UUID_V7.test(id) || !UUID_V7.test(folderId))
-        return c.json({ error: 'Invalid tag or folder ID.' }, 400)
+      if (!isUuidV7(folderId)) return c.json({ error: 'Invalid tag or folder ID.' }, 400)
       return runBackendHttp(
         c,
         runtime,
-        mutateTag({ type: 'assign-folder', id, folderId, attached }, currentSeason),
+        mutate({ type: 'assign-folder', id: c.req.param('id'), folderId, attached }),
         () => c.body(null, 204),
       )
     })
-    routes.on(attached ? 'PUT' : 'DELETE', '/:id/templates/:templateId', async (c) => {
-      const id = c.req.param('id')
+    routes.on(method, '/:id/templates/:templateId', async (c) => {
       const templateId = c.req.param('templateId')
-      if (!UUID_V7.test(id) || !UUID_V7.test(templateId))
-        return c.json({ error: 'Invalid tag or template ID.' }, 400)
+      if (!isUuidV7(templateId)) return c.json({ error: 'Invalid tag or template ID.' }, 400)
       return runBackendHttp(
         c,
         runtime,
-        mutateTag({ type: 'assign', id, templateId, attached }, currentSeason),
+        mutate({ type: 'assign', id: c.req.param('id'), templateId, attached }),
         () => c.body(null, 204),
       )
     })

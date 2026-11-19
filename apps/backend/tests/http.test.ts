@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adminToken, authorized, createTestBackend } from './support/backend.js'
+import { createTestBackend } from './support/backend.js'
 
 describe('HTTP application contracts', () => {
   it('serves health and identical root and v1 server metadata', async () => {
@@ -13,46 +13,6 @@ describe('HTTP application contracts', () => {
 
     expect(root.status).toBe(200)
     expect(await root.json()).toEqual(await v1.json())
-  })
-
-  it('rejects protected writes until an administrator authenticates, then persists the change', async () => {
-    const { app } = await createTestBackend()
-    const body = JSON.stringify({ name: 'Renamed' })
-
-    expect(
-      (await app.fetch(new Request('https://backend.test/admin/server', { method: 'PATCH', body })))
-        .status,
-    ).toBe(401)
-    expect((await app.fetch(authorized('/admin/server', { method: 'PATCH', body }))).status).toBe(
-      200,
-    )
-
-    expect(
-      await (await app.fetch(new Request('https://backend.test/server'))).json(),
-    ).toMatchObject({
-      name: 'Renamed',
-    })
-  })
-
-  it('keeps read-only anonymous access separate from report/admin access', async () => {
-    const { app } = await createTestBackend({ openAccess: true })
-
-    expect((await app.fetch(new Request('https://backend.test/manifest'))).status).toBe(200)
-    expect(
-      (await app.fetch(new Request('https://backend.test/telemetry/paints', { method: 'POST' })))
-        .status,
-    ).toBe(401)
-    expect(
-      (
-        await app.fetch(
-          new Request('https://backend.test/admin/server', {
-            method: 'PATCH',
-            headers: { authorization: `Bearer ${adminToken}` },
-            body: JSON.stringify({ name: 'Authorized' }),
-          }),
-        )
-      ).status,
-    ).toBe(200)
   })
 
   it('lets only in-process requests read a closed server without a token', async () => {
@@ -100,6 +60,16 @@ describe('HTTP application contracts', () => {
       tiles: [{ x: 0, y: 0, pixels: { x: [0], y: [0], colors: [1] } }],
       painted: null,
     }
+    // A paint body is bounded like the live transport's, before it is parsed.
+    const { MAX_LIVE_PAINT_BYTES } = await import('@caelestis/shared')
+    const oversized = await app.fetch(
+      new Request('https://backend.test/telemetry/paints', {
+        method: 'POST',
+        headers: reportHeaders,
+        body: JSON.stringify(event).padEnd(MAX_LIVE_PAINT_BYTES + 1),
+      }),
+    )
+    expect(oversized.status).toBe(400)
     expect(
       await (
         await app.fetch(

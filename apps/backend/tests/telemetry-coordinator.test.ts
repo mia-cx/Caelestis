@@ -1,20 +1,21 @@
 import { millis, seconds } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
-import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { EXPIRES_AFTER_SECONDS, FLUSHABLE_AFTER_SECONDS } from '../src/ports/index.js'
-import { openRelationalStore } from './support/relational.js'
+import { RelationalHistoryStore } from '../src/telemetry/history/relational.js'
 
-class FailOnceSqlStore extends RelationalSqlStore {
+class FailOnceHistory extends RelationalHistoryStore {
   private failed = false
-  override async appendBuckets(...parameters: Parameters<RelationalSqlStore['appendBuckets']>) {
+  override async appendAndFold(...parameters: Parameters<RelationalHistoryStore['appendAndFold']>) {
     if (!this.failed) {
       this.failed = true
       throw new Error('temporary persistence failure')
     }
-    await super.appendBuckets(...parameters)
+    await super.appendAndFold(...parameters)
   }
 }
 
@@ -26,7 +27,7 @@ describe('durable telemetry coordinator', () => {
   })
 
   it('deduplicates delivery, retains a failed flush, and retries it without double credit', async () => {
-    const opened = await openRelationalStore()
+    const opened = openMemoryDatabase()
     closes.push(opened.close)
     let now = millis(100_000)
     const alarms: AlarmStorage & { last: number | null } = {
@@ -39,7 +40,7 @@ describe('durable telemetry coordinator', () => {
         alarms.last = null
       },
     }
-    const sql = new FailOnceSqlStore(opened.connection)
+    const sql = relationalSqlStore(opened.connection, { history: FailOnceHistory })
     const coordinator = new TelemetryCoordinator(
       coordinatorDatabase(opened.connection),
       alarms,
@@ -80,7 +81,7 @@ describe('durable telemetry coordinator', () => {
     expect(
       await sql.readBuckets({
         templateIds: ['template'],
-        resolution: 60,
+        resolutions: [60],
         fromSeconds: seconds(0),
         toSeconds: seconds(60),
       }),
@@ -97,7 +98,7 @@ describe('durable telemetry coordinator', () => {
   })
 
   it('keeps flushed counters until they expire, then the next record reclaims them', async () => {
-    const opened = await openRelationalStore()
+    const opened = openMemoryDatabase()
     closes.push(opened.close)
     let now = millis(100_000)
     let alarm: number | null = null

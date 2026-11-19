@@ -1,5 +1,5 @@
 import type { TemplateSurface } from '@caelestis/shared'
-import type { StudioRect } from '@caelestis/ui/elements'
+import type { StudioRect } from '@caelestis/ui/studio'
 import { activeAllianceDialog, activeAllianceEditorStage } from '../alliance-editor-dom.js'
 import { onViewChange } from '../map-view.js'
 import { placementScale, placementScreenPoint } from './move.js'

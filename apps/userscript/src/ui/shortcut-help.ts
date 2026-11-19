@@ -1,18 +1,16 @@
 import type { ShortcutPlatform } from '@caelestis/shared'
-import {
-  type CaelestisShortcutHelp,
-  SHORTCUT_HELP_TAG,
-  type ShortcutHelpIntent,
-} from '@caelestis/ui/elements'
+import type { CaelestisElement } from '@caelestis/ui/elements'
 import { getState } from '../settings.js'
 import { activeShortcutBindings, currentShortcutPlatform } from '../shortcuts.js'
 import { closeDialogHost } from './dialog.js'
 import { deepActiveElement } from './focus.js'
 import { applyWplaceTheme } from './theme.js'
 
-const restoreTargets = new WeakMap<CaelestisShortcutHelp, HTMLElement | null>()
+type ShortcutHelp = CaelestisElement<'caelestis-shortcut-help'>
 
-const dismiss = (help: CaelestisShortcutHelp): void => {
+const restoreTargets = new WeakMap<ShortcutHelp, HTMLElement | null>()
+
+const dismiss = (help: ShortcutHelp): void => {
   if (!restoreTargets.has(help)) return
   const restoreFocusTo = restoreTargets.get(help)
   restoreTargets.delete(help)
@@ -24,15 +22,15 @@ const dismiss = (help: CaelestisShortcutHelp): void => {
 export const toggleShortcutHelp = (
   platform: ShortcutPlatform = currentShortcutPlatform(),
 ): void => {
-  const current = document.querySelector<CaelestisShortcutHelp>(
-    `${SHORTCUT_HELP_TAG}:not([data-state="closing"])`,
+  const current = document.querySelector<ShortcutHelp>(
+    'caelestis-shortcut-help:not([data-state="closing"])',
   )
   if (current !== null) {
     dismiss(current)
     return
   }
 
-  const help = document.createElement(SHORTCUT_HELP_TAG)
+  const help = document.createElement('caelestis-shortcut-help')
   help.model = {
     platform,
     bindings: activeShortcutBindings(),
@@ -42,8 +40,7 @@ export const toggleShortcutHelp = (
   applyWplaceTheme(help)
   restoreTargets.set(help, deepActiveElement())
   help.addEventListener('caelestis-shortcut-help-intent', (event) => {
-    const intent = (event as CustomEvent<ShortcutHelpIntent>).detail
-    if (intent.type === 'close') dismiss(help)
+    if (event.detail.type === 'close') dismiss(help)
   })
   document.body.appendChild(help)
 }

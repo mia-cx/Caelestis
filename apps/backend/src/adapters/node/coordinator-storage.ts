@@ -18,11 +18,11 @@ export class SqlCoordinatorStorage implements CoordinatorStorage {
     await database.run(
       'INSERT INTO runtime_schema (id, version) VALUES (1, 1) ON CONFLICT (id) DO NOTHING',
     )
-    const schema = await database.one<{ version: number }>(
+    const { version } = await database.one<{ version: number }>(
       'SELECT version FROM runtime_schema WHERE id = 1',
     )
-    if (schema?.version !== 1 && schema?.version !== 2)
-      throw new Error(`Unsupported coordinator schema version: ${schema?.version}`)
+    if (version !== 1 && version !== 2)
+      throw new Error(`Unsupported coordinator schema version: ${version}`)
     await database.run(
       'CREATE TABLE IF NOT EXISTS runtime_values (actor TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (actor, key))',
     )
@@ -32,7 +32,7 @@ export class SqlCoordinatorStorage implements CoordinatorStorage {
     await database.run(
       'CREATE INDEX IF NOT EXISTS runtime_alarms_due_idx ON runtime_alarms (due_at)',
     )
-    if (schema.version === 1) await SqlCoordinatorStorage.migrateToClaims(database)
+    if (version === 1) await SqlCoordinatorStorage.migrateToClaims(database)
   }
 
   /**
