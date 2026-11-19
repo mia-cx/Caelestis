@@ -287,12 +287,10 @@
   .rounded,
   .rounded-md,
   .rounded-lg,
-  .rounded-t,
   .rounded-b,
   .badge,
   .input,
   .select,
-  .textarea,
   .alert,
   .tab,
   .menu {
@@ -302,9 +300,7 @@
 
   .rounded-xl,
   .rounded-2xl,
-  .rounded-3xl,
   .card,
-  .modal-box,
   .dropdown-content {
     border-radius: 0;
     clip-path: var(--pixel-corners-lg);
@@ -372,14 +368,11 @@
   .rounded:focus-visible,
   .rounded-md:focus-visible,
   .rounded-lg:focus-visible,
-  .rounded-t:focus-visible,
   .rounded-b:focus-visible,
   .rounded-xl:focus-visible,
   .rounded-2xl:focus-visible,
-  .rounded-3xl:focus-visible,
   .input:focus-visible,
   .select:focus-visible,
-  .textarea:focus-visible,
   .tab:focus-visible,
   .btn:focus-visible,
   .btn:has(:focus-visible),
@@ -395,9 +388,8 @@
     outline-color: currentColor;
   }
 
-  /* Every menu, native or custom, shares the menu styles from the UI package; here they take the page font and the pixel corners. */
-  .caelestis-menu,
-  .caelestis-select {
+  /* Menus share the menu styles from the UI package; here they take the page font and the pixel corners. */
+  .caelestis-menu {
     --menu-font: 400 var(--text-base) / var(--text-base--line-height) var(--font-sans);
     --menu-shadow: none;
   }
@@ -416,9 +408,6 @@
   .tab {
     cursor: var(--cursor-pointer);
   }
-  .cursor-text {
-    cursor: var(--cursor-text);
-  }
   .cursor-crosshair {
     cursor: var(--cursor-crosshair);
   }
@@ -430,9 +419,6 @@
   }
   .cursor-ew-resize {
     cursor: var(--cursor-ew-resize);
-  }
-  .cursor-not-allowed {
-    cursor: var(--cursor-not-allowed);
   }
 
   /* daisyUI sizes its buttons at 14px; the pixel scale has no 14. */
