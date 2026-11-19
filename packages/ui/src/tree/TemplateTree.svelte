@@ -14,7 +14,7 @@
   import { onDestroy, tick } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
   import { slide, type EasingFunction, type TransitionConfig } from 'svelte/transition'
-  import { cancelSurfaceClose, closeSurface, MAX_STYLE_WAIT_FRAMES, openSurface, prefersReducedMotion, SETTLE_MARGIN_MS, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
+  import { cancelSurfaceClose, closeSurface, openSurface, prefersReducedMotion, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
   import { descendantKeys } from './descendants.js'
   import type {
     TemplateTreeIntent,
@@ -60,11 +60,10 @@
    */
   type TreeToggle = { key: string; descendants: Set<string>; leaving: TreeEntryModel[] }
   let pendingToggle: TreeToggle | null = null
-  let animatingToggle = $state<TreeToggle | null>(null)
+  let animatingToggle = $state.raw<TreeToggle | null>(null)
   let leavingKeys = $state<ReadonlySet<string>>(new Set())
   let enteringKeys = $state<ReadonlySet<string>>(new Set())
   let lastEntries: typeof model.entries | undefined
-  let toggleTimer: ReturnType<typeof setTimeout> | undefined
   /** Pre-change row/card rects for the grid FLIP, captured while the old DOM is still laid out. */
   let gridRects: Map<string, DOMRect> | null = null
   $effect.pre(() => {
@@ -93,16 +92,15 @@
     gridRects = grid && treeElement !== undefined
       ? new Map([...treeElement.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]')].map((row) => [row.dataset.caelestisTreeKey ?? '', row.getBoundingClientRect()]))
       : null
-    void tick().then(grid ? animateGrid : animateRows)
-    const duration = surfaceCloseDurationMs(treeElement ?? document.documentElement, '--caelestis-duration-fast')
-    // The hold covers the longest animation: in grid, the stagger-capped entering cascade.
-    const stagger = grid ? Math.min(enteringKeys.size * surfaceCloseDurationMs(treeElement ?? document.documentElement, '--caelestis-duration-stagger'), duration) : 0
-    clearTimeout(toggleTimer)
-    toggleTimer = setTimeout(() => {
-      animatingToggle = null
-      leavingKeys = new Set()
-      enteringKeys = new Set()
-    }, duration + stagger + SETTLE_MARGIN_MS)
+    // Leaving rows stay rendered until every toggle animation has finished or been cancelled.
+    void tick()
+      .then(() => Promise.allSettled((grid ? animateGrid() : animateRows()).map((animation) => animation.finished)))
+      .then(() => {
+        if (animatingToggle !== toggle) return
+        animatingToggle = null
+        leavingKeys = new Set()
+        enteringKeys = new Set()
+      })
   })
 
   /** The entries plus any rows still shrinking out from the consumed collapse. */
@@ -127,15 +125,15 @@
   }
 
   /** WAAPI grow/shrink for rows a user toggle added or removed; everything else snaps. */
-  const animateRows = (): void => {
-    if (grid || prefersReducedMotion() || treeElement === undefined) return
+  const animateRows = (): Animation[] => {
+    if (grid || prefersReducedMotion() || treeElement === undefined) return []
     const duration = surfaceCloseDurationMs(treeElement, '--caelestis-duration-fast')
-    if (duration <= 0) return
+    if (duration <= 0) return []
     const easing = getComputedStyle(treeElement).getPropertyValue('--caelestis-ease-smooth-out') || 'ease-out'
     // `.tree` is a gapped flex column, so a zero-height row still holds its share of the gap —
     // a negative block-start margin pulls that back or the list snaps by gap × rows.
     const rowGap = getComputedStyle(treeElement).rowGap
-    for (const row of treeElement.querySelectorAll<HTMLElement>('.row.leaving, .row.entering')) {
+    return [...treeElement.querySelectorAll<HTMLElement>('.row.leaving, .row.entering')].map((row) => {
       // `.entering` collapses the row so it paints at zero — drop it before measuring; the
       // animation's fill still covers the first frame.
       const entering = row.classList.contains('entering')
@@ -158,12 +156,12 @@
         opacity: 1,
         overflow: 'hidden',
       }
-      row.animate(entering ? [hidden, shown] : [shown, hidden], {
+      return row.animate(entering ? [hidden, shown] : [shown, hidden], {
         duration,
         easing,
         fill: 'both',
       })
-    }
+    })
   }
 
   /**
@@ -171,19 +169,20 @@
    * away; entering cards fade/scale/blur in on a stagger; everything else FLIPs so the grid
    * reflows without snapping.
    */
-  const animateGrid = (): void => {
-    if (prefersReducedMotion() || treeElement === undefined || gridRects === null) return
+  const animateGrid = (): Animation[] => {
+    if (prefersReducedMotion() || treeElement === undefined || gridRects === null) return []
     const previous = gridRects
     gridRects = null
     const style = getComputedStyle(treeElement)
     const duration = surfaceCloseDurationMs(treeElement, '--caelestis-duration-fast')
-    if (duration <= 0) return
+    if (duration <= 0) return []
     const stagger = surfaceCloseDurationMs(treeElement, '--caelestis-duration-stagger')
     const scale = Number.parseFloat(style.getPropertyValue('--caelestis-scale-large')) || 1
     const blur = Number.parseFloat(style.getPropertyValue('--caelestis-blur-small')) || 0
     const easing = style.getPropertyValue('--caelestis-ease-smooth-out') || 'ease-out'
     const treeBox = treeElement.getBoundingClientRect()
     let enteringIndex = 0
+    const animations: Animation[] = []
     for (const row of treeElement.querySelectorAll<HTMLElement>('[data-caelestis-tree-key]')) {
       const key = row.dataset.caelestisTreeKey ?? ''
       const box = row.getBoundingClientRect()
@@ -200,34 +199,35 @@
             margin: '0',
           })
         }
-        row.animate(
+        animations.push(row.animate(
           [
             { opacity: 1, scale: 1, filter: 'blur(0px)' },
             { opacity: 0, scale, filter: `blur(${blur}px)` },
           ],
           { duration, easing, fill: 'both' },
-        )
+        ))
       } else if (enteringKeys.has(key)) {
         const delay = Math.min(enteringIndex * stagger, duration)
         enteringIndex += 1
-        row.animate(
+        animations.push(row.animate(
           [
             { opacity: 0, scale, filter: `blur(${blur}px)` },
             { opacity: 1, scale: 1, filter: 'blur(0px)' },
           ],
           { duration, delay, easing, fill: 'both' },
-        )
+        ))
       } else if (before !== undefined) {
         const dx = before.left - box.left
         const dy = before.top - box.top
         if (dx !== 0 || dy !== 0) {
-          row.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
+          animations.push(row.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], {
             duration,
             easing,
-          })
+          }))
         }
       }
     }
+    return animations
   }
 
   /** Height plus opacity, merged so `slide`'s height choreography keeps its shape. */
@@ -292,7 +292,6 @@
     }
   })
   onDestroy(() => {
-    clearTimeout(toggleTimer)
     if (contextMenuElement !== undefined) cancelSurfaceClose(contextMenuElement)
     if (progressPane !== undefined) cancelSurfaceClose(progressPane)
   })
@@ -303,7 +302,8 @@
   const showProgress = async (entry: TreeRowModel): Promise<void> => {
     progressKey = entry.key
     await tick()
-    progressPane?.querySelector<HTMLButtonElement>('button')?.focus()
+    const pane = progressPane
+    if (pane !== undefined) openSurface(pane, () => pane.querySelector<HTMLButtonElement>('button')?.focus())
   }
   const closeProgress = (): void => {
     const entry = progressEntry
@@ -346,21 +346,12 @@
     if (next !== undefined) {
       menuInvoker = activeTreeElement()
       void tick().then(() => {
-        // openSurface holds a fresh menu hidden for a couple of frames; focusing then is a
-        // no-op, so wait for the open state before taking keyboard focus.
-        let attempts = 0
-        const focusMenu = (): void => {
-          if (model.contextMenu?.id !== next || contextMenuElement?.isConnected !== true) return
-          if (contextMenuElement.dataset.state !== 'open' && attempts < MAX_STYLE_WAIT_FRAMES) {
-            attempts += 1
-            requestAnimationFrame(focusMenu)
-            return
-          }
-          // Focus already inside the menu (e.g. an open submenu) is left alone.
-          if (contextMenuElement.contains(activeTreeElement())) return
-          contextMenuElement.querySelector<HTMLButtonElement>('button')?.focus()
-        }
-        focusMenu()
+        const menu = contextMenuElement
+        if (model.contextMenu?.id !== next || menu?.isConnected !== true) return
+        // A hidden, still-opening menu cannot take focus. Focus already inside it (an open submenu) stays.
+        openSurface(menu, () => {
+          if (model.contextMenu?.id === next && !menu.contains(activeTreeElement())) menu.querySelector<HTMLButtonElement>('button')?.focus()
+        })
       })
     } else if (previous !== undefined) {
       const target = menuInvoker
@@ -395,10 +386,11 @@
     row?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.focus()
   }
 
+  const SEARCH_DEBOUNCE_MS = 100
   const search = (event: Event): void => {
     query = (event.currentTarget as HTMLInputElement).value
     if (searchTimer !== undefined) clearTimeout(searchTimer)
-    searchTimer = setTimeout(() => emit({ type: 'search', query }), 100)
+    searchTimer = setTimeout(() => emit({ type: 'search', query }), SEARCH_DEBOUNCE_MS)
   }
 
   const action = (row: TreeRowModel, item: TreeActionModel, event: MouseEvent): void => {
@@ -993,7 +985,6 @@
 </div>
 
 <style>
-  :global(*) { box-sizing: border-box; }
   .toolbar { position: relative; z-index: 2; display: flex; flex: 0 0 auto; align-items: center; gap: 0.25rem; margin: 0.75rem var(--caelestis-content-inset, 1rem); }
   .view-switcher { display: flex; flex: 0 0 auto; border: 1px solid var(--caelestis-border); border-radius: var(--caelestis-radius, calc(0.7rem + 1px)); overflow: hidden; }
   .view-switcher button { display: grid; place-items: center; inline-size: 2rem; block-size: 2rem; border: 0; background: var(--caelestis-surface); color: var(--caelestis-muted-text); cursor: pointer; }
