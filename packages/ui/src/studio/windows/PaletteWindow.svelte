@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from '../../foundations/Icon.svelte'
   import type { StudioPaletteScope, TemplateStudioIntent, TemplateStudioModel } from '../model.js'
-  import Segmented from '../effects/Segmented.svelte'
+  import Segmented from '../Segmented.svelte'
 
   /** The Wplace colours the template may use, as Ditherette web's palette without custom palettes. */
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()

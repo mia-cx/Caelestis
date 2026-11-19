@@ -1,7 +1,8 @@
 <script lang="ts" generics="C extends GridCurve">
-  import type { ColourChannel } from 'ditherette'
+  import type { ColourChannel } from '../ditherette.js'
   import Button from '../../foundations/Button.svelte'
-  import { channelLabel } from './catalog.js'
+  import { channelInfo, channelLabel } from './catalog.js'
+  import { BYTE, LARGE_STEP } from './graph.js'
   import { canRemoveColumn, type GridCurve, insertColumn, removeColumn, setGridValue, wraps } from './grid.js'
   import { hueAxis } from './tone.js'
 
@@ -25,9 +26,6 @@
     neutral: number
   } = $props()
 
-  /** Values sit on the byte grid, like one-input curves. */
-  const BYTE = 255
-  const LARGE_STEP = 16
   const WIDTH = 300
   const HEIGHT = 200
   const HIT_RADIUS_PX = 12
@@ -47,7 +45,7 @@
   const onGrid = (v: number): number => Math.min(BYTE, Math.max(0, Math.round(v))) / BYTE
   const at = (position: number, axis: 'x' | 'y'): number => (axis === 'x' ? position * WIDTH : (1 - position) * HEIGHT)
   /** "Hue" rather than "OKLCH · Hue": the curve's name already says the model. */
-  const channelName = (channel: ColourChannel): string => channelLabel(channel).split(' · ')[1] ?? ''
+  const channelName = (channel: ColourChannel): string => channelInfo(channel).name
   const position = (channel: ColourChannel, v: number): string =>
     wraps(channel) ? `${Math.round(v * 360)}°` : `${toByte(v)}`
 

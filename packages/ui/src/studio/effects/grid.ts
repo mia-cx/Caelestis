@@ -1,4 +1,10 @@
-import type { ColourChannel, CurveGrid, TwoInputCurve } from 'ditherette'
+import {
+  type ColourChannel,
+  type CurveGrid,
+  MAX_GRID_COLUMNS,
+  MIN_CURVE_GAP,
+  type TwoInputCurve,
+} from '../ditherette.js'
 import { evaluateClosedCurve, evaluateCurve } from './spline.js'
 
 /** A hue axis wraps; every other axis runs from 0 to 1. */
@@ -12,8 +18,6 @@ const HUE_COLUMNS = 12
 const OPEN_COLUMNS = 9
 const ROWS = 5
 const NEUTRAL = 0.5
-const MAX_COLUMNS = 48
-const MIN_GAP = 0.001
 
 const positions = (count: number, closed: boolean) =>
   Array.from({ length: count }, (_, index) => (closed ? index / count : index / (count - 1)))
@@ -53,7 +57,7 @@ export function insertColumn<C extends GridCurve>(
   const { grid } = curve
   const closed = wraps(curve.x)
   if (
-    grid.columns.length >= MAX_COLUMNS ||
+    grid.columns.length >= MAX_GRID_COLUMNS ||
     !Number.isFinite(a) ||
     a < 0 ||
     (closed ? a >= 1 : a > 1)
@@ -71,9 +75,10 @@ export function insertColumn<C extends GridCurve>(
   if (
     checked.some(
       (position, column) =>
-        column > 0 && Math.fround(position - (checked[column - 1] ?? 0)) < MIN_GAP,
+        column > 0 && Math.fround(position - (checked[column - 1] ?? 0)) < MIN_CURVE_GAP,
     ) ||
-    (closed && Math.fround(Math.fround(1 - (checked.at(-1) ?? 0)) + (checked[0] ?? 0)) < MIN_GAP)
+    (closed &&
+      Math.fround(Math.fround(1 - (checked.at(-1) ?? 0)) + (checked[0] ?? 0)) < MIN_CURVE_GAP)
   )
     return
   const values = grid.values.map((row, r) => splice(row, evaluateGrid(curve, a, grid.rows[r] ?? 0)))

@@ -6,7 +6,7 @@ import DimensionsWindow from '../src/studio/windows/DimensionsWindow.svelte'
 it('scales by exactly the percentage typed, fractions included', () => {
   // The Size window reads only these parts of the model.
   const model = {
-    source: { name: 'art.png', width: 1000, height: 1000, url: '' },
+    source: { name: 'art.png', width: 1000, height: 1000 },
     pending: false,
     output: {
       width: 1000,

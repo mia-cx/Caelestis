@@ -1,4 +1,4 @@
-import type { ColourChannel, CurvePoints, Effect, OneInputCurve } from 'ditherette'
+import type { ColourChannel, CurvePoints, Effect, OneInputCurve } from '../ditherette.js'
 
 export type EffectKind = Effect['effect']
 export type EffectOf<K extends EffectKind> = Extract<Effect, { effect: K }>
@@ -58,27 +58,42 @@ export const CURVE_MODELS: readonly {
   },
 ]
 
-/** Every channel a curve can read or change, grouped by model. */
-export const CURVE_CHANNELS: readonly {
-  readonly label: string
+interface ChannelOption {
   readonly channel: ColourChannel
-}[] = CURVE_MODELS.flatMap((model) =>
+  /** The model's name, such as "OKLCH". */
+  readonly model: string
+  /** The channel's own name, such as "Hue". */
+  readonly name: string
+  /** Both, such as "OKLCH · Hue". */
+  readonly label: string
+}
+
+/** Every channel a curve can read or change, grouped by model. */
+export const CURVE_CHANNELS: readonly ChannelOption[] = CURVE_MODELS.flatMap((model) =>
   model.channels.map(({ name, label }) => ({
-    label: `${model.label} · ${label}`,
     // Each model lists only its own channels, so every pair is a valid ColourChannel.
     channel: { model: model.id, channel: name } as ColourChannel,
+    model: model.label,
+    name: label,
+    label: `${model.label} · ${label}`,
   })),
 )
 
 export const channelKey = ({ model, channel }: ColourChannel) => `${model}:${channel}`
-export const channelLabel = (channel: ColourChannel): string =>
-  CURVE_CHANNELS.find((option) => channelKey(option.channel) === channelKey(channel))?.label ??
-  channelKey(channel)
 export const sameChannel = (left: ColourChannel, right: ColourChannel) =>
   channelKey(left) === channelKey(right)
-
-/** The most curves one curves step holds. */
-export const MAX_CURVES = 16
+/** The channel's names. Every ColourChannel is listed; the fallback only satisfies the type. */
+export const channelInfo = (channel: ColourChannel): ChannelOption =>
+  CURVE_CHANNELS.find((option) => sameChannel(option.channel, channel)) ?? {
+    channel,
+    model: channel.model,
+    name: channel.channel,
+    label: channelKey(channel),
+  }
+export const channelLabel = (channel: ColourChannel): string => channelInfo(channel).label
+/** The channel a select's value, a `channelKey`, names. */
+export const channelFor = (key: string): ColourChannel | undefined =>
+  CURVE_CHANNELS.find(({ channel }) => channelKey(channel) === key)?.channel
 
 export const STRAIGHT: CurvePoints = [
   [0, 0],
@@ -180,6 +195,3 @@ export const FIT_SPACES = [
   { id: 'oklab', label: 'OKLab' },
   { id: 'cielab', label: 'CIELab' },
 ] as const
-
-/** The package accepts at most 64 steps. */
-export const MAX_EFFECT_LAYERS = 64

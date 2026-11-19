@@ -52,14 +52,16 @@ export const TRACE: Record<ScopeChannel['name'], Rgb> = {
   cr: [250, 96, 128],
 }
 
-const DECODE = Float64Array.from({ length: 256 }, (_, byte) => {
-  const value = byte / 255
-  return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-})
+/** Linear light of an encoded sRGB value, both from 0 through 1. */
+export const decodeSrgb = (value: number): number =>
+  value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+/** The encoded sRGB value of linear light, both from 0 through 1. */
+export const encodeSrgb = (value: number): number =>
+  value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055
+
+const DECODE = Float64Array.from({ length: 256 }, (_, byte) => decodeSrgb(byte / 255))
 /** Linear light of an encoded sRGB byte. */
 const linear = (byte: number): number => DECODE[byte] ?? 0
-const encode = (value: number): number =>
-  value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055
 
 const TURN = 2 * Math.PI
 const hueOf = (a: number, b: number): number =>
@@ -285,7 +287,7 @@ export const chromaticityColour = ([x, y]: readonly [number, number]): Rgb => {
   const g = Math.max(0, -0.969266 * X + 1.8760108 + 0.041556 * Z)
   const b = Math.max(0, 0.0556434 * X - 0.2040259 + 1.0572252 * Z)
   const peak = Math.max(r, g, b) || 1
-  const byte = (value: number): number => Math.round(encode(value / peak) * 255)
+  const byte = (value: number): number => Math.round(encodeSrgb(value / peak) * 255)
   return [byte(r), byte(g), byte(b)]
 }
 

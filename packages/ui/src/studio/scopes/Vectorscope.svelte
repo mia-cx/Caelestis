@@ -1,7 +1,7 @@
 <script lang="ts">
   import { planePoint, type Rgb, type VectorPlane } from '../colour.js'
   import DensityCanvas from './DensityCanvas.svelte'
-  import { PLANE_SIZE, paint, type Scatter, underLayer, VECTOR_EXTENT } from './scopes.js'
+  import { PLANE_SIZE, paint, type Scatter, scatterLayers, VECTOR_EXTENT } from './scopes.js'
 
   /** A colour plane with its primary and secondary targets. Greys sit at the centre. */
   let {
@@ -36,12 +36,7 @@
   const LABEL_OFFSET = 1.16
   const EXTENT = VECTOR_EXTENT
 
-  const image = $derived(
-    paint(PLANE_SIZE, PLANE_SIZE, [
-      ...(under ? [over ? underLayer(under.density) : { density: under.density, colour: under.sums }] : []),
-      ...(over ? [{ density: over.density, colour: over.sums }] : []),
-    ]),
-  )
+  const image = $derived(paint(PLANE_SIZE, PLANE_SIZE, scatterLayers(under, over)))
 
   /** A colour's spot in the graticule's units: up is +y, the circle's edge at radius 1. */
   const at = ([r, g, b]: Rgb, level = 1): readonly [number, number] => {

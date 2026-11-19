@@ -3,6 +3,7 @@
   import Icon from '../../foundations/Icon.svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import { selectFace } from '../../foundations/select-face.js'
+  import { commitOnEnter } from '../commit-on-enter.js'
   import { ADDABLE_KINDS, EFFECTS, type EffectKind } from '../effects/catalog.js'
   import EffectEditor from '../effects/EffectEditor.svelte'
   import MaskEditor from '../effects/MaskEditor.svelte'
@@ -95,9 +96,7 @@
           aria-label="Effect name"
           maxlength={MAX_EFFECT_NAME_LENGTH}
           value={layer.name}
-          onkeydown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-          }}
+          {@attach commitOnEnter}
           onchange={(event) => set(renameLayer(layers, layer.id, event.currentTarget.value))}
         />
         <Button label="Reset {layer.name}" title="Reset" kind="ghost" size="compact" iconOnly onclick={() => set(resetLayer(layers, layer.id))}>

@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { CurvesEffect, FitLook, PaletteFitEffect, PaletteFitSpace } from 'ditherette'
+  import type { CurvesEffect, FitLook, PaletteFitEffect, PaletteFitSpace } from '../ditherette.js'
   import Button from '../../foundations/Button.svelte'
   import { selectFace } from '../../foundations/select-face.js'
   import { FIT_SPACES } from './catalog.js'
   import CurvesEditor from './CurvesEditor.svelte'
   import { NUMBER_FIELDS } from './fields.js'
   import NumberFieldsEditor from './NumberFieldsEditor.svelte'
-  import Segmented from './Segmented.svelte'
+  import Segmented from '../Segmented.svelte'
 
   /**
    * Ditherette web's Palette fit: a look, a strength, and the space it analyses in. Its curves
