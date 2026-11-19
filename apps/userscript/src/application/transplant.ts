@@ -575,10 +575,13 @@ const transferBranch = async (
 
 const activeSources = new Set<string>()
 
+/** A moving branch's identity: a JSON tuple, so it cannot be mistaken for a tree key. */
 const sourceKey = (source: Source): string =>
-  source.kind === 'local'
-    ? `local:${source.folderId}`
-    : `server:${source.server.url}:${source.nodeId}`
+  JSON.stringify(
+    source.kind === 'local'
+      ? [source.kind, source.folderId]
+      : [source.kind, source.server.url, source.nodeId],
+  )
 
 /**
  * Move a whole branch: copy it to `destination`, verify, then take it off `source`.
