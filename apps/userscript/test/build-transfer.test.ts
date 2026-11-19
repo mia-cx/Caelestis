@@ -42,17 +42,11 @@ const reload = () => vi.spyOn(window.location, 'reload').mockImplementation(() =
 /** The page's `window` both copies share, fresh for each test. */
 let page: object = {}
 
-/** Document start: the parser has not added `<head>` yet, though Caelestis may have added its styles. */
 beforeEach(() => {
   page = {}
-  document.documentElement.replaceChildren(document.createElement('style'))
 })
 afterEach(() => {
   vi.restoreAllMocks()
-  document.documentElement.replaceChildren(
-    document.createElement('head'),
-    document.createElement('body'),
-  )
 })
 
 describe('moving settings between the userscript and the extension', () => {
@@ -161,19 +155,28 @@ describe('moving settings between the userscript and the extension', () => {
     expect(Object.fromEntries(userscript.values)).toEqual({ [STATE]: 'extension' })
   })
 
-  it('closes the meeting once the page starts, and page code cannot plant another', async () => {
+  it('a userscript its manager starts after Wplace still meets the extension', async () => {
+    const reloaded = reload()
+    const extension = await copy({})
+    extension.transfer.linkOtherBuild(extension.port, 'extension', true)
+    // Violentmonkey starts a document-start script once Wplace's own scripts are in the page.
+    document.body.append(document.createElement('script'))
+
+    const userscript = await copy({ [STATE]: '{"servers":["mine"]}' })
+    userscript.transfer.serveOtherBuild(userscript.port, 'userscript')
+
+    await vi.waitFor(() => expect(reloaded).toHaveBeenCalled())
+    expect(Object.fromEntries(extension.values)).toEqual({ [STATE]: '{"servers":["mine"]}' })
+  })
+
+  it('page code cannot replace the offer', async () => {
     await copy({})
-    document.documentElement.append(document.createElement('head'))
-    await vi.waitFor(() => expect(Reflect.get(page, '__caelestisMeeting')).toBeUndefined())
 
     const planted = new MessageChannel()
     expect(Reflect.set(page, '__caelestisMeeting', planted.port2)).toBe(false)
     expect(() =>
       Object.defineProperty(page, '__caelestisMeeting', { value: planted.port2 }),
     ).toThrow()
-    vi.resetModules()
-    const late = await import('../src/build-transfer.js')
-    expect(late.meetOtherBuild(page)).toBeNull()
   })
 
   it('hands the offer out once', async () => {
