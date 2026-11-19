@@ -18,7 +18,9 @@
     "@caelestis/social": "workspace:*",
     "@caelestis/storage": "workspace:*",
     "@caelestis/ui": "workspace:*",
-    "bits-ui": "^2.21.0"
+    "@caelestis/wire-schema": "workspace:*",
+    "bits-ui": "^2.21.0",
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@caelestis/backend": "workspace:*",

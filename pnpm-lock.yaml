@@ -281,9 +281,15 @@ importers:
       '@caelestis/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@caelestis/wire-schema':
+        specifier: workspace:*
+        version: link:../../packages/wire-schema
       bits-ui:
         specifier: ^2.21.0
         version: 2.21.0(@internationalized/date@3.12.4)(@sveltejs/kit@3.2.0(@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.3)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0)))(svelte@5.57.3)(typescript@6.0.3)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0)))(svelte@5.57.3)
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
     devDependencies:
       '@caelestis/backend':
         specifier: workspace:*

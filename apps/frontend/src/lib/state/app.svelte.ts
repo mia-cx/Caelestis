@@ -16,6 +16,8 @@ import {
   type TemplateTree,
   uuidV7,
 } from '@caelestis/shared'
+import * as Wire from '@caelestis/wire-schema'
+import { Schema } from 'effect'
 import { getContext, setContext } from 'svelte'
 import {
   ApiError,
@@ -29,6 +31,14 @@ import {
   readToken,
   usesServerReadProxy,
 } from '#lib/api/client.js'
+
+// Live events carry what the backend validated against the same schema; a mismatch closes the socket.
+const decodeManifest = Schema.decodeUnknownSync(Wire.Manifest)
+const decodeStatus = Schema.decodeUnknownSync(Wire.StatusResponse)
+const decodeStatusDelta = Schema.decodeUnknownSync(Wire.StatusDelta)
+const decodeAlarms = Schema.decodeUnknownSync(Wire.AlarmsResponse)
+const decodeContributions = Schema.decodeUnknownSync(Wire.ContributionsResponse)
+const decodeLeaderboard = Schema.decodeUnknownSync(Wire.LeaderboardResponse)
 
 /**
  * The one shared session: which server we're connected to, its manifest, and the current status
@@ -305,24 +315,20 @@ export class AppState {
     if (typeof value !== 'object' || value === null || !('type' in value)) return
     const event = value as Record<string, unknown>
     if (event.type === 'manifest-snapshot') {
-      const manifest = event.manifest as Manifest | undefined
-      if (manifest === undefined || manifest.season !== this.manifest?.season)
-        throw new TypeError('invalid live manifest')
+      const manifest = decodeManifest(event.manifest)
+      if (manifest.season !== this.manifest?.season) throw new TypeError('invalid live manifest')
       this.manifest = manifest
       return
     }
     if (event.type === 'status-snapshot') {
-      const status = event.status as { revision?: unknown; templates?: unknown }
-      if (!Number.isSafeInteger(status?.revision) || !Array.isArray(status?.templates))
-        throw new TypeError('invalid live status')
-      this.statuses = new Map(
-        (status.templates as TemplateStatus[]).map((entry) => [entry.templateId, entry]),
-      )
-      this.statusRevision = Number(status.revision)
+      const status = decodeStatus(event.status)
+      if (status.revision === undefined) throw new TypeError('invalid live status')
+      this.statuses = new Map(status.templates.map((entry) => [entry.templateId, entry]))
+      this.statusRevision = status.revision
       return
     }
     if (event.type === 'status-delta') {
-      this.applyLiveStatusDelta(event.delta as StatusDelta)
+      this.applyLiveStatusDelta(decodeStatusDelta(event.delta))
       return
     }
     if (event.type === 'status-reconcile') {
@@ -330,10 +336,9 @@ export class AppState {
       return
     }
     if (event.type === 'alarms-snapshot') {
-      const alarms = event.alarms as { version?: unknown; alarms?: unknown }
-      if (typeof alarms?.version !== 'string' || !Array.isArray(alarms?.alarms))
-        throw new TypeError('invalid live alarms')
-      this.alarms = new Map((alarms.alarms as Alarm[]).map((entry) => [entry.templateId, entry]))
+      const alarms = decodeAlarms(event.alarms)
+      if (alarms.version === undefined) throw new TypeError('invalid live alarms')
+      this.alarms = new Map(alarms.alarms.map((entry) => [entry.templateId, entry]))
       this.alarmsVersion = alarms.version
       return
     }
@@ -341,8 +346,8 @@ export class AppState {
       const subscription = this.dashboardSubscriptions.get(event.subscriptionId)
       if (subscription === undefined) return
       subscription.listener({
-        contributions: event.contributions as ContributionsResponse,
-        leaderboard: event.leaderboard as LeaderboardResponse,
+        contributions: decodeContributions(event.contributions),
+        leaderboard: decodeLeaderboard(event.leaderboard),
       })
     }
   }
