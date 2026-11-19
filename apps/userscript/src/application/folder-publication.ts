@@ -1,14 +1,14 @@
-import { claimBusy, mapLimit } from '../concurrency.js'
+import { mapLimit } from '../concurrency.js'
 import type { ServerTemplate } from '../server-manifest.js'
 
 const PATCH_CONCURRENCY = 4
 
-export interface FolderPublicationFailure {
+interface FolderPublicationFailure {
   readonly template: ServerTemplate
   readonly message: string
 }
 
-export interface FolderPublicationResult {
+interface FolderPublicationResult {
   /** Templates that actually needed a change. */
   readonly requested: number
   readonly succeeded: number
@@ -19,10 +19,6 @@ type PatchResult =
   | { readonly ok: true }
   /** `stop` (a refused credential, a replaced connection) ends the whole batch. */
   | { readonly ok: false; readonly message: string; readonly stop?: true }
-
-/** One recursive batch per server, so ancestor and descendant operations cannot overlap. */
-export const claimFolderPublication = (serverUrl: string): (() => void) | null =>
-  claimBusy(`folder-publication:${serverUrl}`)
 
 /** Apply one publication state without opening an unbounded burst of template PATCH requests. */
 export const setFolderTemplatesPublished = async (

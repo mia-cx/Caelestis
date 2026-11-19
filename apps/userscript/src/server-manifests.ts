@@ -80,7 +80,7 @@ export type ManifestAdmission =
   | { readonly status: 'refused' | 'superseded'; readonly message: string }
 
 /** What {@link onManifestChange} reports: an admission or refusal, or rows forgotten. */
-export type ManifestChange =
+type ManifestChange =
   | Exclude<ManifestAdmission, { readonly status: 'superseded' }>
   | { readonly status: 'forgotten' }
 

@@ -53,7 +53,7 @@ export interface ServerSyncResult {
   readonly revision?: string
 }
 
-export interface ServerSyncResource {
+interface ServerSyncResource {
   readonly id: ServerSyncResourceId
   /** Stable visibility scope. Null means the resource is not active for this server. */
   readonly scope: (server: ConnectedServer) => string | null
@@ -345,7 +345,7 @@ export const applyServerSyncRevision = (
   armTimer()
 }
 
-export type ServerSyncDeltaOutcome = 'applied' | 'duplicate' | 'reconcile' | 'stale-connection'
+type ServerSyncDeltaOutcome = 'applied' | 'duplicate' | 'reconcile' | 'stale-connection'
 
 export const serverSyncRevision = (
   server: ConnectedServer,

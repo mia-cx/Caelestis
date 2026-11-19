@@ -17,7 +17,7 @@ import {
   WORLD_TILES,
 } from '@caelestis/shared'
 
-export type ServerAuthMode = 'none' | 'access_token'
+type ServerAuthMode = 'none' | 'access_token'
 
 export interface ServerInfo {
   readonly id: string

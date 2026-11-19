@@ -4,15 +4,15 @@ import { storedFlag } from './stored-values.js'
 /** Report metadata the app supplies through `registerProfileContextSource`; stored and printed as is. */
 export type ProfileContext = Readonly<Record<string, unknown>>
 
-export type ProfileKind = 'main' | 'worker' | 'gpu' | 'detail'
+type ProfileKind = 'main' | 'worker' | 'gpu' | 'detail'
 
-export interface ProfileAction {
+interface ProfileAction {
   readonly atMs: number
   readonly name: string
   readonly trusted: boolean | null
 }
 
-export interface ProfileRun {
+interface ProfileRun {
   readonly label: string
   /** Browser zoom cannot be inferred from DPR or pinch scale. Supply the browser's actual setting. */
   readonly browserZoomPercent: number | null
@@ -25,7 +25,7 @@ interface MutableStat {
   recent: number[]
 }
 
-export interface ProfileStat {
+interface ProfileStat {
   readonly count: number
   readonly totalMs: number
   readonly averageMs: number
@@ -33,7 +33,7 @@ export interface ProfileStat {
   readonly p95Ms: number
 }
 
-export interface ProfileTask extends ProfileStat {
+interface ProfileTask extends ProfileStat {
   readonly name: string
   readonly kind: ProfileKind
 }
@@ -46,7 +46,7 @@ interface MutableWorkload {
   recent: number[]
 }
 
-export interface ProfileWorkload {
+interface ProfileWorkload {
   readonly name: string
   readonly count: number
   readonly current: number
@@ -55,7 +55,7 @@ export interface ProfileWorkload {
   readonly p95: number
 }
 
-export interface ProfileSnapshot {
+interface ProfileSnapshot {
   readonly enabled: boolean
   readonly elapsedMs: number
   readonly context: {
@@ -99,6 +99,22 @@ export interface ProfileSnapshot {
     readonly actions: string
     readonly counters: string
   }
+}
+
+/** What each part of a snapshot measures, and what it leaves out. */
+const SCOPE: ProfileSnapshot['scope'] = {
+  cpu: 'Instrumented Caelestis work only. Task and aggregate p95 use the last 512 samples in recording order.',
+  gpu: 'Caelestis WebGL layers only, when timer queries are available.',
+  memory: 'Known Caelestis pixel and GPU buffers. Object overhead is not included.',
+  pageSignals: 'Whole-tab frame cadence, not input latency. Frame p95 uses the last 600 intervals.',
+  workload:
+    'Caelestis render inputs and collaboration state sampled at frames or events while profiling is enabled.',
+  context:
+    'Start and current metadata. Drawing is effective visibility; onscreen counts are render workload gauges. Browser zoom is supplied externally, never inferred from DPR or pinch scale.',
+  actions:
+    'Last 200 action markers in recording order, in milliseconds since reset. Trusted pointer events mark dispatch, not presentation or input latency.',
+  counters:
+    'Event and byte totals since reset; divide by elapsedMs / 1000 for rates. Presence and live paint bytes count UTF-8 application payloads, excluding WebSocket framing and compression. Absent counters recorded no events. Canvas writes include all observed page canvases; tile-sized canvas uploads are draft candidates. Readback bytes count RGBA data returned, not texture traffic.',
 }
 
 const profiling = storedFlag('caelestisProfile')
@@ -145,16 +161,13 @@ const supportsLongTasks = (): boolean =>
   PerformanceObserver.supportedEntryTypes?.includes('longtask') === true
 
 /** Register the app-owned report context without making the profiler depend on app state. */
-export const registerProfileContextSource = (read: () => ProfileContext): (() => void) => {
+export const registerProfileContextSource = (read: () => ProfileContext): void => {
   contextSource = read
   if (enabled) startContext = read()
-  return () => {
-    if (contextSource === read) contextSource = null
-  }
 }
 
 /** Annotate a run with its scenario and externally measured browser zoom. Resets clear annotations. */
-export const configureProfileRun = (value: ProfileRun): void => {
+const configureProfileRun = (value: ProfileRun): void => {
   if (
     typeof value.label !== 'string' ||
     (value.browserZoomPercent !== null &&
@@ -259,8 +272,7 @@ const stopObservers = (): void => {
   globalThis.document?.removeEventListener('keydown', recordInput, true)
 }
 
-const visible = (): boolean =>
-  typeof document === 'undefined' || document.visibilityState === 'visible'
+const visible = (): boolean => document.visibilityState === 'visible'
 
 const startFrameObserver = (): void => {
   if (typeof requestAnimationFrame !== 'function') return
@@ -445,11 +457,8 @@ export const measureProfileDetail = <T>(name: string, run: () => T): T => {
   }
 }
 
-export const registerProfileMemorySource = (name: string, read: () => number): (() => void) => {
+export const registerProfileMemorySource = (name: string, read: () => number): void => {
   memorySources.set(name, read)
-  return () => {
-    if (memorySources.get(name) === read) memorySources.delete(name)
-  }
 }
 
 interface TimerExtension {
@@ -618,20 +627,7 @@ export const profileSnapshot = (): ProfileSnapshot => {
       },
       tasks: [],
       workload: [],
-      scope: {
-        cpu: 'Instrumented Caelestis work only. Task and aggregate p95 use the last 512 samples in recording order.',
-        gpu: 'Caelestis WebGL layers only, when timer queries are available.',
-        memory: 'Known Caelestis pixel and GPU buffers. Object overhead is not included.',
-        pageSignals:
-          'Whole-tab frame cadence, not input latency. Frame p95 uses the last 600 intervals.',
-        workload: 'Per-frame Caelestis render inputs and retained work while profiling is enabled.',
-        context:
-          'Start and current metadata. Drawing is effective visibility; onscreen counts are render workload gauges. Browser zoom is supplied externally, never inferred from DPR or pinch scale.',
-        actions:
-          'Last 200 action markers in recording order, in milliseconds since reset. Trusted pointer events mark dispatch, not presentation or input latency.',
-        counters:
-          'Event and byte totals since reset; absent counters recorded no events. Canvas writes include all observed page canvases; tile-sized canvas uploads are draft candidates. Readback bytes count RGBA data returned, not texture traffic.',
-      },
+      scope: SCOPE,
     }
   }
 
@@ -695,21 +691,7 @@ export const profileSnapshot = (): ProfileSnapshot => {
     },
     tasks: taskRows,
     workload: workloadRows,
-    scope: {
-      cpu: 'Instrumented Caelestis work only. Task and aggregate p95 use the last 512 samples in recording order.',
-      gpu: 'Caelestis WebGL layers only, when timer queries are available.',
-      memory: 'Known Caelestis pixel and GPU buffers. Object overhead is not included.',
-      pageSignals:
-        'Whole-tab frame cadence, not input latency. Frame p95 uses the last 600 intervals.',
-      workload:
-        'Caelestis render inputs and collaboration state sampled at frames or events while profiling is enabled.',
-      context:
-        'Start and current metadata. Drawing is effective visibility; onscreen counts are render workload gauges. Browser zoom is supplied externally, never inferred from DPR or pinch scale.',
-      actions:
-        'Last 200 action markers in recording order, in milliseconds since reset. Trusted pointer events mark dispatch, not presentation or input latency.',
-      counters:
-        'Event and byte totals since reset; divide by elapsedMs / 1000 for rates. Presence and live paint bytes count UTF-8 application payloads, excluding WebSocket framing and compression. Absent counters recorded no events. Canvas writes include all observed page canvases; tile-sized canvas uploads are draft candidates. Readback bytes count RGBA data returned, not texture traffic.',
-    },
+    scope: SCOPE,
   }
 }
 

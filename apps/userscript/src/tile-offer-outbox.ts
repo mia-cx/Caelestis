@@ -28,7 +28,7 @@ import {
 } from './server-connections.js'
 import { manifestCoverage } from './server-manifests.js'
 import { invalidateServerMismatchTiles } from './server-mismatch.js'
-import { serverRequest } from './server-request.js'
+import { backgroundRequest, REPORT_REPLY_BYTES } from './server-request.js'
 import { applyStatusDelta } from './server-status.js'
 import { requestServerSync } from './server-sync-coordinator.js'
 import { withRetries } from './server-transport.js'
@@ -51,7 +51,6 @@ import { accountIdentity, accountIdentityKnownUnavailable, loadAccount } from '.
 const OFFER_DELAY_MS = 250
 /** A failed offer waits this long before it is offered again. */
 const OFFER_RETRY_MS = 60_000
-const MUTATION_REPLY_BYTES = 64 * 1024
 const MAX_RECENT_TILES = 32
 const MAX_RECENT_TILE_BYTES = 32 * 1_024 * 1_024
 const MAX_UNSETTLED_OFFERS_PER_SERVER = MAX_RECENT_TILES + MAX_TILE_OFFERS
@@ -442,14 +441,7 @@ const telemetryWrite = (
     | { readonly json: unknown }
     | { readonly body: BodyInit }
   ),
-) =>
-  serverRequest(server, route, {
-    ...init,
-    limits: 'background',
-    read: 'json',
-    retry: true,
-    maxBytes: MUTATION_REPLY_BYTES,
-  }).catch(() => null)
+) => backgroundRequest(server, route, { ...init, maxBytes: REPORT_REPLY_BYTES })
 
 /** The tiles in `value` that were offered, or null when it is not a list. */
 const offeredTiles = (value: unknown, offered: ReadonlySet<string>): ReadonlySet<string> | null =>

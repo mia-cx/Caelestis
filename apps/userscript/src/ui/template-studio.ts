@@ -75,7 +75,7 @@ import { applyWplaceTheme } from './theme.js'
 const ditherette = () => import('../templates/ditherette.js')
 
 /** What Save does with the finished template. */
-export type TemplateStudioTarget =
+type TemplateStudioTarget =
   | {
       readonly kind: 'create'
       /** Where the template will appear, for the Save button's context. */

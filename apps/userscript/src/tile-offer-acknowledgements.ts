@@ -1,8 +1,9 @@
+import { MAX_CONNECTED_SERVERS } from './settings.js'
 export type TileOfferDecision = 'fresh' | 'retry' | 'pending' | 'avoid'
 
 /** How long a receipt answers for an observation before it may be offered again. */
 const RECEIPT_TTL_MS = 5 * 60_000
-const MAX_SERVERS = 32
+
 const MAX_RECEIPTS_PER_SERVER = 4_096
 
 type TileOfferReceipt =
@@ -135,7 +136,7 @@ export class TileOfferAcknowledgements {
       return existing
     }
     this.#servers.delete(serverUrl)
-    while (this.#servers.size >= MAX_SERVERS) {
+    while (this.#servers.size >= MAX_CONNECTED_SERVERS) {
       const oldest = this.#servers.keys().next()
       if (oldest.done) break
       this.#servers.delete(oldest.value)

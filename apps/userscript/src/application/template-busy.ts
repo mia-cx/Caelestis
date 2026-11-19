@@ -12,7 +12,7 @@ import { isLeasedLocal } from '../templates/template-edits.js'
  * - `updating`: its artwork is being captured or saved as a new version.
  * - `leased`: a transfer keeps a Local copy it is still committing, so it cannot be deleted yet.
  */
-export type TemplateHold = 'placing' | 'deleting' | 'updating' | 'leased'
+type TemplateHold = 'placing' | 'deleting' | 'updating' | 'leased'
 
 /** Deletes the store does not track itself, such as a server delete from the overlay menu. */
 const deleting = new Set<string>()

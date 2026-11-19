@@ -9,7 +9,7 @@ import {
   onServerRemoved,
 } from './server-connections.js'
 import { manifestCoverage } from './server-manifests.js'
-import { serverRequest } from './server-request.js'
+import { backgroundRequest, REPORT_REPLY_BYTES } from './server-request.js'
 import { withRetries } from './server-transport.js'
 import { getState } from './settings.js'
 import { accountIdentity, loadAccount } from './wplace-account.js'
@@ -23,7 +23,6 @@ import { accountIdentity, loadAccount } from './wplace-account.js'
 
 const MAX_RECENT_PAINTS = 64
 const MAX_DEDUPE_VALUES = 4_096
-const MUTATION_REPLY_BYTES = 64 * 1024
 /** A live paint the socket could not take is offered again after this long. */
 const LIVE_RETRY_MS = 1_000
 
@@ -104,14 +103,11 @@ const deliverPaint = async (
   }
   const response =
     (
-      await serverRequest(server, '/telemetry/paints', {
+      await backgroundRequest(server, '/telemetry/paints', {
         method: 'POST',
         json: event,
-        limits: 'background',
-        read: 'json',
-        retry: true,
-        maxBytes: MUTATION_REPLY_BYTES,
-      }).catch(() => null)
+        maxBytes: REPORT_REPLY_BYTES,
+      })
     )?.response ?? null
   dedupe.active.delete(eventId)
   if (response?.ok) {

@@ -77,3 +77,22 @@ export const serverRequest = <Read extends ServerRead>(
     },
   )
 }
+
+/** The most a best-effort report's JSON reply may be: a status line, not a document. */
+export const REPORT_REPLY_BYTES = 64 * 1024
+
+/**
+ * A best-effort request in the background, retried on failure, read as JSON: null when the server
+ * could not be reached.
+ */
+export const backgroundRequest = (
+  server: ServerConnection,
+  route: string,
+  options: Omit<ServerRequestOptions<'json'>, 'limits' | 'read' | 'retry'> = {},
+) =>
+  serverRequest(server, route, {
+    ...options,
+    limits: 'background',
+    read: 'json',
+    retry: true,
+  }).catch(() => null)

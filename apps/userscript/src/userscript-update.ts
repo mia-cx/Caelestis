@@ -90,11 +90,8 @@ const createUserscriptUpdateCheck = (): (() => Promise<void>) => {
   }
 }
 
-const checkForUserscriptUpdate = createUserscriptUpdateCheck()
-
 /** Start the advisory network check after the document-start startup work has returned. */
-export const installUserscriptUpdateCheck = (
-  check: () => void | Promise<void> = checkForUserscriptUpdate,
-): void => {
+export const installUserscriptUpdateCheck = (): void => {
+  const check = createUserscriptUpdateCheck()
   window.setTimeout(() => void check(), UPDATE_CHECK_DELAY_MS)
 }

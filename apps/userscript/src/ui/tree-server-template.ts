@@ -5,10 +5,7 @@ import {
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
-import {
-  claimFolderPublication,
-  setFolderTemplatesPublished,
-} from '../application/folder-publication.js'
+import { setFolderTemplatesPublished } from '../application/folder-publication.js'
 import { plural } from '../application/plural.js'
 import { serverDestinations } from '../application/server-destinations.js'
 import { transferAuthoring } from '../application/template-authoring.js'
@@ -27,7 +24,7 @@ import {
   serverNodesFailure,
 } from '../application/tree-server.js'
 import { serverTemplateAt } from '../application/tree-server-state.js'
-import { runWhileBusy } from '../concurrency.js'
+import { claimBusy, runWhileBusy } from '../concurrency.js'
 import { listServerNodes, patchTemplate, uploadTemplateVersion } from '../server-api.js'
 import { isCurrentServerConnection, serverByUrl, serverLabel } from '../server-connections.js'
 import type { ServerTemplate } from '../server-manifest.js'
@@ -326,7 +323,8 @@ export const setServerFolderPublished = async (
   const { server, nodeId } = target
   if (server === null || nodeId === null || target.templateId !== undefined) return
   const surface = surfaceOf(target)
-  const releasePublication = claimFolderPublication(server.url)
+  // One recursive batch per server, so ancestor and descendant operations cannot overlap.
+  const releasePublication = claimBusy(`folder-publication:${server.url}`)
   if (releasePublication === null) {
     showToast('Another folder on that server is already changing publication state.', 'warning')
     return

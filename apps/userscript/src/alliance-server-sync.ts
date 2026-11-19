@@ -189,5 +189,5 @@ export const installAllianceServerSync = (): void => {
 }
 
 /** Stable diagnostic key for the currently selected alliance manifest scope. */
-export const selectedAllianceManifestScope = (): string | null =>
+const selectedAllianceManifestScope = (): string | null =>
   selected === null ? null : templateSurfaceKey(selected)

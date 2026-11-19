@@ -11,7 +11,7 @@ import {
 import type { ServerTemplate } from './server-manifest.js'
 import { admittedManifest, type ManifestCoverage, manifestCoverage } from './server-manifests.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
-import { serverRequest } from './server-request.js'
+import { backgroundRequest } from './server-request.js'
 import {
   applyServerSyncRevision,
   registerServerSyncResource,
@@ -90,13 +90,10 @@ const refreshAlarms = async (
     serverConnectionIdentity(server),
     `${server.season}\u0000world\u0000alarms`,
     async () => {
-      const answer = await serverRequest(server, '/telemetry/alarms', {
+      const answer = await backgroundRequest(server, '/telemetry/alarms', {
         query: { season: server.season },
-        limits: 'background',
-        read: 'json',
-        retry: true,
         metrics: { transport, reason },
-      }).catch(() => null)
+      })
       if (answer === null || !answer.response.ok || manifestCoverage(server) !== coverage)
         return { status: 'failed' }
       const read = alarmsSnapshotFrom(answer.body, false)

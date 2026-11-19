@@ -81,7 +81,7 @@ const heldBytes = (held: HeldMask): number =>
     ? 0
     : held.unsaved.byteLength)
 
-export const serverMismatchMemoryBytes = (): number => {
+const serverMismatchMemoryBytes = (): number => {
   let bytes = 0
   for (const held of masks.values()) bytes += heldBytes(held)
   return bytes

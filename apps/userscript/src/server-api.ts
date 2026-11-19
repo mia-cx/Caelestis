@@ -109,7 +109,7 @@ const retryableAdminWrite = async (
   }
 }
 
-export type NodeListResult =
+type NodeListResult =
   | { readonly ok: true; readonly nodes: readonly TreeNode[] }
   | { readonly ok: false; readonly message: string; readonly status?: number }
 

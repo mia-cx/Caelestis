@@ -44,7 +44,7 @@ export interface ServerResponse<Read extends ServerRead> {
   readonly body: ServerBody<Read>
 }
 
-export interface TransportOptions<Read extends ServerRead> {
+interface TransportOptions<Read extends ServerRead> {
   readonly limits: ServerLimits
   /** A tighter body budget than the limits allow, such as what is left of a transfer budget. */
   readonly maxBytes?: number

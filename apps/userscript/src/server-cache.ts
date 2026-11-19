@@ -21,7 +21,7 @@ import { openCaelestisDb, SERVER_CACHE_STORE as STORE } from './templates/caeles
  * it as soon as one arrives. Nothing here is trusted for anything but rendering.
  */
 
-export interface CachedServer {
+interface CachedServer {
   /** Server URL, which is the identity of the connection. */
   readonly url: string
   /** Verified identity and season prevent one deployment at this URL reusing another's tree. */

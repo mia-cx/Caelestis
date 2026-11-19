@@ -106,7 +106,7 @@ export interface ServerTemplatePreference {
 }
 
 /** Browser-owned defaults and view mode for one alliance artboard. */
-export interface AllianceSurfaceAppearance {
+interface AllianceSurfaceAppearance {
   readonly surface: Exclude<TemplateSurface, { readonly kind: 'world' }>
   readonly appearance: Appearance
   readonly onlySelectedColour: boolean

@@ -15,7 +15,7 @@ import {
 import type { ServerTemplate } from './server-manifest.js'
 import { invalidateServerMismatches, invalidateServerMismatchTiles } from './server-mismatch.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
-import { serverRequest } from './server-request.js'
+import { backgroundRequest } from './server-request.js'
 import {
   applyServerSyncDelta,
   applyServerSyncSnapshot,
@@ -204,13 +204,10 @@ const refreshStatus = async (
     `${server.season}\u0000world\u0000status`,
     async () => {
       const startedRevision = serverSyncRevision(server, WORLD_SCOPE, 'telemetry-status')
-      const answer = await serverRequest(server, '/telemetry/status', {
+      const answer = await backgroundRequest(server, '/telemetry/status', {
         query: { season: server.season },
-        limits: 'background',
-        read: 'json',
-        retry: true,
         metrics: { transport, reason },
-      }).catch(() => null)
+      })
       if (answer === null || !answer.response.ok || !isCurrentServerConnection(server))
         return { status: 'failed' }
       const snapshot = statusSnapshotFrom(answer.body, false)
