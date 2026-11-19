@@ -20,7 +20,6 @@ import {
   ForbiddenError,
   GoneError,
   NotFoundError,
-  StorageError,
   storage,
   ValidationError,
 } from '../runtime/errors.js'

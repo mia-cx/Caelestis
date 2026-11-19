@@ -56,6 +56,42 @@ export class ForbiddenError extends Data.TaggedError('ForbiddenError') {
   override readonly message = 'forbidden'
 }
 
+/** How a store refusal reads to the caller. */
+export type PortErrorKind = 'invalid' | 'not-found' | 'conflict' | 'gone'
+
+/** A store refused an operation for a reason the caller can act on; `kind` decides the answer. */
+export abstract class PortError extends Error {
+  abstract readonly kind: PortErrorKind
+}
+
+const ANSWER = {
+  invalid: ValidationError,
+  conflict: ConflictError,
+  gone: GoneError,
+} as const
+
+/**
+ * Run one store call. A `PortError` becomes the error its kind names, and anything else a
+ * `StorageError`. A 404 never echoes what it missed. `refine` re-reads a kind where the call site
+ * knows better, such as a missing folder in a template write being bad input, not a missing
+ * resource.
+ */
+export const fromPort = <A>(
+  operation: string,
+  run: () => Promise<A>,
+  refine: Partial<Record<PortErrorKind, PortErrorKind>> = {},
+): Effect.Effect<A, ValidationError | NotFoundError | ConflictError | GoneError | StorageError> =>
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) => {
+      if (!(cause instanceof PortError)) return new StorageError({ operation, cause })
+      const kind = refine[cause.kind] ?? cause.kind
+      return kind === 'not-found'
+        ? new NotFoundError({ message: 'not found' })
+        : new ANSWER[kind]({ message: cause.message })
+    },
+  })
+
 export type BackendHttpError =
   | StorageError
   | ValidationError

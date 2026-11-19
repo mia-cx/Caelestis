@@ -1,5 +1,6 @@
 import type { Millis, TemplateTag } from '@caelestis/shared'
 import type { TemplateManifestScope } from '../ports/sql-store.js'
+import { PortError } from '../runtime/errors.js'
 
 export type TagMutation =
   | { readonly type: 'create'; readonly id: string; readonly name: string }
@@ -18,7 +19,10 @@ export type TagMutation =
       readonly attached: boolean
     }
 
-export class TagConflictError extends Error {}
+export class TagConflictError extends PortError {
+  override readonly name = 'TagConflictError'
+  readonly kind = 'conflict'
+}
 
 export interface TagStore {
   /** All reusable names, including tags with no assignments. */

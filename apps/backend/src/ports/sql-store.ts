@@ -23,6 +23,7 @@ import {
   WORLD_PIXELS,
   WORLD_TILES,
 } from '@caelestis/shared'
+import { PortError } from '../runtime/errors.js'
 import type { TagStore } from '../tags/store.js'
 import type { CounterDelta } from './counter-store.js'
 
@@ -910,8 +911,9 @@ export interface PaintEventApplication {
   readonly accounting: PaintEventAccounting | null
 }
 
-export class NodePathConflictError extends Error {
+export class NodePathConflictError extends PortError {
   override readonly name = 'NodePathConflictError'
+  readonly kind = 'conflict'
 }
 
 /**
@@ -923,25 +925,30 @@ export class NodePathConflictError extends Error {
  */
 export const MAX_NODE_PATH_LENGTH = 256
 
-export class NodePathTooLongError extends Error {
+export class NodePathTooLongError extends PortError {
   override readonly name = 'NodePathTooLongError'
+  readonly kind = 'invalid'
 }
 
-export class InvalidNodeParentError extends Error {
+export class InvalidNodeParentError extends PortError {
   override readonly name = 'InvalidNodeParentError'
+  readonly kind = 'invalid'
 }
 
-export class NodeNotFoundError extends Error {
+export class NodeNotFoundError extends PortError {
   override readonly name = 'NodeNotFoundError'
+  readonly kind = 'not-found'
 }
 
 /** The subtree no longer matches the snapshot an administrator confirmed deleting. */
-export class NodeSubtreeChangedError extends Error {
+export class NodeSubtreeChangedError extends PortError {
   override readonly name = 'NodeSubtreeChangedError'
+  readonly kind = 'conflict'
 }
 
-export class TemplateNotFoundError extends Error {
+export class TemplateNotFoundError extends PortError {
   override readonly name = 'TemplateNotFoundError'
+  readonly kind = 'not-found'
 }
 
 /**
@@ -962,12 +969,14 @@ export class TemplateNotFoundError extends Error {
  * `sliceTemplate` derives from non-transparent pixels rather than from the image rectangle. Editing
  * artwork at its outer edge changes that extent and would be refused as a different template.
  */
-export class TemplateIdentityError extends Error {
+export class TemplateIdentityError extends PortError {
   override readonly name = 'TemplateIdentityError'
+  readonly kind = 'conflict'
 }
 
-export class NodeNotEmptyError extends Error {
+export class NodeNotEmptyError extends PortError {
   override readonly name = 'NodeNotEmptyError'
+  readonly kind = 'conflict'
 }
 
 /**

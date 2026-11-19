@@ -1,19 +1,13 @@
 import { millis, nodeSlug, type TemplateSurface, uuidV7 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { NodeDeletion, NodeRecord } from '../ports/index.js'
-import {
-  InvalidNodeParentError,
-  NodeNotEmptyError,
-  NodeNotFoundError,
-  NodePathConflictError,
-  NodePathTooLongError,
-  NodeSubtreeChangedError,
-} from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
-  ConflictError,
+  type ConflictError,
+  fromPort,
+  type GoneError,
   NotFoundError,
-  StorageError,
+  type StorageError,
   storage,
   ValidationError,
 } from '../runtime/errors.js'
@@ -22,7 +16,7 @@ import {
   repairCommittedStatusProjection,
 } from '../status-read-model/port.js'
 
-type NodeError = ValidationError | NotFoundError | ConflictError | StorageError
+type NodeError = ValidationError | NotFoundError | ConflictError | GoneError | StorageError
 
 export const publicNode = ({
   season: _season,
@@ -78,14 +72,9 @@ export const createNode = (input: {
       description: input.description ?? null,
       createdAt: millis(Date.now()),
     }
-    const inserted = yield* Effect.tryPromise({
-      try: () => sql.insertNode(node),
-      catch: (cause): ValidationError | StorageError =>
-        cause instanceof NodePathConflictError ||
-        cause instanceof InvalidNodeParentError ||
-        cause instanceof NodePathTooLongError
-          ? new ValidationError({ message: cause.message })
-          : new StorageError({ operation: 'insertNode', cause }),
+    // A taken path on create has always answered 400, unlike a rename into one (409).
+    const inserted = yield* fromPort('insertNode', () => sql.insertNode(node), {
+      conflict: 'invalid',
     })
     // A folder alone covers no tiles and owns no alarms.
     yield* Effect.promise(() =>
@@ -134,27 +123,16 @@ export const patchNode = (input: {
       }
     }
     const path = `${parentPath}/${segment}`
-    const changed = yield* Effect.tryPromise({
-      try: async () => {
-        if (input.parentId !== undefined) {
-          return sql.moveNode(input.nodeId, nextParentId, path, {
-            ...(input.name === undefined ? {} : { name: input.name }),
-          })
-        }
-        if (input.name !== undefined) {
-          return (await sql.renameNode(input.nodeId, input.name, segment)) !== null
-        }
-        return true
-      },
-      catch: (cause): ValidationError | ConflictError | StorageError => {
-        if (cause instanceof InvalidNodeParentError || cause instanceof NodePathTooLongError) {
-          return new ValidationError({ message: cause.message })
-        }
-        if (cause instanceof NodePathConflictError) {
-          return new ConflictError({ message: cause.message })
-        }
-        return new StorageError({ operation: 'patchNode', cause })
-      },
+    const changed = yield* fromPort('patchNode', async () => {
+      if (input.parentId !== undefined) {
+        return sql.moveNode(input.nodeId, nextParentId, path, {
+          ...(input.name === undefined ? {} : { name: input.name }),
+        })
+      }
+      if (input.name !== undefined) {
+        return (await sql.renameNode(input.nodeId, input.name, segment)) !== null
+      }
+      return true
     })
     if (!changed) {
       return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
@@ -174,28 +152,18 @@ export const countNodeSubtree = (
   nodeId: string,
 ): Effect.Effect<
   { readonly nodes: number; readonly templates: number },
-  NotFoundError | StorageError,
+  NodeError,
   SqlStoreService
 > =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    return yield* Effect.tryPromise({
-      try: () => sql.countNodeSubtree(nodeId),
-      catch: (cause): NotFoundError | StorageError =>
-        cause instanceof NodeNotFoundError
-          ? new NotFoundError({ message: 'not found' })
-          : new StorageError({ operation: 'countNodeSubtree', cause }),
-    })
+    return yield* fromPort('countNodeSubtree', () => sql.countNodeSubtree(nodeId))
   })
 
 export const deleteNodeCascade = (
   nodeId: string,
   expected: NodeDeletion,
-): Effect.Effect<
-  NodeDeletion,
-  NotFoundError | ConflictError | StorageError,
-  SqlStoreService | StatusReadModelService
-> =>
+): Effect.Effect<NodeDeletion, NodeError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
@@ -203,18 +171,9 @@ export const deleteNodeCascade = (
     if (node === null) {
       return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
     }
-    const deleted = yield* Effect.tryPromise({
-      try: () => sql.deleteNodeCascade(nodeId, expected),
-      catch: (cause): NotFoundError | ConflictError | StorageError => {
-        if (cause instanceof NodeNotFoundError) {
-          return new NotFoundError({ message: 'not found' })
-        }
-        if (cause instanceof NodeSubtreeChangedError) {
-          return new ConflictError({ message: cause.message })
-        }
-        return new StorageError({ operation: 'deleteNodeCascade', cause })
-      },
-    })
+    const deleted = yield* fromPort('deleteNodeCascade', () =>
+      sql.deleteNodeCascade(nodeId, expected),
+    )
     if (deleted.templates > 0) {
       yield* Effect.promise(() => repairCommittedStatusProjection(statusReadModel, node.season))
     }
@@ -224,11 +183,7 @@ export const deleteNodeCascade = (
 
 export const deleteEmptyNode = (
   nodeId: string,
-): Effect.Effect<
-  void,
-  NotFoundError | ConflictError | StorageError,
-  SqlStoreService | StatusReadModelService
-> =>
+): Effect.Effect<void, NodeError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
@@ -236,13 +191,7 @@ export const deleteEmptyNode = (
     if (node === null) {
       return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
     }
-    yield* Effect.tryPromise({
-      try: () => sql.deleteNode(nodeId),
-      catch: (cause): ConflictError | StorageError =>
-        cause instanceof NodeNotEmptyError
-          ? new ConflictError({ message: cause.message })
-          : new StorageError({ operation: 'deleteNode', cause }),
-    })
+    yield* fromPort('deleteNode', () => sql.deleteNode(nodeId))
     // Only an empty folder reaches here.
     yield* Effect.promise(() =>
       publishManifestChange(statusReadModel, node.season, node.surface, false),

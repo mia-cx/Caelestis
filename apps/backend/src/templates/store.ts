@@ -7,9 +7,11 @@ import {
   millis,
   PALETTE_SIZE,
   type PixelBounds,
+  PngError,
   pngSize,
   type QuantiseReport,
   quantiseToPalette,
+  SliceError,
   type SurfaceChunkKey,
   sameTemplateSurface,
   sha256Hex,
@@ -23,7 +25,12 @@ import {
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import type { BlobStore, SqlStore, TemplateVersionRecord } from '../ports/index.js'
-import { NodeNotFoundError, TemplateIdentityError, TemplateNotFoundError } from '../ports/index.js'
+import {
+  InvalidNodeParentError,
+  TemplateIdentityError,
+  TemplateNotFoundError,
+} from '../ports/index.js'
+import { PortError } from '../runtime/errors.js'
 
 export interface StoreTemplateInput {
   /**
@@ -79,8 +86,20 @@ export interface StoredTemplate {
 const MAX_TEMPLATE_CHUNKS = 400
 
 /** An upload the pipeline refuses for a reason the client can act on — answered as 400, not 500. */
-export class StoreTemplateError extends Error {
+export class StoreTemplateError extends PortError {
   override readonly name = 'StoreTemplateError'
+  readonly kind = 'invalid'
+}
+
+/** Pixels that do not decode or slice are the uploader's to fix, so refuse them as such. */
+const refuseUnreadable = async <A>(read: () => Promise<A>): Promise<A> => {
+  try {
+    return await read()
+  } catch (error) {
+    if (error instanceof PngError || error instanceof SliceError)
+      throw new StoreTemplateError(error.message)
+    throw error
+  }
 }
 
 const exactPaletteReport = (indices: Uint8Array): QuantiseReport => {
@@ -141,28 +160,33 @@ export const storeTemplate = async (
 ): Promise<StoredTemplate> => {
   if (input.templateId === undefined && input.nodeId !== null) {
     const node = await sql.readNode(input.nodeId)
-    if (node === null) throw new NodeNotFoundError(`node does not exist: ${input.nodeId}`)
+    // The folder is the template's parent: naming one that is missing is bad input.
+    if (node === null) throw new InvalidNodeParentError(`node does not exist: ${input.nodeId}`)
     if (node.season !== input.season || !sameTemplateSurface(node.surface, input.surface)) {
-      throw new NodeNotFoundError(`node does not exist in season ${input.season}: ${input.nodeId}`)
+      throw new InvalidNodeParentError(
+        `node does not exist in season ${input.season}: ${input.nodeId}`,
+      )
     }
   }
 
-  const indexed = await decodeWplaceIndexedPng(input.png)
-  const decoded = indexed ?? (await decodePng(input.png))
-  const { width, height } = decoded
-  if (input.authoring !== undefined) await checkAuthoring(input.authoring, width, height)
-  const { indices, report } =
-    'indices' in decoded
-      ? { indices: decoded.indices, report: exactPaletteReport(decoded.indices) }
-      : quantiseToPalette(decoded.pixels)
-  const sliced = sliceTemplateForSurface(
-    indices,
-    width,
-    height,
-    input.originX,
-    input.originY,
-    input.surface,
-  )
+  const { indices, report, sliced } = await refuseUnreadable(async () => {
+    const decoded = (await decodeWplaceIndexedPng(input.png)) ?? (await decodePng(input.png))
+    const { width, height } = decoded
+    if (input.authoring !== undefined) await checkAuthoring(input.authoring, width, height)
+    const { indices, report } =
+      'indices' in decoded
+        ? { indices: decoded.indices, report: exactPaletteReport(decoded.indices) }
+        : quantiseToPalette(decoded.pixels)
+    const sliced = sliceTemplateForSurface(
+      indices,
+      width,
+      height,
+      input.originX,
+      input.originY,
+      input.surface,
+    )
+    return { indices, report, sliced }
+  })
   // Bound the storage work, not the image area. A 1,999,000x2 image slices to ~4,000 chunks: ~170
   // batch statements against D1's 50 per invocation, ~8,000 R2 subrequests against a limit of 1,000,
   // and 4,000 concurrent compressions — from an upload a few kilobytes long, because two rows of one

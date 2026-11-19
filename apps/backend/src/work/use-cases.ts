@@ -13,13 +13,7 @@ import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
 import type { SqlStore } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
-import {
-  ForbiddenError,
-  NotFoundError,
-  StorageError,
-  storage,
-  ValidationError,
-} from '../runtime/errors.js'
+import { ForbiddenError, NotFoundError, storage, ValidationError } from '../runtime/errors.js'
 import { publishManifestChange } from '../status-read-model/port.js'
 
 const invalid = (message: string) => Effect.fail(new ValidationError({ message }))
