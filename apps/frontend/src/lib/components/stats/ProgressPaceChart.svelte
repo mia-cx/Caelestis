@@ -166,11 +166,14 @@
 
 
   const observedPaces = $derived(observedProgressIntervals(samples))
+  /** A window's place from shortest (0) to longest (1), which sets its line's colour and width. */
+  const paceRank = (key: string): number =>
+    PACE_WINDOWS.findIndex((pace) => pace.key === key) / (PACE_WINDOWS.length - 1)
   const paceWindows = $derived(
     PACE_WINDOWS.map((pace) => {
       const intervals = observedPaces.filter(interval => interval.to <= to && (!interval.archive || archiveCountsFor(pace.seconds)))
       const segments = rollingIntervalPace(intervals, pace.seconds)
-      return { ...pace, usable: segments.length > 0, segments, importedUntil: intervals.findLast(interval => interval.archive)?.to ?? -Infinity }
+      return { ...pace, rank: paceRank(pace.key), usable: segments.length > 0, segments, importedUntil: intervals.findLast(interval => interval.archive)?.to ?? -Infinity }
     }),
   )
 
@@ -225,7 +228,7 @@
   // painters only, at the tier the template line for that window would use.
   const painterLines = $derived.by<PainterLine[]>(() => {
     const lines: PainterLine[] = []
-    PACE_WINDOWS.forEach((pace, index) => {
+    PACE_WINDOWS.forEach((pace) => {
       if (!paces.windows.has(pace.key)) return
       const source = painterHistories.find((candidate) => candidate.window === pace.key)?.history
       if (
@@ -250,7 +253,7 @@
         lines.push({
           painter,
           window: pace.key,
-          rank: index / Math.max(1, PACE_WINDOWS.length - 1),
+          rank: paceRank(pace.key),
           fullSeries,
         })
       }
@@ -326,16 +329,14 @@
     }
     return segments
   })
-  const paceOptions = $derived([
-    ...paceWindows.map((pace, index) => ({
+  const paceOptions = $derived(
+    paceWindows.map((pace) => ({
       key: pace.key,
-      label: pace.key,
-      colour: paceColor(index / (PACE_WINDOWS.length - 1)),
+      colour: paceColor(pace.rank),
       selected: paces.windows.has(pace.key),
       available: pace.usable || painterHistories.some((source) => source.window === pace.key && source.history.resolution !== undefined && paceWindowUsable(pace.seconds, source.history.resolution) && source.history.buckets.length > 0),
-      description: 'Rolling average',
     })),
-  ])
+  )
   const visibleProgressSegments = $derived(progressSegments.map((segment) => clipSeries(segment, shownView.from, shownView.to, lerpProgress)).filter((segment) => segment.length > 1))
   const isolatedProgressPoints = $derived(progressSegments.filter((segment) => segment.length === 1).flat().filter((point) => point.t >= shownView.from && point.t <= shownView.to))
   const targetPaces = $derived(enabledPaces.flatMap((pace) => pace.segments.flatMap((segment) => clipSeries(segment, view.from, view.to, lerpRate))))
@@ -402,9 +403,6 @@
         id: `${pace.key}:${index}`,
         fullSeries,
         strokes,
-        rank:
-          PACE_WINDOWS.findIndex((x) => x.key === pace.key) /
-          Math.max(1, PACE_WINDOWS.length - 1),
         series,
       }
     })),

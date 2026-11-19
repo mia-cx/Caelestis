@@ -13,7 +13,7 @@ export const PACE_WINDOWS = [
   { key: '30d', seconds: 30 * 86_400 },
 ] as const
 
-export type PaceWindowKey = (typeof PACE_WINDOWS)[number]['key']
+type PaceWindowKey = (typeof PACE_WINDOWS)[number]['key']
 
 /** Retained reported activity for one painter rolling window. */
 export interface PainterHistorySource {
@@ -33,7 +33,7 @@ export interface PaceRatePoint {
   readonly v: number
 }
 
-export interface PaceInterval {
+interface PaceInterval {
   readonly from: number
   readonly to: number
   readonly pixels: number
@@ -97,7 +97,7 @@ export const rollingIntervalPace = (
 }
 
 /** Convert complete placement buckets into intervals without changing their time boundaries. */
-export const paceIntervals = (points: readonly PacePoint[], resolution: number): PaceInterval[] =>
+const paceIntervals = (points: readonly PacePoint[], resolution: number): PaceInterval[] =>
   points.map((point, index) => ({
     from: point.t,
     to: point.t + resolution,
@@ -139,7 +139,7 @@ export const timeTickStep = (span: number, plotWidth: number): number => {
 
 // ── Axis and window helpers ────────────────────────────────────────────────────────────────────
 
-export interface AxisScale {
+interface AxisScale {
   /** The top of the axis: the smallest tick multiple that contains every value. */
   readonly max: number
   /** Evenly spaced tick values from one step up to `max`. */
@@ -176,16 +176,6 @@ export const axisScale = (maxValue: number, targetTicks = 4, minimumStep = 0): A
   if (ticks.length === 0) ticks.push(step)
   const max = Math.max(ticks[ticks.length - 1] ?? step, Number((maxValue * 1.04).toPrecision(12)))
   return { max, ticks }
-}
-
-/** Compact axis and tooltip numbers: 850, 2.4k, 12k, and 0.25 for slow paces. */
-export const formatCount = (value: number): string => {
-  if (value >= 1_000) {
-    return `${(value / 1_000).toLocaleString(undefined, {
-      maximumFractionDigits: value >= 10_000 ? 0 : 1,
-    })}k`
-  }
-  return value.toLocaleString(undefined, { maximumFractionDigits: value < 10 ? 2 : 0 })
 }
 
 /**
@@ -262,7 +252,7 @@ export const clampWindow = (
   return { from: start, to: start + span }
 }
 
-export const RANGE_PRESETS = [
+const RANGE_PRESETS = [
   { key: '6h', seconds: 6 * 3_600, label: 'the last 6 hours' },
   { key: '1d', seconds: 86_400, label: 'the last day' },
   { key: '3d', seconds: 3 * 86_400, label: 'the last 3 days' },
@@ -270,7 +260,7 @@ export const RANGE_PRESETS = [
   { key: '30d', seconds: 30 * 86_400, label: 'the last 30 days' },
 ] as const
 
-export type RangePreset = (typeof RANGE_PRESETS)[number]
+type RangePreset = (typeof RANGE_PRESETS)[number]
 
 /** Only presets that are narrower than the whole history and wide enough to show detail. */
 export const availableRangePresets = (span: number, minimum: number): RangePreset[] =>

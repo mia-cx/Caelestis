@@ -1,8 +1,8 @@
-The pace picker shares the painter picker's searchable, multi-select popover and menu styling. Keep the legend compact, with solid green and red swatches for correct and mismatched pixels. Painter lines show placements.
+The pace, painter and contribution pickers are one `SearchableMenu`: a searchable popover with an optional pinned "All users" row. Keep the legend compact, with solid green and red swatches for correct and mismatched pixels. Painter lines show placements.
 
 Each painter wears the colour Wplace shows beside their `#ID`: Tailwind's `500` shade at `palette[id % 14]`, the same in both themes. Lines, picker swatches, and tooltip dots share it. Painters whose ids collide share a colour; never reassign by chart order.
 
-The contribution heatmap's "who" picker shows everyone or one painter, chosen by Wplace id. It uses the pace picker's popover and search, lists painters from the heatmap's own history, and shows `#ID` so namesakes stay apart. One painter's view leaves out imported archive estimates, which have no painter.
+The contribution heatmap's "who" picker shows everyone or one painter, chosen by Wplace id. It lists painters from the heatmap's own history, and shows `#ID` so namesakes stay apart. One painter's view leaves out imported archive estimates, which have no painter.
 
 Short pace windows use darker magenta; longer windows become lighter blue, never cyan. Interpolate the theme's `--pace-short` and `--pace-long` endpoints in OKLCH along the shorter hue arc. The light theme uses a lower lightness range to retain contrast. Use the same colours for lines, picker swatches, and tooltip dots.
 
