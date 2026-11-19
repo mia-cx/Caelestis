@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
-import { createKeyedStatusPersistence } from '../src/status-coordinator.js'
 import { createSeasonStatusReadModel } from '../src/status-read-model/model.js'
+import { createKeyedStatusPersistence } from '../src/status-read-model/persistence.js'
 import { createTileGenerationCache } from '../src/status-read-model/tile-generation-cache.js'
 
 describe('tile generation cache', () => {

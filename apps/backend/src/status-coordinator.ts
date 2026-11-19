@@ -39,12 +39,11 @@ import {
 } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
 import type { CoordinatorStorage } from './coordination/database.js'
+import { createChunkedManifestPersistence } from './manifest/persistence.js'
 import {
   createSeasonManifestReadModel,
   type ManifestProjectionInput,
   type ManifestProjectionRead,
-  type ManifestReadModelPersistence,
-  type PersistedManifestProjection,
   type SeasonManifestReadModel,
 } from './manifest/read-model.js'
 import { assembleManifestProjection } from './manifest/source.js'
@@ -68,16 +67,14 @@ import {
   LIVE_D1_USAGE_HEADER,
 } from './status-read-model/live-measurement.js'
 import {
-  byTemplateId,
   createSeasonStatusReadModel,
-  type PersistedStatusReadModel,
   type SeasonStatusReadModel,
   type StatusProjectionChange,
   type StatusProjectionMutation,
-  type StatusReadModelPersistence,
   type StatusSnapshotRead,
   type StatusVisibilityScope,
 } from './status-read-model/model.js'
+import { createKeyedStatusPersistence } from './status-read-model/persistence.js'
 import type { StatusReadModelPort } from './status-read-model/port.js'
 import {
   type CommittedTileGeneration,
@@ -107,12 +104,6 @@ export interface LiveHost<Client> {
   upgradeResponse(client: Client, headers: Headers): Response | Promise<Response>
 }
 
-const STATUS_PREFIX = 'status-read-model:v3:'
-const STATUS_MANIFEST_KEY = `${STATUS_PREFIX}manifest`
-/** The whole-projection chunks written before each template had its own key. */
-const LEGACY_STATUS_PREFIX = 'status-read-model:v2:'
-// Durable Object storage deletes at most 128 keys per call.
-const STORAGE_DELETE_BATCH = 128
 const MAX_DELTA_MESSAGE_BYTES = 32 * 1024
 export const MAX_LIVE_SUBSCRIBERS = 256
 export const MAX_LIVE_ANONYMOUS_SUBSCRIBERS = 128
@@ -120,10 +111,7 @@ export const MAX_LIVE_SUBSCRIBERS_PER_CLIENT = 16
 export const MAX_LIVE_CLIENT_MESSAGE_CODE_UNITS = 64 * 1024
 export const MAX_LIVE_CLIENT_BINARY_BYTES =
   4 + MAX_LIVE_BINARY_HEADER_BYTES + MAX_LIVE_BINARY_PAYLOAD_BYTES
-const MANIFEST_CACHE_INDEX_KEY = 'manifest-read-model:v1:index'
 const MAX_DASHBOARD_SUBSCRIPTIONS = 4
-// 128 Ki UTF-16 code units are at most 384 KiB in UTF-8, below the intended 512 KiB ceiling.
-const MANIFEST_CACHE_CHUNK_CODE_UNITS = 128 * 1024
 
 interface LiveSubscriberAttachment {
   readonly season: number
@@ -165,38 +153,6 @@ export const createLiveSessionFence = (): LiveSessionFence => {
   }
 }
 
-interface StoredStatusManifest {
-  readonly season: number
-  readonly revision: number
-  readonly reconciledAt: number
-}
-
-interface StoredManifestProjection extends Omit<PersistedManifestProjection, 'manifest'> {
-  readonly version: string
-  readonly generation: string
-  readonly chunks: number
-}
-
-interface StoredManifestRetirement {
-  readonly generation: string
-  readonly chunks: number
-}
-
-interface StoredManifestCacheIndex {
-  readonly season: number
-  readonly revision: number
-  /** Absent in indexes written before coverage was tracked, when every revision changed coverage. */
-  readonly coverageRevision?: number
-  readonly entries: readonly StoredManifestProjection[]
-  readonly retired: readonly StoredManifestRetirement[]
-}
-
-const coverageOf = (stored: StoredManifestCacheIndex): number =>
-  stored.coverageRevision ?? stored.revision
-
-const manifestChunkKey = (generation: string, index: number): string =>
-  `manifest-read-model:v1:chunk:${generation}:${index}`
-
 const tileCoverageToken = (coverageRevision: number): string => `manifest:${coverageRevision}`
 
 const liveMeasurementHeaders = (
@@ -213,233 +169,6 @@ const liveMeasurementHeaders = (
   })
   if (cacheOutcome !== undefined) headers.set(LIVE_CACHE_OUTCOME_HEADER, cacheOutcome)
   return headers
-}
-
-const chunkJsonText = (value: string): readonly string[] => {
-  const chunks: string[] = []
-  for (let offset = 0; offset < value.length; offset += MANIFEST_CACHE_CHUNK_CODE_UNITS) {
-    chunks.push(value.slice(offset, offset + MANIFEST_CACHE_CHUNK_CODE_UNITS))
-  }
-  return chunks
-}
-
-/** Persist each bounded projection independently so one cache write never rewrites every surface. */
-export const createChunkedManifestPersistence = (
-  storage: CoordinatorStorage,
-  season: number,
-): ManifestReadModelPersistence => {
-  let index: StoredManifestCacheIndex | null = null
-  const invalidGenerations = new Set<string>()
-  const loadIndex = async () => {
-    index ??= (await storage.get<StoredManifestCacheIndex>(MANIFEST_CACHE_INDEX_KEY)) ?? null
-    return index
-  }
-  const deleteRetired = async (retired: readonly StoredManifestRetirement[]) => {
-    const keys = retired.flatMap(({ generation, chunks }) =>
-      Array.from({ length: chunks }, (_, chunk) => manifestChunkKey(generation, chunk)),
-    )
-    for (let offset = 0; offset < keys.length; offset += 128) {
-      await storage.delete(keys.slice(offset, offset + 128))
-    }
-  }
-  return {
-    loadCoverageRevision: async () => {
-      const stored = await loadIndex()
-      return stored?.season === season ? coverageOf(stored) : null
-    },
-    load: async () => {
-      const stored = await loadIndex()
-      if (stored === null || stored.season !== season) return null
-      const revisions = {
-        season: stored.season,
-        revision: stored.revision,
-        coverageRevision: coverageOf(stored),
-      }
-      const entries: PersistedManifestProjection[] = []
-      for (const entry of stored.entries) {
-        const parts: string[] = []
-        for (let chunk = 0; chunk < entry.chunks; chunk += 1) {
-          const part = await storage.get<string>(manifestChunkKey(entry.generation, chunk))
-          if (part === undefined) {
-            invalidGenerations.add(entry.generation)
-            return { ...revisions, entries: [] }
-          }
-          parts.push(part)
-        }
-        try {
-          const manifest: unknown = JSON.parse(parts.join(''))
-          if (
-            typeof manifest !== 'object' ||
-            manifest === null ||
-            !('version' in manifest) ||
-            manifest.version !== entry.version
-          ) {
-            invalidGenerations.add(entry.generation)
-            return { ...revisions, entries: [] }
-          }
-          entries.push({ ...entry, manifest: manifest as Manifest })
-        } catch {
-          invalidGenerations.add(entry.generation)
-          return { ...revisions, entries: [] }
-        }
-      }
-      return { ...revisions, entries }
-    },
-    save: async (next) => {
-      const previous = await loadIndex()
-      const priorEntries = new Map(previous?.entries.map((entry) => [entry.key, entry]) ?? [])
-      const reservedGenerations = new Set([
-        ...(previous?.entries.map((entry) => entry.generation) ?? []),
-        ...(previous?.retired.map((entry) => entry.generation) ?? []),
-      ])
-      const entries: StoredManifestProjection[] = []
-      const newlyRetired: StoredManifestRetirement[] = []
-      const repairedGenerations: string[] = []
-      for (const projection of next.entries) {
-        const prior = priorEntries.get(projection.key)
-        if (
-          prior?.version === projection.manifest.version &&
-          !invalidGenerations.has(prior.generation)
-        ) {
-          entries.push({
-            ...prior,
-            configuredServer: projection.configuredServer,
-            cachedAt: projection.cachedAt,
-            expiresAt: projection.expiresAt,
-          })
-          priorEntries.delete(projection.key)
-          continue
-        }
-        const generationPrefix = `${next.revision}-${projection.manifest.version}-${encodeURIComponent(projection.key)}:`
-        let generationIndex = 0
-        while (reservedGenerations.has(`${generationPrefix}${generationIndex}`)) generationIndex++
-        const generation = `${generationPrefix}${generationIndex}`
-        reservedGenerations.add(generation)
-        const chunks = chunkJsonText(JSON.stringify(projection.manifest))
-        await storage.transaction(async (transaction) => {
-          for (let chunk = 0; chunk < chunks.length; chunk += 1) {
-            await transaction.put(manifestChunkKey(generation, chunk), chunks[chunk])
-          }
-        })
-        entries.push({
-          key: projection.key,
-          configuredServer: projection.configuredServer,
-          cachedAt: projection.cachedAt,
-          expiresAt: projection.expiresAt,
-          serializedBytes: projection.serializedBytes,
-          version: projection.manifest.version,
-          generation,
-          chunks: chunks.length,
-        })
-        if (prior !== undefined) {
-          newlyRetired.push({ generation: prior.generation, chunks: prior.chunks })
-          if (invalidGenerations.has(prior.generation)) repairedGenerations.push(prior.generation)
-          priorEntries.delete(projection.key)
-        }
-      }
-      newlyRetired.push(
-        ...[...priorEntries.values()].map(({ generation, chunks }) => ({ generation, chunks })),
-      )
-      const retired = [...(previous?.retired ?? []), ...newlyRetired]
-      const published: StoredManifestCacheIndex = {
-        season: next.season,
-        revision: next.revision,
-        coverageRevision: next.coverageRevision,
-        entries,
-        retired,
-      }
-      await storage.put(MANIFEST_CACHE_INDEX_KEY, published)
-      index = published
-      for (const generation of repairedGenerations) invalidGenerations.delete(generation)
-      if (retired.length > 0) {
-        try {
-          await deleteRetired(retired)
-          const cleaned = { ...published, retired: [] }
-          await storage.put(MANIFEST_CACHE_INDEX_KEY, cleaned)
-          index = cleaned
-        } catch (error) {
-          // The new index is already durable. Retired chunks are reconstructible garbage and the
-          // next save retries their cleanup; they must not suppress the invalidation or live event.
-          console.error(error)
-        }
-      }
-    },
-  }
-}
-
-const STATUS_SCOPES = ['public', 'admin'] as const
-
-const statusTemplatePrefix = (scope: StatusVisibilityScope): string => `${STATUS_PREFIX}${scope}:`
-
-const scopeTemplates = (
-  state: PersistedStatusReadModel,
-  scope: StatusVisibilityScope,
-): readonly TemplateStatus[] => (scope === 'admin' ? state.adminTemplates : state.publicTemplates)
-
-/**
- * Atomic persistence for a season projection that keeps each template's status under its own key,
- * so a commit writes only the templates it changed rather than the whole season.
- */
-export const createKeyedStatusPersistence = (
-  storage: CoordinatorStorage,
-  season: number,
-): StatusReadModelPersistence => {
-  // The projection storage holds, as the objects last loaded or saved. A mutation keeps every
-  // template it did not touch as the same object, so identity finds what changed.
-  let saved: PersistedStatusReadModel | null = null
-  const listScope = async (scope: StatusVisibilityScope) =>
-    [
-      ...(await storage.list<TemplateStatus>({ prefix: statusTemplatePrefix(scope) })).values(),
-    ].sort(byTemplateId)
-
-  return {
-    load: async () => {
-      const stored = await storage.get<StoredStatusManifest>(STATUS_MANIFEST_KEY)
-      if (stored === undefined) {
-        // The projection is reconstructible, so an older layout is dropped and rebuilt.
-        const legacy = [...(await storage.list({ prefix: LEGACY_STATUS_PREFIX })).keys()]
-        for (let offset = 0; offset < legacy.length; offset += STORAGE_DELETE_BATCH)
-          await storage.delete(legacy.slice(offset, offset + STORAGE_DELETE_BATCH))
-        return null
-      }
-      if (stored.season !== season) return null
-      const [publicTemplates, adminTemplates] = await Promise.all([
-        listScope('public'),
-        listScope('admin'),
-      ])
-      saved = { ...stored, publicTemplates, adminTemplates }
-      return saved
-    },
-    save: async (next) => {
-      // Without a loaded projection, compare against whatever templates storage still holds.
-      const previous = saved ?? {
-        ...next,
-        publicTemplates: await listScope('public'),
-        adminTemplates: await listScope('admin'),
-      }
-      await storage.transaction(async (transaction) => {
-        for (const scope of STATUS_SCOPES) {
-          const held = new Map(
-            scopeTemplates(previous, scope).map((status) => [status.templateId, status]),
-          )
-          for (const status of scopeTemplates(next, scope)) {
-            const before = held.get(status.templateId)
-            held.delete(status.templateId)
-            if (before === status || JSON.stringify(before) === JSON.stringify(status)) continue
-            await transaction.put(`${statusTemplatePrefix(scope)}${status.templateId}`, status)
-          }
-          for (const templateId of held.keys())
-            await transaction.delete(`${statusTemplatePrefix(scope)}${templateId}`)
-        }
-        await transaction.put(STATUS_MANIFEST_KEY, {
-          season: next.season,
-          revision: next.revision,
-          reconciledAt: next.reconciledAt,
-        } satisfies StoredStatusManifest)
-      })
-      saved = next
-    },
-  }
 }
 
 const tryEncode = (event: LiveSyncServerEvent): readonly string[] | null => {
