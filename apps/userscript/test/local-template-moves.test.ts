@@ -6,7 +6,7 @@ import {
   displayTemplates,
   displayTemplatesForSurface,
   localTemplates,
-  moveLocalTemplate,
+  placeLocalTemplate,
   previewLocalTemplate,
   removeLocalTemplate,
   templateById,
@@ -29,10 +29,10 @@ describe('local template moves', () => {
   it('commits the newest position and refuses a move after deletion', async () => {
     const id = `move-${crypto.randomUUID()}`
     await addLocalTemplate(imported(id), undefined, true)
-    await Promise.all([moveLocalTemplate(id, 10, 20), moveLocalTemplate(id, 30, 40)])
+    await Promise.all([placeLocalTemplate(id, 10, 20), placeLocalTemplate(id, 30, 40)])
     expect(templateById(id)).toMatchObject({ originX: 30, originY: 40 })
     expect(await removeLocalTemplate(id)).toBe(true)
-    expect(await moveLocalTemplate(id, 50, 60)).toBe(false)
+    expect(await placeLocalTemplate(id, 50, 60)).toBe(false)
     expect(localTemplates().some((template) => template.id === id)).toBe(false)
   })
 

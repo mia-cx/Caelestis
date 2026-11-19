@@ -15,7 +15,6 @@ import {
 import { registerDebugEntry } from '../console-api.js'
 import { log, warn } from '../debug.js'
 import { leaseLocalFolder, localFolderChainVisible } from '../local-folders.js'
-import { pageWindow } from '../page-world.js'
 import { registerProfileMemorySource } from '../profile.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import {
@@ -425,27 +424,6 @@ const notifyListeners = (subscribers: readonly (() => void)[], what: string): vo
 
 const notify = (): void => {
   templateRevision++
-  // Mirror a summary onto the window so the dev harness can assert on placement without reaching
-  // into module state. Metadata only — never the pixels.
-  try {
-    ;(pageWindow() as unknown as Record<string, unknown>).__caelestisLocal = orderedTemplates().map(
-      (t) => ({
-        id: t.id,
-        name: t.name,
-        source: t.source,
-        originX: t.originX,
-        originY: t.originY,
-        width: t.width,
-        height: t.height,
-        tiles: t.tiles.size,
-        folderId: t.folderId,
-      }),
-    )
-  } catch (error) {
-    try {
-      warn('install', 'could not update local template diagnostics', String(error))
-    } catch {}
-  }
   notifyListeners(listeners, 'local template')
 }
 
@@ -2271,24 +2249,6 @@ const enqueueMove = async (
     }
     if (!queue.running) void drainMoves(id, queue)
   })
-}
-
-/** Move a template and rescan its painted tile keys, coalescing updates to the latest position. */
-export const moveLocalTemplate = async (
-  id: string,
-  originX: number,
-  originY: number,
-): Promise<boolean> => {
-  const existing = templates.get(id)
-  if (existing === undefined) return false
-  const roundedX = Math.round(originX)
-  const roundedY = Math.round(originY)
-  validatePlacement(existing, roundedX, roundedY)
-  if (existing.originX === roundedX && existing.originY === roundedY && !moveQueues.has(id)) {
-    clearLocalPreview(id)
-    return true
-  }
-  return await enqueueMove(id, roundedX, roundedY, false)
 }
 
 export const markPlaced = async (id: string): Promise<boolean> => {

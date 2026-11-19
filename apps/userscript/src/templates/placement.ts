@@ -55,12 +55,6 @@ export const sourceXAt = (template: HorizontalPlacement, worldX: number): number
   return span === null ? null : span.sourceStart + worldX - span.worldStart
 }
 
-/** A virtual contiguous origin for scanning one world run with the ordinary rectangle algorithm. */
-export const virtualOriginXAt = (template: HorizontalPlacement, worldX: number): number | null => {
-  const span = horizontalSpanAt(template, worldX)
-  return span === null ? null : span.worldStart - span.sourceStart
-}
-
 export const horizontalCentre = (template: HorizontalPlacement): number =>
   template.wrapX === true
     ? (template.originX + template.width / 2) % WORLD_PIXELS

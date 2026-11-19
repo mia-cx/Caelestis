@@ -38,19 +38,6 @@ const followedColour = (surface: TemplateSurface): number | null => {
 }
 
 /**
- * The globally hidden set, with the "only selected" mode applied.
- *
- * The mode is kept as a flag rather than written into `hiddenColours`, so turning it off restores
- * whatever was switched off by hand instead of leaving the palette however the mode left it. It
- * also does nothing until wplace's paint drawer is actually open, which is the point: it is for
- * lining up the one colour you are placing, and there is no such colour before you start.
- */
-export const globalHiddenColours = (): readonly number[] => {
-  const keep = followedColour(WORLD_TEMPLATE_SURFACE)
-  return keep === null ? getState().hiddenColours : allBut(keep)
-}
-
-/**
  * The set to draw one overlay with, given the appearance it owns — or null when it uses the defaults.
  *
  * **Follow-the-selection is one switch for the current canvas**, and it beats every overlay's own

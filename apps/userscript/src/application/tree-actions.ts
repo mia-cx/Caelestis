@@ -584,20 +584,6 @@ const moveServerTemplate = async (target: TreeTarget, rerender: () => void): Pro
 }
 
 /**
- * A template dropped onto a folder on a server.
- *
- * Three journeys behind one gesture, and which one it is comes from what was dragged:
- *
- * - **From Local** — an upload. The same thing "Copy to a server" does, with the destination
- *   already answered by where it was dropped.
- * - **Within one server** — a refile, which is a single column and touches no pixels.
- * - **Across servers** — a move: the artwork is uploaded to the destination and then removed from
- *   the source. Confirmed first, because the second half is destructive to something other people
- *   can see, and a drag is easy to make by accident.
- *
- * A drop that would change nothing is silently ignored rather than round-tripping to say so.
- */
-/**
  * Move a whole folder — a server's node or a Local one — to wherever it was dropped.
  *
  * Confirmed first when it crosses a boundary, because the source end of it is a delete that other
@@ -740,6 +726,20 @@ export const copyServerTemplateToLocal = async (
   return result.destinationId === undefined ? null : `local:${result.destinationId}`
 }
 
+/**
+ * A template or folder dropped onto a folder on a server, or onto the server's own row.
+ *
+ * Three journeys behind one gesture, and which one it is comes from what was dragged:
+ *
+ * - **From Local** — an upload. The same thing "Copy to a server" does, with the destination
+ *   already answered by where it was dropped.
+ * - **Within one server** — a refile, which is a single column and touches no pixels.
+ * - **Across servers** — a move: the artwork is uploaded to the destination and then removed from
+ *   the source. Confirmed first, because the second half is destructive to something other people
+ *   can see, and a drag is easy to make by accident.
+ *
+ * A drop that would change nothing is silently ignored rather than round-tripping to say so.
+ */
 export const dropOnServerNode = async (
   server: ConnectedServer,
   nodeId: string | null,
@@ -937,7 +937,7 @@ const replaceServerArtwork = async (target: TreeTarget, rerender: () => void): P
           }
           // Closing the panel or opening another operation revokes this exact continuation.
           if (cancelled || operation?.model.id !== id) return
-          if (!stillConnected(server)) {
+          if (!isCurrentServerConnection(server)) {
             toast('That server was disconnected or replaced.', 'warning')
             closeOperation(id)
             return
@@ -995,7 +995,7 @@ const replaceFromImage = async (
       height: installed.height,
       origin: { x: installed.originX, y: installed.originY },
       save: async (template) => {
-        if (!stillConnected(server)) {
+        if (!isCurrentServerConnection(server)) {
           toast('That server was disconnected or replaced.', 'warning')
           return false
         }
@@ -1080,7 +1080,7 @@ const setServerFolderPublished = async (
   }
   try {
     if (surface.kind === 'world') {
-      const refreshed = await refreshCurrentNodesResult(server, rerender, true)
+      const refreshed = await refreshCurrentNodes(server, rerender, true)
       if (refreshed?.status !== 'admitted') {
         toast(
           refreshed?.message ?? 'That server was disconnected before the folder could change.',
@@ -1119,7 +1119,7 @@ const setServerFolderPublished = async (
     )
     const result = await setFolderTemplatesPublished(templates, published, (template) =>
       retryOptimisticMutation(async () => {
-        if (!stillConnected(current))
+        if (!isCurrentServerConnection(current))
           return {
             ok: false,
             message: 'That server was disconnected or replaced.',
@@ -1128,7 +1128,7 @@ const setServerFolderPublished = async (
         return await patchTemplate(current, template.id, { published })
       }),
     )
-    if (stillConnected(current)) await refreshEditedSurface(current, surface, rerender)
+    if (isCurrentServerConnection(current)) await refreshEditedSurface(current, surface, rerender)
     else rerender()
     if (result.failures.length === 0) {
       toast(
@@ -2030,7 +2030,7 @@ export const createFolder = async (
   const existing = listed.nodes
   // Asking took a round trip, and the panel was usable throughout it. Writing to a server the user
   // has since disconnected creates a folder in a place they can no longer see.
-  if (!stillConnected(server)) return
+  if (!isCurrentServerConnection(server)) return
   // Compared as the server will store them, and only against siblings. Matching display names
   // treated `New-folder` and `New folder` as different while the backend slugs both to
   // `new-folder`, so the chosen name came back as a path conflict instead of becoming "New folder 2".
@@ -2056,10 +2056,8 @@ const serverNodesFailure = (result: Exclude<ServerNodesResult, { status: 'ok' }>
     ? 'Could not ask that server for its current folders.'
     : 'Cannot use those folders while connected server data exceeds the client safety limits.'
 
-const stillConnected = (server: ConnectedServer): boolean => isCurrentServerConnection(server)
-
 /** Refresh with the connection that is configured now, never credentials captured before an await. */
-const refreshCurrentNodesResult = async (
+const refreshCurrentNodes = async (
   server: ConnectedServer,
   rerender: () => void,
   force = false,
@@ -2073,14 +2071,6 @@ const refreshCurrentNodesResult = async (
     result = await refreshServerSnapshot(current, rerender)
   }
   return result
-}
-
-const refreshCurrentNodes = async (
-  server: ConnectedServer,
-  rerender: () => void,
-  force = false,
-): Promise<void> => {
-  await refreshCurrentNodesResult(server, rerender, force)
 }
 
 export const cancelTreeActionSetup = (reason: Error): void => {

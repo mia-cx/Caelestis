@@ -110,10 +110,6 @@ const updateArtwork = async (
   }
 }
 
-/** Save committed Wplace art over the whole template as a new target version. */
-export const updateTemplateArtwork = (id: string): Promise<boolean> =>
-  updateArtwork(id, captureCurrentArtwork)
-
 /** Confirm the target change before either menu starts capturing or saving artwork. */
 export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): void => {
   if (confirming.has(id) || pending.has(id)) return
@@ -138,7 +134,7 @@ export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): 
     if (!confirmed) return
     if (!isCurrentTemplate(template))
       throw new Error('That template changed while confirmation was open. Try again.')
-    const update = updateTemplateArtwork(id)
+    const update = updateArtwork(id, captureCurrentArtwork)
     rerender()
     await update
     toast('Saved a new template version from the committed artwork.')

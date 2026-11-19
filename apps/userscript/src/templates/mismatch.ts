@@ -548,19 +548,6 @@ const notifyDraftChanged = (): void => {
 const SCAN_BUDGET_MS = 8
 let scanDeadline = 0
 let requestedThisFrame: Set<string> | null = null
-let requestedForOutlines: Set<string> | null = null
-let retainedForOutlines = new Set<string>()
-
-/** Start the overlay layer's independent answer-retention pass. */
-export const beginUnpaintedFrame = (): void => {
-  requestedForOutlines = new Set()
-}
-
-/** Keep outline answers without resetting the marker layer's own frame request set. */
-export const endUnpaintedFrame = (): void => {
-  retainedForOutlines = requestedForOutlines ?? new Set()
-  requestedForOutlines = null
-}
 
 /** Called once per frame by the renderer, before it asks for anything. */
 export const beginMismatchFrame = (): void => {
@@ -591,7 +578,7 @@ export const endMismatchFrame = (): void => {
   for (const entry of cache.values()) cacheBytes += cachedAnswerBytes(entry)
   for (const [cacheKey, entry] of cache) {
     if (cache.size <= MAX_CACHED_ANSWERS && cacheBytes <= MAX_CACHED_ANSWER_BYTES) break
-    if (requested.has(cacheKey) || retainedForOutlines.has(cacheKey)) continue
+    if (requested.has(cacheKey)) continue
     cacheBytes -= cachedAnswerBytes(entry)
     cache.delete(cacheKey)
     forgetCoverage(cacheKey)
@@ -640,8 +627,7 @@ const runIdleScan = (deadline: { timeRemaining: () => number }): void => {
       stale.delete(cacheKey)
       continue
     }
-    if (retainedForOutlines.has(cacheKey)) unpaintedIn(template, tile)
-    else mismatchesIn(template, tile)
+    mismatchesIn(template, tile)
     count('mismatch:rescanned while idle')
   }
   for (const cacheKey of [...staleProgress]) {
@@ -1112,47 +1098,6 @@ const recordNavigationScan = (rectangles: number, desiredPixels: number, matches
   count('paint:navigation loaded rectangles', rectangles)
   count('paint:navigation desired pixels checked', desiredPixels)
   count('paint:navigation targets found', matches)
-}
-
-/** Exact nearest disagreement among Wplace tiles whose pixels this browser already has. */
-export const nearestLoadedColourTarget = (
-  index: number,
-  kind: ColourTargetKind,
-  reference: { readonly x: number; readonly y: number },
-  templateId?: string,
-  exclude?: ColourNavigationExclusion,
-): ColourNavigationTarget | null => {
-  if (!Number.isInteger(index) || index < 0 || index >= PALETTE_SIZE) return null
-  const candidates = navigationCandidates(reference, templateId)
-
-  let best: ColourNavigationTarget | null = null
-  let bestDistance = Number.POSITIVE_INFINITY
-  let desiredPixels = 0
-  let matchingPixels = 0
-  let loaded = 0
-  for (const candidate of candidates) {
-    if (candidate.minimumDistance > bestDistance) break
-    const pixels = tilePixels(candidate.tile)
-    const wanted = candidate.template.artwork.pixels
-    if (pixels === null || wanted === null) continue
-    loaded++
-    const scanned = scanCandidate(
-      candidate,
-      wanted,
-      pixels,
-      index,
-      kind,
-      reference,
-      bestDistance,
-      exclude,
-    )
-    desiredPixels += scanned.desiredPixels
-    matchingPixels += scanned.matchingPixels
-    if (scanned.target !== null) best = scanned.target
-    bestDistance = scanned.distance
-  }
-  recordNavigationScan(loaded, desiredPixels, matchingPixels)
-  return best
 }
 
 /**
@@ -1750,17 +1695,6 @@ const mismatchAnswer = (
 /** Mismatches shown by the magenta marker, including unpainted only when its appearance allows it. */
 export const mismatchesIn = (template: PlacedTemplate, tile: TileCoord): Mismatches | null =>
   mismatchAnswer(template, tile, 'configured')
-
-/** Keep a visible outline answer eligible for reuse without reading or rescanning it. */
-export const retainUnpainted = (template: PlacedTemplate, tile: TileCoord): void => {
-  requestedForOutlines?.add(`${template.id}|${tile.x}/${tile.y}`)
-}
-
-/** Every unpainted pixel, independently of whether mismatch markers include that class. */
-export const unpaintedIn = (template: PlacedTemplate, tile: TileCoord): Mismatches | null => {
-  retainUnpainted(template, tile)
-  return mismatchAnswer(template, tile, 'unpainted')
-}
 
 /**
  * Refresh local progress without producing marker coordinates.

@@ -1,7 +1,6 @@
 import {
   sameTemplateSurface,
   type TemplateSurface,
-  TILE_SIZE,
   templateSurfaceBounds,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
@@ -136,10 +135,6 @@ const sessionTemplate = (): PlacedTemplate | undefined => {
   const draft = templateDraft()
   return draft?.id === session.id ? draft : undefined
 }
-
-/** Where the template currently sits during a move, so the renderer can draw it there. */
-export const movePreviewOrigin = (id: string): { x: number; y: number } | null =>
-  session !== null && session.id === id ? { x: session.x, y: session.y } : null
 
 const isOverTemplate = (clientX: number, clientY: number): boolean => {
   if (session === null) return false
@@ -784,12 +779,3 @@ export const abortMoveOutsideSurface = async (surface: TemplateSurface | null): 
   if (surface !== null && sameTemplateSurface(session.surface, surface)) return
   await abort()
 }
-
-/** Tile-aligned bounds of the template being moved, for drawing its outline. */
-export const moveOutline = (): { x: number; y: number; w: number; h: number } | null => {
-  const template = sessionTemplate()
-  if (session === null || template === undefined) return null
-  return { x: session.x, y: session.y, w: template.width, h: template.height }
-}
-
-export const TILE = TILE_SIZE
