@@ -7,7 +7,7 @@ import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { refreshServerSnapshot } from '../application/tree-server-state.js'
 import { listServerTags, mutateServerTag } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
-import { onManifestChange as onServerContents } from '../server-manifests.js'
+import { onManifestChange } from '../server-manifests.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
 import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
 import { closeDialogHost } from './dialog.js'
@@ -112,7 +112,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   const reloadIfPending = (): void => {
     if (reloadPending && !closed && !model.busy && !model.loading) void reload()
   }
-  const unsubscribe = onServerContents((owner) => {
+  const unsubscribe = onManifestChange((owner) => {
     if (server === null || owner.url !== server.url) return
     reloadPending = true
     reloadIfPending()

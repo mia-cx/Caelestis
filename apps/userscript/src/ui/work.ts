@@ -11,11 +11,7 @@ import {
 } from '@caelestis/shared'
 import type { TemplateClaimsModel, TemplateTreeModel } from '@caelestis/ui/elements'
 import { isCurrentServerConnection, serverConnectionSignal } from '../server-connections.js'
-import {
-  admittedManifest as admittedServerContentsFor,
-  admittedManifest as allianceManifestFor,
-  manifestRows as rowsForSurface,
-} from '../server-manifests.js'
+import { admittedManifest, manifestRows } from '../server-manifests.js'
 import { serverRequest } from '../server-request.js'
 import { commitState, getState, type ServerConnection } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'
@@ -73,10 +69,7 @@ export const workSectionModel = (surface: TemplateSurface, changed: () => void) 
     errors.push('Wplace identity unavailable. Sign in, then retry.')
   let canShowOthers = false
   for (const server of getState().servers) {
-    const contents =
-      surface.kind === 'world'
-        ? admittedServerContentsFor(server)
-        : allianceManifestFor(server, surface)
+    const contents = admittedManifest(server, surface)
     if (server.season === null || contents === null) continue
     const key = previewKey(server, surface)
     const signal = serverConnectionSignal(server)
@@ -124,7 +117,7 @@ export const workSectionModel = (surface: TemplateSurface, changed: () => void) 
     }
     canShowOthers ||= preview.collection.canPlan
     if (preview.error) errors.push(`${server.info?.name ?? server.url}: ${preview.error}`)
-    for (const template of rowsForSurface(server, surface)?.templates ?? []) {
+    for (const template of manifestRows(server, surface)?.templates ?? []) {
       const people = new Map<number, PainterIdentity>()
       for (const item of preview.collection.items) {
         if (!isTemplateClaim(item) || item.id !== template.id) continue
@@ -311,7 +304,7 @@ export const changeTemplateClaim = (
     return
   }
   for (const server of getState().servers) {
-    const template = rowsForSurface(server, surface)?.templates.find(
+    const template = manifestRows(server, surface)?.templates.find(
       (candidate) => serverTemplateTreeKey(server, candidate.id) === key,
     )
     if (template === undefined) continue

@@ -9,7 +9,7 @@ import {
 } from '../application/tree-server-state.js'
 import { serverAlarmFor, serverAlarmKindFor } from '../server-alarms.js'
 import type { ServerTemplate } from '../server-manifest.js'
-import { manifestRows as rowsForSurface } from '../server-manifests.js'
+import { manifestRows } from '../server-manifests.js'
 import { serverProgressFor } from '../server-status.js'
 import { isScopeVisible, type ServerConnection, setScopeVisible } from '../settings.js'
 import { isTemplateVisible, setLocalVisible } from '../templates/local-store.js'
@@ -41,11 +41,11 @@ import {
 } from './tree-rows.js'
 import { groupedTreeSource, type TreeItem, type TreeSource } from './tree-source.js'
 
-type ServerRows = NonNullable<ReturnType<typeof rowsForSurface>>
+type ServerRows = NonNullable<ReturnType<typeof manifestRows>>
 
 /** The server's rows on this surface; the claimed list keeps only its templates, flat. */
 const scopedRows = (ctx: TreeContext, server: ServerConnection): ServerRows | undefined => {
-  const rows = rowsForSurface(server, ctx.surface)
+  const rows = manifestRows(server, ctx.surface)
   const { templateKeys } = ctx
   if (rows === undefined || templateKeys === undefined) return rows
   return {

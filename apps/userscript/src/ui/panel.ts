@@ -44,10 +44,7 @@ import {
   refreshStoredServers,
   removeServer,
 } from '../server-connections.js'
-import {
-  admittedManifest as admittedServerContentsFor,
-  primeFromCache,
-} from '../server-manifests.js'
+import { admittedManifest, primeFromCache } from '../server-manifests.js'
 import { onServerStatusChange } from '../server-status.js'
 import {
   getState,
@@ -280,7 +277,7 @@ const admittedWorkRevisions = new Map<string, number | undefined>()
 onServerSnapshot((server, result) => {
   if (result.status !== 'admitted') return
   // Claiming a template bumps only the manifest's work revision; its rows compare unchanged.
-  const revision = admittedServerContentsFor(server)?.workRevision
+  const revision = admittedManifest(server)?.workRevision
   const claimsChanged = admittedWorkRevisions.get(server.url) !== revision
   admittedWorkRevisions.set(server.url, revision)
   if (result.changed || claimsChanged) queueManifestTreeRefresh()

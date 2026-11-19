@@ -9,7 +9,7 @@ import type {
 } from '@caelestis/ui/elements'
 import { isSameServerPlacement } from '../application/tree-server-state.js'
 import { measureProfileDetail } from '../profile.js'
-import { manifestRows as rowsForSurface } from '../server-manifests.js'
+import { manifestRows } from '../server-manifests.js'
 import { getState, setState } from '../settings.js'
 import { localTagCatalog } from '../templates/tags.js'
 import { LOCAL_ROOT_KEY, serverScopeKey } from '../tree-keys.js'
@@ -284,7 +284,7 @@ export const templateTreeAdapter = (
     localTagCatalog().map((tag) => [tag.id, { id: tag.id, name: tag.name, owner: 'Local' }]),
   )
   for (const server of getState().servers) {
-    const source = rowsForSurface(server, surface)
+    const source = manifestRows(server, surface)
     for (const row of [...(source?.nodes ?? []), ...(source?.templates ?? [])])
       for (const tag of row.tags ?? [])
         tagOptions.set(tag.id, { ...tag, owner: server.info?.name ?? server.url })
@@ -317,7 +317,7 @@ export const templateTreeAdapter = (
       (a, b) => a.name.localeCompare(b.name) || a.owner.localeCompare(b.owner),
     ),
     serverFiltersAvailable: getState().servers.some(
-      (server) => (rowsForSurface(server, surface)?.templates.length ?? 0) > 0,
+      (server) => (manifestRows(server, surface)?.templates.length ?? 0) > 0,
     ),
     entries,
     ...(renamingKey === null ? {} : { renamingKey }),
