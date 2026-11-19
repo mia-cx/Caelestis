@@ -18,8 +18,7 @@ import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { parseSurface } from './params.js'
 
-// Wplace's first and current canvas is season 0; later seasons increment from there.
-
+/** Wplace's first canvas is season 0; later seasons count up from there. */
 const parseSeason = (value: unknown): number | null =>
   typeof value === 'number'
     ? Number.isSafeInteger(value) && value >= 0
@@ -27,22 +26,6 @@ const parseSeason = (value: unknown): number | null =>
       : null
     : parseWholeNumber(value)
 
-/**
- * Derive a path segment from a display name.
- *
- * Astral characters are replaced rather than kept, which is what keeps the three places that bound a
- * path agreeing with each other. SQLite's `length()` counts characters and JavaScript's `.length`
- * counts UTF-16 units, and a code point outside the BMP is one of the former and two of the latter —
- * so `nodes_path_check`, the store guards and the wire's `NodePath` were measuring the same string
- * and getting different numbers. Three separate defects came out of that gap. Confined to the BMP
- * the two counts are equal by construction and the gap cannot reopen.
- *
- * The name keeps every character the caller sent; only the derived path is narrowed. A name with
- * nothing but astral letters therefore slugs to nothing and is refused, which the route reports.
- *
- * It lives in `@caelestis/shared` because it is an agreement rather than a local detail: a client
- * that picks names without knowing this rule picks names this route then rejects.
- */
 const slug = nodeSlug
 
 export const createNodeRoutes = (runtime: BackendRuntime) => {
@@ -178,9 +161,9 @@ export const createNodeRoutes = (runtime: BackendRuntime) => {
           templates: expectedTemplates,
         }),
         (deleted) =>
-          // R2 and D1 have no shared transaction. Deleting blobs after the D1 commit can race a new
-          // reference and corrupt it; retaining content-addressed blobs is the safe interim until a
-          // durable, retryable garbage collector can prove a hash remains unreferenced.
+          // R2 and D1 share no transaction, so deleting blobs after the D1 commit could race a new
+          // reference to the same content. Chunks stay until a collector can prove a hash
+          // unreferenced.
           c.json({ nodes: deleted.nodes, templates: deleted.templates, chunks: 0 }),
       )
     }

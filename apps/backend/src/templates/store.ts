@@ -40,7 +40,7 @@ export interface TemplateVersionRecord {
   readonly createdAt: Millis
   readonly bbox: PixelBounds
   readonly totalPixels: number
-  /** Histogram persisted for server-backed per-colour progress; absent on legacy fixtures/rows. */
+  /** Histogram for server-backed per-colour progress; absent on versions stored before it was. */
   readonly colourTotals?: readonly { readonly index: number; readonly total: number }[]
   readonly chunks: readonly {
     readonly tileX: number

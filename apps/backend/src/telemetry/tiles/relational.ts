@@ -593,9 +593,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
       .select({
         bucketStart: tileHistory.bucketStartS,
         hash: tileHistory.sha256,
-        // Distinct accounts, not rows — quorum a client cannot inflate by replaying its own hash.
-        // Redundant against today's primary key, which already separates reporters, and kept so the
-        // count stays honest if the key ever widens.
+        // Distinct accounts, not rows, so quorum stays honest whatever else the key separates.
         reporters: sql<number>`count(distinct ${tileHistory.reportedByUserId})`,
       })
       .from(tileHistory)

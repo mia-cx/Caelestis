@@ -1,9 +1,8 @@
 /**
- * Content-addressed blob storage. R2 today, S3-compatible later.
+ * Content-addressed blob storage over R2 or any portable object store.
  *
- * Deliberately use-case shaped rather than a generic object-store wrapper — every method here
- * exists because something in this system needs exactly it. A thin `get/put/delete` facade would
- * be easier to write and would leak the underlying API's assumptions straight through.
+ * Use-case shaped rather than a generic object-store wrapper: every method exists because
+ * something in this system needs exactly it, so no provider's assumptions leak through.
  */
 
 /**

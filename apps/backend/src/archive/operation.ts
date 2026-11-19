@@ -23,14 +23,14 @@ import { ARCHIVE_LEASE_BUSY } from './wire.js'
  *            preparing → releasing            (refused or cancelled before anything was restored)
  *            ready → discarding → releasing   (discard; ready includes the ended archive)
  *
- * Concurrency is closed in two layers, because a restore and its discard write to stores that
- * cannot share one transaction:
+ * A restore and its discard write to stores that cannot share one transaction, so these rules
+ * close concurrency between them:
  *
  * 1. The `archive_lease` row serializes requests: every lifecycle entry point that writes takes
  *    it with one compare-and-set before doing anything, and hands it back in `finally`. A second
  *    request gets 409. Each lease has a fence that bumps on every take-over and a TTL, so a
  *    crashed holder can only stall work until the lease expires. Near its deadline a call saves
- *    progress and returns, the way the chunked steps always could. Status reads stay lock-free.
+ *    progress and returns, as the chunked steps do. Status reads stay lock-free.
  * 2. Fences keep a stale call safe even after its lease is taken over. Every batch an archive
  *    call writes leads with `archiveFence`: a constraint-violating insert that fires exactly
  *    when the operation row no longer carries the expected state or the lease no longer carries

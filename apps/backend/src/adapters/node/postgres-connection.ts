@@ -35,8 +35,8 @@ const TRANSACTION_ATTEMPTS = 10
  * Rows alone do not decide conflicts under SERIALIZABLE: these tables are small, so the planner
  * scans them whole and a read locks the relation, and two overlapping transactions that each
  * read and write one of them abort each other however disjoint their rows are. A reservation and
- * a commit both read and write the reservation and object tables, so letting them overlap turned
- * every warmup burst into a retry storm inside the lane.
+ * a commit both read and write the reservation and object tables, so letting them overlap turns
+ * every warmup burst into a retry storm.
  */
 const TILE_LANE_TABLES =
   /\b(canvas_tiles|status_read_model_revisions|template_alarm_tile_statuses|template_tile_measurements|template_tile_statuses|tile_blob_objects|tile_blob_reservations|tile_history)\b/
@@ -135,7 +135,7 @@ const SESSION_LOCK = "hashtext('caelestis-runtime-sessions'), hashtext(current_s
 /**
  * PostgreSQL/CNPG through a connection pool, fenced by two advisory locks.
  *
- * The owner session holds the ownership lock exclusively for the life of the process, as before.
+ * The owner session holds the ownership lock exclusively for the life of the process.
  * Every pooled session that carries application work also holds a shared session lock. A
  * replacement owner takes the ownership lock once the old owner session is gone, then must
  * obtain the session lock exclusively before it serves, which the database only grants once every
@@ -185,7 +185,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
     const lost = (error: Error) => {
       this.ownerFailure ??= error
       // Release every session lock now, so a replacement owner is not held up by a process that
-      // has already lost ownership. In-flight queries fail with their connection, as before.
+      // has already lost ownership. In-flight queries fail with their connection.
       // The dead owner client goes back to the pool as broken so draining does not wait on it.
       this.owner?.release(true)
       this.owner = undefined
@@ -315,9 +315,9 @@ export class PostgresConnection implements TransactionalSqlConnection {
    *
    * Overlapping SERIALIZABLE transactions that read and write the same small tables abort each
    * other, and a commit that exhausts its retries is answered to the client as unavailable.
-   * Batches on the tile tables queue in one lane, as they effectively did on the single session;
-   * the coordinator's callback transactions, on their own tables, queue in another. Everything
-   * else, such as painters and telemetry, runs concurrently and the rare conflict is retried.
+   * Batches on the tile tables queue in one lane; the coordinator's callback transactions, on
+   * their own tables, queue in another. Everything else, such as painters and telemetry, runs
+   * concurrently and the rare conflict is retried.
    */
   private inLane<T>(lane: string | undefined, run: () => Promise<T>): Promise<T> {
     if (lane === undefined) return run()
@@ -325,7 +325,7 @@ export class PostgresConnection implements TransactionalSqlConnection {
     const turn = () => {
       const command = lane === 'tiles' ? 'tileLane' : 'coordinatorLane'
       const wait = performance.now() - requestedAt
-      // Keep the existing aggregate while separating queue delay from occupied lane time.
+      // Queue delay counts toward the `sql` aggregate and the lane's own `queue` stage.
       ingestTimings.record('sql', 'transaction', wait)
       ingestTimings.record(command, 'queue', wait)
       return ingestTimings.timed(command, 'total', run)
@@ -360,22 +360,18 @@ export class PostgresConnection implements TransactionalSqlConnection {
     return results
   }
 
-  /** A batch is its own transaction; its lane, if any, is chosen by `batch`, not shared with callbacks. */
+  /** A batch is its own transaction, in the lane `batch` chose rather than the callbacks' lane. */
   private commitBatch<T>(statements: SqlStatement[]): Promise<SqlResult<T>[]> {
     return this.serializableTransaction((connection) => connection.batch<T>(statements))
   }
 
   /**
-   * Run one serializable transaction.
+   * Run one serializable callback transaction in the coordinator lane (see `inLane`).
    *
-   * Reads and single statements share the pool. Transactions overlap unless they share a lane:
-   * letting every transaction overlap made the ones that touch the same rows abort each other
-   * under SERIALIZABLE, and a commit that exhausts its retries is answered to the client as
-   * unavailable, which is the paint loss the ownership guard exists to prevent. Callback
-   * transactions come from the coordinator's counter accounting and startup; their rows are
-   * shared per template, so they take turns with each other and with nothing else. A
-   * serialization failure is still retried, since a migration or maintenance job may run its
-   * own transaction alongside.
+   * Callback transactions come from the coordinator's counter accounting and startup; their rows
+   * are shared per template, so they take turns with each other and with nothing else. A
+   * serialization failure is still retried, since a migration or maintenance job may run its own
+   * transaction alongside.
    */
   async transaction<T>(operation: (connection: SqlConnection) => Promise<T>): Promise<T> {
     return this.inLane('coordinator', () =>

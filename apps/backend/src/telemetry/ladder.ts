@@ -57,8 +57,8 @@ export const DECAY_FOLD_GROUP_LIMIT = 20
  * ladder `resolution`, and integer counters with `repairs <= correct <= placed`.
  *
  * The CHECKs enforce the same, but checking first turns a poison row into a synchronous error that
- * names the column. That matters on the flush path: `TelemetryShard.alarm` catches the rejection and
- * re-arms without clearing `flush_batch`, so one poison row would be re-sent every alarm forever.
+ * names the column. That matters on the flush path: `CounterFlusher.flush` catches the rejection
+ * and re-arms without clearing `flush_batch`, so one poison row would be re-sent every alarm forever.
  */
 const invalidBucket = (bucket: TelemetryBucket): string | null => {
   const { resolution, bucketStart, placed, correct, repairs } = bucket

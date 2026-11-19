@@ -74,8 +74,8 @@ export interface AuthOptions {
    *
    * `/server` advertises `auth: 'none'` when this is set, and that advertisement is the entire
    * reason `/server` is public: a userscript reads it to decide whether to ask its user for a token
-   * before adding the server. When the flag only changed the advertisement, a client that believed
-   * it got a 401 from `/manifest` — the one thing the endpoint exists to prevent.
+   * before adding the server. So the flag must open the reads too, or a client that believed the
+   * advertisement would get a 401 from `/manifest`.
    *
    * `read` only. `report` writes counters and `admin` writes everything, and neither becomes public
    * because a server chose to publish its manifest.

@@ -29,7 +29,7 @@ import {
  *
  * D1 caps a LIKE or GLOB pattern at 50 bytes, while a node path may be 256 characters. `substr`
  * compares the same prefix without constructing a pattern, and `lower` folds ASCII exactly as
- * SQLite LIKE did. SQLite supplies both lengths so the comparison stays in characters throughout.
+ * SQLite LIKE does. SQLite supplies both lengths so the comparison stays in characters throughout.
  */
 const pathStartsWith = (prefix: SQL | string): SQL =>
   sql`lower(substr(${nodes.path}, 1, length(${prefix}))) = lower(${prefix})`
@@ -184,16 +184,14 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
     const descendants = and(nodeScopeWhere(node.season, node.surface), pathStartsWith(oldPrefix))
 
     // Every descendant keeps its suffix, so its new length is its old one shifted by the change in
-    // the prefix — one aggregate, no rows. `slug` keeps paths inside the BMP, so SQLite's character
-    // count and the UTF-16 count the wire uses are the same number; this used to read every
-    // descendant path because they were not, which a season-sized subtree turns into a result set D1
-    // refuses.
+    // the prefix — one aggregate, no rows, because a season-sized subtree read row by row is a
+    // result set D1 refuses. `slug` keeps paths inside the BMP, so SQLite's character count and the
+    // UTF-16 count the wire uses are the same number.
     //
     // That equality is an assumption, and the route is what holds it up: every stored path is one
     // `slug` derived. A path with an astral character would make this under-count, the CHECK agree
     // with it, and the resulting manifest stop decoding — so if a second writer ever appears, or rows
     // arrive from anywhere but this route, this aggregate has to go back to measuring the rows.
-    // Nothing has been deployed from this schema, so there are no such rows to migrate today.
     const path = `${node.path.slice(0, node.path.lastIndexOf('/'))}/${slug}`
     const shift = path.length - node.path.length
     const [deepest] = await this.database
@@ -209,10 +207,10 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
 
     // The old path is read inside the batch rather than carried in from the read above, so the two
     // statements agree about what they are moving. Carried in, two concurrent renames of the same
-    // node both saw `/x`: the first moved the node to `/a` and its children with it, the second then
-    // moved the node to `/b` and rewrote `/x/%`, which by then matched nothing — leaving the node at
-    // `/b` and its children at `/a/c`. The batch was atomic the whole time; the value it was built
-    // from was not.
+    // node would both see `/x`: the first moves the node to `/a` and its children with it, the
+    // second moves the node to `/b` and rewrites `/x/%`, which by then matches nothing — leaving the
+    // node at `/b` and its children at `/a/c`. An atomic batch is not enough when the value it is
+    // built from is stale.
     //
     // The destination is composed from the node's live parent for the same reason. A concurrent move
     // can change `parentId` after the guard read; carrying the old id into this batch leaves the new
@@ -228,9 +226,9 @@ export class RelationalNodeStore extends RelationalStore implements NodeStore {
     //
     // Descendants first, while the node row still holds the old path they are matched against. The
     // suffix starts at the old path's length rather than the old prefix's, so it keeps the
-    // separating slash — cutting past it concatenated `/renamed` with `child` and wrote
-    // `/renamedchild`. `length()` is SQLite's, which counts characters like `substr` does, where
-    // JavaScript's counts UTF-16 units and sliced every descendant short past an astral character.
+    // separating slash; cutting past it would write `/renamedchild`. `length()` is SQLite's, which
+    // counts characters like `substr` does, where JavaScript's counts UTF-16 units and would slice
+    // every descendant short past an astral character.
     const statements = [
       this.database
         .update(nodes)

@@ -1,7 +1,7 @@
 import type { ObjectStorage } from '@caelestis/storage'
 import type { BlobListPage, BlobNamespace, BlobStore } from '../ports/index.js'
 
-/** Content-addressed backend namespaces over a portable object-storage adapter. */
+/** Each blob namespace is a key prefix in one object store. */
 export class ObjectBlobStore implements BlobStore {
   constructor(private readonly storage: ObjectStorage) {}
   async put(namespace: BlobNamespace, key: string, bytes: Uint8Array): Promise<void> {

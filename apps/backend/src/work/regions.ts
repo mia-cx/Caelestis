@@ -24,7 +24,6 @@ import {
 } from '../runtime/errors.js'
 import { ownedRegionIds } from './region-store.js'
 
-/** List a bounded surface or template's region claims. */
 export const listRegions = (
   season: number,
   surface: TemplateSurface,
@@ -48,7 +47,7 @@ export const listRegions = (
     }
   })
 
-/** Create a credential-owned claim or update its content and template hint as its owner or an administrator. */
+/** Create a credential-owned claim, or update its content and template hint as owner or admin. */
 export const putRegion = (
   id: string,
   season: number,

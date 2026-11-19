@@ -86,11 +86,9 @@ const summarize = (accumulator: StageAccumulator): StageSummary => {
 /**
  * Where live commands spend their time, per stage, on this runtime.
  *
- * The #397 profile showed classification as the largest CPU consumer but said nothing about
- * queueing, database, or object-storage waits. Every stage of an upload, offer, or paint is
- * recorded here in process, with the last 512 samples per stage for percentiles, so a benchmark
- * can read the breakdown without a debugger attached. This is observability only; it never
- * changes what a command does.
+ * Every stage of an upload, offer, or paint is recorded in process, including queueing, database,
+ * and object-storage waits, with the last 512 samples per stage for percentiles, so a benchmark
+ * can read the breakdown without a debugger attached.
  */
 export class IngestTimings {
   private readonly stages = new Map<string, StageAccumulator>()

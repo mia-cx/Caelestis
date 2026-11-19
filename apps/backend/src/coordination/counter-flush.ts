@@ -92,7 +92,7 @@ export class CounterFlusher {
   async flush(nowMilliseconds: Millis): Promise<void> {
     const nowSeconds = seconds(Math.floor(nowMilliseconds / 1_000))
     await this.pruneRetained(nowSeconds)
-    // Defensive: valid deltas cannot create a zero row, but keep cleanup safe if input rules change.
+    // Valid deltas never create a zero row; this keeps one from lingering if a writer ever does.
     await this.database.run(
       'DELETE FROM pending_counters WHERE placed = 0 AND correct = 0 AND repairs = 0',
     )
@@ -142,36 +142,20 @@ export class CounterFlusher {
         repairs: row.repairs,
       }))
 
-      // D1 must commit before retained_counters advances. Advancing retained first makes
-      // readPending subtract the batch from itself and report zero for an unbounded D1 outage.
-      //
-      // The cost, stated accurately: if D1 commits but the response is lost, retained does not
-      // advance, so readPending keeps counting a batch D1 already holds and live totals read high
-      // by that batch. This is NOT a one-alarm window — it persists until the next flush succeeds,
-      // which during an outage means the whole outage, at up to 60s per retry. It always heals.
-      //
-      // Reporting high while recovering beats reporting zero for the duration, which is what the
-      // opposite ordering does. Both are wrong; only one of them is wrong in a direction that hides
-      // work rather than exaggerating it.
+      // D1 must commit before retained_counters advances: advancing retained first makes
+      // readPending subtract the batch from itself and report zero for the whole of a D1 outage.
+      // The cost: if D1 commits but the response is lost, retained does not advance, and live
+      // totals read high by that batch until the next flush succeeds. Reading high while
+      // recovering beats reading zero, which would hide work.
       try {
         await this.sql.appendAndFold(buckets, nowSeconds)
       } catch (error) {
-        // Schedule the retry and return normally rather than rethrowing.
-        //
-        // Cloudflare retries a throwing alarm() with exponential backoff "starting at a 2 second
-        // delay from the first failure with up to 6 retries allowed", and its docs recommend
-        // catching inside the handler and scheduling a new alarm "if you want to make sure your
-        // alarm handler will be retried indefinitely". Rethrowing would cap recovery at six
-        // attempts — a D1 outage longer than roughly two minutes would exhaust them and strand
-        // flush_batch until unrelated traffic happened to re-arm the alarm. Owning the retry is the
-        // whole reason the backoff exists.
-        //
-        // The failure is not silent: readFlushFailureCount() exposes the consecutive-failure count,
-        // console.error records the cause, and the batch stays in flush_batch until D1 confirms.
-        // Note what is given up — a throwing alarm() registers as a platform error that Cloudflare
-        // retains and can alert on. Returning normally reports success while flushing nothing, so
-        // the counter above is the replacement and has to be watched.
-        // https://developers.cloudflare.com/durable-objects/api/alarms/
+        // Schedule the retry and return normally rather than rethrowing. Cloudflare retries a
+        // throwing alarm() at most six times, backing off from 2 seconds, and recommends scheduling
+        // a new alarm for indefinite retries; rethrowing would strand flush_batch after about two
+        // minutes of D1 outage. Returning reports success to the platform, so
+        // readFlushFailureCount() is the signal to watch; the batch stays in flush_batch until D1
+        // confirms. https://developers.cloudflare.com/durable-objects/api/alarms/
         const failureCount = (await this.readFailureCount()) + 1
         await this.database.run(
           'UPDATE flush_retry_state SET consecutive_failures = ?1 WHERE singleton = 1',

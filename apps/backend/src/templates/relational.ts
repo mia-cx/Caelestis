@@ -149,10 +149,9 @@ export class RelationalTemplateStore extends RelationalStore implements Template
         sourceHash: version.recipe?.source.sha256 ?? null,
         recipeJson: version.recipe === undefined ? null : templateRecipeJson(version.recipe),
       }),
-      // Tiles go in as multi-row inserts, not one statement each. D1 allows 50 queries per Worker
-      // invocation on the free plan, so a 48-chunk template — a 48,000x1 upload reaches that without
-      // stressing anything — produced 51 statements and failed the whole batch. Chunked by bound
-      // parameters rather than by rows: four columns each, kept under the 100-parameter ceiling.
+      // Tiles go in as multi-row inserts, not one statement each: D1 allows 50 queries per Worker
+      // invocation on the free plan, which a 48-chunk template (a 48,000x1 upload) would exceed.
+      // Chunked by bound parameters: four columns each, kept under the 100-parameter ceiling.
       ...chunkRows(
         version.chunks.map((chunk) => ({
           versionId: version.versionId,
@@ -349,8 +348,8 @@ export class RelationalTemplateStore extends RelationalStore implements Template
       return changedRows(result) > 0
     } catch (error) {
       // The destination was read above, and another administrator can delete it between that read
-      // and this write. Translated like the other two races in this file, so the one path that
-      // could still answer 500 instead of a typed error no longer can.
+      // and this write. Translated like the other races in this file, so it answers a typed error
+      // rather than a 500.
       if (violates(error, 'foreign-key')) {
         throw new NodeNotFoundError(`node does not exist: ${patch.nodeId ?? ''}`)
       }

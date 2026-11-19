@@ -31,16 +31,15 @@ export const createManifestRoutes = (
       c,
       runtime,
       readManifestProjection({
-        // Resolved rather than the configured value: the manifest carries the server's name too, and
-        // a rename that showed up on `/server` but not here would leave the tree labelled with the
-        // old one — which is exactly where anyone would look to check the rename worked.
+        // The deployment's identity; the read applies an admin's rename over it, so the manifest
+        // names the server exactly as `/server` does.
         server: options.server,
         season,
         surface,
         includeUnpublished: c.get('caller').canSeeDrafts,
         ifNoneMatch: parseIfNoneMatch(c.req.header('if-none-match')),
-        // Only the deployed season owns a bounded Durable Object projection. Historical season
-        // reads remain authoritative without materializing attacker-selected shards.
+        // Only the deployed season has a cached projection. Earlier seasons are assembled from the
+        // database, so a caller cannot make the server materialize a shard per season it names.
         cacheable: season === options.currentSeason,
       }),
       (projection) => {

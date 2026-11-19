@@ -6,8 +6,6 @@ import { sha256Hex } from '@caelestis/shared'
  * Tokens are server-generated 128-bit values, never user-chosen, which is why SHA-256 at rest is
  * sufficient and no slow KDF is needed: there is no low-entropy secret to grind. A user-chosen
  * password would need argon2 or scrypt; 128 bits of CSPRNG output does not.
- *
- * @see .scratch/v1/issues/03-auth-model.md
  */
 
 /** RFC 4648 base32 without padding, minus the characters that invite transcription errors. */

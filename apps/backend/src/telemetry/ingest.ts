@@ -600,10 +600,10 @@ export const offerTiles = (
     const cached = new Set(current?.acknowledgedDeliveryIds)
     const coverageToken = current?.coverageToken ?? undefined
     const sinks = createIngestSinks(ports)
-    // Each tile is its own observation on its own rows, so tiles run concurrently: one after
-    // another multiplied a tile's round trips by the batch size and pushed multi-tile offers past
-    // the client's deadline. Once one fails, queued tiles do not start, but tiles in flight finish,
-    // so the flush below sees every commit and none misses projection repair or artifacts.
+    // Each tile is its own observation on its own rows, so tiles run concurrently; in sequence a
+    // multi-tile offer would outlast the client's deadline. Once one fails, queued tiles do not
+    // start, but tiles in flight finish, so the flush below sees every commit and none misses
+    // projection repair or artifacts.
     let firstFailure: StorageError | undefined
     const settled = yield* Effect.forEach(
       offers,
