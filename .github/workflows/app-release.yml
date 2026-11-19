@@ -151,7 +151,10 @@ jobs:
         id: issues
         env:
           GH_TOKEN: ${{ github.token }}
-        run: echo "pending=$(node .github/scripts/release-issues.mjs pending "$GITHUB_REPOSITORY")" >> "$GITHUB_OUTPUT"
+        # A separate assignment, so a failed lookup fails the step instead of saving an empty list.
+        run: |
+          pending="$(node .github/scripts/release-issues.mjs pending "$GITHUB_REPOSITORY")"
+          echo "pending=$pending" >> "$GITHUB_OUTPUT"
 
       - name: Open or update the app release pull request
         id: changesets

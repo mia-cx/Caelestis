@@ -16,18 +16,21 @@ import { fileURLToPath } from 'node:url'
 
 const MARKER = '<!-- release-issues -->'
 
-/** `Ships #N`, `Ships [#N](<issue URL>)` or `Ships <issue URL>`; URLs must point into `repository`. */
-const shipsPattern = (repository) => {
-  const issueUrl = `https://github\\.com/${repository.replace(/[.\\/]/g, '\\$&')}/issues/(\\d+)`
-  return new RegExp(`\\bships\\s+(?:\\[#\\d+\\]\\(${issueUrl}\\)|#(\\d+)\\b|${issueUrl})`, 'gi')
-}
+/** `Ships #N`, `Ships [#N](<issue URL>)` or `Ships <issue URL>`, with the URL's owner/repo. */
+const SHIPS =
+  /\bships\s+(?:#(\d+)\b|\[#\d+\]\(https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)\)|https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+))/gi
 
 /** Issue numbers a pull request body ships in `repository`, in order of first mention. */
 export const shippedIssues = (body, repository) => [
   ...new Set(
-    [...(body ?? '').matchAll(shipsPattern(repository))].map((match) =>
-      Number(match[1] ?? match[2] ?? match[3]),
-    ),
+    [...(body ?? '').matchAll(SHIPS)]
+      .map(([, plain, linkRepo, linked, urlRepo, url]) => {
+        if (plain) return Number(plain)
+        // An issue URL in another repository would close the local issue with the same number.
+        const home = (linkRepo ?? urlRepo).toLowerCase() === repository.toLowerCase()
+        return home ? Number(linked ?? url) : null
+      })
+      .filter((issue) => issue !== null),
   ),
 ]
 
