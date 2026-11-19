@@ -6,11 +6,12 @@ import {
   type TemplateProgressHistoryResponse,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { MeasuredTileFrame, TemplateVersionRecord } from '../ports/sql-store.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
 import { StorageError, storage } from '../runtime/errors.js'
+import type { TemplateVersionRecord } from '../templates/store.js'
 import { readHistoricalTileMeasurement } from './classification.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
+import type { MeasuredTileFrame } from './tiles/store.js'
 
 /** Unmeasured frames classified at once: each holds a decoded 1000×1000 canvas while it runs. */
 const CLASSIFY_CONCURRENCY = 8

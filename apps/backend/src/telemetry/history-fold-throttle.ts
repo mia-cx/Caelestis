@@ -1,6 +1,6 @@
 import type { Seconds, TileCoord } from '@caelestis/shared'
-import type { SqlStore } from '../ports/index.js'
 import { BoundedCache } from './bounded-cache.js'
+import type { TileStore } from './tiles/store.js'
 
 /** Folds only move rows older than a day, so a fold every half minute per tile loses nothing. */
 export const HISTORY_FOLD_INTERVAL_MS = 30_000
@@ -27,7 +27,7 @@ export type HistoryFoldOutcome = 'folded' | 'skipped'
  * throws is not remembered, so the next observation retries it.
  */
 export const foldTileHistoryThrottled = async (
-  sql: SqlStore,
+  sql: TileStore,
   season: number,
   tile: TileCoord,
   now: Seconds,

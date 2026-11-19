@@ -5,16 +5,28 @@ import {
   type TemplateSurface,
   uuidV7,
   type WorkAction,
+  type WorkFields,
   type WorkItem,
   type WorkMutation,
   workClaimants,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
-import type { SqlStore } from '../ports/index.js'
+import type { NodeStore } from '../nodes/store.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
-import { ForbiddenError, NotFoundError, storage, ValidationError } from '../runtime/errors.js'
+import {
+  ForbiddenError,
+  NotFoundError,
+  type StorageError,
+  storage,
+  ValidationError,
+} from '../runtime/errors.js'
 import { bestEffort } from '../status-read-model/port.js'
+import type { TemplateStore } from '../templates/store.js'
+import type { WorkStore } from './store.js'
+
+/** The longest title `isWorkFields` accepts; a template claim takes its template's name. */
+const MAX_WORK_TITLE_LENGTH = 160
 
 const invalid = (message: string) => Effect.fail(new ValidationError({ message }))
 
@@ -38,7 +50,7 @@ const activityAction = (action: WorkMutation['action']): WorkAction => {
  * copies template names and links, so an item linking an unpublished or deleted template would
  * still describe it.
  */
-const visibleWork = (sql: SqlStore, season: number, surface: TemplateSurface) =>
+const visibleWork = (sql: TemplateStore, season: number, surface: TemplateSurface) =>
   storage('coordination', async () => {
     const published = new Set(
       (await sql.listManifestTemplates({ season, surface }, false)).map((template) => template.id),
@@ -85,6 +97,234 @@ export const workHistory = (id: string, before: number, includeUnpublished: bool
     return activity.filter((entry) => visible(entry.item))
   })
 
+/** The item a mutation addresses, in the drawing scope the route named. */
+interface WorkTarget {
+  readonly id: string
+  readonly season: number
+  readonly surface: TemplateSurface
+}
+
+type WorkStores = NodeStore & TemplateStore & { readonly work: WorkStore }
+
+/** A mutation whose action one workflow handles. */
+type MutationOf<Action extends WorkMutation['action']> = WorkMutation & { readonly action: Action }
+
+interface MutationResult {
+  readonly conflict: boolean
+  readonly item: WorkItem | null
+}
+
+const inScope = (
+  target: WorkTarget,
+  owner: { readonly season: number; readonly surface: TemplateSurface },
+) => owner.season === target.season && sameTemplateSurface(owner.surface, target.surface)
+
+const notFound = Effect.fail(new NotFoundError({ message: 'Work item not found' }))
+
+/** The stored item, refused when it lives in another drawing scope than the request names. */
+const readHeld = (sql: WorkStores, target: WorkTarget) =>
+  Effect.gen(function* () {
+    const held = yield* storage('coordination', () => sql.work.read(target.id))
+    if (held !== null && !inScope(target, held))
+      return yield* invalid('Work belongs to a different drawing scope')
+    return held
+  })
+
+/** Refuse fields linking anything missing or outside the target's scope. Kept links pass as-is. */
+const checkFields = (
+  sql: WorkStores,
+  target: WorkTarget,
+  fields: WorkFields,
+  held: WorkItem | null,
+) =>
+  Effect.gen(function* () {
+    if (fields.blockerIds.includes(target.id)) return yield* invalid('Work cannot block itself')
+    const { nodeId } = fields
+    if (nodeId !== null && nodeId !== held?.nodeId) {
+      const node = yield* storage('coordination', () => sql.readNode(nodeId))
+      if (node === null || !inScope(target, node))
+        return yield* invalid('Folder is missing or belongs to a different drawing scope')
+    }
+    for (const templateId of fields.templateIds) {
+      if (held?.templateIds.includes(templateId)) continue
+      const template = yield* storage('coordination', () => sql.readTemplate(templateId))
+      if (template === null || !inScope(target, template))
+        return yield* invalid('Linked template is missing or belongs to a different drawing scope')
+      if (!template.published)
+        return yield* invalid('Publish the template before linking shared work')
+    }
+    for (const blockerId of fields.blockerIds) {
+      const blocker = yield* storage('coordination', () => sql.work.read(blockerId))
+      if (blocker === null || !inScope(target, blocker))
+        return yield* invalid('Blocker is missing or belongs to a different drawing scope')
+    }
+  })
+
+/** Store the next revision and its activity if `held` is still current, then tell readers. */
+const saveWork = (
+  target: WorkTarget,
+  mutation: WorkMutation,
+  caller: Caller,
+  held: WorkItem | null,
+  next: WorkFields &
+    Pick<WorkItem, 'claimant'> & { readonly claimants?: WorkItem['claimants'] | undefined },
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const live = yield* StatusReadModelService
+    const now = Date.now()
+    const { claimants } = next
+    const item: WorkItem = {
+      title: next.title.trim(),
+      description: next.description,
+      status: next.status,
+      priority: next.priority,
+      tags: next.tags,
+      blockerIds: next.blockerIds,
+      nodeId: next.nodeId,
+      templateIds: next.templateIds,
+      ...target,
+      claimant: next.claimant,
+      ...(claimants === undefined ? {} : { claimants }),
+      revision: (held?.revision ?? 0) + 1,
+      createdAt: held?.createdAt ?? now,
+      updatedAt: Math.max(held?.updatedAt ?? now, now),
+    }
+    const activity = {
+      id: uuidV7(),
+      action: activityAction(mutation.action),
+      actor: mutation.actor,
+      item,
+    }
+    const saved = yield* storage('coordination', () =>
+      sql.work.save(item, mutation.expectedRevision, activity, caller.tokenHash),
+    )
+    // A write that lost its revision race changed nothing; the write that won publishes its own.
+    if (saved)
+      yield* storage('coordination', () =>
+        bestEffort(() => live.notifyManifestChange(target.season, target.surface, false)),
+      )
+    return {
+      conflict: !saved,
+      item: saved ? item : yield* storage('coordination', () => sql.work.read(target.id)),
+    }
+  })
+
+/** Administrators plan work: create it, edit its fields, or assign it to one painter. */
+const planWork = (
+  target: WorkTarget,
+  mutation: MutationOf<'create' | 'edit' | 'assign'>,
+  caller: Caller,
+): Effect.Effect<MutationResult, WorkError, WorkServices> =>
+  Effect.gen(function* () {
+    if (caller.scope !== 'admin') return yield* Effect.fail(new ForbiddenError())
+    const sql = yield* SqlStoreService
+    const held = yield* readHeld(sql, target)
+    if (mutation.action !== 'create' && held === null) return yield* notFound
+    if (
+      (held?.revision ?? 0) !== mutation.expectedRevision ||
+      (mutation.action === 'create' && held !== null)
+    )
+      return { conflict: true, item: held }
+    const fields = mutation.action === 'assign' ? held : mutation.fields
+    if (fields == null) return yield* invalid('Work fields are required')
+    yield* checkFields(sql, target, fields, held)
+    if (held?.claimants !== undefined && mutation.action !== 'edit')
+      return yield* invalid('Use template claim actions for this template')
+    const claimant =
+      mutation.action === 'assign' ? (mutation.claimant ?? null) : (held?.claimant ?? null)
+    return yield* saveWork(target, mutation, caller, held, {
+      ...fields,
+      claimant,
+      claimants: held?.claimants,
+    })
+  })
+
+/** Painters claim and release shared work as themselves, one claimant at a time. */
+const claimSharedWork = (
+  target: WorkTarget,
+  mutation: MutationOf<'claim' | 'release'>,
+  caller: Caller,
+): Effect.Effect<MutationResult, WorkError, WorkServices> =>
+  Effect.gen(function* () {
+    if (caller.scope === 'read') return yield* Effect.fail(new ForbiddenError())
+    const sql = yield* SqlStoreService
+    const held = yield* readHeld(sql, target)
+    if (held === null) return yield* notFound
+    if (held.revision !== mutation.expectedRevision) return { conflict: true, item: held }
+    yield* checkFields(sql, target, held, held)
+    if (held.claimants !== undefined)
+      return yield* invalid('Use template claim actions for this template')
+    if (mutation.action === 'release') {
+      if (held.claimant?.wplaceUserId !== mutation.actor.wplaceUserId)
+        return yield* Effect.fail(new ForbiddenError())
+      return yield* saveWork(target, mutation, caller, held, { ...held, claimant: null })
+    }
+    if (held.status === 'completed')
+      return yield* invalid('Reopen completed work before claiming it')
+    if (held.claimant !== null) return { conflict: true, item: held }
+    return yield* saveWork(target, mutation, caller, held, { ...held, claimant: mutation.actor })
+  })
+
+/**
+ * A template's own claim, keyed by the template's id and created on first use: painters join and
+ * leave it as themselves, administrators add or remove another painter. Many painters may hold it.
+ */
+const claimTemplate = (
+  target: WorkTarget,
+  mutation: MutationOf<
+    'claim-template' | 'release-template' | 'assign-template' | 'unassign-template'
+  >,
+  caller: Caller,
+): Effect.Effect<MutationResult, WorkError, WorkServices> =>
+  Effect.gen(function* () {
+    const forOther =
+      mutation.action === 'assign-template' || mutation.action === 'unassign-template'
+    if (caller.scope === 'read' || (forOther && caller.scope !== 'admin'))
+      return yield* Effect.fail(new ForbiddenError())
+    const leaving =
+      mutation.action === 'release-template' || mutation.action === 'unassign-template'
+    const person = forOther ? mutation.claimant : mutation.actor
+    const sql = yield* SqlStoreService
+    const held = yield* readHeld(sql, target)
+    const template = yield* storage('coordination', () => sql.readTemplate(target.id))
+    if (template === null || !template.published || !inScope(target, template))
+      return yield* invalid('Publish the template before claiming it')
+    if (held !== null && (held.templateIds.length !== 1 || held.templateIds[0] !== target.id))
+      return yield* invalid('This work item is not a template claim')
+    if (person == null) return yield* invalid('A painter is required')
+    const previous = held === null ? [] : workClaimants(held)
+    const included = previous.some((claim) => claim.wplaceUserId === person.wplaceUserId)
+    // Nothing changed, so subscribers are owed nothing.
+    if (held !== null && included !== leaving) return { conflict: false, item: held }
+    if ((held?.revision ?? 0) !== mutation.expectedRevision) return { conflict: true, item: held }
+    const fields: WorkFields = held ?? {
+      title: template.name.slice(0, MAX_WORK_TITLE_LENGTH),
+      description: '',
+      status: 'open',
+      priority: 'normal',
+      tags: [],
+      blockerIds: [],
+      nodeId: template.nodeId,
+      templateIds: [target.id],
+    }
+    yield* checkFields(sql, target, fields, held)
+    const claimants = leaving
+      ? previous.filter((claim) => claim.wplaceUserId !== person.wplaceUserId)
+      : [...previous, person]
+    if (claimants.length > MAX_TEMPLATE_CLAIMANTS)
+      return yield* invalid('This template has reached its claim limit')
+    return yield* saveWork(target, mutation, caller, held, {
+      ...fields,
+      status: 'open',
+      claimant: claimants[0] ?? null,
+      claimants,
+    })
+  })
+
+type WorkError = ValidationError | NotFoundError | ForbiddenError | StorageError
+type WorkServices = SqlStoreService | StatusReadModelService
+
 /** Apply a scoped mutation. Claim identity is self-reported; server credentials enforce action scope. */
 export const mutateWork = (
   id: string,
@@ -92,168 +332,18 @@ export const mutateWork = (
   surface: TemplateSurface,
   mutation: WorkMutation,
   caller: Caller,
-) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlStoreService
-    const live = yield* StatusReadModelService
-    const planning =
-      mutation.action === 'create' ||
-      mutation.action === 'edit' ||
-      mutation.action === 'assign' ||
-      mutation.action === 'assign-template' ||
-      mutation.action === 'unassign-template'
-    if (caller.scope === 'read' || (planning && caller.scope !== 'admin')) {
-      return yield* Effect.fail(new ForbiddenError())
-    }
-    const held = yield* storage('coordination', () => sql.work.read(id))
-    const templateClaim =
-      mutation.action === 'claim-template' ||
-      mutation.action === 'release-template' ||
-      mutation.action === 'assign-template' ||
-      mutation.action === 'unassign-template'
-    const removing =
-      mutation.action === 'release-template' || mutation.action === 'unassign-template'
-    const person =
-      mutation.action === 'assign-template' || mutation.action === 'unassign-template'
-        ? mutation.claimant
-        : mutation.actor
-    if (mutation.action !== 'create' && !templateClaim && held === null)
-      return yield* Effect.fail(new NotFoundError({ message: 'Work item not found' }))
-    if (held !== null && (held.season !== season || !sameTemplateSurface(held.surface, surface)))
-      return yield* invalid('Work belongs to a different drawing scope')
-    const template = templateClaim
-      ? yield* storage('coordination', () => sql.readTemplate(id))
-      : null
-    if (templateClaim) {
-      if (
-        template === null ||
-        !template.published ||
-        template.season !== season ||
-        !sameTemplateSurface(template.surface, surface)
-      )
-        return yield* invalid('Publish the template before claiming it')
-      if (held !== null && (held.templateIds.length !== 1 || held.templateIds[0] !== id))
-        return yield* invalid('This work item is not a template claim')
-      if (person == null) return yield* invalid('A painter is required')
-      const included =
-        held !== null &&
-        workClaimants(held).some((claim) => claim.wplaceUserId === person.wplaceUserId)
-      // Nothing changed, so subscribers are owed nothing.
-      if (held !== null && included !== removing) return { conflict: false, item: held }
-    }
-    if (
-      (held?.revision ?? 0) !== mutation.expectedRevision ||
-      (mutation.action === 'create' && held !== null)
-    )
-      return { conflict: true, item: held }
-    const fields =
-      mutation.action === 'create' || mutation.action === 'edit'
-        ? mutation.fields
-        : (held ??
-          (template === null
-            ? null
-            : {
-                title: template.name.slice(0, 160),
-                description: '',
-                status: 'open' as const,
-                priority: 'normal' as const,
-                tags: [],
-                blockerIds: [],
-                nodeId: template.nodeId,
-                templateIds: [id],
-              }))
-    if (fields == null) return yield* invalid('Work fields are required')
-    if (fields.blockerIds.includes(id)) return yield* invalid('Work cannot block itself')
-    if (fields.nodeId !== null && fields.nodeId !== held?.nodeId) {
-      const node = yield* storage('coordination', () => sql.readNode(fields.nodeId as string))
-      if (node === null || node.season !== season || !sameTemplateSurface(node.surface, surface))
-        return yield* invalid('Folder is missing or belongs to a different drawing scope')
-    }
-    for (const templateId of fields.templateIds) {
-      if (held?.templateIds.includes(templateId)) continue
-      const template = yield* storage('coordination', () => sql.readTemplate(templateId))
-      if (
-        template === null ||
-        template.season !== season ||
-        !sameTemplateSurface(template.surface, surface)
-      )
-        return yield* invalid('Linked template is missing or belongs to a different drawing scope')
-      if (!template.published)
-        return yield* invalid('Publish the template before linking shared work')
-    }
-    for (const blockerId of fields.blockerIds) {
-      const blocker = yield* storage('coordination', () => sql.work.read(blockerId))
-      if (
-        blocker === null ||
-        blocker.season !== season ||
-        !sameTemplateSurface(blocker.surface, surface)
-      )
-        return yield* invalid('Blocker is missing or belongs to a different drawing scope')
-    }
-    let claimant = held?.claimant ?? null
-    let claimants = held?.claimants
-    if (templateClaim && person != null) {
-      const previous = held === null ? [] : workClaimants(held)
-      claimants = removing
-        ? previous.filter((claim) => claim.wplaceUserId !== person.wplaceUserId)
-        : [...previous, person]
-      if (claimants.length > MAX_TEMPLATE_CLAIMANTS)
-        return yield* invalid('This template has reached its claim limit')
-      claimant = claimants[0] ?? null
-    }
-    if (!templateClaim && held?.claimants !== undefined && mutation.action !== 'edit')
-      return yield* invalid('Use template claim actions for this template')
-    if (mutation.action === 'claim') {
-      if (held?.status === 'completed')
-        return yield* invalid('Reopen completed work before claiming it')
-      if (claimant !== null) return { conflict: true, item: held }
-      claimant = mutation.actor
-    }
-    if (mutation.action === 'release') {
-      if (claimant?.wplaceUserId !== mutation.actor.wplaceUserId)
-        return yield* Effect.fail(new ForbiddenError())
-      claimant = null
-    }
-    if (mutation.action === 'assign') claimant = mutation.claimant ?? null
-    const now = Date.now()
-    const item: WorkItem = {
-      title: fields.title.trim(),
-      description: fields.description,
-      status: templateClaim ? 'open' : fields.status,
-      priority: fields.priority,
-      tags: fields.tags,
-      blockerIds: fields.blockerIds,
-      nodeId: fields.nodeId,
-      templateIds: fields.templateIds,
-      id,
-      season,
-      surface,
-      claimant,
-      ...(claimants === undefined ? {} : { claimants }),
-      revision: (held?.revision ?? 0) + 1,
-      createdAt: held?.createdAt ?? now,
-      updatedAt: Math.max(held?.updatedAt ?? now, now),
-    }
-    const saved = yield* storage('coordination', () =>
-      sql.work.save(
-        item,
-        mutation.expectedRevision,
-        {
-          id: uuidV7(),
-          action: activityAction(mutation.action),
-          actor: mutation.actor,
-          item,
-        },
-        caller.tokenHash,
-      ),
-    )
-    // A write that lost its revision race changed nothing; the write that won publishes its own.
-    if (saved)
-      yield* storage('coordination', () =>
-        bestEffort(() => live.notifyManifestChange(season, surface, false)),
-      )
-    return {
-      conflict: !saved,
-      item: saved ? item : yield* storage('coordination', () => sql.work.read(id)),
-    }
-  })
+): Effect.Effect<MutationResult, WorkError, WorkServices> => {
+  const target = { id, season, surface }
+  switch (mutation.action) {
+    case 'claim':
+    case 'release':
+      return claimSharedWork(target, { ...mutation, action: mutation.action }, caller)
+    case 'claim-template':
+    case 'release-template':
+    case 'assign-template':
+    case 'unassign-template':
+      return claimTemplate(target, { ...mutation, action: mutation.action }, caller)
+    default:
+      return planWork(target, { ...mutation, action: mutation.action }, caller)
+  }
+}

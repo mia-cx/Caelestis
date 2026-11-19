@@ -11,7 +11,7 @@ import {
 import { type Context, Hono } from 'hono'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
-import type { TemplateAuthoringInput } from '../templates/store.js'
+import type { TemplateAuthoringInput } from '../templates/authoring.js'
 import {
   createTemplate,
   deleteTemplate,

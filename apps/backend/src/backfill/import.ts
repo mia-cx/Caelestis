@@ -17,8 +17,12 @@ import {
   templatesInFolderSubtree,
   uuidV7,
 } from '@caelestis/shared'
-import type { BlobStore, SqlStore, TemplateRecord } from '../ports/index.js'
+import type { ArchiveStatus } from '../archive/store.js'
+import type { NodeStore } from '../nodes/store.js'
+import type { BlobStore } from '../ports/index.js'
 import { classifyChunk, readTargetChunk } from '../telemetry/classification.js'
+import type { TileStore } from '../telemetry/tiles/store.js'
+import type { TemplateRecord, TemplateStore } from '../templates/store.js'
 import {
   type ArchiveSource,
   archiveWeek,
@@ -178,7 +182,7 @@ export class TemplateBackfill implements BackfillImporter {
 
   constructor(
     private readonly storage: BackfillStorage,
-    private readonly sql: SqlStore,
+    private readonly sql: ArchiveStatus & NodeStore & TemplateStore & TileStore,
     private readonly blobs: BlobStore,
     private readonly archive: ArchiveSource,
     private readonly now: () => number = Date.now,

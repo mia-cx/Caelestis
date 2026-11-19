@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { Pool, type PoolClient, type PoolConfig, types } from 'pg'
+import { DatabaseError, Pool, type PoolClient, type PoolConfig, types } from 'pg'
 import { ingestTimings } from '../../telemetry/ingest-timing.js'
+import { type ConstraintKind, ConstraintViolation } from '../constraint-violation.js'
 import type {
   SqlConnection,
   SqlResult,
@@ -59,6 +60,21 @@ const describeAbort = (error: unknown): string => {
   return `${error.message.replace(/\s+/g, ' ').slice(0, 300)}${reason}${detail ? `: ${detail}` : ''}`
 }
 
+/** SQLSTATE class 23 codes for the constraints the stores distinguish. */
+const CONSTRAINT_CODES: Readonly<Record<string, ConstraintKind>> = {
+  '23505': 'unique',
+  '23503': 'foreign-key',
+  '23514': 'check',
+}
+
+const postgresConstraintViolation = (error: unknown): ConstraintViolation | null => {
+  if (!(error instanceof DatabaseError) || error.code === undefined) return null
+  const kind = CONSTRAINT_CODES[error.code]
+  return kind === undefined
+    ? null
+    : new ConstraintViolation(kind, error.constraint ?? null, { cause: error })
+}
+
 class Statement implements SqlStatement {
   constructor(
     readonly owner: PostgresConnection,
@@ -76,7 +92,10 @@ class Statement implements SqlStatement {
     try {
       return await client.query<unknown[]>({ text, values: this.values, rowMode: 'array' })
     } catch (cause) {
-      throw new Error(`PostgreSQL query failed: ${text}`, { cause })
+      throw (
+        postgresConstraintViolation(cause) ??
+        new Error(`PostgreSQL query failed: ${text}`, { cause })
+      )
     } finally {
       ingestTimings.record('sql', 'statement', performance.now() - startedAt)
     }

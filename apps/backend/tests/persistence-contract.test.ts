@@ -60,7 +60,7 @@ describe('SqlStore contract', () => {
 
   it('keeps tag assignment within existing template ownership and paginates equal-time tokens stably', async () => {
     const sql = await store()
-    await sql.insertTemplateVersion(version(ids.version))
+    await sql.createTemplate(version(ids.version))
     expect(await sql.mutateTag({ type: 'create', id: ids.tag, name: 'Important' }, createdAt)).toBe(
       true,
     )

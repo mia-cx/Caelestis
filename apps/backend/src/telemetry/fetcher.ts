@@ -10,7 +10,7 @@ import {
   uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type { AlarmProbe, BlobStore, CounterStore, SqlStore } from '../ports/index.js'
+import type { BlobStore, CounterStore, SqlStore } from '../ports/index.js'
 import {
   type BackendRuntime,
   createBackendRuntime,
@@ -26,6 +26,7 @@ import {
   ALARM_SCAN_INTERVAL_SECONDS,
   ALARM_SCAN_JITTER_SECONDS,
 } from './alarm-policy.js'
+import type { AlarmProbe } from './alarms/store.js'
 import {
   createDerivedArtifactWriter,
   type DerivedArtifactWriter,

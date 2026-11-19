@@ -9,17 +9,20 @@ import {
 } from '@caelestis/shared'
 import { expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import { openMemoryStores } from '../src/node/memory-stores.js'
+import type { SqlStore } from '../src/ports/sql-store.js'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
+import { RelationalTileBlobStore } from '../src/telemetry/blobs/relational.js'
 import { offerTiles, type TileMetadata, uploadTile } from '../src/telemetry/ingest.js'
+import { RelationalTileStore } from '../src/telemetry/tiles/relational.js'
 
-const seed = async (sql: RelationalSqlStore, blobs: MemoryBlobStore) => {
+const seed = async (sql: SqlStore, blobs: MemoryBlobStore) => {
   const at = Math.floor(Date.now() / 1000) - 10
   const chunk = await encodeIndexedPng(2, 1, new Uint8Array([1, 1]))
   const chunkHash = await sha256Hex(chunk)
   await blobs.put('chunks', chunkHash, chunk)
-  await sql.insertTemplateVersion({
+  await sql.createTemplate({
     templateId: uuidV7(),
     versionId: uuidV7(),
     surface: WORLD_TEMPLATE_SURFACE,
@@ -67,15 +70,15 @@ it.each(['before-put', 'before-commit'])(
     let reservations = 0
     let commits = 0
     let tilePuts = 0
-    class DelayedStore extends RelationalSqlStore {
+    class DelayedStore extends RelationalTileBlobStore {
       override async reserveTileBlobUpload(
-        ...args: Parameters<RelationalSqlStore['reserveTileBlobUpload']>
+        ...args: Parameters<RelationalTileBlobStore['reserveTileBlobUpload']>
       ) {
         const value = await super.reserveTileBlobUpload(...args)
         if (++reservations === 2) reserved.resolve()
         return value
       }
-      override async readTileBlob(...args: Parameters<RelationalSqlStore['readTileBlob']>) {
+      override async readTileBlob(...args: Parameters<RelationalTileBlobStore['readTileBlob']>) {
         if (phase === 'before-put') {
           entered.resolve()
           await gate.promise
@@ -83,7 +86,7 @@ it.each(['before-put', 'before-commit'])(
         return super.readTileBlob(...args)
       }
       override async commitTileBlobReservation(
-        ...args: Parameters<RelationalSqlStore['commitTileBlobReservation']>
+        ...args: Parameters<RelationalTileBlobStore['commitTileBlobReservation']>
       ) {
         if (phase === 'before-commit' && ++commits === 1) {
           entered.resolve()
@@ -98,7 +101,9 @@ it.each(['before-put', 'before-commit'])(
         return super.put(...args)
       }
     }
-    const opened = await openMemoryStores({ sql: (connection) => new DelayedStore(connection) })
+    const opened = await openMemoryStores({
+      sql: (connection) => relationalSqlStore(connection, { tileBlobs: DelayedStore }),
+    })
     const pending: Promise<unknown>[] = []
     try {
       const { sql, counters } = opened
@@ -127,9 +132,9 @@ it('settles started offers before reporting batch failure and never starts queue
   const entered = Promise.withResolvers<void>()
   const started = new Set<number>()
   let delaying = false
-  class FailingTargets extends RelationalSqlStore {
+  class FailingTargets extends RelationalTileStore {
     override async listTelemetryTargets(
-      ...args: Parameters<RelationalSqlStore['listTelemetryTargets']>
+      ...args: Parameters<RelationalTileStore['listTelemetryTargets']>
     ) {
       if (delaying) {
         const x = args[1].x
@@ -141,7 +146,9 @@ it('settles started offers before reporting batch failure and never starts queue
       return super.listTelemetryTargets(...args)
     }
   }
-  const opened = await openMemoryStores({ sql: (connection) => new FailingTargets(connection) })
+  const opened = await openMemoryStores({
+    sql: (connection) => relationalSqlStore(connection, { tiles: FailingTargets }),
+  })
   let batch: Promise<unknown> | undefined
   try {
     const { sql, blobs, counters } = opened

@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import { receivePresence } from './adapters/cloudflare/live-connect.js'
-import { RelationalSqlStore } from './adapters/relational-sql-store.js'
+import { relationalSqlStore } from './adapters/relational-sql-store.js'
 import { instrumentD1 } from './metrics/request-metrics.js'
 import { PresenceCoordinator } from './presence-coordinator.js'
 import { IngestTimings } from './telemetry/ingest-timing.js'
@@ -25,7 +25,7 @@ export class PresenceObject extends DurableObject<Env> {
         upgradeResponse: (client, headers) =>
           new Response(null, { status: 101, headers, webSocket: client }),
       },
-      new RelationalSqlStore(instrumentD1(env.DB)),
+      relationalSqlStore(instrumentD1(env.DB)),
       new IngestTimings(),
     )
   }

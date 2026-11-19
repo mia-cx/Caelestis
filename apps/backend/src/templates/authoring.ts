@@ -1,0 +1,295 @@
+import {
+  decodePng,
+  decodeWplaceIndexedPng,
+  encodeIndexedPng,
+  MAX_TEMPLATE_SOURCE_BYTES,
+  MAX_TIMELAPSE_CAPTURE_TILES,
+  millis,
+  PALETTE_SIZE,
+  type PixelBounds,
+  PngError,
+  pngSize,
+  type QuantiseReport,
+  quantiseToPalette,
+  SliceError,
+  type SurfaceChunkKey,
+  sameTemplateSurface,
+  sha256Hex,
+  sliceTemplateForSurface,
+  type TemplateRecipe,
+  type TemplateSurface,
+  TRANSPARENT_INDEX,
+  templateSizeChange,
+  tileKey,
+  timelapseCaptureTileCount,
+  uuidV7,
+} from '@caelestis/shared'
+import { InvalidNodeParentError, type NodeStore } from '../nodes/store.js'
+import type { BlobStore } from '../ports/index.js'
+import { PortError } from '../runtime/errors.js'
+import {
+  TemplateIdentityError,
+  TemplateNotFoundError,
+  type TemplateStore,
+  type TemplateVersionRecord,
+} from './store.js'
+
+export interface StoreTemplateInput {
+  /**
+   * The template these pixels belong to, or absent to mint a new one.
+   *
+   * Supplying it is what makes this a *new version* of something that already exists: the chunks are
+   * re-sliced and re-uploaded, a fresh version id becomes current, and the template's own row keeps
+   * its name, parent, published state and creation date.
+   */
+  readonly templateId?: string
+  readonly surface: TemplateSurface
+  readonly season: number
+  readonly nodeId: string | null
+  readonly name: string
+  readonly createdWithToken: string
+  /** The uploader's wplace account when the client presented one; null for a server-side upload. */
+  readonly createdByUserId: number | null
+  readonly originX: number
+  readonly originY: number
+  readonly png: Uint8Array
+  /** The original PNG and the recipe the client used to turn it into `png`. */
+  readonly authoring?: TemplateAuthoringInput
+}
+
+export interface TemplateAuthoringInput {
+  readonly source: Uint8Array
+  readonly recipe: TemplateRecipe
+}
+
+export interface StoredTemplate {
+  readonly templateId: string
+  readonly versionId: string
+  readonly bbox: PixelBounds
+  readonly totalPixels: number
+  readonly chunks: readonly { readonly tile: SurfaceChunkKey; readonly hash: string }[]
+  readonly report: QuantiseReport
+  readonly published: boolean
+}
+
+/**
+ * Tiles one upload may cover.
+ *
+ * Every chunk costs an R2 HEAD, an R2 PUT, a compression and a share of a D1 batch statement, so the
+ * bound is on the pipeline rather than on the image: 400 tiles is a 400,000-pixel span in one
+ * dimension, far beyond a placed template.
+ *
+ * The number comes from the Workers Free plan's 1,000 internal subrequests, which R2 and D1 binding
+ * calls both count against. `hasAll` is one HEAD per distinct hash, because R2 has no bulk existence
+ * operation, and a first upload has no hash already present — so the worst case is 400 HEADs, 400
+ * PUTs and roughly twenty batch statements, a little over 800. At 512 the same upload asked for more
+ * than a thousand and failed after writing part of its chunks, leaving those orphaned.
+ */
+const MAX_TEMPLATE_CHUNKS = 400
+
+/** An upload the pipeline refuses for a reason the client can act on — answered as 400, not 500. */
+export class StoreTemplateError extends PortError {
+  override readonly name = 'StoreTemplateError'
+  readonly kind = 'invalid'
+}
+
+/** Pixels that do not decode or slice are the uploader's to fix, so refuse them as such. */
+const refuseUnreadable = async <A>(read: () => Promise<A>): Promise<A> => {
+  try {
+    return await read()
+  } catch (error) {
+    if (error instanceof PngError || error instanceof SliceError)
+      throw new StoreTemplateError(error.message)
+    throw error
+  }
+}
+
+const exactPaletteReport = (indices: Uint8Array): QuantiseReport => {
+  let opaquePixels = 0
+  const used = new Set<number>()
+  for (const index of indices) {
+    if (index === TRANSPARENT_INDEX) continue
+    opaquePixels += 1
+    used.add(index)
+  }
+  return {
+    opaquePixels,
+    movedPixels: 0,
+    distinctColours: used.size,
+    distinctPaletteEntries: used.size,
+    meanDistance: 0,
+    maxDistance: 0,
+  }
+}
+
+const colourTotals = (
+  indices: Uint8Array,
+): readonly { readonly index: number; readonly total: number }[] => {
+  const totals = new Array<number>(PALETTE_SIZE).fill(0)
+  for (const index of indices) {
+    if (index !== TRANSPARENT_INDEX) totals[index] = (totals[index] ?? 0) + 1
+  }
+  return [...totals.entries()]
+    .filter(([, total]) => total > 0)
+    .map(([index, total]) => ({ index, total }))
+}
+
+/**
+ * Refuse authoring that does not describe these pixels. The server cannot rerun the processor, so
+ * it checks everything it can: the source bytes, their size, and the output size.
+ */
+const checkAuthoring = async (
+  authoring: TemplateAuthoringInput,
+  width: number,
+  height: number,
+): Promise<void> => {
+  const { source, recipe } = authoring
+  if (source.byteLength > MAX_TEMPLATE_SOURCE_BYTES)
+    throw new StoreTemplateError('source image is too large to keep')
+  if ((await sha256Hex(source)) !== recipe.source.sha256)
+    throw new StoreTemplateError('source image does not match its recipe')
+  const size = pngSize(source)
+  if (size.width !== recipe.source.width || size.height !== recipe.source.height)
+    throw new StoreTemplateError('source image size does not match its recipe')
+  if (recipe.width !== width || recipe.height !== height)
+    throw new StoreTemplateError(`recipe output is not ${width}x${height}`)
+}
+
+export const storeTemplate = async (
+  blobs: BlobStore,
+  sql: NodeStore & TemplateStore,
+  input: StoreTemplateInput,
+): Promise<StoredTemplate> => {
+  if (input.templateId === undefined && input.nodeId !== null) {
+    const node = await sql.readNode(input.nodeId)
+    // The folder is the template's parent: naming one that is missing is bad input.
+    if (node === null) throw new InvalidNodeParentError(`node does not exist: ${input.nodeId}`)
+    if (node.season !== input.season || !sameTemplateSurface(node.surface, input.surface)) {
+      throw new InvalidNodeParentError(
+        `node does not exist in season ${input.season}: ${input.nodeId}`,
+      )
+    }
+  }
+
+  const { indices, report, sliced } = await refuseUnreadable(async () => {
+    const decoded = (await decodeWplaceIndexedPng(input.png)) ?? (await decodePng(input.png))
+    const { width, height } = decoded
+    if (input.authoring !== undefined) await checkAuthoring(input.authoring, width, height)
+    const { indices, report } =
+      'indices' in decoded
+        ? { indices: decoded.indices, report: exactPaletteReport(decoded.indices) }
+        : quantiseToPalette(decoded.pixels)
+    const sliced = sliceTemplateForSurface(
+      indices,
+      width,
+      height,
+      input.originX,
+      input.originY,
+      input.surface,
+    )
+    return { indices, report, sliced }
+  })
+  // Bound the storage work, not the image area. A 1,999,000x2 image slices to ~4,000 chunks: ~170
+  // batch statements against D1's 50 per invocation, ~8,000 R2 subrequests against a limit of 1,000,
+  // and 4,000 concurrent compressions — from an upload a few kilobytes long, because two rows of one
+  // colour deflate to nothing. A large template covering an ordinary number of tiles remains valid.
+  if (sliced.chunks.length > MAX_TEMPLATE_CHUNKS) {
+    throw new StoreTemplateError(
+      `template covers ${sliced.chunks.length} tiles, more than the ${MAX_TEMPLATE_CHUNKS} one upload may carry`,
+    )
+  }
+  if (input.surface.kind === 'world') {
+    const captureTiles = timelapseCaptureTileCount(sliced.bbox)
+    if (captureTiles > MAX_TIMELAPSE_CAPTURE_TILES) {
+      throw new StoreTemplateError(
+        `template timelapse covers ${captureTiles.toLocaleString()} tiles, more than the ${MAX_TIMELAPSE_CAPTURE_TILES.toLocaleString()} one viewer may load`,
+      )
+    }
+  }
+
+  if (input.templateId !== undefined) {
+    const existing = await sql.readTemplate(input.templateId)
+    if (existing === null) {
+      throw new TemplateNotFoundError(`template does not exist: ${input.templateId}`)
+    }
+    if (existing.currentVersionId !== null) {
+      const current = await sql.readTemplateVersion(existing.currentVersionId)
+      if (current === null) {
+        throw new TemplateNotFoundError(
+          `current version does not exist: ${existing.currentVersionId}`,
+        )
+      }
+      const resized = templateSizeChange(input.surface, current.bbox, sliced.bbox)
+      if (resized !== null) {
+        throw new TemplateIdentityError(`template ${input.templateId} ${resized}`)
+      }
+    }
+  }
+
+  const encodedChunks = await Promise.all(
+    sliced.chunks.map(async (chunk) => {
+      const png = await encodeIndexedPng(chunk.width, chunk.height, chunk.indices)
+      return { chunk, png, hash: await sha256Hex(png) }
+    }),
+  )
+
+  // Several tiles can contain the same cropped image. Content addressing means one upload per
+  // distinct hash is enough even when the version index refers to that hash more than once.
+  const pngByHash = new Map(encodedChunks.map(({ hash, png }) => [hash, png]))
+  const present = await blobs.hasAll('chunks', [...pngByHash.keys()])
+  await Promise.all(
+    [...pngByHash].map(async ([hash, png]) => {
+      if (!present.has(hash)) await blobs.put('chunks', hash, png)
+    }),
+  )
+  // Like chunks, the source lands before the version row, so no version can name a missing source.
+  if (input.authoring !== undefined) {
+    const { source, recipe } = input.authoring
+    const hash = recipe.source.sha256
+    if (!(await blobs.hasAll('sources', [hash])).has(hash)) await blobs.put('sources', hash, source)
+  }
+
+  const templateId = input.templateId ?? uuidV7()
+  const versionId = uuidV7()
+  const createdAt = millis(Date.now())
+  const versionChunks = encodedChunks.map(({ chunk, hash }) => ({
+    tileX: chunk.tileX,
+    tileY: chunk.tileY,
+    hash,
+  }))
+  const version: TemplateVersionRecord = {
+    templateId,
+    surface: input.surface,
+    season: input.season,
+    nodeId: input.nodeId,
+    name: input.name,
+    versionId,
+    createdWithToken: input.createdWithToken,
+    createdByUserId: input.createdByUserId,
+    createdAt,
+    bbox: sliced.bbox,
+    totalPixels: sliced.totalPixels,
+    colourTotals: colourTotals(indices),
+    chunks: versionChunks,
+    ...(input.authoring === undefined ? {} : { recipe: input.authoring.recipe }),
+  }
+  if (input.templateId === undefined) await sql.createTemplate(version)
+  else await sql.addTemplateVersion(version)
+  const installed = await sql.readTemplate(templateId)
+  if (installed === null) {
+    throw new TemplateNotFoundError(`template does not exist: ${templateId}`)
+  }
+
+  return {
+    templateId,
+    versionId,
+    bbox: sliced.bbox,
+    totalPixels: sliced.totalPixels,
+    chunks: versionChunks.map(({ tileX, tileY, hash }) => ({
+      tile: tileKey({ x: tileX, y: tileY }),
+      hash,
+    })),
+    report,
+    published: installed.published,
+  }
+}

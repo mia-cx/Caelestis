@@ -1,20 +1,21 @@
 import { millis, seconds } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
-import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
 import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { EXPIRES_AFTER_SECONDS, FLUSHABLE_AFTER_SECONDS } from '../src/ports/index.js'
+import { RelationalHistoryStore } from '../src/telemetry/history/relational.js'
 
-class FailOnceSqlStore extends RelationalSqlStore {
+class FailOnceHistory extends RelationalHistoryStore {
   private failed = false
-  override async appendBuckets(...parameters: Parameters<RelationalSqlStore['appendBuckets']>) {
+  override async appendAndFold(...parameters: Parameters<RelationalHistoryStore['appendAndFold']>) {
     if (!this.failed) {
       this.failed = true
       throw new Error('temporary persistence failure')
     }
-    await super.appendBuckets(...parameters)
+    await super.appendAndFold(...parameters)
   }
 }
 
@@ -39,7 +40,7 @@ describe('durable telemetry coordinator', () => {
         alarms.last = null
       },
     }
-    const sql = new FailOnceSqlStore(opened.connection)
+    const sql = relationalSqlStore(opened.connection, { history: FailOnceHistory })
     const coordinator = new TelemetryCoordinator(
       coordinatorDatabase(opened.connection),
       alarms,

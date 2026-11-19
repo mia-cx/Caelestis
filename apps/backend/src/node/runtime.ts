@@ -17,7 +17,7 @@ import { PostgresConnection } from '../adapters/node/postgres-connection.js'
 import type { SqliteConnection } from '../adapters/node/sqlite-connection.js'
 import { claimSqliteOwnership } from '../adapters/node/sqlite-ownership.js'
 import { ObjectBlobStore } from '../adapters/object-blob-store.js'
-import { RelationalSqlStore } from '../adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../adapters/relational-sql-store.js'
 import { runAlarmWatcherCycle } from '../alarm-watcher-cycle.js'
 import { createApp } from '../app.js'
 import { closeProcessWrites } from '../archive/fence.js'
@@ -96,7 +96,7 @@ export const openNodeRuntime = async (
     const serverState = state('server')
     const serverId = config.serverId ?? (await serverState.get<string>('id')) ?? uuidV7()
     await serverState.put('id', serverId)
-    const sql = new RelationalSqlStore(connection)
+    const sql = relationalSqlStore(connection)
     const blobs = new ObjectBlobStore(objects)
     const counterState = state('telemetry')
     const counters = new TelemetryCoordinator(database, counterState, sql)
@@ -111,7 +111,7 @@ export const openNodeRuntime = async (
       const tokenHash = await hashToken(readToken)
       const generated = readToken
       await connection.transaction(async (transaction) => {
-        await new RelationalSqlStore(transaction).insertAccessToken({
+        await relationalSqlStore(transaction).insertAccessToken({
           tokenHash,
           label: 'Built-in frontend',
           scope: 'read',

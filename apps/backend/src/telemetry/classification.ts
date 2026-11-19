@@ -18,12 +18,14 @@ import {
   WRONG,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { BlobStore, SqlStore, TelemetryTarget, TileMeasurement } from '../ports/index.js'
+import type { BlobStore } from '../ports/index.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
+import type { TileBlobStore } from './blobs/store.js'
 import { BoundedCache, memoize } from './bounded-cache.js'
 import { ingestTimings } from './ingest-timing.js'
 import { readTileBlob } from './tile-blobs.js'
+import type { TelemetryTarget, TileMeasurement, TileStore } from './tiles/store.js'
 
 export interface ColourClassification {
   readonly index: number
@@ -198,7 +200,7 @@ export const decodeCanvasBytes = async (hash: string, bytes: Uint8Array): Promis
 
 /** A stored canvas as palette indices, or null when it is missing or unreadable. */
 export const readDecodedCanvas = async (
-  ports: { readonly blobs: BlobStore; readonly sql: SqlStore },
+  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
   hash: string,
 ): Promise<Uint8Array | null> => {
   try {
@@ -295,7 +297,7 @@ export const classifyTarget = async (
 
 /** Derive counts for a retained canvas image against one artwork revision. */
 export const readHistoricalTileMeasurement = async (
-  ports: { readonly blobs: BlobStore; readonly sql: SqlStore },
+  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
   target: ClassificationTarget,
   hash: string,
 ): Promise<TileMeasurement | null> => {
@@ -337,7 +339,7 @@ export interface MismatchMaskQuery {
 }
 
 const readMismatchMaskPromise = async (
-  ports: { readonly blobs: BlobStore; readonly sql: SqlStore },
+  ports: { readonly blobs: BlobStore; readonly sql: TileStore & TileBlobStore },
   query: MismatchMaskQuery,
 ): Promise<MismatchMaskRead> => {
   const targets = await ports.sql.listTelemetryTargets(

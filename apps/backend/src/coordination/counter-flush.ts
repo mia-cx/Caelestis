@@ -1,12 +1,12 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
+import { FLUSH_BATCH_LIMIT } from '../db/d1-limits.js'
 import {
   EXPIRES_AFTER_SECONDS,
-  FLUSH_BATCH_LIMIT,
   FLUSHABLE_AFTER_SECONDS,
   RESOLUTION_SECONDS,
-  type SqlStore,
-  type TelemetryBucket,
 } from '../ports/index.js'
+import type { HistoryStore } from '../telemetry/history/store.js'
+import type { TelemetryBucket } from '../telemetry/ladder.js'
 import { COUNTER_VALUES } from './counter-tables.js'
 import type { AlarmStorage, CoordinatorDatabase } from './database.js'
 
@@ -52,7 +52,7 @@ export class CounterFlusher {
   constructor(
     private readonly database: CoordinatorDatabase,
     private readonly alarms: AlarmStorage,
-    private readonly sql: SqlStore,
+    private readonly sql: HistoryStore,
     private readonly clock: () => Millis,
   ) {}
 
@@ -152,12 +152,7 @@ export class CounterFlusher {
       // opposite ordering does. Both are wrong; only one of them is wrong in a direction that hides
       // work rather than exaggerating it.
       try {
-        await this.sql.appendBuckets(buckets)
-        const templateIds = buckets.map((bucket) => bucket.templateId)
-        await this.sql.foldTelemetryBuckets(templateIds, nowSeconds)
-        // Painter buckets are written by the paint route, not flushed from here, but they age on
-        // the same ladder, so the flush that folds a template's buckets folds its painters' too.
-        await this.sql.foldPainterBuckets(templateIds, nowSeconds)
+        await this.sql.appendAndFold(buckets, nowSeconds)
       } catch (error) {
         // Schedule the retry and return normally rather than rethrowing.
         //

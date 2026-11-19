@@ -25,8 +25,8 @@ import {
 } from '@caelestis/shared'
 import { PresenceClientEvent } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
+import type { AccessTokenStore } from './auth/store.js'
 import { createLiveSessionFence, type LiveHost, type LiveSocket } from './live/session.js'
-import type { SqlStore } from './ports/index.js'
 import { presenceRectWithinSurface } from './presence/geometry.js'
 import { PeerGrid } from './presence/peer-grid.js'
 import type { PresenceConnection } from './presence/port.js'
@@ -35,8 +35,7 @@ import {
   type IngestTimings,
   ingestTimings,
 } from './telemetry/ingest-timing.js'
-import type { RegionOwner } from './work/region-store.js'
-import { withPublishedHints } from './work/regions.js'
+import { ownedRegionIds, type RegionOwner, type RegionStore } from './work/region-store.js'
 
 interface Attachment extends PresenceConnection {
   readonly sessionId: string
@@ -108,7 +107,7 @@ export class PresenceCoordinator<Client> {
 
   constructor(
     private readonly state: PresenceHost<Client>,
-    private readonly sql: SqlStore,
+    private readonly sql: AccessTokenStore & { readonly regions: RegionStore },
     private readonly timings: IngestTimings = ingestTimings,
   ) {}
 
@@ -278,11 +277,8 @@ export class PresenceCoordinator<Client> {
         const regions =
           room === undefined || !recovering
             ? []
-            : await this.timings.timed('claims', 'list', async () =>
-                withPublishedHints(
-                  this.sql,
-                  await this.sql.regions.listRegions(room.season, room.surface),
-                ),
+            : await this.timings.timed('claims', 'list', () =>
+                this.sql.regions.listRegions(room.season, room.surface),
               )
         // A valid heartbeat/update has kept these sessions alive. Ownership always uses both keys,
         // including for administrators; connecting must never renew another painter's claims.
@@ -428,10 +424,7 @@ export class PresenceCoordinator<Client> {
             Date.now(),
           )
         // Share the fence with region publication so ready cannot arrive after a newer regions event.
-        regions = await withPublishedHints(
-          this.sql,
-          await this.sql.regions.listRegions(season, surface),
-        )
+        regions = await this.sql.regions.listRegions(season, surface)
         await this.rememberRegionExpiry(season, surface, regions)
         return true
       },
@@ -587,8 +580,8 @@ export class PresenceCoordinator<Client> {
     await this.sessions.revoke(async () =>
       this.timings.timed('claims', 'total', async () => {
         this.timings.record('claims', 'queue', performance.now() - queued)
-        const regions = await this.timings.timed('claims', 'list', async () =>
-          withPublishedHints(this.sql, await this.sql.regions.listRegions(season, surface)),
+        const regions = await this.timings.timed('claims', 'list', () =>
+          this.sql.regions.listRegions(season, surface),
         )
         await this.rememberRegionExpiry(season, surface, regions)
         const owners = await this.timings.timed('claims', 'owners', () =>
@@ -654,12 +647,10 @@ export class PresenceCoordinator<Client> {
       (await this.timings.timed('claims', 'owners', () =>
         this.sql.regions.regionOwners(attachment.season, attachment.surface),
       ))
-    return owners
-      .filter(
-        ({ tokenHash, actorId }) =>
-          tokenHash === attachment.tokenHash && actorId === attachment.painter.wplaceUserId,
-      )
-      .map(({ id }) => id)
+    return ownedRegionIds(owners, {
+      tokenHash: attachment.tokenHash,
+      actorId: attachment.painter.wplaceUserId,
+    })
   }
 
   private async rememberRegionExpiry(

@@ -20,6 +20,17 @@ export interface RegionRenewal {
   readonly actorId: number
 }
 
+/** The claims among `owners` that `holder` owns: both its credential and its painter match. */
+export const ownedRegionIds = (
+  owners: readonly RegionOwner[],
+  holder: RegionRenewal,
+): readonly string[] =>
+  owners
+    .filter(
+      ({ tokenHash, actorId }) => tokenHash === holder.tokenHash && actorId === holder.actorId,
+    )
+    .map(({ id }) => id)
+
 /** Persisted claims; creation never overwrites an existing identity. */
 export interface RegionStore {
   /** Remove expired replicas before reads, inserts, or renewal; preserve explicit deletions. */
@@ -31,6 +42,11 @@ export interface RegionStore {
   renewRegions(owners: readonly RegionRenewal[], now: number): Promise<void>
   /** Read all ownership keys once per drawing snapshot, regardless of subscriber count. */
   regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]>
+  /**
+   * Active claims in one scope, oldest first. A template hint naming an unpublished or missing
+   * template reads as null, so a hint never says more than the public manifest does, and a
+   * `templateId` filter matches published hints only.
+   */
   listRegions(
     season: number,
     surface: TemplateSurface,

@@ -9,7 +9,8 @@ import {
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { seedTileObservation } from '../src/node/memory-stores.js'
-import type { SqlStore, TemplateVersionRecord } from '../src/ports/sql-store.js'
+import type { SqlStore } from '../src/ports/sql-store.js'
+import type { TemplateVersionRecord } from '../src/templates/store.js'
 import { authorized, createTestBackend } from './support/backend.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
@@ -74,10 +75,10 @@ describe('template lifetime progress', () => {
   const fixture = async () => {
     vi.spyOn(Date, 'now').mockReturnValue((start + 600) * 1_000)
     const backend = await createTestBackend({ openAccess: true })
-    await backend.sql.insertTemplateVersion(version(originalId, start, 10, [0, 1]))
+    await backend.sql.createTemplate(version(originalId, start, 10, [0, 1]))
     await observe(backend.sql, originalId, 0, start + 30, 3, 2)
     const firstHash = await observe(backend.sql, originalId, 1, start + 30, 4, 1)
-    await backend.sql.insertTemplateVersion({
+    await backend.sql.addTemplateVersion({
       ...version(updatedId, start + 180, 20, [1, 2]),
       createdAt: millis((start + 180) * 1_000 + 123),
     })
@@ -135,10 +136,10 @@ describe('template lifetime progress', () => {
   it('keeps known tile coverage when an artwork update reuses previously observed canvas tiles', async () => {
     vi.spyOn(Date, 'now').mockReturnValue((start + 600) * 1_000)
     const backend = await createTestBackend()
-    await backend.sql.insertTemplateVersion(version(originalId, start, 10, [0, 1]))
+    await backend.sql.createTemplate(version(originalId, start, 10, [0, 1]))
     const left = await observe(backend.sql, originalId, 0, start + 30, 3, 2)
     const right = await observe(backend.sql, originalId, 1, start + 30, 4, 1)
-    await backend.sql.insertTemplateVersion(version(updatedId, start + 180, 20, [0, 1]))
+    await backend.sql.addTemplateVersion(version(updatedId, start + 180, 20, [0, 1]))
     await backend.sql.writeTileMeasurements(updatedId, { x: 0, y: 0 }, [
       { hash: left, correct: 8, wrong: 2, blank: 0 },
     ])
@@ -184,7 +185,7 @@ describe('template lifetime progress', () => {
       const chunkHash = await sha256Hex(chunk)
       if (retained) await backend.blobs.put('tiles', canvasHash, canvas)
       await backend.blobs.put('chunks', chunkHash, chunk)
-      await backend.sql.insertTemplateVersion(version(originalId, start, 1, [0]))
+      await backend.sql.createTemplate(version(originalId, start, 1, [0]))
       await seedTileObservation(backend.sql, {
         season: 3,
         tile: { x: 0, y: 0 },
@@ -197,7 +198,7 @@ describe('template lifetime progress', () => {
       await backend.sql.writeTileMeasurements(originalId, { x: 0, y: 0 }, [
         { hash: canvasHash, correct: 1, wrong: 0, blank: 0 },
       ])
-      await backend.sql.insertTemplateVersion({
+      await backend.sql.addTemplateVersion({
         ...version(updatedId, start + 180, 1, [0]),
         chunks: [{ tileX: 0, tileY: 0, hash: chunkHash }],
       })
@@ -233,9 +234,9 @@ describe('template lifetime progress', () => {
     const now = day + 40 * 86_400
     vi.spyOn(Date, 'now').mockReturnValue(now * 1_000)
     const backend = await createTestBackend()
-    await backend.sql.insertTemplateVersion(version(originalId, day, 10, [0]))
+    await backend.sql.createTemplate(version(originalId, day, 10, [0]))
     const hash = await observe(backend.sql, originalId, 0, day + 600, 5, 5)
-    await backend.sql.insertTemplateVersion(version(updatedId, day + 1800, 10, [0]))
+    await backend.sql.addTemplateVersion(version(updatedId, day + 1800, 10, [0]))
     await backend.sql.writeTileMeasurements(updatedId, { x: 0, y: 0 }, [
       { hash, correct: 1, wrong: 9, blank: 0 },
     ])

@@ -1,6 +1,5 @@
 import { millis, nodeSlug, type TemplateSurface, uuidV7 } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { NodeDeletion, NodeRecord } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
   type ConflictError,
@@ -9,9 +8,10 @@ import {
   NotFoundError,
   type StorageError,
   storage,
-  ValidationError,
+  type ValidationError,
 } from '../runtime/errors.js'
 import { bestEffort } from '../status-read-model/port.js'
+import type { NewNode, NodeDeletion, NodeRecord } from './store.js'
 
 type NodeError = ValidationError | NotFoundError | ConflictError | GoneError | StorageError
 
@@ -36,35 +36,12 @@ export const createNode = (input: {
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
-    const segment = nodeSlug(input.name)
-    let parentPath = ''
-    if (input.parentId !== null) {
-      const parent = yield* storage('readNode', () => sql.readNode(input.parentId as string))
-      if (parent === null) {
-        return yield* Effect.fail(new ValidationError({ message: 'parent node does not exist' }))
-      }
-      if (parent.season !== input.season) {
-        return yield* Effect.fail(
-          new ValidationError({ message: 'parent node belongs to a different season' }),
-        )
-      }
-      if (
-        parent.surface.kind !== input.surface.kind ||
-        parent.surface.allianceId !== input.surface.allianceId
-      ) {
-        return yield* Effect.fail(
-          new ValidationError({ message: 'parent node belongs to a different surface' }),
-        )
-      }
-      parentPath = parent.path
-    }
-
-    const node: NodeRecord = {
+    const node: NewNode = {
       id: uuidV7(),
       surface: input.surface,
       season: input.season,
       parentId: input.parentId,
-      path: `${parentPath}/${segment}`,
+      slug: nodeSlug(input.name),
       name: input.name,
       description: input.description ?? null,
       createdAt: millis(Date.now()),
@@ -102,32 +79,13 @@ export const patchNode = (input: {
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     const statusReadModel = yield* StatusReadModelService
-    const node = yield* storage('readNode', () => sql.readNode(input.nodeId))
-    if (node === null) {
-      return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
-    }
-    const segment = input.name === undefined ? nodeSlug(node.name) : nodeSlug(input.name)
-    const nextParentId = input.parentId === undefined ? node.parentId : input.parentId
-    let parentPath = node.path.slice(0, node.path.lastIndexOf('/'))
-    if (input.parentId !== undefined) {
-      if (nextParentId === null) parentPath = ''
-      else {
-        const parent = yield* storage('readNode', () => sql.readNode(nextParentId))
-        if (parent === null) {
-          return yield* Effect.fail(new ValidationError({ message: 'parent node does not exist' }))
-        }
-        parentPath = parent.path
-      }
-    }
-    const path = `${parentPath}/${segment}`
+    const rename =
+      input.name === undefined ? undefined : { name: input.name, slug: nodeSlug(input.name) }
+    const { parentId } = input
     const changed = yield* fromPort('patchNode', async () => {
-      if (input.parentId !== undefined) {
-        return sql.moveNode(input.nodeId, nextParentId, path, {
-          ...(input.name === undefined ? {} : { name: input.name }),
-        })
-      }
-      if (input.name !== undefined) {
-        return (await sql.renameNode(input.nodeId, input.name, segment)) !== null
+      if (parentId !== undefined) return sql.moveNode(input.nodeId, parentId, rename)
+      if (rename !== undefined) {
+        return (await sql.renameNode(input.nodeId, rename.name, rename.slug)) !== null
       }
       return true
     })

@@ -13,9 +13,15 @@ import {
   MAX_MANIFEST_TEMPLATES,
 } from '@caelestis/wire-schema'
 import { Effect } from 'effect'
-import type { SqlStore } from '../ports/index.js'
+import type { NodeStore } from '../nodes/store.js'
 import { SqlStoreService } from '../runtime/backend-runtime.js'
 import { type StorageError, storage } from '../runtime/errors.js'
+import type { TagStore } from '../tags/store.js'
+import type { TemplateStore } from '../templates/store.js'
+import type { WorkStore } from '../work/store.js'
+
+/** The stores a manifest is assembled from. */
+export type ManifestStores = NodeStore & TemplateStore & TagStore & { readonly work: WorkStore }
 
 export interface AssembleManifestOptions {
   readonly server: ServerInfo
@@ -28,7 +34,7 @@ const VERSION_PLACEHOLDER = '0'.repeat(64)
 
 /** Assemble one visibility-scoped manifest and sign it with the hash of its content. */
 export const assembleManifest = async (
-  sql: SqlStore,
+  sql: ManifestStores,
   options: AssembleManifestOptions,
 ): Promise<Manifest> => {
   const surface = options.surface ?? { kind: 'world', allianceId: null }

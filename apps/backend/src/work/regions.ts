@@ -12,7 +12,6 @@ import {
 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { Caller } from '../auth/middleware.js'
-import { MAX_READ_BUCKETS_TEMPLATE_IDS, type SqlStore } from '../ports/index.js'
 import { presenceRectWithinSurface } from '../presence/geometry.js'
 import { PresenceService, SqlStoreService } from '../runtime/backend-runtime.js'
 import {
@@ -23,27 +22,7 @@ import {
   storage,
   ValidationError,
 } from '../runtime/errors.js'
-
-/**
- * Clear template hints that name a template the public manifest does not carry. Every reader,
- * presence included, gets this one list, so a hint never says more than the manifest does.
- */
-export const withPublishedHints = async (
-  sql: SqlStore,
-  regions: readonly RegionClaim[],
-): Promise<readonly RegionClaim[]> => {
-  const hinted = [...new Set(regions.flatMap(({ templateId }) => templateId ?? []))]
-  const published = new Set<string>()
-  for (let start = 0; start < hinted.length; start += MAX_READ_BUCKETS_TEMPLATE_IDS) {
-    const ids = hinted.slice(start, start + MAX_READ_BUCKETS_TEMPLATE_IDS)
-    for (const id of await sql.filterPublishedTemplateIds(ids)) published.add(id)
-  }
-  return regions.map((region) =>
-    region.templateId === null || published.has(region.templateId)
-      ? region
-      : { ...region, templateId: null },
-  )
-}
+import { ownedRegionIds } from './region-store.js'
 
 /** List a bounded surface or template's region claims. */
 export const listRegions = (
@@ -54,18 +33,19 @@ export const listRegions = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    const regions = (yield* storage('regions', async () =>
-      withPublishedHints(sql, await sql.regions.listRegions(season, surface, templateId)),
-    )).filter((region) => templateId === undefined || region.templateId === templateId)
+    const regions = yield* storage('regions', () =>
+      sql.regions.listRegions(season, surface, templateId),
+    )
     if (owner === undefined) return { regions }
     const owners = yield* storage('regions', () => sql.regions.regionOwners(season, surface))
-    const ownedRegionIds = owners
-      .filter(
-        ({ tokenHash, actorId }) =>
-          tokenHash === owner.caller.tokenHash && actorId === owner.actorId,
-      )
-      .map(({ id }) => id)
-    return { regions, ownedRegionIds, canWrite: owner.caller.scope !== 'read' }
+    return {
+      regions,
+      ownedRegionIds: ownedRegionIds(owners, {
+        tokenHash: owner.caller.tokenHash,
+        actorId: owner.actorId,
+      }),
+      canWrite: owner.caller.scope !== 'read',
+    }
   })
 
 /** Create a credential-owned claim or update its content and template hint as its owner or an administrator. */

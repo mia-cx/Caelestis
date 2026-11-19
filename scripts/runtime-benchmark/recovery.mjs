@@ -22,7 +22,7 @@ for (const claims of [37, 512]) {
       const [
         { PresenceCoordinator },
         { sqliteConnection },
-        { RelationalSqlStore },
+        relational,
         { IngestTimings },
       ] = await Promise.all([
         load('presence-coordinator.js'),
@@ -33,7 +33,9 @@ for (const claims of [37, 512]) {
       const database = sqliteConnection(':memory:')
       try {
         database.migrate(resolve('apps/backend/migrations'))
-        const sql = new RelationalSqlStore(database)
+        // Baseline builds that predate the per-feature split export the class instead.
+        const sql =
+          relational.relationalSqlStore?.(database) ?? new relational.RelationalSqlStore(database)
         const expected = []
         for (let index = 0; index < claims; index++) {
           const id = `00000000-0000-7000-8000-${String(index).padStart(12, '0')}`

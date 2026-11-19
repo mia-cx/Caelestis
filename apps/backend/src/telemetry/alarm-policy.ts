@@ -1,17 +1,39 @@
-import type { Alarm } from '@caelestis/shared'
-import type {
-  AlarmEvaluationPhase,
-  AlarmPolicyResult,
-  TemplateAlarmSnapshot,
-  TemplateAlarmState,
-} from '../ports/index.js'
+import type { Alarm, Millis } from '@caelestis/shared'
 
-export type {
-  AlarmEvaluationPhase,
-  AlarmPolicyResult,
-  TemplateAlarmSnapshot,
-  TemplateAlarmState,
-} from '../ports/index.js'
+/** Current classified pixels used by the server-owned alarm policy. */
+export interface TemplateAlarmSnapshot {
+  readonly templateId: string
+  readonly versionId: string
+  readonly total: number
+  readonly correct: number
+  readonly observedAt: Millis
+  /** Orders the committed evidence, including authoritative scans with equal timestamps. */
+  readonly observationRevision?: number
+}
+
+export interface TemplateAlarmState {
+  readonly templateId: string
+  readonly versionId: string
+  readonly total: number
+  readonly peakCorrect: number
+  readonly alarm: Alarm | null
+}
+
+export type AlarmEvaluationPhase =
+  | { readonly kind: 'scan' }
+  | { readonly kind: 'observation'; readonly previousCorrect: number }
+  | {
+      readonly kind: 'follow-up'
+      readonly alarmId: string
+      readonly pixelsLost: number
+      /** Identifies the exact durable probe generation this evaluation may consume. */
+      readonly dueAt: Millis
+    }
+
+export interface AlarmPolicyResult {
+  readonly state: TemplateAlarmState
+  readonly scheduleFollowUp: boolean
+}
 
 /**
  * How often the tile mirror scans every template. The six-hourly cron in `wrangler.toml` and

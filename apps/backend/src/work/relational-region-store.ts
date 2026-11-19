@@ -8,11 +8,10 @@ import {
   type TemplateSurface,
   templateSurface,
 } from '@caelestis/shared'
-import { and, asc, eq, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
-import { changedRows, relationalDatabase } from '../adapters/relational-database.js'
-import type { SqlConnection } from '../adapters/sql-connection.js'
-import { sqlDialect } from '../adapters/sql-dialect.js'
-import { workRegionDeletions, workRegions } from '../db/schema.js'
+import { and, asc, eq, getTableColumns, isNotNull, isNull, lte, ne, or, sql } from 'drizzle-orm'
+import { changedRows } from '../adapters/relational-database.js'
+import { RelationalStore } from '../adapters/relational-store.js'
+import { templates, workRegionDeletions, workRegions } from '../db/schema.js'
 import type { RegionOwner, RegionRenewal, RegionStore, RegionWriter } from './region-store.js'
 
 const ownedBy = (writer: RegionWriter) =>
@@ -60,15 +59,10 @@ const fromRow = (row: typeof workRegions.$inferSelect): RegionClaim => {
 }
 
 /** Enforce ID uniqueness in the insert statement itself; there is no cap on claims per surface. */
-export class RelationalRegionStore implements RegionStore {
-  private readonly db
-  constructor(private readonly client: SqlConnection) {
-    this.db = relationalDatabase(client)
-  }
-
+export class RelationalRegionStore extends RelationalStore implements RegionStore {
   async expireRegions(now: number): Promise<void> {
     // Expiry drops replicas, but never a permanent deletion retained by older schema versions.
-    await this.db
+    await this.database
       .delete(workRegions)
       .where(
         and(
@@ -86,7 +80,7 @@ export class RelationalRegionStore implements RegionStore {
   }
 
   async regionOwners(season: number, surface: TemplateSurface): Promise<readonly RegionOwner[]> {
-    const rows = await this.db
+    const rows = await this.database
       .select({
         id: workRegions.id,
         tokenHash: workRegions.tokenHash,
@@ -115,7 +109,7 @@ export class RelationalRegionStore implements RegionStore {
     // Owners travel as one JSON parameter: D1 binds at most 100 values per statement.
     // Old binaries may insert null expiry during rolling upgrades; apply their original deadline
     // directly instead of backfilling every row first.
-    const syntax = sqlDialect(this.client.dialect)
+    const { syntax } = this
     await this.client
       .prepare(`UPDATE work_regions SET expires_at = ?
         WHERE state = 'active'
@@ -139,8 +133,17 @@ export class RelationalRegionStore implements RegionStore {
     templateId?: string,
   ): Promise<readonly RegionClaim[]> {
     await this.expireRegions(Date.now())
-    const rows = await this.db
-      .select()
+    const hintPublished = sql`exists (
+      select 1 from ${templates}
+      where ${templates.id} = ${workRegions.templateId} and ${templates.publishedAt} is not null
+    )`
+    const rows = await this.database
+      .select({
+        ...getTableColumns(workRegions),
+        templateId: sql<
+          string | null
+        >`case when ${hintPublished} then ${workRegions.templateId} end`,
+      })
       .from(workRegions)
       .where(
         and(
@@ -149,7 +152,9 @@ export class RelationalRegionStore implements RegionStore {
           surface.allianceId === null
             ? isNull(workRegions.allianceId)
             : eq(workRegions.allianceId, surface.allianceId),
-          templateId === undefined ? undefined : eq(workRegions.templateId, templateId),
+          templateId === undefined
+            ? undefined
+            : and(eq(workRegions.templateId, templateId), hintPublished),
           eq(workRegions.state, 'active'),
         ),
       )
@@ -159,7 +164,7 @@ export class RelationalRegionStore implements RegionStore {
 
   async readRegion(id: string): Promise<RegionClaim | null> {
     await this.expireRegions(Date.now())
-    const [row] = await this.db
+    const [row] = await this.database
       .select()
       .from(workRegions)
       .where(and(eq(workRegions.id, id), ne(workRegions.state, 'deleted')))
@@ -168,7 +173,7 @@ export class RelationalRegionStore implements RegionStore {
   }
 
   async isRegionDeleted(id: string): Promise<boolean> {
-    const [row] = await this.db
+    const [row] = await this.database
       .select({ id: workRegionDeletions.id })
       .from(workRegionDeletions)
       .where(eq(workRegionDeletions.id, id))
@@ -218,20 +223,20 @@ export class RelationalRegionStore implements RegionStore {
       const canClear = writer.admin ? undefined : eq(workRegions.claimantUserId, writer.actorId)
       // Retire the ID and remove the live row atomically. Old binaries cannot see the tombstone
       // or erase it with their expiry sweep, and the database blocks their stale reinsertion.
-      const retire = this.db
+      const retire = this.database
         .insert(workRegionDeletions)
         .select(
-          this.db
+          this.database
             .select({ id: workRegions.id })
             .from(workRegions)
             .where(and(eq(workRegions.id, id), canClear)),
         )
         .onConflictDoNothing()
-      const remove = this.db.delete(workRegions).where(and(eq(workRegions.id, id), canClear))
-      const [, result] = await this.db.batch([retire, remove])
+      const remove = this.database.delete(workRegions).where(and(eq(workRegions.id, id), canClear))
+      const [, result] = await this.database.batch([retire, remove])
       return changedRows(result) === 1
     }
-    const result = await this.db
+    const result = await this.database
       .update(workRegions)
       .set({ state: 'withdrawn' })
       .where(and(eq(workRegions.id, id), ownedBy(writer), ne(workRegions.state, 'deleted')))
@@ -249,7 +254,7 @@ export class RelationalRegionStore implements RegionStore {
     const rect = regionDocumentBounds(document)
     if (rect === null) throw new Error('Region document must contain an added shape')
     await this.expireRegions(Date.now())
-    const update = this.db
+    const update = this.database
       .update(workRegions)
       .set({
         shape: JSON.stringify(document),
@@ -261,9 +266,9 @@ export class RelationalRegionStore implements RegionStore {
       })
       .where(and(eq(workRegions.id, id), ownedBy(writer), ne(workRegions.state, 'deleted')))
     if (this.client.dialect === 'mariadb') {
-      const [, read] = await this.db.batch([
+      const [, read] = await this.database.batch([
         update,
-        this.db
+        this.database
           .select()
           .from(workRegions)
           .where(and(eq(workRegions.id, id), ownedBy(writer), eq(workRegions.state, 'active')))

@@ -1,7 +1,8 @@
 import { encodeIndexedPng, millis, seconds, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import { seedTileObservation } from '../src/node/memory-stores.js'
+import { RelationalServerSettingsStore } from '../src/server/relational.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
 import { adminToken, createTestBackend } from './support/backend.js'
 
@@ -518,13 +519,15 @@ describe('backend API trust boundary', () => {
 
   it('maps storage failures to a non-sensitive HTTP error and permits a later retry', async () => {
     let fail = true
-    class UnavailableSql extends RelationalSqlStore {
+    class UnavailableSettings extends RelationalServerSettingsStore {
       override async readServerSettings() {
         if (fail) throw new Error('database password=do-not-expose')
         return super.readServerSettings()
       }
     }
-    const backend = await createTestBackend({ sql: (connection) => new UnavailableSql(connection) })
+    const backend = await createTestBackend({
+      sql: (connection) => relationalSqlStore(connection, { settings: UnavailableSettings }),
+    })
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     const response = await request(backend, '/server')
     expect(response.status).toBe(500)

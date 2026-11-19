@@ -19,6 +19,10 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core'
+import { LADDER_RESOLUTIONS, TILE_HISTORY_RESOLUTIONS } from '../telemetry/ladder.js'
+
+/** A literal `(a, b, c)` list for a CHECK, so the constraint text names the ladder's own tiers. */
+const inList = (values: readonly number[]) => sql.raw(`(${values.join(', ')})`)
 
 /** Terminal claim identities, separate from rows that older binaries can read or expire. */
 export const workRegionDeletions = sqliteTable('work_region_deletions', {
@@ -468,7 +472,7 @@ export const telemetryBuckets = sqliteTable(
     primaryKey({ columns: [table.templateId, table.resolution, table.bucketStartS] }),
     check(
       'telemetry_buckets_resolution_check',
-      sql`${table.resolution} IN (60, 300, 900, 3600, 21600)`,
+      sql`${table.resolution} IN ${inList(LADDER_RESOLUTIONS)}`,
     ),
     // A bucket start is the floor of an event time to its resolution, so it is always a
     // non-negative multiple of it. Without this, {resolution: 60, bucketStart: 61} persists as a row
@@ -530,7 +534,7 @@ export const painterTelemetryBuckets = sqliteTable(
     }),
     check(
       'painter_telemetry_buckets_resolution_check',
-      sql`${table.resolution} IN (60, 300, 900, 3600, 21600)`,
+      sql`${table.resolution} IN ${inList(LADDER_RESOLUTIONS)}`,
     ),
     check(
       'painter_telemetry_buckets_alignment_check',
@@ -760,7 +764,10 @@ export const tileHistory = sqliteTable(
       ],
     }),
     index('tile_history_sha256_idx').on(table.sha256),
-    check('tile_history_resolution_s_check', sql`${table.resolutionS} IN (0, 3600, 21600, 86400)`),
+    check(
+      'tile_history_resolution_s_check',
+      sql`${table.resolutionS} IN ${inList(TILE_HISTORY_RESOLUTIONS)}`,
+    ),
     check(
       'tile_history_season_check',
       sql`typeof(${table.season}) = 'integer' AND ${table.season} >= 0`,

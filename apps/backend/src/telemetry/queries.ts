@@ -22,16 +22,16 @@ import {
 import { Effect } from 'effect'
 import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
+import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
+import { type StorageError, storage } from '../runtime/errors.js'
+import type { TemplateStore } from '../templates/store.js'
 import {
   type DecayEdge,
   LADDER_RESOLUTIONS,
-  type SqlStore,
   TELEMETRY_DECAY_EDGES,
   TILE_HISTORY_DECAY_EDGES,
   TILE_HISTORY_RESOLUTIONS,
-} from '../ports/index.js'
-import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
-import { type StorageError, storage } from '../runtime/errors.js'
+} from './ladder.js'
 
 interface HistoryTier {
   readonly resolution: number
@@ -204,7 +204,11 @@ const mergeTileHistory = (
  * Bucket rows carry no publication state. Resolve ids through the same visibility gate as the
  * manifest so a stale unpublished id looks absent instead of leaking that it still exists.
  */
-const visibleTemplateIds = (sql: SqlStore, ids: readonly string[], includeUnpublished: boolean) =>
+const visibleTemplateIds = (
+  sql: TemplateStore,
+  ids: readonly string[],
+  includeUnpublished: boolean,
+) =>
   includeUnpublished
     ? Effect.succeed(ids)
     : storage('filterPublishedTemplateIds', () => sql.filterPublishedTemplateIds(ids))
@@ -448,7 +452,7 @@ export const readLeaderboard = (input: {
  * The canvas tiles a caller below admin may see: the timelapse capture of every published template.
  * The fetcher captures drafts too, and their tiles alone would show where a draft is being drawn.
  */
-const publishedCanvasTiles = async (sql: SqlStore, season: number): Promise<Set<TileKey>> =>
+const publishedCanvasTiles = async (sql: TemplateStore, season: number): Promise<Set<TileKey>> =>
   new Set(
     planTimelapseTiles(
       (await sql.listManifestTemplates({ season, surface: WORLD_TEMPLATE_SURFACE }, false)).map(

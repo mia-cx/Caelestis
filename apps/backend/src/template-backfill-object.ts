@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import type { TileCoord } from '@caelestis/shared'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
-import { RelationalSqlStore } from './adapters/relational-sql-store.js'
+import { relationalSqlStore } from './adapters/relational-sql-store.js'
 import { EralyonArchive } from './backfill/eralyon.js'
 import { TemplateBackfill } from './backfill/import.js'
 import { backfillReply } from './backfill/port.js'
@@ -17,7 +17,7 @@ export class TemplateBackfillObject extends DurableObject<Env> {
     super(ctx, env)
     this.importer = new TemplateBackfill(
       ctx.storage,
-      new RelationalSqlStore(instrumentD1(env.DB)),
+      relationalSqlStore(instrumentD1(env.DB)),
       new R2BlobStore(env.BLOBS),
       new EralyonArchive(),
       Date.now,

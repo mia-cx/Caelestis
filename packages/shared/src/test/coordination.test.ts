@@ -11,6 +11,7 @@ import {
   keyBindingMatches,
   keyBindingReleasedBy,
   parseTemplateFilters,
+  parseTemplateSurfaceKey,
   planTimelapseTiles,
   quantiseRect,
   rectIntersection,
@@ -18,7 +19,6 @@ import {
   regionDocumentPixels,
   regionPixelComponents,
   regionShapePixels,
-  parseTemplateSurfaceKey,
   templateSurfaceKey,
   type WorkItem,
 } from '../index.js'
@@ -133,7 +133,13 @@ describe('coordination and geometry contracts', () => {
       { kind: 'alliance-banner', allianceId: 42 },
     ] as const)
       expect(parseTemplateSurfaceKey(templateSurfaceKey(surface))).toEqual(surface)
-    for (const key of ['world:1', 'alliance-banner', 'alliance-banner:0', 'alliance-banner:042', 'moon:1'])
+    for (const key of [
+      'world:1',
+      'alliance-banner',
+      'alliance-banner:0',
+      'alliance-banner:042',
+      'moon:1',
+    ])
       expect(parseTemplateSurfaceKey(key)).toBeNull()
   })
 

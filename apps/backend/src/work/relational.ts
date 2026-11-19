@@ -4,19 +4,13 @@ import {
   type WorkActivity,
   type WorkItem,
 } from '@caelestis/shared'
-import type { SqlConnection } from '../adapters/sql-connection.js'
-import { sqlDialect } from '../adapters/sql-dialect.js'
+import { RelationalStore } from '../adapters/relational-store.js'
 import type { WorkStore } from './store.js'
 
 /** SQL batches make the compare-and-swap and its activity entry one transaction. */
-export class RelationalWorkStore implements WorkStore {
-  private readonly syntax: ReturnType<typeof sqlDialect>
-  constructor(private readonly database: SqlConnection) {
-    this.syntax = sqlDialect(database.dialect)
-  }
-
+export class RelationalWorkStore extends RelationalStore implements WorkStore {
   async read(id: string): Promise<WorkItem | null> {
-    const row = await this.database
+    const row = await this.client
       .prepare('SELECT data FROM work_items WHERE id = ?')
       .bind(id)
       .first<{ data: string }>()
@@ -24,7 +18,7 @@ export class RelationalWorkStore implements WorkStore {
   }
 
   async list(season: number, surface: TemplateSurface, after = ''): Promise<readonly WorkItem[]> {
-    const rows = await this.database
+    const rows = await this.client
       .prepare(
         `SELECT data FROM work_items WHERE season = ? AND surface_kind = ? AND alliance_id ${this.syntax.nullEqual} ? AND id > ? ORDER BY id LIMIT ?`,
       )
@@ -34,7 +28,7 @@ export class RelationalWorkStore implements WorkStore {
   }
 
   async revision(season: number, surface: TemplateSurface): Promise<number> {
-    const row = await this.database
+    const row = await this.client
       .prepare(
         `SELECT COALESCE(SUM(revision), 0) AS revision FROM work_items WHERE season = ? AND surface_kind = ? AND alliance_id ${this.syntax.nullEqual} ?`,
       )
@@ -44,7 +38,7 @@ export class RelationalWorkStore implements WorkStore {
   }
 
   async history(id: string, before: number): Promise<readonly WorkActivity[]> {
-    const rows = await this.database
+    const rows = await this.client
       .prepare(
         'SELECT data FROM work_activity WHERE item_id = ? AND revision < ? ORDER BY revision DESC LIMIT 50',
       )
@@ -62,7 +56,7 @@ export class RelationalWorkStore implements WorkStore {
     const data = JSON.stringify(item)
     const write =
       expectedRevision === 0
-        ? this.database
+        ? this.client
             .prepare(`INSERT INTO work_items (id, season, surface_kind, alliance_id, revision, mutation_id, data)
           VALUES (?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO NOTHING`)
@@ -75,17 +69,17 @@ export class RelationalWorkStore implements WorkStore {
               activity.id,
               data,
             )
-        : this.database
+        : this.client
             .prepare(
               'UPDATE work_items SET revision = ?, mutation_id = ?, data = ? WHERE id = ? AND revision = ?',
             )
             .bind(item.revision, activity.id, data, item.id, expectedRevision)
-    const audit = this.database
+    const audit = this.client
       .prepare(`INSERT INTO work_activity (id, item_id, revision, token_hash, data)
       SELECT ?, id, revision, ?, ? FROM work_items WHERE id = ? AND mutation_id = ?
       ON CONFLICT(id) DO NOTHING`)
       .bind(activity.id, tokenHash, JSON.stringify(activity), item.id, activity.id)
-    const results = await this.database.batch([write, audit])
+    const results = await this.client.batch([write, audit])
     return results[0]?.meta.changes === 1
   }
 }

@@ -4,8 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { coordinatorDatabase } from '../../src/adapters/node/coordinator-database.js'
 import { MariaConnection } from '../../src/adapters/node/mariadb-connection.js'
 import { PostgresConnection } from '../../src/adapters/node/postgres-connection.js'
-import { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
-import { InvalidNodeParentError } from '../../src/ports/sql-store.js'
+import { relationalSqlStore } from '../../src/adapters/relational-sql-store.js'
+import { InvalidNodeParentError } from '../../src/nodes/store.js'
 import { schedulerContract } from '../support/scheduler-contract.js'
 import {
   contractRecipe,
@@ -95,21 +95,21 @@ describe('external relational adapter contract', () => {
   it('ranks the leaderboard from reporter-reduced painter days in the selected real database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await connection.migrate(migrations)
-    expect(await runLeaderboardContract(new RelationalSqlStore(connection))).toEqual(
+    expect(await runLeaderboardContract(relationalSqlStore(connection))).toEqual(
       leaderboardContractExpected,
     )
   })
   it('renews many claim owners in one statement in the selected real database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await connection.migrate(migrations)
-    expect(await runRegionRenewalContract(new RelationalSqlStore(connection))).toEqual(
+    expect(await runRegionRenewalContract(relationalSqlStore(connection))).toEqual(
       regionRenewalContractExpected,
     )
   })
   it('migrates and preserves shared persistence boundaries in the selected real database', async () => {
     if (connection === undefined) throw new Error('Integration fixture did not open a database')
     await connection.migrate(migrations)
-    const sql = new RelationalSqlStore(connection)
+    const sql = relationalSqlStore(connection)
     const createdAt = millis(Date.now())
     await sql.insertAccessToken({
       tokenHash: 'c'.repeat(64),
@@ -133,26 +133,24 @@ describe('external relational adapter contract', () => {
     const root = '01890f3e-7b2c-7abc-8def-012345678901'
     const child = '01890f3e-7b2c-7abc-8def-012345678902'
     const otherSeason = '01890f3e-7b2c-7abc-8def-012345678903'
-    const node = (id: string, parentId: string | null, path: string, season = 1) => ({
+    const node = (id: string, parentId: string | null, slug: string, season = 1) => ({
       id,
       parentId,
-      path,
+      slug,
       season,
       surface: WORLD_TEMPLATE_SURFACE,
-      name: path,
+      name: slug,
       description: null,
       createdAt,
     })
-    await sql.insertNode(node(root, null, '/root'))
-    await sql.insertNode(node(child, root, '/root/child'))
-    await sql.insertNode(node(otherSeason, null, '/other', 2))
+    await sql.insertNode(node(root, null, 'root'))
+    await sql.insertNode(node(child, root, 'child'))
+    await sql.insertNode(node(otherSeason, null, 'other', 2))
     await sql.renameNode(root, 'Renamed', 'renamed')
     expect((await sql.readNode(child))?.path).toBe('/renamed/child')
-    await expect(sql.moveNode(root, child, '/renamed/child/root')).rejects.toBeInstanceOf(
-      InvalidNodeParentError,
-    )
+    await expect(sql.moveNode(root, child)).rejects.toBeInstanceOf(InvalidNodeParentError)
 
-    await sql.insertTemplateVersion({
+    await sql.createTemplate({
       templateId: '01890f3e-7b2c-7abc-8def-012345678904',
       versionId: '01890f3e-7b2c-7abc-8def-012345678905',
       surface: WORLD_TEMPLATE_SURFACE,

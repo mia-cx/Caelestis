@@ -1,6 +1,5 @@
 import { millis } from '@caelestis/shared'
 import type { SqliteConnection } from '../../src/adapters/node/sqlite-connection.js'
-import type { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
 import { createApp } from '../../src/app.js'
 import { hashToken } from '../../src/auth/tokens.js'
 import { openMemoryStores } from '../../src/node/memory-stores.js'
@@ -16,7 +15,7 @@ export const createTestBackend = async (
     openAccess?: boolean
     bootstrapAdminToken?: string
     statusReadModel?: (sql: SqlStore) => StatusReadModelPort
-    sql?: (connection: SqliteConnection) => RelationalSqlStore
+    sql?: (connection: SqliteConnection) => SqlStore
   } = {},
 ) => {
   const stores = await openMemoryStores({ sql: options.sql })

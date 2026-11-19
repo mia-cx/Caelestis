@@ -1,11 +1,12 @@
 import { type Millis, millis } from '@caelestis/shared'
-import type { BlobStore, SqlStore, TileBlobObject, TileBlobReservation } from '../ports/index.js'
+import type { BlobStore } from '../ports/index.js'
+import type { TileBlobObject, TileBlobReservation, TileBlobStore } from './blobs/store.js'
 import { BoundedCache } from './bounded-cache.js'
 import { ingestTimings } from './ingest-timing.js'
 
 interface TileBlobStores {
   readonly blobs: BlobStore
-  readonly sql: SqlStore
+  readonly sql: TileBlobStore
 }
 
 const RESERVATION_MILLISECONDS = 5 * 60 * 1_000

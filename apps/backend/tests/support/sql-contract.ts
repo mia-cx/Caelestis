@@ -6,7 +6,8 @@ import {
   type TemplateRecipe,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type { ContributionDelta, SqlStore } from '../../src/ports/sql-store.js'
+import type { SqlStore } from '../../src/ports/sql-store.js'
+import type { ContributionDelta } from '../../src/telemetry/history/store.js'
 
 const ids = {
   root: '01890f3e-7b2c-7abc-8def-012345678901',
@@ -37,12 +38,12 @@ export const contractRecipe: TemplateRecipe = {
   palette: [0, 4, 31],
 }
 
-const node = (id: string, parentId: string | null, path: string, name: string, season = 1) => ({
+const node = (id: string, parentId: string | null, slug: string, name: string, season = 1) => ({
   id,
   surface: WORLD_TEMPLATE_SURFACE,
   season,
   parentId,
-  path,
+  slug,
   name,
   description: null,
   createdAt,
@@ -96,12 +97,12 @@ export const nodeTemplateContractExpected = {
 
 /** Exercise node and template guards through any production SqlStore adapter. */
 export const runNodeTemplateContract = async (sql: SqlStore) => {
-  await sql.insertNode(node(ids.root, null, '/root', 'Root'))
-  await sql.insertNode(node(ids.sibling, null, '/sibling', 'Sibling'))
-  await sql.insertNode(node(ids.child, ids.root, '/root/child', 'Child'))
-  await sql.insertNode(node(ids.otherSeason, null, '/other-season', 'Other season', 2))
-  await sql.insertTemplateVersion(version(ids.cascadeTemplate, ids.cascadeVersion, ids.child))
-  await sql.insertTemplateVersion({
+  await sql.insertNode(node(ids.root, null, 'root', 'Root'))
+  await sql.insertNode(node(ids.sibling, null, 'sibling', 'Sibling'))
+  await sql.insertNode(node(ids.child, ids.root, 'child', 'Child'))
+  await sql.insertNode(node(ids.otherSeason, null, 'other-season', 'Other season', 2))
+  await sql.createTemplate(version(ids.cascadeTemplate, ids.cascadeVersion, ids.child))
+  await sql.createTemplate({
     ...version(ids.guardedTemplate, ids.guardedVersion, ids.root),
     recipe: contractRecipe,
   })
@@ -110,7 +111,7 @@ export const runNodeTemplateContract = async (sql: SqlStore) => {
 
   await sql.renameNode(ids.root, 'Renamed', 'renamed')
   const childPath = (await sql.readNode(ids.child))?.path
-  const cycleError = await errorName(() => sql.moveNode(ids.root, ids.child, '/renamed/child/root'))
+  const cycleError = await errorName(() => sql.moveNode(ids.root, ids.child))
   const pathConflictError = await errorName(() => sql.renameNode(ids.sibling, 'Renamed', 'renamed'))
 
   const crossSeasonError = await errorName(() =>
@@ -123,9 +124,8 @@ export const runNodeTemplateContract = async (sql: SqlStore) => {
   )
   const guardedTemplate = await sql.readTemplate(ids.guardedTemplate)
   const identityError = await errorName(() =>
-    sql.insertTemplateVersion(
+    sql.addTemplateVersion(
       version(ids.guardedTemplate, ids.nextVersion, null, { minX: 0, minY: 0, maxX: 2, maxY: 1 }),
-      { requireExisting: true },
     ),
   )
   const staleDeleteRefused =
@@ -230,7 +230,7 @@ export const runLeaderboardContract = async (sql: SqlStore) => {
     ] as const
   ).entries()) {
     const x = 100 + index * 10
-    await sql.insertTemplateVersion(
+    await sql.createTemplate(
       version(templateId, versionId, null, { minX: x, minY: 0, maxX: x + 1, maxY: 1 }),
     )
     if (templateId !== leaderboardIds.draft)

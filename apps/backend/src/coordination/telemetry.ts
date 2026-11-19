@@ -1,6 +1,6 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
 import { ArchiveOperationActiveError } from '../archive/errors.js'
-import type { SqlStore } from '../ports/index.js'
+import type { ArchiveStatus } from '../archive/store.js'
 import {
   addCounters,
   COUNTER_IDEMPOTENCY_RETENTION_SECONDS,
@@ -12,6 +12,7 @@ import {
   type PendingCounters,
   RESOLUTION_SECONDS,
 } from '../ports/index.js'
+import type { HistoryStore } from '../telemetry/history/store.js'
 import {
   COUNTER_OPERATION,
   discardCounterRows,
@@ -77,7 +78,7 @@ export class TelemetryCoordinator {
   constructor(
     private readonly database: CoordinatorDatabase,
     alarms: AlarmStorage,
-    private readonly sql: SqlStore,
+    private readonly sql: HistoryStore & ArchiveStatus,
     private readonly clock: () => Millis = () => millis(Date.now()),
   ) {
     this.flusher = new CounterFlusher(database, alarms, sql, clock)

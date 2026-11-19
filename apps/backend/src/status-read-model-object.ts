@@ -3,7 +3,7 @@ import { templateSurfaceKey } from '@caelestis/shared'
 import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
 import { receiveStatusLive } from './adapters/cloudflare/live-connect.js'
 import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
-import { RelationalSqlStore } from './adapters/relational-sql-store.js'
+import { relationalSqlStore } from './adapters/relational-sql-store.js'
 import { instrumentD1, measureD1Usage } from './metrics/request-metrics.js'
 import { StatusCoordinator } from './status-coordinator.js'
 
@@ -31,7 +31,7 @@ export class StatusReadModelObject extends DurableObject<Env> {
         upgradeResponse: (client, headers) =>
           new Response(null, { status: 101, headers, webSocket: client }),
       },
-      new RelationalSqlStore(instrumentD1(env.DB)),
+      relationalSqlStore(instrumentD1(env.DB)),
       new R2BlobStore(env.BLOBS),
       () => new DurableObjectCounterStore(env.TELEMETRY),
       {

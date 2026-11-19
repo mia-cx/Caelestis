@@ -43,9 +43,6 @@ export const MAX_TEMPLATE_ID_LENGTH = 64
 /** Bound synchronous validation and writes on the single global counter shard. */
 export const MAX_COUNTER_DELTAS_PER_RECORD = 1_000
 
-/** D1's free plan allows 50 queries per invocation; leave headroom for transaction overhead. */
-export const FLUSH_BATCH_LIMIT = 40
-
 export interface CounterDelta {
   /** Non-empty template identifier. */
   readonly templateId: string

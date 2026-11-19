@@ -7,7 +7,6 @@ import {
   type TemplateSurface,
 } from '@caelestis/shared'
 import { Effect } from 'effect'
-import type { TemplatePatch } from '../ports/index.js'
 import {
   BlobStoreService,
   PresenceService,
@@ -23,7 +22,8 @@ import {
 } from '../runtime/errors.js'
 import { bestEffort } from '../status-read-model/port.js'
 import { readTileBlob } from '../telemetry/tile-blobs.js'
-import { storeTemplate, type TemplateAuthoringInput } from './store.js'
+import { storeTemplate, type TemplateAuthoringInput } from './authoring.js'
+import type { TemplatePatch } from './store.js'
 
 const notFound = () => Effect.fail(new NotFoundError({ message: 'not found' }))
 
