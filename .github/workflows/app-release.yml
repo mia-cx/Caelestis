@@ -35,6 +35,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: read
       actions: read
     outputs:
       release: ${{ steps.release.outputs.release }}
@@ -145,6 +146,16 @@ jobs:
           done
           test "$changed" = true
 
+      # Versioning deletes the pending Changesets, so read the issues they ship first.
+      - name: Find the issues pending Changesets ship
+        id: issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A separate assignment, so a failed lookup fails the step instead of saving an empty list.
+        run: |
+          pending="$(node .github/scripts/release-issues.mjs pending "$GITHUB_REPOSITORY")"
+          echo "pending=$pending" >> "$GITHUB_OUTPUT"
+
       - name: Open or update the app release pull request
         id: changesets
         uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2
@@ -155,6 +166,14 @@ jobs:
           pr-base-branch: main
           create-github-releases: false
           push-git-tags: false
+
+      - name: List the issues the release closes
+        if: steps.changesets.outputs.pr-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.changesets.outputs.pr-number }}
+          ISSUES: ${{ steps.issues.outputs.pending }}
+        run: node .github/scripts/release-issues.mjs close "$RELEASE_PR" "$GITHUB_REPOSITORY" "$ISSUES"
 
   deploy:
     name: Deploy approved release

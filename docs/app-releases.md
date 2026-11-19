@@ -23,6 +23,11 @@ package with a versioned app.
 
 Changes that only affect tests, CI, or internal code do not need a changeset.
 
+A pull request with a Changeset links its issue as `Ships #N`, not `Closes #N`, so the issue stays
+open until users get the change. After each push to `main`, `release-issues.mjs` collects the open
+issues that pending Changesets ship and lists them as `Closes #N` in the release pull request.
+Merging the release closes them.
+
 The docs site in `apps/docs` is unversioned too. Docs changes need no changeset; each release
 deploys the docs from its merge commit, so they describe the deployed apps.
 
