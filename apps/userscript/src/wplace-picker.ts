@@ -114,7 +114,7 @@ const placedIndexAt = (x: number, y: number, includeDraft = false): number | nul
   return nativePixelAt(worldNativePixels(tile), column, row, includeDraft)?.index ?? null
 }
 
-/** The colour the picker is allowed to offer at one canvas pixel. */
+/** A logical paint cell on the world map or the open alliance canvas, which `alliance` names. */
 interface PickerPoint {
   readonly surface: TemplateSurface
   readonly x: number
