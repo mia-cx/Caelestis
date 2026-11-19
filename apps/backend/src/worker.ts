@@ -6,7 +6,7 @@ import {
   cloudflareStorage,
   durablePresenceRooms,
 } from './adapters/cloudflare/bindings.js'
-import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
+import { durableCounters } from './adapters/cloudflare/do-counter-store.js'
 import { durableLiveSync, durableStatusShards } from './adapters/cloudflare/do-status-read-model.js'
 import { IN_PROCESS_READ } from './auth/middleware.js'
 import { measureRequest } from './metrics/request-metrics.js'
@@ -35,7 +35,7 @@ const backendFor = (env: Env): Backend => {
     {
       ...cloudflareStorage(env),
       serverId: config.serverId,
-      counters: new DurableObjectCounterStore(env.TELEMETRY),
+      counters: durableCounters(env.TELEMETRY),
       statusShard: durableStatusShards(env.STATUS_READ_MODEL),
       connectLive: durableLiveSync(env.STATUS_READ_MODEL),
       presenceRoom: durablePresenceRooms(env),

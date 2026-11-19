@@ -65,27 +65,27 @@ export const forwardingObject =
 
 /**
  * A Durable Object stub as the target its object forwards `names` to, crediting the D1 work of
- * `measured` calls to this request's metric. A stub belongs to the request that created it, so
- * build one client per request.
+ * `measured` calls to this request's metric. A stub belongs to the request that created it, and a
+ * Worker reuses clients across requests, so `stub` resolves one on every call.
  */
 export const forwardingClient =
   <Target extends object>() =>
   <const Names extends readonly MethodName<Target>[]>(
-    stub: object,
+    stub: () => object,
     names: Names,
-    measured: readonly Names[number][],
+    measured: readonly Names[number][] = [],
   ): Pick<Target, Names[number]> => {
     const methods = names.map((name) => [
       name,
       measured.includes(name)
         ? async (...args: unknown[]) => {
             // `forwardingObject` wraps exactly these replies in `measureD1Usage`.
-            const result = (await callMethod(stub, name, args)) as MeasuredD1Operation<unknown>
+            const result = (await callMethod(stub(), name, args)) as MeasuredD1Operation<unknown>
             mergeD1Usage(result.usage)
             if (!result.success) throw result.error
             return result.value
           }
-        : (...args: unknown[]) => callMethod(stub, name, args),
+        : (...args: unknown[]) => callMethod(stub(), name, args),
     ])
     // Every name now maps to a forwarder; TypeScript cannot follow `fromEntries` over names.
     return Object.fromEntries(methods) as Pick<Target, Names[number]>

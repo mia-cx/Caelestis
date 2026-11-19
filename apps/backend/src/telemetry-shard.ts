@@ -1,23 +1,11 @@
 import { cloudflareStores } from './adapters/cloudflare/bindings.js'
 import { durableCoordinatorDatabase } from './adapters/cloudflare/coordinator-database.js'
 import { forwardingObject } from './adapters/cloudflare/forwarding-object.js'
-import { TelemetryCoordinator } from './coordination/telemetry.js'
+import { TELEMETRY_SHARD_METHODS, TelemetryCoordinator } from './coordination/telemetry.js'
 
-/** The telemetry coordinator. */
-export class TelemetryShard extends forwardingObject<TelemetryCoordinator>()([
-  'record',
-  'readPending',
-  'readDroppedLateCount',
-  'readFlushFailureCount',
-  'exportCounterRows',
-  'importCounterRows',
-  'discardCounterRows',
-  'beginCounterImport',
-  'beginCounterDiscard',
-  'closeCounterOperation',
-  'freeze',
-  'thaw',
-]) {
+export class TelemetryShard extends forwardingObject<TelemetryCoordinator>()(
+  TELEMETRY_SHARD_METHODS,
+) {
   protected readonly target: TelemetryCoordinator
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)

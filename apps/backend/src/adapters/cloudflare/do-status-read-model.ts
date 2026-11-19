@@ -14,7 +14,7 @@ export const durableStatusShards =
   (namespace: DurableObjectNamespace<StatusReadModelObject>) =>
   (season: number): StatusShard =>
     forwardingClient<StatusShard>()(
-      namespace.getByName(statusShardName(season)),
+      () => namespace.getByName(statusShardName(season)),
       STATUS_SHARD_METHODS,
       MEASURED_STATUS_METHODS,
     )

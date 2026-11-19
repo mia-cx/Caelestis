@@ -6,7 +6,7 @@ import { bundledRelease } from '../../server/release.js'
 import { portableStores } from '../../server/stores.js'
 import { CoordinatedStatusReadModel } from '../../status-read-model/shard.js'
 import { d1Connection } from './d1-connection.js'
-import { DurableObjectCounterStore } from './do-counter-store.js'
+import { durableCounters } from './do-counter-store.js'
 import { durableStatusShards } from './do-status-read-model.js'
 import { forwardPresence } from './live-connect.js'
 
@@ -38,7 +38,7 @@ export const cloudflareStorage = (env: Env) => {
 /** The stores a Durable Object writes through. Status reads go to each season's object. */
 export const cloudflareStores = (env: Env) => ({
   ...cloudflareStorage(env).stores,
-  counters: new DurableObjectCounterStore(env.TELEMETRY),
+  counters: durableCounters(env.TELEMETRY),
   statusReadModel: new CoordinatedStatusReadModel(durableStatusShards(env.STATUS_READ_MODEL)),
 })
 
