@@ -9,40 +9,29 @@ import TimelapsePanel from '#lib/components/TimelapsePanel.svelte'
 import { Skeleton } from '#lib/components/ui/skeleton/index.js'
 import { useApp } from '#lib/state/app.svelte.js'
 import { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
-import { folderColourStatuses, folderTemplates, type TreeFolder } from '#lib/tree.js'
+import { type ColourProgress as Colours, folderPath, folderTemplates } from '@caelestis/shared'
 
 const app = useApp()
 
-const findFolder = (folders: readonly TreeFolder[], id: string): TreeFolder | null => {
-  for (const folder of folders) {
-    if (folder.node.id === id) return folder
-    const nested = findFolder(folder.folders, id)
-    if (nested !== null) return nested
-  }
-  return null
-}
+const statusColours = (colours: readonly Colours[]) =>
+  colours.map(({ index, completed, mismatched, unpainted, total }) => ({
+    index,
+    correct: completed,
+    wrong: mismatched,
+    blank: unpainted,
+    total,
+  }))
 
-const folder = $derived(
-  app.tree === null ? null : findFolder(app.tree.folders, page.params.id ?? ''),
-)
+const folder = $derived(app.tree?.folderById.get(page.params.id ?? '') ?? null)
 const templates = $derived(folder === null ? [] : folderTemplates(folder))
-const colours = $derived(folder === null ? null : folderColourStatuses(folder))
 const player = new TimelapsePlayer(() => templates)
-
-// Build linked breadcrumbs from the root to this folder.
-const ancestors = $derived.by(() => {
-  if (folder === null || app.manifest === null) return []
-  const byId = new Map(app.manifest.nodes.map((node) => [node.id, node]))
-  const chain = []
-  let parentId = folder.node.parentId
-  while (parentId !== null) {
-    const parent = byId.get(parentId)
-    if (parent === undefined || chain.length > byId.size) break
-    chain.unshift(parent)
-    parentId = parent.parentId
-  }
-  return chain
-})
+const ancestors = $derived(
+  app.tree === null || folder === null
+    ? []
+    : folderPath(app.tree, folder.node.id)
+        .slice(0, -1)
+        .map((entry) => entry.node),
+)
 </script>
 
 <MenuStyles />
@@ -106,10 +95,10 @@ const ancestors = $derived.by(() => {
       />
     {/if}
 
-    {#if colours !== null && colours.length > 0}
+    {#if folder.colours !== undefined}
       <section class="pixel-card bg-base-100 p-4">
         <h2 class="mb-3 font-semibold">Progress by colour</h2>
-        <ColourProgress {colours} />
+        <ColourProgress colours={statusColours(folder.colours)} />
       </section>
     {/if}
 

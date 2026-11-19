@@ -2,16 +2,20 @@
 import { millis, type Node, planTimelapseTiles, seconds, tileKey } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { manifest, template } from '../../../tests/fixtures'
+import type { AppState } from '#lib/state/app.svelte.js'
+import { appState, manifest, template } from '../../../tests/fixtures'
 
 const fixture = vi.hoisted(() => ({
-  app: {} as Record<string, unknown>,
+  app: null as unknown as AppState,
   history: vi.fn(),
   archive: vi.fn(),
   stats: null as null | { onSeek?: (time: number) => void },
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'route' } } }))
-vi.mock('#lib/state/app.svelte.js', () => ({ useApp: () => fixture.app }))
+vi.mock('#lib/state/app.svelte.js', async (original) => ({
+  ...(await original<typeof import('#lib/state/app.svelte.js')>()),
+  useApp: () => fixture.app,
+}))
 vi.mock('#lib/api/client.js', () => ({
   getTileHistory: fixture.history,
   getArchiveHistory: fixture.archive,
@@ -26,7 +30,6 @@ vi.mock('#lib/components/TemplateViewer.svelte', () => ({ default: () => undefin
 vi.mock('#lib/components/TemplateCard.svelte', () => ({ default: () => undefined }))
 vi.mock('#lib/components/FolderSection.svelte', () => ({ default: () => undefined }))
 
-import { buildTree } from '#lib/tree.js'
 import Page from './+page.svelte'
 
 const start = 1_800_000_000
@@ -59,15 +62,7 @@ beforeEach(() => {
     nodes: [node('route', null), node('child', 'route')],
     templates: [top, nested, draft],
   })
-  fixture.app = {
-    manifest: catalog,
-    tree: buildTree(catalog, new Map()),
-    statuses: new Map(),
-    alarms: new Map(),
-    canvas: new Map(),
-    liveProtocol: 2,
-    subscribeDashboard: () => () => undefined,
-  }
+  fixture.app = appState({ manifest: catalog })
   fixture.stats = null
   fixture.history.mockReset().mockResolvedValue({
     frames: [0, 3_600].map((offset) => ({

@@ -4,7 +4,7 @@ import { Icon, ProgressMeter } from '@caelestis/ui'
 import FolderSection from '#lib/components/FolderSection.svelte'
 import TemplateCard from '#lib/components/TemplateCard.svelte'
 import * as Collapsible from '#lib/components/ui/collapsible/index.js'
-import type { TreeFolder } from '#lib/tree.js'
+import type { TreeFolder } from '@caelestis/shared'
 
 let {
   folder,

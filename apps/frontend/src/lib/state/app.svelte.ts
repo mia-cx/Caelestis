@@ -10,9 +10,11 @@ import type {
   TileKey,
 } from '@caelestis/shared'
 import {
+  buildTree,
   LIVE_PROTOCOL_V1,
   LIVE_PROTOCOL_V2,
   LiveSnapshotAssembler,
+  type TemplateTree,
   uuidV7,
 } from '@caelestis/shared'
 import { getContext, setContext } from 'svelte'
@@ -28,7 +30,6 @@ import {
   readToken,
   usesServerReadProxy,
 } from '#lib/api/client.js'
-import { buildTree, type TemplateTree } from '#lib/tree.js'
 
 /**
  * The one shared session: which server we're connected to, its manifest, and the current status

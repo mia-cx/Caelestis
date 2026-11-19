@@ -43,7 +43,7 @@
 import { persisted } from '#lib/persisted.svelte.js'
   import { type HeldHistory, refreshHistory } from '#lib/history-tail.js'
   import { untrack } from 'svelte'
-  import type { Progress } from '#lib/tree.js'
+  import type { Progress } from '@caelestis/shared'
   import type { DashboardSnapshot } from '#lib/state/app.svelte.js'
 
   let {

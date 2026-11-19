@@ -21,7 +21,6 @@ import {
 } from '../lib/components/charts/progress-pace'
 import { combineProgressSamples, mergeObservedProgress } from '../lib/progress-history'
 import { paddedRect, templateRect, tilesInRect } from '../lib/render'
-import { buildTree, folderTemplateIds } from '../lib/tree'
 import { manifest, template } from './fixtures'
 
 const sample = (at: number, correct: number | null) => ({
@@ -254,26 +253,6 @@ describe('pace and chart windows', () => {
 })
 
 describe('tree and canvas boundaries', () => {
-  it('rolls up published descendants while retaining root templates and orphan fallback', () => {
-    const tree = buildTree(
-      manifest({
-        nodes: [
-          { id: 'folder', parentId: null, name: 'Folder', path: '/folder', createdAt: millis(0) },
-        ],
-        templates: [
-          template({ id: 'child', nodeId: 'folder' }),
-          template({ id: 'draft', nodeId: 'folder', published: false }),
-          template({ id: 'orphan', nodeId: 'missing' }),
-        ],
-      }),
-      new Map(),
-    )
-    expect(tree.progress).toEqual({ completed: 0, mismatched: 0, unpainted: 0, known: 0, total: 8 })
-    expect(tree.templateCount).toBe(3)
-    expect(tree.templates.map((entry) => entry.template.id)).toEqual(['orphan'])
-    expect(folderTemplateIds(tree.folders[0])).toEqual(['child'])
-  })
-
   it('wraps longitude tiles without stretching artwork and clamps padding to the viewport', () => {
     const rect = templateRect(
       template({ bbox: { minX: WORLD_PIXELS - 1, minY: 0, maxX: 1, maxY: 2 } }),

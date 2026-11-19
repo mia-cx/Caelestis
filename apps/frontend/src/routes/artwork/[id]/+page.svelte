@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { canvasPixelToLatLng } from '@caelestis/shared'
+  import { canvasPixelToLatLng, type ColourProgress as Colours } from '@caelestis/shared'
   import { Icon, MenuStyles, ProgressMeter, TemplateState } from '@caelestis/ui'
   import { page } from '$app/state'
   import ColourProgress from '#lib/components/ColourProgress.svelte'
@@ -8,20 +8,17 @@
   import { Skeleton } from '#lib/components/ui/skeleton/index.js'
   import { useApp } from '#lib/state/app.svelte.js'
   import { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
-  import { progressFromStatus } from '#lib/tree.js'
 
   const app = useApp()
+  const statusColours = (colours: readonly Colours[]) =>
+    colours.map(({ index, completed, mismatched, unpainted, total }) => ({ index, correct: completed, wrong: mismatched, blank: unpainted, total }))
 
-  const template = $derived(
-    app.manifest?.templates.find((entry) => entry.id === page.params.id) ?? null,
-  )
-  const status = $derived(template === null ? undefined : app.statuses.get(template.id))
-  const alarm = $derived(template === null ? undefined : app.alarms.get(template.id))
-  const progress = $derived(template === null ? null : progressFromStatus(template, status))
+  const entry = $derived(app.tree?.templateById.get(page.params.id ?? '') ?? null)
+  const template = $derived(entry?.template ?? null)
+  const alarm = $derived(entry?.alarm)
+  const progress = $derived(entry?.progress ?? null)
   const folder = $derived(
-    template?.nodeId == null
-      ? null
-      : (app.manifest?.nodes.find((node) => node.id === template.nodeId) ?? null),
+    template?.nodeId == null ? null : (app.tree?.folderById.get(template.nodeId)?.node ?? null),
   )
 
   // Deep link to the artwork on the live canvas, centred on the bbox.
@@ -108,10 +105,10 @@
       onScrubStart={player.beginScrub}
     />
 
-    {#if status?.colours !== undefined && status.colours.length > 0}
+    {#if entry?.colours !== undefined}
       <section class="pixel-card bg-base-100 p-4">
         <h2 class="mb-3 font-semibold">Progress by colour</h2>
-        <ColourProgress colours={status.colours} />
+        <ColourProgress colours={statusColours(entry.colours)} />
       </section>
     {/if}
   </div>

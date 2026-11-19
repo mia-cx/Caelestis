@@ -2,16 +2,12 @@
 import { millis, seconds, type Template } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { AppState } from '#lib/state/app.svelte.js'
+import { appState, manifest } from '../../../tests/fixtures'
 
 // The pace chart renders for real here so the link runs both ways through the stats panel.
 const fixture = vi.hoisted(() => ({
-  app: {
-    manifest: { season: 0, templates: [] as Template[], nodes: [] },
-    statuses: new Map([['dense', { correct: 1, wrong: 0, blank: 0, total: 1 }]]),
-    alarms: new Map(),
-    canvas: new Map(),
-    subscribeDashboard: () => () => undefined,
-  },
+  app: null as unknown as AppState,
   api: {
     getTileHistory: vi.fn(),
     getArchiveHistory: vi.fn(),
@@ -25,7 +21,10 @@ const fixture = vi.hoisted(() => ({
   viewer: null as null | { hashFor: (key: string) => string | undefined },
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'dense' } } }))
-vi.mock('#lib/state/app.svelte.js', () => ({ useApp: () => fixture.app }))
+vi.mock('#lib/state/app.svelte.js', async (original) => ({
+  ...(await original<typeof import('#lib/state/app.svelte.js')>()),
+  useApp: () => fixture.app,
+}))
 vi.mock('#lib/api/client.js', () => fixture.api)
 // A Svelte 5 component is a function of its anchor and props; this one only keeps the props.
 vi.mock('#lib/components/TemplateViewer.svelte', () => ({
@@ -62,7 +61,12 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640)
   // Chart tweens become cuts, so the playhead maps through the settled window.
   vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
-  fixture.app.manifest.templates = [template]
+  fixture.app = appState({
+    manifest: manifest({ season: 0, templates: [template] }),
+    statuses: [
+      { templateId: 'dense', correct: 1, wrong: 0, blank: 0, total: 1, observedAt: millis(0) },
+    ],
+  })
   fixture.viewer = null
   fixture.api.getTileHistory.mockReset().mockResolvedValue({
     frames: [0, 60, 180, 3_600].map((offset) => ({

@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
+
+import type { Progress } from '@caelestis/shared'
 import { millis, seconds, type Template } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { Progress } from '#lib/tree.js'
 import { template } from '../../tests/fixtures'
 
 const client = vi.hoisted(() => ({

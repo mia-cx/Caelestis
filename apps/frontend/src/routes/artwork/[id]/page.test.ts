@@ -2,19 +2,19 @@
 import { millis, seconds, type Template } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import type { AppState } from '#lib/state/app.svelte.js'
+import { appState, manifest } from '../../../tests/fixtures'
 
 const fixture = vi.hoisted(() => ({
-  app: {
-    manifest: { season: 0, templates: [] as Template[], nodes: [] },
-    statuses: new Map([['dense', { correct: 1, wrong: 0, blank: 0, total: 1 }]]),
-    alarms: new Map(),
-    canvas: new Map(),
-  },
+  app: null as unknown as AppState,
   history: vi.fn(),
   archive: vi.fn(),
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'dense' } } }))
-vi.mock('#lib/state/app.svelte.js', () => ({ useApp: () => fixture.app }))
+vi.mock('#lib/state/app.svelte.js', async (original) => ({
+  ...(await original<typeof import('#lib/state/app.svelte.js')>()),
+  useApp: () => fixture.app,
+}))
 vi.mock('#lib/api/client.js', () => ({
   getTileHistory: fixture.history,
   getArchiveHistory: fixture.archive,
@@ -51,7 +51,12 @@ beforeEach(() => {
   vi.setSystemTime((start + 7_200) * 1_000)
   localStorage.clear()
   localStorage.setItem('caelestis:timelapse-speed', '0.05')
-  fixture.app.manifest.templates = [template]
+  fixture.app = appState({
+    manifest: manifest({ season: 0, templates: [template] }),
+    statuses: [
+      { templateId: 'dense', correct: 1, wrong: 0, blank: 0, total: 1, observedAt: millis(0) },
+    ],
+  })
   fixture.history.mockReset().mockResolvedValue({
     frames: [0, 60, 180, 3_600].map((offset) => ({
       bucketStart: seconds(start + offset),
@@ -161,14 +166,17 @@ it('seeks with the keyboard and pauses active playback', async () => {
 })
 
 it('bounds finished history and imported frames at the finish instant', async () => {
-  fixture.app.manifest.templates = [
-    {
-      ...template,
-      finished: true,
-      timelapseFrozen: true,
-      finishedAt: millis((start + 3_600) * 1_000),
-    },
-  ]
+  fixture.app.manifest = manifest({
+    season: 0,
+    templates: [
+      {
+        ...template,
+        finished: true,
+        timelapseFrozen: true,
+        finishedAt: millis((start + 3_600) * 1_000),
+      },
+    ],
+  })
   fixture.history.mockResolvedValue({ frames: [] })
   fixture.archive.mockResolvedValue({
     frames: [
