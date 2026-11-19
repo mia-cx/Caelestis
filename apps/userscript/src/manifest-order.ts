@@ -30,3 +30,9 @@ export const withManifestReadSlot = async <Result>(
 
 /** The number the most recent manifest read started with. */
 export const serverManifestSequence = (): number => manifestSequence
+
+/**
+ * Number a manifest that arrived without a read, such as a live one, in the same order: reads that
+ * started before it rank below it, and reads that start after it rank above it.
+ */
+export const nextManifestSequence = (): number => ++manifestSequence

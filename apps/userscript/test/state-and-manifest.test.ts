@@ -155,6 +155,41 @@ describe('server manifest admission', () => {
     },
   )
 
+  it('adopts a manifest read that started after live manifests landed', async () => {
+    const state = await loadState()
+    const surface = { kind: 'alliance-banner', allianceId: 7 } as const
+    const server = {
+      url: 'https://example.test',
+      info: { id: serverId, name: 'Example', auth: 'none' as const },
+      token: null,
+      status: 'connected' as const,
+      isAdmin: false,
+      season: 1,
+    }
+    state.upsertServer(server)
+    const manifest = (version: string) => ({
+      version,
+      season: 1,
+      surface,
+      server: server.info,
+      nodes: [],
+      templates: [],
+      tiles: [],
+    })
+    let served = 'first-http'
+    const fetch = vi.fn(async () => Response.json(manifest(served)))
+    vi.stubGlobal('fetch', fetch)
+    window.fetch = fetch
+
+    await state.readManifest(server, { surface })
+    for (const version of ['live-1', 'live-2', 'live-3'])
+      state.applyLiveManifest(server, surface, manifest(version))
+    served = 'fresh-http'
+    await state.readManifest(server, { surface })
+
+    expect(state.manifestRows(server, surface)?.revision).toBe('fresh-http')
+  })
+
   it('rejects duplicate tree paths and accepts valid server identity', async () => {
     const { parseServerInfo, parseTreeNodes } = await import('../src/server-manifest.js')
     expect(parseServerInfo({ id: serverId, name: 'Example', auth: 'none' })).toMatchObject({

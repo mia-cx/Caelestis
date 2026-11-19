@@ -6,7 +6,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { notifyListeners } from './listeners.js'
-import { withManifestReadSlot } from './manifest-order.js'
+import { nextManifestSequence, withManifestReadSlot } from './manifest-order.js'
 import { PerServerMap } from './per-server-map.js'
 import { cacheServer, forgetCachedServer, loadServerCache } from './server-cache.js'
 import {
@@ -424,7 +424,7 @@ export const readManifest = async (
   }
 }
 
-/** Admit one authenticated live manifest after every response already received. */
+/** Admit one authenticated live manifest ahead of every read started before it arrived. */
 export const applyLiveManifest = (
   server: ServerConnection,
   surface: TemplateSurface,
@@ -433,7 +433,7 @@ export const applyLiveManifest = (
   if (!isConnected(server) || !isCurrentServerConnection(server)) return null
   const manifest = parseServerManifest(body, server.info, surface)
   if (manifest === null || manifest.season !== server.season) return null
-  return admit(server, surface, manifest, (latestResponse.get(server.url, keyOf(surface)) ?? 0) + 1)
+  return admit(server, surface, manifest, nextManifestSequence())
 }
 
 /**
