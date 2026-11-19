@@ -1,10 +1,10 @@
 # Template display modes
 
-Template claims keep the original template icon with a fixed-size count badge over its corner. The badge occupies no layout space, including when the count changes or disappears. Clicking the icon opens a compact native popover with claimants and permitted actions. Opening, assigning, and dismissing claims never change tree layout. Progress totals and colour rows share the template icon column without an extra inset.
+Favourites keep the original template icon with a fixed-size count badge over its corner. The badge occupies no layout space, including when the count changes or disappears. Clicking the icon opens a compact native popover with the people who keep it and the permitted actions. Opening, assigning, and dismissing never change tree layout. Progress totals and colour rows share the template icon column without an extra inset.
 
-The claim popover reads top to bottom: a header with the template name and claim count, the claimant list, then actions. Claimants and the empty state share one row height. Actions are full-width menu rows below a hairline, in the same idiom as the template context menu, so switching Favourite and Unfavourite changes only the label and icon. The assignment form opens below the actions without moving them.
+The favourites popover reads top to bottom: a header with the template name and count, the people list, then actions. People and the empty state share one row height. Actions are full-width menu rows below a hairline, in the same idiom as the template context menu, so switching Favourite and Unfavourite changes only the label and icon. The assignment form opens below the actions without moving them.
 
-Popovers and menus use `--caelestis-popover-shadow`, a short shadow sized for small floating surfaces. The large `--caelestis-shadow` belongs to the panel and dialogs.
+Popovers and menus use `--caelestis-popover-shadow`, a short shadow sized for small floating surfaces. The large `--caelestis-shadow` belongs to the panel and dialogs. Every popover hangs from its trigger through `anchorPopover` and follows it while open.
 
 The grid helps people recognize artwork without knowing template names. Tree remains the default working view.
 
@@ -20,22 +20,18 @@ Preview canvases have bounded backing dimensions and draw only near the scroll v
 
 Grid progress opens from the card's progress bar into a separate details pane. Totals and per-colour progress appear together, with readable labels and an independently scrolling colour list. Cards never expand into long reports. At narrow widths, the pane covers the grid and temporarily makes the covered controls inert. Closing or Escape returns focus to the progress button. Tree mode retains its inline disclosures.
 
-Palette swatches identify colours. Progress bars keep the same complete, mismatched, and unpainted meanings throughout the pane, including white and black artwork colours.
+Both the inline disclosure and the pane list colours with `ColourProgress`, the same rows the website shows. Palette swatches identify colours. Progress bars keep the same complete, mismatched, and unpainted meanings throughout, including white and black artwork colours.
 
-The popout uses 96% of viewport width and height, leaving a small backdrop margin even on wide displays. A native select beside Colours orders the breakdown by palette, name, completion, pixels left, mismatches, unpainted pixels, or size. Palette order breaks ties. Switching templates within the open pane keeps the chosen order. Percentage labels reserve three digits plus the percent sign so neighbouring progress tracks align.
+The popout uses 96% of viewport width and height, leaving a small backdrop margin even on wide displays. A native select beside Colours orders the pane's breakdown with `COLOUR_PROGRESS_SORTS`; palette order breaks ties. Switching templates within the open pane keeps the chosen order.
 
 # Template filters
 
 The filter button follows search and matches the existing 32px sort control. While filters apply it takes the DaisyUI soft primary button look and carries the selected count as a primary badge on its corner.
 
-The nonmodal popover is a DaisyUI dropdown menu rebuilt on the tree's theme tokens, since the shadow root cannot reach wplace's stylesheet: a card-radius surface, a heading with a ghost Clear button, menu-title legends, and one menu row per choice with a small primary checkbox drawn the way DaisyUI draws it. SortMenu shares the same surface and item radii. Choices apply immediately. Escape returns focus to the trigger; Tab follows the controls and exits normally. Clear filters preserves the search text.
+The nonmodal popover is a DaisyUI dropdown menu rebuilt on the tree's theme tokens, since the shadow root cannot reach wplace's stylesheet: a card-radius surface, a heading with a ghost Clear button, menu-title legends, and one menu row per choice with a small primary checkbox drawn the way DaisyUI draws it. SortMenu shares the same surface and item radii. Choices apply immediately. Escape returns focus to the trigger; Tab follows the controls and exits normally. Clear filters preserves the search text and returns focus to the first choice before its button becomes disabled.
 
 Visibility means effective visibility, including ancestor switches. Active means not marked finished; timelapse freezing is independent. Local templates have no server lifecycle or alarm state. Server-only categories appear when the current canvas has server templates, including cached rows offline, or a saved choice needs clearing. No active alarm requires an authoritative telemetry snapshot; unknown telemetry matches no alarm choice.
 
-The matcher selects templates before rendering and retains only their folder paths. Filters force those paths open without changing saved collapse or custom-order preferences. Grid rendering and tags are outside this change, as confirmed by Mia.
-
-Clear filters returns focus to the first choice before its button becomes disabled. Live Chromium verification caught that focus loss during keyboard activation.
+The matcher selects templates before rendering and retains only their folder paths. Filters force those paths open without changing saved collapse or custom-order preferences.
 
 Clicking the open menu's trigger closes it even when pointer focus returns to the trigger first. Alarm acknowledgement follows the displayed template rows, so search and filters cannot silently acknowledge excluded templates.
-
-Verified the built userscript on Wplace through background Chromium CDP: search/filter composition, count, clearing, reload persistence, Escape, Tab exit, and outside dismissal. Inspected light and dark popovers at 1280×800 and 360×640. The corrected keyboard Clear sequence preserves search and focuses Local.
