@@ -31,6 +31,7 @@ import { presenceRequest } from '../presence/port.js'
 import { PresenceCoordinator } from '../presence-coordinator.js'
 import { createBackendRuntime, makeBackendContext } from '../runtime/backend-runtime.js'
 import { StatusCoordinator } from '../status-coordinator.js'
+import { ALARM_SCAN_INTERVAL_SECONDS } from '../telemetry/alarm-policy.js'
 import { derivedArtifactWriter } from '../telemetry/derived-artifact-writer.js'
 import { fetchCanvasTiles } from '../telemetry/fetcher.js'
 import { runTileBlobGc } from '../telemetry/tile-blobs.js'
@@ -47,7 +48,7 @@ const backendVersion = (
 ).version
 const backendBuild = process.env.CAELESTIS_BUILD_ID?.slice(0, 12) || 'development'
 
-const MIRROR_INTERVAL_MS = 6 * 60 * 60 * 1000
+const MIRROR_INTERVAL_MS = ALARM_SCAN_INTERVAL_SECONDS * 1000
 const SOCIAL_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 /** Open one owned runtime. HTTP starts only after migrations and durable state recover. */

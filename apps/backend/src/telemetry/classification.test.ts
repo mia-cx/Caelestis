@@ -1,5 +1,6 @@
 import {
   BLANK,
+  type ChunkRect,
   encodeMismatchMask,
   MATCH,
   TILE_SIZE,
@@ -7,7 +8,7 @@ import {
   WRONG,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
-import { type ChunkRect, classifyChunk } from './classify-chunk.js'
+import { classifyChunk } from './classification.js'
 
 /** The Map-based loop this kernel replaced. Kept here so equivalence stays testable. */
 const referenceClassify = (chunk: Uint8Array, canvas: Uint8Array, rect: ChunkRect) => {

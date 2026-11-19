@@ -1,28 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DecodedPixelCache } from './decoded-pixel-cache.js'
-import {
-  createSharedClassifier,
-  type SharedClassification,
-  type SharedClassificationKey,
-  sharedClassificationKey,
-} from './shared-classification.js'
+import { BoundedCache, memoize } from './bounded-cache.js'
 
-const key = (overrides: Partial<SharedClassificationKey> = {}): SharedClassificationKey => ({
-  templateId: 'template-a',
-  versionId: 'version-a',
-  tile: { x: 12, y: 34 },
-  chunkHash: 'c'.repeat(64),
-  canvasHash: 'a'.repeat(64),
-  ...overrides,
-})
-
-const classification = (correct: number): SharedClassification => ({
-  correct,
-  wrong: 0,
-  blank: 0,
-  colours: [{ index: 1, correct, wrong: 0, blank: 0, total: correct }],
-  mask: new Uint8Array(12 + 250_000),
-})
+const sizeOf = (value: Uint8Array | null) => value?.byteLength ?? 0
 
 const deferred = <Value>() => {
   let resolve!: (value: Value) => void
@@ -34,75 +13,60 @@ const deferred = <Value>() => {
   return { promise, resolve, reject }
 }
 
-describe('shared classification', () => {
-  it('keys on template, version, tile, chunk hash, and canvas hash', () => {
-    const base = sharedClassificationKey(key())
-
-    expect(sharedClassificationKey(key())).toBe(base)
-    expect(sharedClassificationKey(key({ templateId: 'template-b' }))).not.toBe(base)
-    expect(sharedClassificationKey(key({ versionId: 'version-b' }))).not.toBe(base)
-    expect(sharedClassificationKey(key({ tile: { x: 13, y: 34 } }))).not.toBe(base)
-    expect(sharedClassificationKey(key({ chunkHash: 'd'.repeat(64) }))).not.toBe(base)
-    expect(sharedClassificationKey(key({ canvasHash: 'b'.repeat(64) }))).not.toBe(base)
-  })
-
-  it('shares one in-flight classification across concurrent reporters and reuses it afterwards', async () => {
-    const classifier = createSharedClassifier()
-    const pending = deferred<SharedClassification | null>()
+describe('memoized bounded cache', () => {
+  it('shares one in-flight load across concurrent callers and reuses it afterwards', async () => {
+    const cache = new BoundedCache<Promise<Uint8Array | null>>({ maxEntries: 8 })
+    const pending = deferred<Uint8Array | null>()
     const load = vi.fn(() => pending.promise)
 
-    const first = classifier.classify(key(), load)
-    const second = classifier.classify(key(), load)
+    const first = memoize(cache, 'a', load, sizeOf)
+    const second = memoize(cache, 'a', load, sizeOf)
     expect(load).toHaveBeenCalledTimes(1)
 
-    pending.resolve(classification(7))
-    await expect(first).resolves.toEqual(classification(7))
-    await expect(second).resolves.toEqual(classification(7))
-
-    const third = await classifier.classify(key(), load)
-    expect(third).toEqual(classification(7))
+    pending.resolve(new Uint8Array(7))
+    await expect(first).resolves.toEqual(new Uint8Array(7))
+    await expect(second).resolves.toEqual(new Uint8Array(7))
+    await memoize(cache, 'a', load, sizeOf)
     expect(load).toHaveBeenCalledTimes(1)
 
-    // A different canvas or chunk is different work.
-    await classifier.classify(key({ canvasHash: 'b'.repeat(64) }), load)
+    await memoize(cache, 'b', load, sizeOf)
     expect(load).toHaveBeenCalledTimes(2)
   })
 
-  it('never retains a missing result and lets a failed classification be retried', async () => {
-    const classifier = createSharedClassifier()
+  it('never retains an empty result and lets a failed load be retried', async () => {
+    const cache = new BoundedCache<Promise<Uint8Array | null>>({ maxEntries: 8 })
     const missing = vi.fn(async () => null)
-    expect(await classifier.classify(key(), missing)).toBeNull()
-    expect(await classifier.classify(key(), missing)).toBeNull()
+    expect(await memoize(cache, 'a', missing, sizeOf)).toBeNull()
+    expect(await memoize(cache, 'a', missing, sizeOf)).toBeNull()
     expect(missing).toHaveBeenCalledTimes(2)
 
-    const failing = deferred<SharedClassification | null>()
+    const failing = deferred<Uint8Array | null>()
     const load = vi.fn(() => failing.promise)
-    const waiting = [classifier.classify(key(), load), classifier.classify(key(), load)]
+    const waiting = [memoize(cache, 'a', load, sizeOf), memoize(cache, 'a', load, sizeOf)]
     failing.reject(new Error('chunk store unavailable'))
     await expect(waiting[0]).rejects.toThrow('chunk store unavailable')
     await expect(waiting[1]).rejects.toThrow('chunk store unavailable')
 
-    const recovered = vi.fn(async () => classification(3))
-    expect(await classifier.classify(key(), recovered)).toEqual(classification(3))
+    const recovered = vi.fn(async () => new Uint8Array(3))
+    expect(await memoize(cache, 'a', recovered, sizeOf)).toEqual(new Uint8Array(3))
     expect(recovered).toHaveBeenCalledTimes(1)
   })
 
-  it('bounds retained bytes by evicting the least recently used classification', async () => {
-    const classifier = createSharedClassifier({
-      cache: new DecodedPixelCache({ maxBytes: 2 * 260_000, maxEntries: 10 }),
-    })
+  it('bounds retained bytes by evicting the least recently used entry', async () => {
+    const cache = new BoundedCache<Promise<Uint8Array | null>>({ maxBytes: 2 * 260_000 })
     const loads = new Map<string, number>()
-    const load = (name: string) => async () => {
-      loads.set(name, (loads.get(name) ?? 0) + 1)
-      return classification(1)
-    }
+    const read = (name: string) =>
+      memoize(
+        cache,
+        name,
+        async () => {
+          loads.set(name, (loads.get(name) ?? 0) + 1)
+          return new Uint8Array(250_000)
+        },
+        sizeOf,
+      )
 
-    await classifier.classify(key({ canvasHash: 'a'.repeat(64) }), load('a'))
-    await classifier.classify(key({ canvasHash: 'b'.repeat(64) }), load('b'))
-    await classifier.classify(key({ canvasHash: 'a'.repeat(64) }), load('a'))
-    await classifier.classify(key({ canvasHash: 'c'.repeat(64) }), load('c'))
-    await classifier.classify(key({ canvasHash: 'a'.repeat(64) }), load('a'))
-    await classifier.classify(key({ canvasHash: 'b'.repeat(64) }), load('b'))
+    for (const name of ['a', 'b', 'a', 'c', 'a', 'b']) await read(name)
 
     expect(loads).toEqual(
       new Map([
@@ -111,5 +75,19 @@ describe('shared classification', () => {
         ['c', 1],
       ]),
     )
+  })
+
+  it('drops entries once they are older than their time to live', () => {
+    vi.useFakeTimers()
+    try {
+      const cache = new BoundedCache<string>({ ttlMs: 1_000 })
+      cache.set('a', 'held')
+      vi.advanceTimersByTime(999)
+      expect(cache.get('a')).toBe('held')
+      vi.advanceTimersByTime(1)
+      expect(cache.get('a')).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

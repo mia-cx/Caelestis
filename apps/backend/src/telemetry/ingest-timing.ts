@@ -26,7 +26,6 @@ export type IngestStage =
   | 'commit'
   | 'projection'
   | 'alarms'
-  | 'artifacts'
   | 'historyFold'
   | 'latestTile'
   | 'apply'
@@ -166,4 +165,5 @@ export class IngestTimings {
   }
 }
 
+/** Module scope, because concurrent requests in one Worker isolate share nothing else. */
 export const ingestTimings = new IngestTimings()

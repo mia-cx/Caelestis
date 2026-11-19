@@ -9,7 +9,7 @@ import { Effect } from 'effect'
 import type { MeasuredTileFrame, TemplateVersionRecord } from '../ports/sql-store.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
 import { StorageError, storage } from '../runtime/errors.js'
-import { readHistoricalTileMeasurement } from './ingest.js'
+import { readHistoricalTileMeasurement } from './classification.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
 
 /** Unmeasured frames classified at once: each holds a decoded 1000×1000 canvas while it runs. */
@@ -23,11 +23,7 @@ export const readProgressHistory = (
   resolution = selectTileHistoryResolution(range),
   lifetime?: HistoryRange,
   initialAt?: Seconds,
-): Effect.Effect<
-  ProgressHistoryResponse,
-  StorageError | StorageError,
-  SqlStoreService | BlobStoreService
-> =>
+): Effect.Effect<ProgressHistoryResponse, StorageError, SqlStoreService | BlobStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
     if (version.surface.kind !== 'world')
@@ -71,7 +67,6 @@ export const readProgressHistory = (
               { blobs, sql },
               target,
               frame.hash,
-              frame.bucketStart * 1_000,
             )
             if (measurement === null) return
             await sql.writeTileMeasurements(version.versionId, { x: chunk.tileX, y: chunk.tileY }, [
@@ -138,7 +133,7 @@ export const readTemplateProgressHistory = (
   range: HistoryRange,
 ): Effect.Effect<
   TemplateProgressHistoryResponse,
-  StorageError | StorageError,
+  StorageError,
   SqlStoreService | BlobStoreService
 > =>
   Effect.gen(function* () {

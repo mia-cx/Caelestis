@@ -1,39 +1,22 @@
 import {
-  decodePng,
-  decodeWplaceIndexedPng,
-  encodeMismatchMask,
   millis,
-  PALETTE_RGB,
-  type PaintEvent,
-  pngSize,
-  quantiseToPalette,
+  parseTileKey,
   type Seconds,
   seconds,
   sha256Hex,
-  TILE_SIZE,
   type TileCoord,
-  TRANSPARENT_INDEX,
   tileKey,
   uuidV7,
-  WORLD_PIXELS,
 } from '@caelestis/shared'
 import { Effect, Result } from 'effect'
-import {
-  type BlobStore,
-  type ContributionDelta,
-  type CounterDelta,
-  type CounterStore,
-  type PainterTelemetryBucket,
-  painterBucketResolution,
-  type SqlStore,
-  type TelemetryTarget,
-  type TemplateTileStatusRecord,
-  type TileMeasurement,
-  type TileObservation,
+import type {
+  BlobStore,
+  SqlStore,
+  TemplateTileStatusRecord,
+  TileObservation,
 } from '../ports/index.js'
 import {
   BlobStoreService,
-  CounterStoreService,
   SqlStoreService,
   StatusReadModelService,
 } from '../runtime/backend-runtime.js'
@@ -46,50 +29,93 @@ import {
   finishTileGenerationCommit,
   prepareTileGenerationCommit,
   publishAlarmChange,
-  publishDashboardChange,
   repairCommittedStatusProjection,
   repairCommittedTileGeneration,
   resolveCurrentTileOffers,
   type StatusReadModelPort,
 } from '../status-read-model/port.js'
-import { classifyChunk } from './classify-chunk.js'
-import { decodedPixelCache } from './decoded-pixel-cache.js'
-import { derivedArtifactWriter } from './derived-artifact-writer.js'
+import { classificationKey, classifyTarget, decodeCanvasBytes } from './classification.js'
 import {
   createDerivedArtifactWriteBatch,
   type DerivedArtifactWriteBatch,
-  readMismatchArtifact,
-  writeMismatchArtifact,
-} from './derived-classification.js'
+  type DerivedArtifactWriter,
+  derivedArtifactWriter,
+} from './derived-artifact-writer.js'
 import { foldTileHistoryThrottled } from './history-fold-throttle.js'
 import { type IngestCommand, type IngestStage, ingestTimings } from './ingest-timing.js'
-import { sharedClassifier } from './shared-classification.js'
-import { readTileBlob, reserveTileBlob, reserveTileBlobUpload } from './tile-blobs.js'
+import { reserveTileBlob, reserveTileBlobUpload, storeTileBlob } from './tile-blobs.js'
 
 export const MAX_CANVAS_TILE_BYTES = 8 * 1024 * 1024
+/** Ordinary device-clock skew a reporter's observation time may run ahead of the server. */
+const MAX_TILE_FUTURE_SKEW_SECONDS = 5 * 60
 /** Tiles of one offer batch processed at the same time; a viewport rarely spans more. */
-export const OFFER_TILE_CONCURRENCY = 4
+const OFFER_TILE_CONCURRENCY = 4
 
-interface BlobStores {
+interface IngestStores {
   readonly blobs: BlobStore
-}
-
-interface BlobSqlStores extends BlobStores {
   readonly sql: SqlStore
-}
-
-interface IngestStores extends BlobSqlStores {
   readonly statusReadModel: StatusReadModelPort
 }
 
-const applyStatusProjectionMutations = async (
+export interface Reporter {
+  readonly wplaceUserId: number
+  readonly displayName: string
+  readonly tokenHash: string
+}
+
+export interface TileMetadata extends Reporter {
+  readonly season: number
+  readonly tile: TileCoord
+  readonly hash: string
+  readonly observedAt: Seconds
+  readonly includeUnpublished: boolean
+}
+
+/**
+ * A reporter's claimed observation time. Client clocks can be wrong or hostile, and a future row
+ * would outrank authoritative server scans until that time arrived.
+ */
+const clampObservedAt = (claimed: number): Seconds =>
+  seconds(Math.min(claimed, Math.floor(Date.now() / 1_000) + MAX_TILE_FUTURE_SKEW_SECONDS))
+
+export interface ProjectionSink {
+  readonly add: (season: number, mutation: StatusProjectionMutation) => void
+  /** Apply everything added, one projection RPC per season, and return each season's change. */
+  readonly flush: () => Promise<ReadonlyMap<number, StatusProjectionChange>>
+}
+
+/** Coalesce one job's committed observations into at most one projection RPC per season. */
+const createProjectionSink = (readModel: StatusReadModelPort): ProjectionSink => {
+  const pending = new Map<number, StatusProjectionMutation[]>()
+  return {
+    add: (season, mutation) => {
+      const mutations = pending.get(season) ?? []
+      mutations.push(mutation)
+      pending.set(season, mutations)
+    },
+    flush: async () => {
+      const entries = [...pending]
+      pending.clear()
+      const changes = new Map<number, StatusProjectionChange>()
+      await Promise.all(
+        entries.map(async ([season, mutations]) => {
+          const change = await applyMutations(readModel, season, mutations)
+          if (change !== null) changes.set(season, change)
+        }),
+      )
+      return changes
+    },
+  }
+}
+
+const applyMutations = (
   readModel: StatusReadModelPort,
   season: number,
   mutations: readonly StatusProjectionMutation[],
 ): Promise<StatusProjectionChange | null> => {
   const first = mutations[0]
   const last = mutations.at(-1)
-  if (first === undefined || last === undefined) return null
+  if (first === undefined || last === undefined) return Promise.resolve(null)
   const contiguous = mutations.every(
     (mutation, index) => index === 0 || mutation.baseRevision === mutations[index - 1]?.revision,
   )
@@ -110,286 +136,73 @@ const applyStatusProjectionMutations = async (
   })
 }
 
-export interface StatusProjectionBatch {
-  readonly add: (season: number, mutation: StatusProjectionMutation) => void
-  readonly flush: () => Promise<void>
+/** What one ingest job holds back until all of its observations have committed. */
+export interface IngestSinks {
+  readonly projection: ProjectionSink
+  readonly artifacts: DerivedArtifactWriteBatch
 }
 
-/** Coalesce one server job into at most one projection RPC per touched season. */
-export const createStatusProjectionBatch = (
-  readModel: StatusReadModelPort,
-): StatusProjectionBatch => {
-  const pending = new Map<number, StatusProjectionMutation[]>()
-  return {
-    add: (season, mutation) => {
-      const mutations = pending.get(season) ?? []
-      mutations.push(mutation)
-      pending.set(season, mutations)
-    },
-    flush: async () => {
-      const entries = [...pending]
-      pending.clear()
-      await Promise.all(
-        entries.map(([season, mutations]) =>
-          applyStatusProjectionMutations(readModel, season, mutations),
-        ),
-      )
-    },
-  }
-}
+export const createIngestSinks = (
+  ports: { readonly blobs: BlobStore; readonly statusReadModel: StatusReadModelPort },
+  writer: DerivedArtifactWriter = derivedArtifactWriter,
+): IngestSinks => ({
+  projection: createProjectionSink(ports.statusReadModel),
+  artifacts: createDerivedArtifactWriteBatch(ports.blobs, writer),
+})
 
-interface TelemetryStores extends BlobSqlStores {
-  readonly counters: CounterStore
-}
-
-interface Reporter {
-  readonly wplaceUserId: number
-  readonly displayName: string
-  readonly tokenHash: string
-}
-
-export interface TileMetadata extends Reporter {
-  readonly season: number
-  readonly tile: TileCoord
-  readonly hash: string
-  readonly observedAt: Seconds
-  readonly includeUnpublished: boolean
-}
-
-interface ChunkRect {
-  readonly left: number
-  readonly top: number
-  readonly width: number
-  readonly height: number
-}
-
-type ClassificationTarget = Pick<
-  TelemetryTarget,
-  'templateId' | 'versionId' | 'bbox' | 'tileX' | 'tileY' | 'hash'
->
-
-const chunkRect = (target: ClassificationTarget): ChunkRect | null => {
-  const tileLeft = target.tileX * TILE_SIZE
-  const tileTop = target.tileY * TILE_SIZE
-  const spans =
-    target.bbox.minX < target.bbox.maxX
-      ? [{ start: target.bbox.minX, end: target.bbox.maxX }]
-      : [
-          { start: target.bbox.minX, end: WORLD_PIXELS },
-          { start: 0, end: target.bbox.maxX },
-        ]
-  const span = spans.find(
-    (candidate) => candidate.start < tileLeft + TILE_SIZE && candidate.end > tileLeft,
-  )
-  if (span === undefined) return null
-  const startX = Math.max(span.start, tileLeft)
-  const endX = Math.min(span.end, tileLeft + TILE_SIZE)
-  const startY = Math.max(target.bbox.minY, tileTop)
-  const endY = Math.min(target.bbox.maxY, tileTop + TILE_SIZE)
-  if (startX >= endX || startY >= endY) return null
-  return {
-    left: startX - tileLeft,
-    top: startY - tileTop,
-    width: endX - startX,
-    height: endY - startY,
-  }
-}
-
-const decodeCanvas = async (bytes: Uint8Array): Promise<Uint8Array> => {
-  // Reporters upload these. Check the header before decoding allocates the size it declares.
-  const { width, height } = pngSize(bytes)
-  if (width !== TILE_SIZE || height !== TILE_SIZE) {
-    throw new RangeError(`canvas tile is ${width}x${height}, expected ${TILE_SIZE}x${TILE_SIZE}`)
-  }
-  return quantiseToPalette((await decodePng(bytes)).pixels, PALETTE_RGB).indices
-}
-
-const decodeCanvasInput = (hash: string, bytes: Uint8Array): Promise<Uint8Array> =>
-  decodedPixelCache.get(
-    `canvas:${hash}`,
-    () => decodeCanvas(bytes),
-    (canvas) => canvas.byteLength,
-  )
-
-const readDecodedCanvas = (ports: BlobSqlStores, hash: string): Promise<Uint8Array | null> =>
-  decodedPixelCache.get(
-    `canvas:${hash}`,
-    async () => {
-      const bytes = await readTileBlob(ports, hash)
-      return bytes === null ? null : decodeCanvas(bytes).catch(() => null)
-    },
-    (canvas) => canvas?.byteLength ?? 0,
-  )
-
-const readDecodedChunk = (ports: BlobStores, hash: string) =>
-  decodedPixelCache.get(
-    `chunk:${hash}`,
-    async () => {
-      const bytes = await ports.blobs.get('chunks', hash)
-      return bytes === null ? null : decodeWplaceIndexedPng(bytes)
-    },
-    (chunk) => chunk?.indices.byteLength ?? 0,
-  )
-
-interface ClassifiedTarget {
-  readonly status: TemplateTileStatusRecord
-  readonly mask: Uint8Array
-}
-
-const persistMismatchArtifact = async (
-  blobs: BlobStore,
-  identity: Parameters<typeof writeMismatchArtifact>[1],
-  mask: Uint8Array,
-): Promise<void> => {
+/** Publish the coalesced projection first, then hand the derived writes on. */
+export const flushIngestSinks = async (
+  sinks: IngestSinks,
+): Promise<ReadonlyMap<number, StatusProjectionChange>> => {
   try {
-    await writeMismatchArtifact(blobs, identity, mask)
-  } catch (error) {
-    // This is a reconstructible optimization. Never roll back or hide accepted authoritative data
-    // because its derived copy could not be written; a later read will retry the same key.
-    console.error('failed to persist derived mismatch artifact', error)
+    return await sinks.projection.flush()
+  } finally {
+    sinks.artifacts.flush()
   }
 }
 
-/**
- * Classify one target against a decoded canvas.
- *
- * The counts and mask depend only on the chunk and canvas content, so identical work from other
- * reporters is shared; the observation timestamp is stamped per caller afterwards.
- */
-const classifyTarget = async (
-  ports: BlobStores,
-  target: ClassificationTarget,
-  canvas: Uint8Array,
-  canvasHash: string,
-  observedAt: number,
-): Promise<ClassifiedTarget | null> => {
-  const rect = chunkRect(target)
-  if (rect === null) return null
-  let computed = false
-  const shared = await sharedClassifier.classify(
-    {
-      templateId: target.templateId,
-      versionId: target.versionId,
-      tile: { x: target.tileX, y: target.tileY },
-      chunkHash: target.hash,
-      canvasHash,
-    },
-    async () => {
-      computed = true
-      const chunk = await readDecodedChunk(ports, target.hash)
-      if (chunk === null || chunk.width !== rect.width || chunk.height !== rect.height) return null
-      const { correct, wrong, blank, colours, classifications } = classifyChunk(
-        chunk.indices,
-        canvas,
-        rect,
-      )
-      return { correct, wrong, blank, colours, mask: encodeMismatchMask(rect, classifications) }
-    },
-  )
-  ingestTimings.count(computed ? 'classification.computed' : 'classification.shared')
-  if (shared === null) return null
-  return {
-    status: {
-      templateId: target.templateId,
-      versionId: target.versionId,
-      tile: { x: target.tileX, y: target.tileY },
-      correct: shared.correct,
-      wrong: shared.wrong,
-      blank: shared.blank,
-      colours: shared.colours,
-      observedAt: millis(observedAt),
-    },
-    mask: shared.mask,
-  }
-}
+/** Reporters' tiles are client claims. The fetcher's mirror is authoritative. */
+type ObservationSource =
+  | {
+      readonly kind: 'reporter'
+      readonly command: Extract<IngestCommand, 'upload' | 'offer'>
+      readonly coverageToken?: string | undefined
+    }
+  | { readonly kind: 'mirror'; readonly recordHistory?: boolean }
 
-/** Derive counts for a retained canvas image against one artwork revision. */
-export const readHistoricalTileMeasurement = async (
-  ports: BlobSqlStores,
-  target: ClassificationTarget,
-  hash: string,
-  observedAt: number,
-): Promise<TileMeasurement | null> => {
-  const canvas = await readDecodedCanvas(ports, hash)
-  if (canvas === null) return null
-  const classified = await classifyTarget(ports, target, canvas, hash, observedAt)
-  if (classified === null) return null
-  const { correct, wrong, blank } = classified.status
-  return { hash, correct, wrong, blank }
-}
-
-export type MismatchMaskRead =
-  | { readonly kind: 'found'; readonly bytes: Uint8Array }
-  | { readonly kind: 'not-found' }
-  | { readonly kind: 'unobserved' }
-
-export interface MismatchMaskQuery {
-  readonly season: number
-  readonly templateId: string
-  readonly versionId: string
-  readonly tile: TileCoord
-  readonly includeUnpublished: boolean
-}
-
-/** Read one server-owned classification mask from the latest accepted canvas observation. */
-const readMismatchMaskPromise = async (
-  ports: BlobSqlStores,
-  query: MismatchMaskQuery,
-): Promise<MismatchMaskRead> => {
-  const targets = await ports.sql.listTelemetryTargets(
-    query.season,
-    query.tile,
-    query.includeUnpublished,
-  )
-  const target = targets.find(
-    (candidate) =>
-      candidate.templateId === query.templateId && candidate.versionId === query.versionId,
-  )
-  if (target === undefined) return { kind: 'not-found' }
-  const latest = await ports.sql.readLatestTile(query.season, query.tile)
-  if (latest === null) return { kind: 'unobserved' }
-  const identity = { ...query, canvasHash: latest.hash }
-  const artifact = await readMismatchArtifact(ports.blobs, identity)
-  if (artifact !== null) return { kind: 'found', bytes: artifact }
-  const canvas = await readDecodedCanvas(ports, latest.hash)
-  if (canvas === null) return { kind: 'unobserved' }
-  const classified = await classifyTarget(ports, target, canvas, latest.hash, latest.observedAt)
-  if (classified === null) return { kind: 'unobserved' }
-  await persistMismatchArtifact(ports.blobs, identity, classified.mask)
-  return { kind: 'found', bytes: classified.mask }
-}
+const statusValue = (status: TemplateTileStatusRecord) => ({
+  correct: status.correct,
+  wrong: status.wrong,
+  blank: status.blank,
+  ...(status.colours === undefined ? {} : { colours: status.colours }),
+  observedAt: status.observedAt,
+})
 
 /**
  * Persist an accepted tile: the observation row, its raw history entry, and a status per template
- * chunk the tile carries.
+ * chunk the tile carries. Its projection mutation and derived masks go to `sinks`.
  *
- * Records unconditionally, even with zero covering templates. The reporter routes never reach here
- * uncovered — `uploadTile` refuses and `offerTile` answers `ignored` first — but the server's own
- * fetcher deliberately stores planned 16:9 context tiles no template covers, purely for the
- * timelapse viewer.
+ * Records even with zero covering templates. Reporter paths refuse or ignore an uncovered tile
+ * first, but the fetcher deliberately mirrors planned 16:9 context tiles no template covers, for
+ * the timelapse viewer.
  */
-const recordObservationPromise = async (
+const recordObservation = async (
   ports: IngestStores,
   metadata: TileMetadata,
   bytes: Uint8Array,
   reservationId: string,
-  options: {
-    readonly recordHistory?: boolean
-    readonly authoritative?: boolean
-    readonly coverageToken?: string
-    readonly artifactWriteBatch?: DerivedArtifactWriteBatch
-    /** Which live command this observation belongs to, for stage timings. */
-    readonly command?: IngestCommand
-    readonly onCommitted?: (mutation: StatusProjectionMutation | null) => void | Promise<void>
-  } = {},
+  source: ObservationSource,
+  sinks: IngestSinks,
 ): Promise<void> => {
-  const command = options.command ?? 'upload'
+  const command = source.kind === 'reporter' ? source.command : 'upload'
+  const authoritative = source.kind === 'mirror'
   const timed = <Value>(stage: IngestStage, run: () => Promise<Value>) =>
     ingestTimings.timed(command, stage, run)
-  const canvas = await timed('decode', () => decodeCanvasInput(metadata.hash, bytes))
+  const canvas = await timed('decode', () => decodeCanvasBytes(metadata.hash, bytes))
   const preparedCoverageToken = await timed('prepare', () =>
     prepareTileGenerationCommit(ports.statusReadModel, metadata.season, metadata.tile),
   )
+  const observedAtMs = millis(metadata.observedAt * 1_000)
   const { targets, classified, committed } = await (async () => {
     try {
       // Coverage is read after the prepare above, so a template published, replaced, or removed
@@ -397,35 +210,42 @@ const recordObservationPromise = async (
       const targets = await timed('targets', () =>
         ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
       )
-      const observedAtMs = metadata.observedAt * 1_000
       const classified = (
         await timed('classify', () =>
           Promise.all(
-            targets.map((target) =>
-              classifyTarget(ports, target, canvas, metadata.hash, observedAtMs),
-            ),
+            targets.map(async (target) => {
+              const classification = await classifyTarget(ports, target, canvas, metadata.hash)
+              return classification === null ? [] : [{ target, classification }]
+            }),
           ),
         )
-      ).filter((result): result is ClassifiedTarget => result !== null)
-      const statuses = classified.map((result) => result.status)
+      ).flat()
+      const statuses = classified.map(
+        ({ target, classification }): TemplateTileStatusRecord => ({
+          templateId: target.templateId,
+          versionId: target.versionId,
+          tile: metadata.tile,
+          correct: classification.correct,
+          wrong: classification.wrong,
+          blank: classification.blank,
+          colours: classification.colours,
+          observedAt: observedAtMs,
+        }),
+      )
       const observation: TileObservation = {
         season: metadata.season,
         tile: metadata.tile,
         hash: metadata.hash,
-        observedAt: millis(observedAtMs),
+        observedAt: observedAtMs,
         reportedAt: metadata.observedAt,
         reportedWithToken: metadata.tokenHash,
         reportedByUserId: metadata.wplaceUserId,
       }
       await timed('painter', () =>
-        ports.sql.rememberPainter(
-          metadata.wplaceUserId,
-          metadata.displayName,
-          millis(observedAtMs),
-        ),
+        ports.sql.rememberPainter(metadata.wplaceUserId, metadata.displayName, observedAtMs),
       )
       const recordHistory =
-        options.recordHistory ??
+        (source.kind === 'mirror' ? source.recordHistory : undefined) ??
         (targets.length === 0 || targets.some((target) => !target.finished))
       const committed = await timed('commit', () =>
         ports.sql.commitTileBlobReservation(
@@ -434,7 +254,7 @@ const recordObservationPromise = async (
           observation,
           statuses,
           recordHistory,
-          options.authoritative ?? false,
+          authoritative,
           metadata.includeUnpublished,
         ),
       )
@@ -454,93 +274,76 @@ const recordObservationPromise = async (
       throw error
     }
   })()
-  // The server recomputed coverage after prepare. A client token only supports adapters that do not
-  // implement prepare; it cannot invalidate the fresher server-owned result.
-  const repairCoverageToken = preparedCoverageToken?.coverageToken ?? options.coverageToken
-  const projectionStartedAt = performance.now()
-  if (committed.current !== null && repairCoverageToken !== undefined) {
-    await repairCommittedTileGeneration(ports.statusReadModel, metadata.season, {
-      ...committed.current,
-      coverageToken: repairCoverageToken,
-      ...(preparedCoverageToken === null
-        ? {}
-        : {
-            commitToken: preparedCoverageToken.commitToken,
-            commitExpiresAt: preparedCoverageToken.commitExpiresAt,
-          }),
-      visibleToPublic: targets.some((target) => target.published),
-      visibleToAdmin: targets.length > 0,
+  const visibleToPublic = targets.some((target) => target.published)
+  await timed('projection', async () => {
+    // The server recomputed coverage after prepare. A client token only supports adapters that do
+    // not implement prepare; it cannot invalidate the fresher server-owned result.
+    const repairCoverageToken =
+      preparedCoverageToken?.coverageToken ??
+      (source.kind === 'reporter' ? source.coverageToken : undefined)
+    if (committed.current !== null && repairCoverageToken !== undefined) {
+      await repairCommittedTileGeneration(ports.statusReadModel, metadata.season, {
+        ...committed.current,
+        coverageToken: repairCoverageToken,
+        ...(preparedCoverageToken === null
+          ? {}
+          : {
+              commitToken: preparedCoverageToken.commitToken,
+              commitExpiresAt: preparedCoverageToken.commitExpiresAt,
+            }),
+        visibleToPublic,
+        visibleToAdmin: targets.length > 0,
+      })
+    } else if (preparedCoverageToken !== null) {
+      await finishTileGenerationCommit(
+        ports.statusReadModel,
+        metadata.season,
+        metadata.tile,
+        preparedCoverageToken,
+      )
+    }
+  })
+  if (committed.revision !== null) {
+    sinks.projection.add(metadata.season, {
+      baseRevision: committed.revision - 1,
+      revision: committed.revision,
+      invalidatedTiles: [tileKey(metadata.tile)],
+      publicInvalidatedTiles: visibleToPublic ? [tileKey(metadata.tile)] : [],
+      changes: committed.statusChanges.map(
+        ({ published, totalPixels, colourTotals, previous, current }) => ({
+          templateId: current.templateId,
+          published,
+          total: totalPixels,
+          ...(colourTotals === undefined ? {} : { colourTotals }),
+          previous: previous === null ? null : statusValue(previous),
+          current: statusValue(current),
+        }),
+      ),
     })
-  } else if (preparedCoverageToken !== null) {
-    await finishTileGenerationCommit(
-      ports.statusReadModel,
-      metadata.season,
-      metadata.tile,
-      preparedCoverageToken,
-    )
   }
-  const mutation: StatusProjectionMutation | null =
-    committed.revision === null
-      ? null
-      : {
-          baseRevision: committed.revision - 1,
-          revision: committed.revision,
-          invalidatedTiles: [tileKey(metadata.tile)],
-          publicInvalidatedTiles: targets.some((target) => target.published)
-            ? [tileKey(metadata.tile)]
-            : [],
-          changes: committed.statusChanges.map(
-            ({ published, totalPixels, colourTotals, previous, current }) => {
-              const value = (status: TemplateTileStatusRecord) => ({
-                correct: status.correct,
-                wrong: status.wrong,
-                blank: status.blank,
-                ...(status.colours === undefined ? {} : { colours: status.colours }),
-                observedAt: status.observedAt,
-              })
-              return {
-                templateId: current.templateId,
-                published,
-                total: totalPixels,
-                ...(colourTotals === undefined ? {} : { colourTotals }),
-                previous: previous === null ? null : value(previous),
-                current: value(current),
-              }
-            },
-          ),
-        }
-  await options.onCommitted?.(mutation)
-  ingestTimings.record(command, 'projection', performance.now() - projectionStartedAt)
-  // Evaluate only changed templates, before acknowledging this observation. Initial incomplete
-  // work seeds a baseline; a newly lost correct pixel opens an episode immediately.
+  // The fetcher evaluates its whole scan after its batch. A reporter's observation evaluates only
+  // changed templates, before it is acknowledged: initial incomplete work seeds a baseline, and a
+  // newly lost correct pixel opens an episode at once.
   const alarmChanges = committed.statusChanges.filter(
     ({ previous, current }) => previous === null || previous.correct !== current.correct,
   )
-  // The fetcher evaluates its complete scan/follow-up after its authoritative tile batch.
-  const alarmsStartedAt = performance.now()
-  if (options.authoritative !== true && committed.revision !== null && alarmChanges.length > 0) {
+  const revision = committed.revision
+  await timed('alarms', async () => {
+    if (authoritative || revision === null || alarmChanges.length === 0) return
     let alarmChanged = false
     try {
-      for (const {
-        previous,
-        current,
-        previousTemplateCorrect,
-        previousTemplateObservedAt,
-        totalPixels,
-      } of alarmChanges) {
+      for (const change of alarmChanges) {
+        const { previous, current, previousTemplateCorrect, previousTemplateObservedAt } = change
         const evaluation = await ports.sql.evaluateTemplateAlarm(
           {
             templateId: current.templateId,
             versionId: current.versionId,
-            total: totalPixels,
+            total: change.totalPixels,
             correct: previousTemplateCorrect - (previous?.correct ?? 0) + current.correct,
             observedAt: millis(Math.max(current.observedAt, previousTemplateObservedAt)),
-            observationRevision: committed.revision,
+            observationRevision: revision,
           },
-          {
-            kind: 'observation',
-            previousCorrect: previousTemplateCorrect,
-          },
+          { kind: 'observation', previousCorrect: previousTemplateCorrect },
           uuidV7(),
         )
         alarmChanged ||= evaluation.alarmChanged
@@ -551,26 +354,10 @@ const recordObservationPromise = async (
       // Each evaluation commits on its own, so a later failure still owes the earlier changes.
       if (alarmChanged) await publishAlarmChange(ports.statusReadModel, metadata.season)
     }
+  })
+  for (const { target, classification } of classified) {
+    sinks.artifacts.add(classificationKey(target, metadata.hash), classification.mask)
   }
-  ingestTimings.record(command, 'alarms', performance.now() - alarmsStartedAt)
-  // Publish the authoritative revision first. A caller processing many tiles owns one shared batch
-  // and flushes it only after its coalesced projection; standalone calls flush their local batch.
-  const ownsArtifactWriteBatch = options.artifactWriteBatch === undefined
-  const artifactWriteBatch =
-    options.artifactWriteBatch ??
-    createDerivedArtifactWriteBatch(ports.blobs, { writer: derivedArtifactWriter })
-  for (const { status, mask } of classified) {
-    artifactWriteBatch.add(
-      {
-        templateId: status.templateId,
-        versionId: status.versionId,
-        tile: status.tile,
-        canvasHash: metadata.hash,
-      },
-      mask,
-    )
-  }
-  if (ownsArtifactWriteBatch) await timed('artifacts', () => artifactWriteBatch.flush())
   await timed('historyFold', async () => {
     const outcome = await foldTileHistoryThrottled(
       ports.sql,
@@ -582,53 +369,187 @@ const recordObservationPromise = async (
   })
 }
 
-/** Reclassify bytes already held by the current canvas hash without another R2 upload or history fold. */
-const refreshAuthoritativeTilePromise = async (
-  ports: IngestStores,
-  metadata: TileMetadata,
-  bytes: Uint8Array,
-  projectionBatch?: StatusProjectionBatch,
-  artifactWriteBatch?: DerivedArtifactWriteBatch,
-): Promise<StatusProjectionChange | null> => {
+/** Refuse bytes that are empty, oversized, or not the content their hash names. */
+const checkTileBytes = async (bytes: Uint8Array, hash: string): Promise<void> => {
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) {
     throw new RangeError(`tile must be 1..${MAX_CANVAS_TILE_BYTES} bytes`)
   }
-  const actualHash = await sha256Hex(bytes)
-  if (actualHash !== metadata.hash) throw new RangeError('tile bytes do not match their sha256')
-  const held = await reserveTileBlob(ports, metadata.hash)
-  if (held === null) throw new Error(`authoritative tile blob ${metadata.hash} is unavailable`)
-  let projection: StatusProjectionChange | null = null
-  await recordObservationPromise(ports, metadata, bytes, held.reservation.id, {
-    recordHistory: false,
-    authoritative: true,
-    ...(artifactWriteBatch === undefined ? {} : { artifactWriteBatch }),
-    onCommitted: async (mutation) => {
-      if (mutation === null) return
-      if (projectionBatch !== undefined) projectionBatch.add(metadata.season, mutation)
-      else {
-        projection = await repairCommittedStatusProjection(
-          ports.statusReadModel,
-          metadata.season,
-          mutation,
-        )
-      }
-    },
-  })
-  return projection
+  const actual = await ingestTimings.timed('upload', 'hash', () => sha256Hex(bytes))
+  if (actual !== hash) throw new RangeError('tile bytes do not match their sha256')
 }
 
-type OfferTileOutcome = 'ignored' | 'wanted' | 'recorded'
+/** Store new bytes once, then record them; a failure releases the reservation for GC. */
+const storeAndRecord = async (
+  ports: IngestStores,
+  metadata: TileMetadata,
+  bytes: Uint8Array,
+  source: ObservationSource,
+  sinks: IngestSinks,
+): Promise<void> => {
+  const reservation = await ingestTimings.timed('upload', 'reserve', () =>
+    reserveTileBlobUpload(ports, metadata.hash),
+  )
+  try {
+    // Many reporters upload one fresh hash inside the same commit window. The generation's object
+    // holds the bytes once; the reservation keeps GC away, so only the observation still needs
+    // recording for each of them.
+    await ingestTimings.timed('upload', 'blobPut', () => storeTileBlob(ports, reservation, bytes))
+    await recordObservation(ports, metadata, bytes, reservation.id, source, sinks)
+  } catch (error) {
+    await ports.sql.releaseTileBlobReservation(reservation.id)
+    throw error
+  }
+}
 
-/** Process an offer immediately when the content-addressed bytes already exist. */
+const uploadTilePromise = async (
+  ports: IngestStores,
+  claimed: TileMetadata,
+  bytes: Uint8Array,
+  coverageToken: string | undefined,
+): Promise<StatusProjectionChange | null> => {
+  const metadata = { ...claimed, observedAt: clampObservedAt(claimed.observedAt) }
+  await checkTileBytes(bytes, metadata.hash)
+  const targets = await ingestTimings.timed('upload', 'targets', () =>
+    ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
+  )
+  if (targets.length === 0) throw new RangeError('tile is not covered by a visible template')
+  const sinks = createIngestSinks(ports)
+  let changes: ReadonlyMap<number, StatusProjectionChange> = new Map()
+  try {
+    await storeAndRecord(
+      ports,
+      metadata,
+      bytes,
+      { kind: 'reporter', command: 'upload', coverageToken },
+      sinks,
+    )
+  } finally {
+    // A commit followed by a failure still owes its projection.
+    changes = await flushIngestSinks(sinks)
+  }
+  return changes.get(metadata.season) ?? null
+}
+
+export type MirrorOutcome = 'stored' | 'unchanged'
+
+const mirrorTilePromise = async (
+  ports: IngestStores,
+  metadata: TileMetadata,
+  bytes: Uint8Array,
+  options: { readonly latestHash: string | null; readonly recordHistory?: boolean },
+  sinks: IngestSinks,
+): Promise<MirrorOutcome> => {
+  await checkTileBytes(bytes, metadata.hash)
+  if (options.latestHash !== metadata.hash) {
+    await storeAndRecord(
+      ports,
+      metadata,
+      bytes,
+      {
+        kind: 'mirror',
+        ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
+      },
+      sinks,
+    )
+    return 'stored'
+  }
+  // The latest observation already holds these bytes: reclassify them against current artwork
+  // without another object write or history entry.
+  const held = await reserveTileBlob(ports, metadata.hash)
+  if (held === null) throw new Error(`authoritative tile blob ${metadata.hash} is unavailable`)
+  await recordObservation(
+    ports,
+    metadata,
+    bytes,
+    held.reservation.id,
+    { kind: 'mirror', recordHistory: false },
+    sinks,
+  )
+  return 'unchanged'
+}
+
+/** Run an ingest step, reading a `RangeError` as the caller's mistake and anything else as storage. */
+const ingest = <A>(operation: string, run: () => Promise<A>) =>
+  Effect.tryPromise({
+    try: run,
+    catch: (cause) =>
+      cause instanceof RangeError
+        ? new ValidationError({ message: cause.message })
+        : new StorageError({ operation, cause }),
+  })
+
+const ingestStores = Effect.gen(function* () {
+  return {
+    blobs: yield* BlobStoreService,
+    sql: yield* SqlStoreService,
+    statusReadModel: yield* StatusReadModelService,
+  }
+})
+
+type IngestServices = BlobStoreService | SqlStoreService | StatusReadModelService
+
+/** Validate and persist one reporter's uploaded tile, returning its projection change. */
+export const uploadTile = (
+  metadata: TileMetadata,
+  bytes: Uint8Array,
+  coverageToken?: string,
+): Effect.Effect<StatusProjectionChange | null, StorageError | ValidationError, IngestServices> =>
+  Effect.flatMap(ingestStores, (ports) =>
+    ingest('uploadTile', () => uploadTilePromise(ports, metadata, bytes, coverageToken)),
+  )
+
+/**
+ * Record one tile the server fetched itself. Bytes the latest observation already holds are
+ * reclassified only; new bytes are stored. Its projection and masks wait in `sinks`.
+ */
+export const mirrorTile = (
+  metadata: TileMetadata,
+  bytes: Uint8Array,
+  options: {
+    readonly latestHash: string | null
+    readonly recordHistory?: boolean
+    readonly sinks: IngestSinks
+  },
+): Effect.Effect<MirrorOutcome, StorageError | ValidationError, IngestServices> =>
+  Effect.flatMap(ingestStores, (ports) =>
+    ingest('mirrorTile', () => mirrorTilePromise(ports, metadata, bytes, options, options.sinks)),
+  )
+
+/** One reporter's batch of tile hashes for one season, each keyed by its `x/y` tile key. */
+export interface TileOffers {
+  readonly season: number
+  readonly reporter: Reporter
+  readonly includeUnpublished: boolean
+  readonly offers: readonly {
+    readonly tile: string
+    readonly sha256: string
+    readonly ts: number
+  }[]
+}
+
+/** Each offered tile key lands in exactly one of `wanted`, `acknowledged`, and `rejected`. */
+export interface TileOfferResult {
+  /** Tiles whose bytes the server needs uploaded. */
+  readonly wanted: readonly string[]
+  /** Tiles already current, or recorded now from bytes the server held. */
+  readonly acknowledged: readonly string[]
+  /** Tiles no visible template covers. */
+  readonly rejected: readonly string[]
+  readonly projection: StatusProjectionChange | null
+  readonly cacheOutcome: 'hit' | 'miss' | 'stale'
+  /** Authority for the uploads that follow, when the read model issues one. */
+  readonly coverageToken?: string
+}
+
+type OfferOutcome = 'cached' | 'ignored' | 'wanted' | 'recorded'
+
+/** Record an offer at once when the content-addressed bytes already exist. */
 const offerTilePromise = async (
   ports: IngestStores,
   metadata: TileMetadata,
-  options: {
-    readonly coverageToken?: string
-    readonly artifactWriteBatch?: DerivedArtifactWriteBatch
-    readonly onCommitted?: (mutation: StatusProjectionMutation | null) => void | Promise<void>
-  } = {},
-): Promise<'ignored' | 'wanted' | 'recorded'> => {
+  coverageToken: string | undefined,
+  sinks: IngestSinks,
+): Promise<OfferOutcome> => {
   const targets = await ingestTimings.timed('offer', 'targets', () =>
     ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
   )
@@ -637,536 +558,99 @@ const offerTilePromise = async (
     reserveTileBlob(ports, metadata.hash),
   )
   if (held === null) return 'wanted'
-  await recordObservationPromise(ports, metadata, held.bytes, held.reservation.id, {
-    command: 'offer',
-    ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
-    ...(options.artifactWriteBatch === undefined
-      ? {}
-      : { artifactWriteBatch: options.artifactWriteBatch }),
-    ...(options.onCommitted === undefined ? {} : { onCommitted: options.onCommitted }),
-  })
+  await recordObservation(
+    ports,
+    metadata,
+    held.bytes,
+    held.reservation.id,
+    { kind: 'reporter', command: 'offer', coverageToken },
+    sinks,
+  )
   return 'recorded'
 }
 
-/** True when the registered generation for this hash is active under the reserved key. */
-const tileBytesAlreadyStored = async (
-  ports: BlobSqlStores,
-  hash: string,
-  blobKey: string,
-): Promise<boolean> => {
-  const registered = await ports.sql.readTileBlob(hash)
-  return registered !== null && registered.state === 'active' && registered.blobKey === blobKey
-}
-
-/** Tile-object PUTs in flight on this runtime, by blob key, so concurrent uploaders share one. */
-const inFlightTilePuts = new Map<string, Promise<void>>()
-
-/**
- * Store one generation's bytes at most once at a time.
- *
- * Reporters that offer the same fresh hash inside one commit window all reserve the same
- * `uploading` generation, and none of them sees it `active` yet. The first PUT for a key is
- * shared with every concurrent caller; a failed PUT rejects them all so each retries its own.
- */
-const storeTileBytesOnce = async (
-  ports: BlobSqlStores,
-  hash: string,
-  blobKey: string,
-  bytes: Uint8Array,
-): Promise<void> => {
-  if (storedTileBlobKeys.has(blobKey)) {
-    ingestTimings.count('upload.blobPut.skipped')
-    return
-  }
-  const joined = inFlightTilePuts.get(blobKey)
-  if (joined !== undefined) {
-    ingestTimings.count('upload.blobPut.joined')
-    return joined
-  }
-  // Register before any await: the active-state read and the PUT belong to one owner, so a
-  // caller arriving during either joins it instead of racing past the lookup.
-  const work = (async () => {
-    if (!(await tileBytesAlreadyStored(ports, hash, blobKey))) {
-      await ports.blobs.put('tiles', blobKey, bytes)
-    } else {
-      ingestTimings.count('upload.blobPut.skipped')
-    }
-    rememberStoredTileBlobKey(blobKey)
-  })().finally(() => {
-    inFlightTilePuts.delete(blobKey)
-  })
-  inFlightTilePuts.set(blobKey, work)
-  return work
-}
-
-/**
- * Blob keys whose bytes this runtime has stored or seen active.
- *
- * A generation stays `uploading` until its owner's observation commits, which is long after the
- * PUT settled, and every reporter reserving it in that gap would PUT again. A restored generation
- * always gets a fresh key, so remembering a key can never point at bytes that were reclaimed.
- * Dropping an entry only costs one state read.
- */
-const STORED_TILE_BLOB_KEYS_LIMIT = 512
-const storedTileBlobKeys = new Set<string>()
-
-const rememberStoredTileBlobKey = (blobKey: string): void => {
-  storedTileBlobKeys.delete(blobKey)
-  storedTileBlobKeys.add(blobKey)
-  if (storedTileBlobKeys.size > STORED_TILE_BLOB_KEYS_LIMIT) {
-    const oldest = storedTileBlobKeys.values().next().value
-    if (oldest !== undefined) storedTileBlobKeys.delete(oldest)
-  }
-}
-
-const uploadTilePromise = async (
-  ports: IngestStores,
-  metadata: TileMetadata,
-  bytes: Uint8Array,
-  options: {
-    readonly requireCoverage?: boolean
-    readonly recordHistory?: boolean
-    readonly authoritative?: boolean
-    readonly coverageToken?: string
-    readonly projectionBatch?: StatusProjectionBatch
-    readonly artifactWriteBatch?: DerivedArtifactWriteBatch
-  } = {},
-): Promise<StatusProjectionChange | null> => {
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_CANVAS_TILE_BYTES) {
-    throw new RangeError(`tile must be 1..${MAX_CANVAS_TILE_BYTES} bytes`)
-  }
-  const actualHash = await ingestTimings.timed('upload', 'hash', () => sha256Hex(bytes))
-  if (actualHash !== metadata.hash) throw new RangeError('tile bytes do not match their sha256')
-  const targets = await ingestTimings.timed('upload', 'targets', () =>
-    ports.sql.listTelemetryTargets(metadata.season, metadata.tile, metadata.includeUnpublished),
-  )
-  if (options.requireCoverage !== false && targets.length === 0) {
-    throw new RangeError('tile is not covered by a visible template')
-  }
-  const reservation = await ingestTimings.timed('upload', 'reserve', () =>
-    reserveTileBlobUpload(ports, actualHash),
-  )
-  let projection: StatusProjectionChange | null = null
-  try {
-    // Many reporters upload one fresh hash inside the same commit window. The generation's object
-    // holds the bytes once; the reservation keeps GC away, so only the observation still needs
-    // recording for each of them.
-    await ingestTimings.timed('upload', 'blobPut', () =>
-      storeTileBytesOnce(ports, actualHash, reservation.blobKey, bytes),
-    )
-    await recordObservationPromise(ports, metadata, bytes, reservation.id, {
-      command: 'upload',
-      ...(options.coverageToken === undefined ? {} : { coverageToken: options.coverageToken }),
-      ...(options.recordHistory === undefined ? {} : { recordHistory: options.recordHistory }),
-      ...(options.authoritative === undefined ? {} : { authoritative: options.authoritative }),
-      ...(options.artifactWriteBatch === undefined
-        ? {}
-        : { artifactWriteBatch: options.artifactWriteBatch }),
-      onCommitted: async (mutation) => {
-        if (mutation === null) return
-        if (options.projectionBatch !== undefined)
-          options.projectionBatch.add(metadata.season, mutation)
-        else
-          projection = await repairCommittedStatusProjection(
-            ports.statusReadModel,
-            metadata.season,
-            mutation,
-          )
-      },
-    })
-    return projection
-  } catch (error) {
-    await ports.sql.releaseTileBlobReservation(reservation.id)
-    throw error
-  }
-}
-
-const ourPaletteIndex = (wplaceIndex: number): number =>
-  wplaceIndex === 0 ? TRANSPARENT_INDEX : wplaceIndex - 1
-
-const dayOf = (timestamp: Seconds): Seconds => seconds(Math.floor(timestamp / 86_400) * 86_400)
-
-/** Classify a fully accepted paint against server-owned template chunks and the latest tile anchor. */
-const recordPaintPromise = async (
-  ports: TelemetryStores,
-  event: PaintEvent,
-  reporterTokenHash: string,
-  includeUnpublished: boolean,
-): Promise<'duplicate' | 'partial' | 'recorded'> => {
-  const seenAt = millis(Date.now())
-  const submitted = event.tiles.reduce((total, tile) => total + tile.pixels.x.length, 0)
-  if (event.painted === null || event.painted !== submitted) {
-    const application = await ports.sql.applyPaintEvent(
-      event.eventId,
-      event.wplaceUserId,
-      event.displayName,
-      seenAt,
-      { counters: [], contributions: [] },
-    )
-    return application.applied ? 'partial' : 'duplicate'
-  }
-
-  const totals = new Map<string, { placed: number; correct: number; repairs: number }>()
-  for (const paintedTile of event.tiles) {
-    const tile = { x: paintedTile.x, y: paintedTile.y }
-    const targets = await ingestTimings.timed('paint', 'targets', () =>
-      ports.sql.listTelemetryTargets(event.season, tile, includeUnpublished),
-    )
-    if (targets.length === 0) continue
-    const previous = await ingestTimings.timed('paint', 'latestTile', async () => {
-      const latest = await ports.sql.readLatestTile(event.season, tile)
-      return latest === null ? null : await readDecodedCanvas(ports, latest.hash)
-    })
-
-    const classifyStartedAt = performance.now()
-    for (const target of targets) {
-      if (target.finished) continue
-      const rect = chunkRect(target)
-      if (rect === null) continue
-      const chunk = await readDecodedChunk(ports, target.hash)
-      if (chunk === null || chunk.width !== rect.width || chunk.height !== rect.height) continue
-      const total = totals.get(target.templateId) ?? { placed: 0, correct: 0, repairs: 0 }
-      for (let index = 0; index < paintedTile.pixels.x.length; index += 1) {
-        const x = paintedTile.pixels.x[index] ?? -1
-        const y = paintedTile.pixels.y[index] ?? -1
-        if (
-          x < rect.left ||
-          x >= rect.left + rect.width ||
-          y < rect.top ||
-          y >= rect.top + rect.height
-        )
-          continue
-        const wanted =
-          chunk.indices[(y - rect.top) * rect.width + (x - rect.left)] ?? TRANSPARENT_INDEX
-        if (wanted === TRANSPARENT_INDEX) continue
-        const painted = ourPaletteIndex(paintedTile.pixels.colors[index] ?? 0)
-        total.placed++
-        if (painted !== wanted) continue
-        total.correct++
-        const before = previous?.[y * TILE_SIZE + x] ?? TRANSPARENT_INDEX
-        if (before !== TRANSPARENT_INDEX && before !== wanted) total.repairs++
-      }
-      totals.set(target.templateId, total)
-    }
-    ingestTimings.record('paint', 'classify', performance.now() - classifyStartedAt)
-  }
-
-  const counters: CounterDelta[] = []
-  const contributions: ContributionDelta[] = []
-  const painterBuckets: PainterTelemetryBucket[] = []
-  // The painter's bucket lands at whichever ladder tier its window has already reached, so a
-  // report that arrives after the fold still reads at once instead of hiding under a coarser row.
-  const painterResolution = painterBucketResolution(event.ts, seconds(Math.floor(seenAt / 1_000)))
-  for (const [templateId, total] of totals) {
-    counters.push({ templateId, occurredAt: event.ts, ...total })
-    contributions.push({
-      templateId,
-      wplaceUserId: event.wplaceUserId,
-      day: dayOf(event.ts),
-      reportedWithToken: reporterTokenHash,
-      reportedByUserId: event.wplaceUserId,
-      ...total,
-    })
-    painterBuckets.push({
-      templateId,
-      wplaceUserId: event.wplaceUserId,
-      resolution: painterResolution,
-      bucketStart: seconds(Math.floor(event.ts / painterResolution) * painterResolution),
-      ...total,
-    })
-  }
-  const application = await ingestTimings.timed('paint', 'apply', () =>
-    ports.sql.applyPaintEvent(event.eventId, event.wplaceUserId, event.displayName, seenAt, {
-      counters,
-      contributions,
-      painterBuckets,
-    }),
-  )
-  if (application.accounting === null) return 'duplicate'
-  const accounting = application.accounting
-  await ingestTimings.timed('paint', 'counters', () =>
-    ports.counters.record(accounting.counters, event.eventId),
-  )
-  return application.applied ? 'recorded' : 'duplicate'
-}
-
-const upload = <A>(run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) =>
-      cause instanceof RangeError
-        ? new ValidationError({ message: cause.message })
-        : new StorageError({ operation: 'uploadTile', cause }),
-  })
-
-/** Read one server-owned classification mask from the latest accepted canvas observation. */
-export const readMismatchMask = (
-  query: MismatchMaskQuery,
-): Effect.Effect<MismatchMaskRead, StorageError, BlobStoreService | SqlStoreService> =>
-  Effect.gen(function* () {
-    const blobs = yield* BlobStoreService
-    const sql = yield* SqlStoreService
-    return yield* storage('readMismatchMask', () => readMismatchMaskPromise({ blobs, sql }, query))
-  })
-
-/** Reclassify a server-owned tile without another R2 upload or history fold. */
-export const refreshAuthoritativeTile = (
-  metadata: TileMetadata,
-  bytes: Uint8Array,
-  options: {
-    readonly projectionBatch?: StatusProjectionBatch
-    readonly artifactWriteBatch?: DerivedArtifactWriteBatch
-  } = {},
-): Effect.Effect<
-  StatusProjectionChange | null,
-  StorageError,
-  BlobStoreService | SqlStoreService | StatusReadModelService
-> =>
-  Effect.gen(function* () {
-    const blobs = yield* BlobStoreService
-    const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    return yield* storage('refreshAuthoritativeTile', () =>
-      refreshAuthoritativeTilePromise(
-        { blobs, sql, statusReadModel },
-        metadata,
-        bytes,
-        options.projectionBatch,
-        options.artifactWriteBatch,
-      ),
-    )
-  })
-
-/** Decide whether the server needs one offered tile, recording known bytes immediately. */
-export const offerTile = (
-  metadata: TileMetadata,
-): Effect.Effect<
-  'ignored' | 'wanted' | 'recorded',
-  StorageError,
-  BlobStoreService | SqlStoreService | StatusReadModelService
-> =>
-  Effect.gen(function* () {
-    const blobs = yield* BlobStoreService
-    const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    return yield* storage('offerTile', () =>
-      offerTilePromise({ blobs, sql, statusReadModel }, metadata, {
-        onCommitted: async (mutation) => {
-          if (mutation === null) return
-          await repairCommittedStatusProjection(statusReadModel, metadata.season, mutation)
-        },
-      }),
-    )
-  })
-
+/** Decide which offered tiles the server needs, recording tiles whose bytes it already holds. */
 export const offerTiles = (
-  offers: readonly { readonly key: string; readonly metadata: TileMetadata }[],
-): Effect.Effect<
-  readonly string[],
-  StorageError,
-  BlobStoreService | SqlStoreService | StatusReadModelService
-> => Effect.map(offerTilesWithOutcome(offers), (result) => result.wanted)
-
-export interface TileOfferResult {
-  readonly wanted: readonly string[]
-  readonly acknowledged: readonly string[]
-  readonly rejectedKeys: readonly string[]
-  readonly accepted: number
-  readonly alreadyKnown: number
-  readonly rejected: number
-  readonly projection: StatusProjectionChange | null
-  readonly cacheOutcome: 'hit' | 'miss' | 'stale'
-  readonly coverageTokens: ReadonlyMap<string, string>
-}
-
-/** Preserve per-offer decisions, cache authority tokens and capacity metrics for the route adapter. */
-export const offerTilesWithOutcome = (
-  offers: readonly { readonly key: string; readonly metadata: TileMetadata }[],
-): Effect.Effect<
-  TileOfferResult,
-  StorageError,
-  BlobStoreService | SqlStoreService | StatusReadModelService
-> =>
+  batch: TileOffers,
+): Effect.Effect<TileOfferResult, StorageError | ValidationError, IngestServices> =>
   Effect.gen(function* () {
-    const blobs = yield* BlobStoreService
-    const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    const wanted: string[] = []
-    const acknowledged: string[] = []
-    const rejectedKeys: string[] = []
-    const mutations = new Map<number, StatusProjectionMutation[]>()
-    let projection: StatusProjectionChange | null = null
-    let alreadyKnown = 0
-    let rejected = 0
-    let cacheOutcome: 'hit' | 'miss' | 'stale' = 'hit'
-    const coverageTokens = new Map<string, string>()
-    const artifactWriteBatch = createDerivedArtifactWriteBatch(blobs, {
-      writer: derivedArtifactWriter,
-    })
-    yield* Effect.acquireUseRelease(
-      Effect.void,
-      () =>
-        Effect.gen(function* () {
-          const cached = new Set<string>()
-          const groups = new Map<string, typeof offers>()
-          for (const offer of offers) {
-            const groupKey = `${offer.metadata.season}:${offer.metadata.includeUnpublished ? 'admin' : 'public'}`
-            groups.set(groupKey, [...(groups.get(groupKey) ?? []), offer])
-          }
-          for (const grouped of groups.values()) {
-            const first = grouped[0]
-            if (first === undefined) continue
-            const read = yield* storage('resolveCurrentTileOffers', () =>
-              resolveCurrentTileOffers(
-                statusReadModel,
-                first.metadata.season,
-                first.metadata.includeUnpublished ? 'admin' : 'public',
-                grouped.map((offer) => ({
-                  deliveryId: offer.key,
-                  tile: offer.metadata.tile,
-                  hash: offer.metadata.hash,
-                })),
-              ),
-            )
-            for (const key of read.acknowledgedDeliveryIds) cached.add(key)
-            if (read.coverageToken !== null) {
-              coverageTokens.set(
-                `${first.metadata.season}:${first.metadata.includeUnpublished ? 'admin' : 'public'}`,
-                read.coverageToken,
-              )
-            }
-            if (read.cacheOutcome === 'stale') cacheOutcome = 'stale'
-            else if (read.cacheOutcome === 'miss' && cacheOutcome === 'hit') cacheOutcome = 'miss'
-          }
-          // Each tile in a batch is its own observation on its own rows. Processing them one
-          // after another multiplied the database round trips of one tile by the batch size and
-          // pushed multi-tile offers past the client's deadline. Every started offer settles
-          // before the batch fails: an interrupted fiber cannot stop its storage promise, and the
-          // release below must see every commit so none misses projection repair or artifacts.
-          // Once any offer has failed, offers still queued do not start; offers already in
-          // flight finish so the batch keeps the previous fail-fast shape without losing commits.
-          let firstFailure: StorageError | undefined
-          const settled = yield* Effect.forEach(
-            offers,
-            (offer): Effect.Effect<Result.Result<OfferTileOutcome | 'cached', StorageError>> => {
-              if (firstFailure !== undefined) return Effect.succeed(Result.fail(firstFailure))
-              if (cached.has(offer.key)) return Effect.succeed(Result.succeed('cached' as const))
-              const coverageToken = coverageTokens.get(
-                `${offer.metadata.season}:${offer.metadata.includeUnpublished ? 'admin' : 'public'}`,
-              )
-              return Effect.map(
-                Effect.result(
-                  storage('offerTile', () =>
-                    offerTilePromise({ blobs, sql, statusReadModel }, offer.metadata, {
-                      ...(coverageToken === undefined ? {} : { coverageToken }),
-                      artifactWriteBatch,
-                      onCommitted: (mutation) => {
-                        if (mutation === null) return
-                        const seasonMutations = mutations.get(offer.metadata.season) ?? []
-                        seasonMutations.push(mutation)
-                        mutations.set(offer.metadata.season, seasonMutations)
-                      },
-                    }),
-                  ),
-                ),
-                (result) => {
-                  if (Result.isFailure(result)) firstFailure ??= result.failure
-                  return result
-                },
-              )
-            },
-            { concurrency: OFFER_TILE_CONCURRENCY },
+    const ports = yield* ingestStores
+    if (new Set(batch.offers.map((offer) => offer.tile)).size !== batch.offers.length) {
+      return yield* Effect.fail(
+        new ValidationError({ message: 'tile offer batch contains duplicates' }),
+      )
+    }
+    const offers: { readonly key: string; readonly metadata: TileMetadata }[] = []
+    for (const offer of batch.offers) {
+      const tile = parseTileKey(offer.tile)
+      if (tile === null) {
+        return yield* Effect.fail(new ValidationError({ message: 'invalid tile offer batch' }))
+      }
+      offers.push({
+        key: offer.tile,
+        metadata: {
+          ...batch.reporter,
+          season: batch.season,
+          tile,
+          hash: offer.sha256,
+          observedAt: clampObservedAt(offer.ts),
+          includeUnpublished: batch.includeUnpublished,
+        },
+      })
+    }
+    const current =
+      offers.length === 0
+        ? null
+        : yield* storage('resolveCurrentTileOffers', () =>
+            resolveCurrentTileOffers(
+              ports.statusReadModel,
+              batch.season,
+              batch.includeUnpublished ? 'admin' : 'public',
+              offers.map(({ key, metadata }) => ({
+                deliveryId: key,
+                tile: metadata.tile,
+                hash: metadata.hash,
+              })),
+            ),
           )
-          const failed = settled.find(Result.isFailure)
-          if (failed !== undefined) return yield* Effect.fail(failed.failure)
-          for (const [index, offer] of offers.entries()) {
-            const entry = settled[index]
-            const outcome =
-              entry !== undefined && Result.isSuccess(entry) ? entry.success : undefined
-            if (outcome === 'cached' || outcome === 'recorded') {
-              acknowledged.push(offer.key)
-              alreadyKnown++
-            } else if (outcome === 'wanted') wanted.push(offer.key)
-            else {
-              rejectedKeys.push(offer.key)
-              rejected++
-            }
-          }
-        }),
-      () =>
-        Effect.promise(async () => {
-          try {
-            for (const [season, seasonMutations] of mutations) {
-              projection = await applyStatusProjectionMutations(
-                statusReadModel,
-                season,
-                seasonMutations,
-              )
-            }
-          } finally {
-            await artifactWriteBatch.flush()
-          }
-        }),
+    const cached = new Set(current?.acknowledgedDeliveryIds)
+    const coverageToken = current?.coverageToken ?? undefined
+    const sinks = createIngestSinks(ports)
+    // Each tile is its own observation on its own rows, so tiles run concurrently: one after
+    // another multiplied a tile's round trips by the batch size and pushed multi-tile offers past
+    // the client's deadline. Once one fails, queued tiles do not start, but tiles in flight finish,
+    // so the flush below sees every commit and none misses projection repair or artifacts.
+    let firstFailure: StorageError | undefined
+    const settled = yield* Effect.forEach(
+      offers,
+      ({ key, metadata }): Effect.Effect<Result.Result<OfferOutcome, StorageError>> => {
+        if (firstFailure !== undefined) return Effect.succeed(Result.fail(firstFailure))
+        if (cached.has(key)) return Effect.succeed(Result.succeed('cached'))
+        return Effect.map(
+          Effect.result(
+            storage('offerTile', () => offerTilePromise(ports, metadata, coverageToken, sinks)),
+          ),
+          (result) => {
+            if (Result.isFailure(result)) firstFailure ??= result.failure
+            return result
+          },
+        )
+      },
+      { concurrency: OFFER_TILE_CONCURRENCY },
     )
+    const changes = yield* Effect.promise(() => flushIngestSinks(sinks))
+    if (firstFailure !== undefined) return yield* Effect.fail(firstFailure)
+    const keysWith = (wanted: (outcome: OfferOutcome) => boolean) =>
+      offers.flatMap(({ key }, index) => {
+        const entry = settled[index]
+        return entry !== undefined && Result.isSuccess(entry) && wanted(entry.success) ? [key] : []
+      })
     return {
-      wanted,
-      acknowledged,
-      rejectedKeys,
-      accepted: wanted.length,
-      alreadyKnown,
-      rejected,
-      projection,
-      cacheOutcome,
-      coverageTokens,
+      wanted: keysWith((outcome) => outcome === 'wanted'),
+      acknowledged: keysWith((outcome) => outcome === 'cached' || outcome === 'recorded'),
+      rejected: keysWith((outcome) => outcome === 'ignored'),
+      projection: changes.get(batch.season) ?? null,
+      cacheOutcome: current?.cacheOutcome ?? 'hit',
+      ...(coverageToken === undefined ? {} : { coverageToken }),
     }
-  })
-
-/** Validate and persist one uploaded tile without leaking storage failures into a 400 response. */
-export const uploadTile = (
-  metadata: TileMetadata,
-  bytes: Uint8Array,
-  options: {
-    readonly requireCoverage?: boolean
-    readonly recordHistory?: boolean
-    readonly authoritative?: boolean
-    readonly coverageToken?: string
-    readonly projectionBatch?: StatusProjectionBatch
-    readonly artifactWriteBatch?: DerivedArtifactWriteBatch
-  } = {},
-): Effect.Effect<
-  StatusProjectionChange | null,
-  StorageError | ValidationError,
-  BlobStoreService | SqlStoreService | StatusReadModelService
-> =>
-  Effect.gen(function* () {
-    const blobs = yield* BlobStoreService
-    const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    return yield* upload(() =>
-      uploadTilePromise({ blobs, sql, statusReadModel }, metadata, bytes, options),
-    )
-  })
-
-/** Classify one accepted paint with retry-safe counter and contribution application. */
-export const recordPaint = (
-  event: PaintEvent,
-  reporterTokenHash: string,
-  includeUnpublished: boolean,
-): Effect.Effect<
-  'duplicate' | 'partial' | 'recorded',
-  StorageError,
-  BlobStoreService | CounterStoreService | SqlStoreService | StatusReadModelService
-> =>
-  Effect.gen(function* () {
-    const blobs = yield* BlobStoreService
-    const counters = yield* CounterStoreService
-    const sql = yield* SqlStoreService
-    const statusReadModel = yield* StatusReadModelService
-    const result = yield* storage('recordPaint', () =>
-      recordPaintPromise({ blobs, counters, sql }, event, reporterTokenHash, includeUnpublished),
-    )
-    if (result === 'recorded') {
-      yield* Effect.promise(() => publishDashboardChange(statusReadModel, event.season))
-    }
-    return result
   })
