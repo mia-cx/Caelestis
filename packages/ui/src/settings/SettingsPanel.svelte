@@ -127,7 +127,7 @@
 
 <MenuStyles />
 
-<div class="settings" data-caelestis-scroller>
+<div class="settings">
   {#if model.userscriptVersion !== undefined}
     <p class="subtle version-line">{model.build === 'extension' ? 'Extension' : 'Userscript'} {model.userscriptVersion}</p>
   {/if}

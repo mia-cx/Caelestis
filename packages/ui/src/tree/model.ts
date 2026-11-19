@@ -201,12 +201,23 @@ export type TemplateTreeIntent =
   | { readonly type: 'filter'; readonly filters: import('@caelestis/shared').TemplateFilters }
   | { readonly type: 'toggle-expanded'; readonly key: string }
   | { readonly type: 'toggle-visible'; readonly key: string; readonly visible: boolean }
-  | { readonly type: 'action'; readonly key: string; readonly actionId: string }
+  /** `returnToCanvas` echoes the action's own flag, so a popout host can dock before acting. */
+  | {
+      readonly type: 'action'
+      readonly key: string
+      readonly actionId: string
+      readonly returnToCanvas: boolean
+    }
   | { readonly type: 'context-menu'; readonly key: string; readonly x: number; readonly y: number }
   | { readonly type: 'rename'; readonly key: string; readonly name: string }
   | { readonly type: 'cancel-rename'; readonly key: string }
   | { readonly type: 'drag-state'; readonly active: boolean }
-  | { readonly type: 'context-menu-action'; readonly menuId: string; readonly actionId: string }
+  | {
+      readonly type: 'context-menu-action'
+      readonly menuId: string
+      readonly actionId: string
+      readonly returnToCanvas: boolean
+    }
   | { readonly type: 'dismiss-context-menu'; readonly menuId: string }
   | {
       readonly type: 'tree-operation-confirm'

@@ -33,6 +33,7 @@
   let draggingKey = $state<string | null>(null)
   let dropTarget = $state<{ key: string; position: 'before' | 'inside' | 'after' } | null>(null)
   let treeElement = $state<HTMLElement>()
+  let scroller = $state<HTMLElement>()
   let contextMenuElement = $state<HTMLElement>()
   let progressKey = $state<string | null>(null)
   let progressPane = $state<HTMLElement>()
@@ -404,9 +405,11 @@
     searchTimer = setTimeout(() => emit({ type: 'search', query }), SEARCH_DEBOUNCE_MS)
   }
 
+  const runAction = (key: string, item: Pick<TreeActionModel, 'id' | 'returnToCanvas'>): void =>
+    emit({ type: 'action', key, actionId: item.id, returnToCanvas: item.returnToCanvas === true })
   const action = (row: TreeRowModel, item: TreeActionModel, event: MouseEvent): void => {
     event.stopPropagation()
-    emit({ type: 'action', key: row.key, actionId: item.id })
+    runAction(row.key, item)
   }
 
   const clickRow = (event: MouseEvent, row: TreeRowModel): void => {
@@ -788,7 +791,7 @@
 {/if}
 
 {#snippet menuRow(item: TreeContextMenuItemModel, menuId: string, topLevel: boolean)}
-  <button class="caelestis-menu-item" class:danger={item.danger === true} type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked} onclick={() => emit({ type: 'context-menu-action', menuId, actionId: item.id })} onpointerenter={topLevel ? (event) => hoverMenuRow(event, item) : undefined}>
+  <button class="caelestis-menu-item" class:danger={item.danger === true} type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked} onclick={() => emit({ type: 'context-menu-action', menuId, actionId: item.id, returnToCanvas: item.returnToCanvas === true })} onpointerenter={topLevel ? (event) => hoverMenuRow(event, item) : undefined}>
     <Icon name={item.icon} />
     <span>{item.label}</span>
     {#if item.checked === true}<Icon name="check" class="menu-trailing" />{/if}
@@ -796,7 +799,7 @@
 {/snippet}
 
 <div class="browser" bind:clientWidth={browserWidth}>
-<div class="scroller" data-caelestis-scroller inert={progressEntry !== undefined && narrowDetails}>
+<div class="scroller" bind:this={scroller} inert={progressEntry !== undefined && narrowDetails}>
   <div bind:this={treeElement} class="tree" class:preview-grid={grid} role="tree" aria-label="Templates" tabindex="-1" ondrop={drop} ondragend={endDrag}>
     {#each visibleEntries as entry (entry.key)}
       {#if entry.type === 'row'}
@@ -852,7 +855,7 @@
           {#if card && entry.preview !== undefined}
             {@const navigate = entry.navigate}
             <button class="artwork" type="button" aria-label={`Go to ${entry.name}`} disabled={navigate === undefined} onclick={(event) => { if (navigate !== undefined) action(entry, navigate, event) }}>
-              <TemplatePreview preview={entry.preview} name={entry.name} />
+              <TemplatePreview preview={entry.preview} name={entry.name} {scroller} />
             </button>
             <div class="card-caption">
               <span title={`${entry.preview.ownership}${folderPath ? ` / ${folderPath}` : ''}`}>{entry.preview.ownership}</span>
@@ -976,11 +979,11 @@
       {:else if entry.type === 'notice'}
         <div class="notice" role="treeitem" aria-selected="false" aria-level={entry.depth + 1} aria-disabled="true" style:padding-inline-start={`${1.8 + entry.depth * 1.1}rem`}>
           <span>{entry.text}</span>
-          {#if entry.action !== undefined}<button type="button" onclick={() => emit({ type: 'action', key: entry.key, actionId: entry.action?.id ?? '' })}>{entry.action.label}</button>{/if}
+          {#if entry.action !== undefined}{@const notice = entry.action}<button type="button" onclick={() => runAction(entry.key, notice)}>{notice.label}</button>{/if}
         </div>
       {:else}
         <div class:compact={entry.variant === 'compact'} class:ghost={entry.variant === 'ghost'} class="standalone" role="treeitem" aria-selected="false" aria-level={entry.depth + 1}>
-          <Button label={entry.action.label} title={entry.title} kind={entry.variant === 'ghost' ? 'ghost' : 'default'} size={entry.variant === 'compact' ? 'compact' : 'small'} onclick={() => emit({ type: 'action', key: entry.key, actionId: entry.action.id })}>
+          <Button label={entry.action.label} title={entry.title} kind={entry.variant === 'ghost' ? 'ghost' : 'default'} size={entry.variant === 'compact' ? 'compact' : 'small'} onclick={() => runAction(entry.key, entry.action)}>
             {#if entry.action.icon !== undefined}<span class="standalone-icon"><Icon name={entry.action.icon} /></span>{/if}
             <span>{entry.action.label}</span>
           </Button>

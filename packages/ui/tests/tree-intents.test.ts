@@ -160,7 +160,7 @@ describe('template tree keyboard and rename intents', () => {
     expect(document.activeElement).toBe(actions[1])
     actions[1]!.click()
     expect(intents).toEqual([
-      { type: 'context-menu-action', menuId: 'actions', actionId: 'remove' },
+      { type: 'context-menu-action', menuId: 'actions', actionId: 'remove', returnToCanvas: false },
     ])
   })
 })
