@@ -1,11 +1,10 @@
 import {
   sameTemplateSurface,
   type TemplateSurface,
-  templateSurfaceBounds,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { activeAllianceSurface } from '../alliance-surface.js'
+import { activeAllianceSurface, allianceSurfaceBounds } from '../alliance-surface.js'
 import { log, warn } from '../debug.js'
 import {
   canvasPixelAt,
@@ -173,7 +172,7 @@ const boundedOrigin = (
   const roundedX = Math.round(x)
   const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
   if (surface.kind !== 'world') {
-    const bounds = placementBounds(surface)
+    const bounds = allianceSurfaceBounds(surface)
     return bounds === null
       ? { x: roundedX, y: Math.round(y) }
       : {
@@ -196,13 +195,6 @@ const matchingAllianceSurface = (surface: TemplateSurface) => {
   return active !== null && sameTemplateSurface(active.surface, surface) ? active : null
 }
 
-const placementBounds = (surface: TemplateSurface) => {
-  const active = matchingAllianceSurface(surface)
-  return surface.kind === 'alliance-headquarters' && active?.bounds !== null
-    ? (active?.bounds ?? templateSurfaceBounds(surface))
-    : templateSurfaceBounds(surface)
-}
-
 const placementPointAt = (
   surface: TemplateSurface,
   clientX: number,
@@ -210,7 +202,7 @@ const placementPointAt = (
 ): { x: number; y: number } | null => {
   if (surface.kind === 'world') return canvasPixelAt(clientX, clientY)
   const active = matchingAllianceSurface(surface)
-  const bounds = placementBounds(surface)
+  const bounds = allianceSurfaceBounds(surface)
   if (active === null || bounds === null) return null
   const rect = active.frame.getBoundingClientRect()
   if (
@@ -237,7 +229,7 @@ export const placementScreenPoint = (
 ): { x: number; y: number } | null => {
   if (surface.kind === 'world') return screenPointFor(x, y)
   const active = matchingAllianceSurface(surface)
-  const bounds = placementBounds(surface)
+  const bounds = allianceSurfaceBounds(surface)
   const scale = placementScale(surface)
   if (active === null || bounds === null || scale === null) return null
   const rect = active.frame.getBoundingClientRect()
@@ -248,7 +240,7 @@ export const placementScreenPoint = (
 export const placementScale = (surface: TemplateSurface): { x: number; y: number } | null => {
   if (surface.kind === 'world') return cssPixelsPerCanvasPixel()
   const active = matchingAllianceSurface(surface)
-  const bounds = placementBounds(surface)
+  const bounds = allianceSurfaceBounds(surface)
   if (active === null || bounds === null) return null
   const rect = active.frame.getBoundingClientRect()
   const width = bounds.maxX - bounds.minX

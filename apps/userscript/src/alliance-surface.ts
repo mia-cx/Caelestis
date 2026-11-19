@@ -435,13 +435,16 @@ export const activeAllianceSurface = (): ActiveAllianceSurface | null => active
 export const currentSurface = (): TemplateSurface => active?.surface ?? WORLD_TEMPLATE_SURFACE
 
 /**
- * The middle of an alliance surface, where a new template lands: of the open editor's bounds when
- * it shows that surface, else of the surface's own.
+ * The bounds of an alliance surface: the open editor's when it shows that surface, else the
+ * surface's own (an HQ's widest extent until Wplace supplies the real one). Null for the world.
  */
+export const allianceSurfaceBounds = (surface: TemplateSurface): PixelBounds | null =>
+  (active !== null && sameTemplateSurface(active.surface, surface) ? active.bounds : null) ??
+  templateSurfaceBounds(surface)
+
+/** The middle of an alliance surface, where a new template lands. */
 export const allianceSurfaceCentre = (surface: TemplateSurface): { x: number; y: number } => {
-  const shown =
-    active !== null && sameTemplateSurface(active.surface, surface) ? active.bounds : null
-  const bounds = shown ?? templateSurfaceBounds(surface)
+  const bounds = allianceSurfaceBounds(surface)
   return bounds === null
     ? { x: 0, y: 0 }
     : { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
