@@ -81,6 +81,9 @@ interface ServerSyncResource {
 /** The scope of every world-surface resource. */
 export const WORLD_SCOPE = templateSurfaceKey(WORLD_TEMPLATE_SURFACE)
 
+/** Template status, read on the world scope. Its revision is the live protocol's own revision. */
+export const STATUS = { scope: WORLD_SCOPE, resource: 'telemetry-status' } as const
+
 /** Record each revision a resource reports this client already holds for `server`. */
 const adoptHeldRevisions = (server: ConnectedServer): void => {
   for (const resource of resources.values()) {
@@ -353,13 +356,13 @@ export const serverSyncRevision = (
   resource: ServerSyncResourceId,
 ): string | undefined => scheduleFor(server, scope, resource)?.revision
 
-const revisionNumber = (
-  server: ConnectedServer,
-  scope: string,
-  resource: ServerSyncResourceId,
-): number | null => {
-  const revision = Number(serverSyncRevision(server, scope, resource))
-  return Number.isSafeInteger(revision) && revision >= 0 ? revision : null
+/** The template status revision this client holds for `server`. */
+export const statusRevision = (server: ConnectedServer): string | undefined =>
+  serverSyncRevision(server, STATUS.scope, STATUS.resource)
+
+const revisionNumber = (revision: string | undefined): number | null => {
+  const value = Number(revision)
+  return Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
 /** Read `resource` once the server says it reached `revision`, after any read already running. */
@@ -369,7 +372,7 @@ const requestLiveRevision = (
   resource: ServerSyncResourceId,
   revision: number,
 ): void => {
-  const current = revisionNumber(server, scope, resource)
+  const current = revisionNumber(serverSyncRevision(server, scope, resource))
   if (current !== null && current >= revision) return
   const owner = serverConnectionIdentity(server)
   const key = scheduleKey(server, scope, resource)
@@ -398,7 +401,7 @@ const finishPendingLiveRevision = (
   pending?.delete(key)
   if (pending?.size === 0) pendingLiveRevisions.delete(owner)
   if (!isCurrentServerConnection(server)) return
-  const current = revisionNumber(server, scope, resource)
+  const current = revisionNumber(serverSyncRevision(server, scope, resource))
   if (current === null || current < expected) requestServerSync('revision-gap', resource, server)
 }
 
@@ -455,7 +458,7 @@ export const applyServerSyncDelta = (
 
 /** The versions this client holds, which a live socket sends when it opens. */
 const stateVector = (server: ConnectedServer) => ({
-  revision: revisionNumber(server, WORLD_SCOPE, 'telemetry-status'),
+  revision: revisionNumber(statusRevision(server)),
   projections: [...resources.values()]
     .flatMap((resource): LiveProjectionState[] => {
       if (resource.live !== true || !isLiveProjectionResource(resource.id)) return []
@@ -477,13 +480,13 @@ const correctState = (
   server: ConnectedServer,
   event: Extract<LiveSyncEvent, { readonly type: 'state-correction' }>,
 ): void => {
-  const currentRevision = revisionNumber(server, WORLD_SCOPE, 'telemetry-status')
+  const currentRevision = revisionNumber(statusRevision(server))
   if (
     currentRevision === null ||
     currentRevision < event.revision ||
     (event.mode === 'snapshot' && currentRevision === event.revision)
   )
-    requestServerSync('reconnect', 'telemetry-status', server)
+    requestServerSync('reconnect', STATUS.resource, server)
   for (const projection of event.projections) {
     const resource = resources.get(projection.resource)
     if (resource?.live !== true || resource.scope(server) !== projection.scope) continue
@@ -498,7 +501,7 @@ const resourceFor = (event: LiveResourceEvent): ServerSyncResourceId =>
     ? event.resource
     : event.type === 'alarms-snapshot'
       ? 'telemetry-alarms'
-      : 'telemetry-status'
+      : STATUS.resource
 
 /** What a live event means for the registered resources. */
 const applyLiveEvent = async (server: ConnectedServer, event: LiveSyncEvent): Promise<boolean> => {
@@ -521,7 +524,7 @@ const applyLiveEvent = async (server: ConnectedServer, event: LiveSyncEvent): Pr
       return true
     case 'ready':
     case 'status-reconcile':
-      requestLiveRevision(server, WORLD_SCOPE, 'telemetry-status', event.revision)
+      requestLiveRevision(server, STATUS.scope, STATUS.resource, event.revision)
       return true
     default:
       return (await resources.get(resourceFor(event))?.applyLiveEvent?.(server, event)) ?? false
@@ -552,7 +555,7 @@ export const installServerSyncCoordinator = (): void => {
   installed = true
   attachLiveSyncHost({
     stateVector,
-    statusRevision: (server) => serverSyncRevision(server, WORLD_SCOPE, 'telemetry-status'),
+    statusRevision,
     apply: applyLiveEvent,
     requestReads: (server, reason, resource) =>
       resource === undefined

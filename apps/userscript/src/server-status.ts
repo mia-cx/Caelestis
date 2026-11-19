@@ -21,8 +21,8 @@ import {
   applyServerSyncSnapshot,
   registerServerSyncResource,
   type ServerSyncResult,
-  serverSyncRevision,
-  WORLD_SCOPE,
+  STATUS,
+  statusRevision,
 } from './server-sync-coordinator.js'
 import type { ServerConnection } from './settings.js'
 import { type StatusSnapshot, statusDeltaFrom, statusSnapshotFrom } from './telemetry-wire.js'
@@ -131,8 +131,8 @@ export const applyStatusDelta = (
 ): ReturnType<typeof applyServerSyncDelta> =>
   applyServerSyncDelta(
     server,
-    WORLD_SCOPE,
-    'telemetry-status',
+    STATUS.scope,
+    STATUS.resource,
     String(delta.baseRevision),
     String(delta.revision),
     () => {
@@ -177,8 +177,8 @@ const applyStatusSnapshot = (
   const revision = snapshot.revision === undefined ? undefined : String(snapshot.revision)
   return applyServerSyncSnapshot(
     server,
-    WORLD_SCOPE,
-    'telemetry-status',
+    STATUS.scope,
+    STATUS.resource,
     startedRevision,
     { status: changed ? 'changed' : 'unchanged', ...(revision === undefined ? {} : { revision }) },
     () => {
@@ -203,7 +203,7 @@ const refreshStatus = async (
     serverConnectionIdentity(server),
     `${server.season}\u0000world\u0000status`,
     async () => {
-      const startedRevision = serverSyncRevision(server, WORLD_SCOPE, 'telemetry-status')
+      const startedRevision = statusRevision(server)
       const answer = await backgroundRequest(server, '/telemetry/status', {
         query: { season: server.season },
         metrics: { transport, reason },
@@ -223,20 +223,16 @@ const refreshStatus = async (
 /** Keep every connected server's template statuses current. */
 export const installServerStatus = (): void => {
   registerServerSyncResource({
-    id: 'telemetry-status',
+    id: STATUS.resource,
     live: true,
-    scope: () => WORLD_SCOPE,
+    scope: () => STATUS.scope,
     refresh: refreshStatus,
     applyLiveEvent: (server, event) => {
       if (event.type === 'status-snapshot') {
         const snapshot = statusSnapshotFrom(event.status, true)
         return (
           snapshot !== null &&
-          applyStatusSnapshot(
-            server,
-            serverSyncRevision(server, WORLD_SCOPE, 'telemetry-status'),
-            snapshot,
-          ) === 'applied'
+          applyStatusSnapshot(server, statusRevision(server), snapshot) === 'applied'
         )
       }
       const delta = event.type === 'status-delta' ? statusDeltaFrom(event.delta) : null
