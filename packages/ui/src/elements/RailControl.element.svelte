@@ -6,6 +6,11 @@
   import type { RailControlModel } from '../rail/model.js'
 
   let { model }: { model?: RailControlModel } = $props()
+
+  // Chromium matches :focus-visible on focus a delegatesFocus host hands on, even right after a
+  // pointer click, so the element's focus() focuses its button directly.
+  const element: HTMLElement = $host()
+  element.focus = (options?: FocusOptions) => element.shadowRoot?.querySelector('button')?.focus(options)
 </script>
 
 {#if model}<RailControl {model} />{/if}
