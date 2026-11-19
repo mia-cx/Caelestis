@@ -137,7 +137,6 @@ export const presenceSummaryModel = (): PresenceSummaryModel | undefined => {
   }
 }
 
-/** Frame a canvas rect. */
 const flyToRect = (rect: PresenceRect): void =>
   navigateTo({ x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, width: rect.w, height: rect.h })
 

@@ -26,7 +26,7 @@ import { type TreeFacts, templateTreeKeyFor } from './tree-context.js'
 
 /**
  * Whether an alliance template has never been counted: its pixels left memory before any artboard
- * read. The tree has always shown such a row as empty rather than as `opaque` pixels unknown.
+ * read. The tree shows such a row as empty rather than as `opaque` pixels unknown.
  */
 const neverCounted = (template: PlacedTemplate): boolean =>
   (template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world' &&

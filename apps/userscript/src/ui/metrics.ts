@@ -1,10 +1,7 @@
 /**
- * The handful of numbers our chrome is built out of.
- *
- * They were spread across three files and had drifted apart: the rail sat 8px from the edge, the
- * panel 16px, and the per-overlay menu 16px with a comment claiming it matched the panel. So our own
- * surfaces started on three different lines, which is visible the moment two of them are open at
- * once — and they are usually open at once, because the menu configures what the panel lists.
+ * The handful of numbers our chrome is built out of, in one place so our surfaces start on one line.
+ * A drift between them is visible the moment two are open at once, and they usually are, because
+ * the menu configures what the panel lists.
  *
  * The rhythm is wplace's, not ours. Their rail is `top-2 right-2`, so 8px from the edge is where
  * chrome starts on this page; anything of ours using a different number reads as sitting slightly

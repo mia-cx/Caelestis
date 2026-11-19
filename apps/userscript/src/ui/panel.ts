@@ -126,10 +126,9 @@ import { retryTemplateClaims } from './work.js'
  * **wplace ships DaisyUI**, with `data-theme="custom-winter"` on `<html>`. Borrowing their
  * component classes means our surfaces inherit their theme tokens, including any theme they add
  * later. **But borrow components, never invent utilities.** Tailwind ships only the classes a
- * site actually uses, so a utility wplace has no use for is simply absent from their stylesheet —
- * which is why the first version of this panel rendered in the top-left corner with
- * `position: fixed` applied and nothing else. So **layout is inline styles**, which cannot
- * silently evaporate.
+ * site actually uses, so a utility wplace has no use for is simply absent from their stylesheet,
+ * and an element relying on one silently renders without it. So **layout is inline styles**, which
+ * cannot evaporate.
  *
  * The sidebar keeps the map interactive. Its popout opens the same menu in a modal for wider
  * template browsing, with grid mode available there. Canvas actions return to the sidebar.
@@ -181,21 +180,21 @@ const notifyWorldTreeVisible = (): void => {
 const syncSettingsVisible = (): void =>
   setSettingsVisible(panelOpen() && currentView() === 'settings')
 
+let owedRefresh = false
+const heldPanelPointers = new Set<number>()
+
 /**
  * Redraw whatever the panel is showing when the state changes underneath it.
  *
  * **Every view, not only the tree.** A keybind is a change from outside the panel by definition,
- * so pressing `W` moved the markers and left the switch that claims to control them reading the
- * opposite.
+ * so pressing `W` would otherwise move the markers and leave the switch that claims to control them
+ * reading the opposite.
  *
  * Skipped mid-gesture. A rename is an open text field, a drag is a row in flight, and a slider is
  * held under the pointer; replacing any of those takes the thing away from the hand using it. The
  * colour picker counts even though it is not in the panel — it is anchored to a swatch that is, so
  * rebuilding would detach it from its own anchor. Its close callback requests the deferred redraw.
  */
-let owedRefresh = false
-const heldPanelPointers = new Set<number>()
-
 const refreshView = (): void => {
   markClaimedTreeStale()
   redrawView()
@@ -656,7 +655,7 @@ export const installPanel = (): void => {
     if (active !== null) positionAllianceRail(active)
     redraw()
   })
-  // Once, here, rather than each time a view is built: subscribing from inside a view added a
+  // Once, here, rather than each time a view is built: subscribing from inside a view would add a
   // fresh listener on every switch back to it.
   let previousState = getState()
   onStateChange((next) => {

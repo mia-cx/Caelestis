@@ -452,7 +452,6 @@ export const expireFailures = (id: string): void => {
 /** Templates awaiting the shared deletion dialog's answer. */
 const confirming = new Set<string>()
 
-/** Refuse a delete while the template is being placed. */
 const refusedWhilePlacing = (id: string, host: MenuHost): boolean => {
   if (movingId() !== id) return false
   refuse(

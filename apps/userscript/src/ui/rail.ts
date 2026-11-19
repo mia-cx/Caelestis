@@ -267,9 +267,9 @@ let tray: HTMLElement | null = null
 /**
  * Our own rail, beneath wplace's when they have one and in its place when they do not.
  *
- * Our button used to be appended *into* their rail, which looked native and disappeared with it —
- * and it disappears exactly when the paint drawer opens, which is when these controls are most
- * wanted. Owning the container decouples the two.
+ * Not appended *into* their rail: that would look native and disappear with it, and it disappears
+ * exactly when the paint drawer opens, which is when these controls are most wanted. Owning the
+ * container decouples the two.
  */
 const railContainer = (): HTMLElement => {
   const existing = document.getElementById(RAIL_ID)

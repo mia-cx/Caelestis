@@ -311,7 +311,7 @@ export const categoryRoot = (
      * Categories reorder among themselves, and only among themselves.
      *
      * Without a position handler a category could only be dropped *onto* another row, so the
-     * gap above the first row — the only way to reach first place — silently did nothing.
+     * gap above the first row — the only way to reach first place — would silently do nothing.
      * `canReparent` stays off for Local, so nothing can be filed *inside* it by dragging.
      */
     onDropAt: async (draggedKey, parentKey) => {

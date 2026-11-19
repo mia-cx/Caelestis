@@ -66,9 +66,9 @@ import { findWplaceRightControls, onWplaceLayoutChange } from './wplace-rail.js'
 /**
  * The per-overlay menu, anchored to the overlay it configures.
  *
- * `29-per-overlay-map-controls` settled this: the drawer answers *which overlays exist*, and this
- * answers *how does this one look*. Anchoring it to the thing it affects removes the selection step
- * entirely: there is no "which template am I configuring" because you pointed at it.
+ * The drawer answers *which overlays exist*, and this answers *how does this one look*. Anchoring
+ * it to the thing it affects removes the selection step entirely: there is no "which template am I
+ * configuring" because you pointed at it.
  *
  * Positioned to the right of the overlay and aligned to its top edge, outside the bounding box, so
  * it never covers template pixels, which matters most on exactly the dense templates people most
@@ -153,7 +153,7 @@ export const invalidateOverlayControlsEdge = (): void => {
 /**
  * {@link localControlsRightEdge}, measured only after a change that can move it: Wplace's DOM, a
  * resize of the window or of a box it reads, or the panel's glide. Every map frame asks for it, and
- * measuring after that frame's style writes forced a layout each time.
+ * measuring after that frame's style writes would force a layout each time.
  */
 const worldControlsRightEdge = (): number => {
   if (worldRightEdge !== null && performance.now() >= trackRightEdgeUntil) return worldRightEdge
@@ -329,7 +329,7 @@ let menuNode: HTMLElement | null = null
  * Which template {@link menuNode} was built for.
  *
  * Not `menuNode.dataset`: page-owned markers are not identity, and a host stripping that attribute
- * made the owner `undefined`, so a pending draft was rebuilt away instead of flushed.
+ * would make the owner `undefined`, so a pending draft would be rebuilt away instead of flushed.
  */
 let menuOwner: string | null = null
 /** The action rail the last build produced, so a host swapping or removing one is a rebuild. */
@@ -552,9 +552,8 @@ const buildMenu = (template: PlacedTemplate, rerender: () => void): BuiltOverlay
 /**
  * Escape closes the menu wherever focus is.
  *
- * Listening only on the menu means the documented keyboard exit stops working after the one
- * interaction the acceptance criteria insist the menu survives: clicking the map to look at what
- * you just changed.
+ * Listening only on the menu would lose the keyboard exit after the one interaction the menu is
+ * built to survive: clicking the map to look at what you just changed.
  */
 let escapeWatch: AbortController | null = null
 /** The Escape this menu has already answered, so the window listener does not answer it twice. */
@@ -954,11 +953,10 @@ const renderFrame = (
   //
   // `move.ts` drives a placement from the window and ignores keys aimed at a page control, so a gear
   // holding focus costs the placement both of its keys: Escape does nothing, and Enter activates the
-  // gear, opening or closing this menu instead of applying the placement. Guarding the routes one at
-  // a time did not work: a click that starts a placement, a close handing the keyboard back, a menu
-  // opened behind a running placement, and a tap that changed no focus at all are four arrivals at
-  // the same state, and each fix found the next one. So it is stated once, here, where it holds
-  // however focus got there.
+  // gear, opening or closing this menu instead of applying the placement. A click that starts a
+  // placement, a close handing the keyboard back, a menu opened behind a running placement, and a
+  // tap that changed no focus at all are four arrivals at the same state, so the rule is stated
+  // once, here, where it holds however focus got there.
   if (isMoving()) {
     for (const [, gear] of buttons) if (gear === document.activeElement) gear.blur()
   }
