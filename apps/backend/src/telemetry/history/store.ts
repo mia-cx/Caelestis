@@ -19,6 +19,13 @@ export interface PainterBucketQuery extends BucketQuery {
 /** Painter ids one `readPainterBuckets` call may name: the wire bound on the history route. */
 export const MAX_PAINTER_HISTORY_IDS = 50
 
+/**
+ * A painter's label: the display name last seen, else the id as text. A painter seen only through
+ * another member's reports has no name yet, and the wire schema requires a non-empty label.
+ */
+export const painterLabel = (wplaceUserId: number, displayName: string | null | undefined) =>
+  displayName ?? String(wplaceUserId)
+
 /** One painter's counters summed over a range, before names are attached. */
 export interface PainterTotalRow {
   readonly wplaceUserId: number
@@ -139,8 +146,8 @@ export interface HistoryStore {
   readPainterCollectionStart(): Promise<Seconds | null>
 
   /**
-   * The display name last seen for each of these painters; absent ids are left out so a caller
-   * falls back to the id itself. Same id cap as `readBuckets`.
+   * The display name last seen for each of these painters; absent ids are left out for
+   * `painterLabel` to fill. Same id cap as `readBuckets`.
    */
   readPainterNames(wplaceUserIds: readonly number[]): Promise<ReadonlyMap<number, string>>
 

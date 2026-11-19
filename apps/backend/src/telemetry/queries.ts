@@ -39,6 +39,7 @@ import {
   readMismatchArtifact,
 } from './derived-artifacts.js'
 import { LADDER_RESOLUTIONS, TELEMETRY_DECAY_EDGES } from './history/ladder.js'
+import { painterLabel } from './history/store.js'
 import { TILE_HISTORY_DECAY_EDGES, TILE_HISTORY_RESOLUTIONS } from './tiles/ladder.js'
 import type { TileStore } from './tiles/store.js'
 
@@ -359,7 +360,7 @@ export const readPainterHistory = (input: {
     ).map(({ first, ...bucket }) => ({
       templateId: first.templateId,
       wplaceUserId: first.wplaceUserId,
-      displayName: names.get(first.wplaceUserId) ?? String(first.wplaceUserId),
+      displayName: painterLabel(first.wplaceUserId, names.get(first.wplaceUserId)),
       ...bucket,
     }))
     return {
@@ -402,7 +403,7 @@ export const readPainterTotals = (input: {
     return {
       painters: totals.map((total) => ({
         ...total,
-        displayName: names.get(total.wplaceUserId) ?? String(total.wplaceUserId),
+        displayName: painterLabel(total.wplaceUserId, names.get(total.wplaceUserId)),
       })),
     }
   })

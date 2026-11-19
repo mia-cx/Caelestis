@@ -39,6 +39,7 @@ import {
   type PaintEventApplication,
   type PainterBucketQuery,
   type PainterTotalRow,
+  painterLabel,
 } from './store.js'
 
 const fromRow = (row: typeof telemetryBuckets.$inferSelect): TelemetryBucket => ({
@@ -510,9 +511,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
         templateId: row.templateId,
         day: row.day,
         wplaceUserId: row.wplaceUserId,
-        // A painter seen only through another member's reports has no `painters` row yet; the id as
-        // a string keeps the label non-empty, which the wire schema requires of every display name.
-        displayName: row.displayName ?? String(row.wplaceUserId),
+        displayName: painterLabel(row.wplaceUserId, row.displayName),
         placed: row.placed,
         correct: row.correct,
         repairs: row.repairs,
@@ -568,7 +567,7 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
     // PostgreSQL returns sums and counts as bigint strings.
     return rows.map((row) => ({
       wplaceUserId: row.wplaceUserId,
-      displayName: row.displayName ?? String(row.wplaceUserId),
+      displayName: painterLabel(row.wplaceUserId, row.displayName),
       placed: Number(row.placed),
       correct: Number(row.correct),
       repairs: Number(row.repairs),
