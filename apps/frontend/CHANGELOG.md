@@ -1,5 +1,13 @@
 # @caelestis/frontend
 
+## 1.0.1
+
+### Patch Changes
+
+- e87ab31: caelestis.mia.cx now redirects to caelest.is and brings your saved server, access token and view settings along, so search results point at the official dashboard.
+- 3c3ab93: The progress chart's hover card follows the pointer anywhere on screen, and scrolling over the chart scrolls a card taller than the screen instead of the page.
+- c75db67: Pace lines on the progress chart run on through times without observations, flat at zero, instead of breaking into pieces, and the 30m line reads the last day's full-detail history.
+
 ## 1.0.0
 
 ### Major Changes

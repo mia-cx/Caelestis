@@ -1,5 +1,37 @@
 # @caelestis/userscript
 
+## 1.1.0
+
+### Minor Changes
+
+- 37789f0: Update cursor after flying, under Dangerous settings, moves Wplace's paint target under the mouse when a flight, jump or pan ends.
+- 37789f0: Simulated-input switches now live under Settings → Dangerous settings, with descriptions and the Pawtect flags each one trips.
+  
+  - Picker reads templates and Middle-click picks template colours replace Caelestis colour picking.
+  - Paint past skipped pixels moves from Painting into Dangerous settings.
+  - Cycle unfinished colours controls both cycling keys, and Paint key commits drafts controls draft submission.
+- 8030440: Templates can be exported as a .png of their artwork, next to Export .wplace in the right-click menu.
+- ebaf2eb: Wplace's own colour picker picks the template colour on the world map, without simulating any input.
+- 82469fa: Colour cycling and committing a paint draft from the keyboard now need the Simulated clicks switch in the shortcut settings, because Wplace flags simulated clicks on your account.
+- cc92c4f: Every feature that simulates input on Wplace has its own switch, which names the Wplace flags it trips.
+
+### Patch Changes
+
+- da93461: Alliance picture and banner overlays, and the Caelestis menu beside them, stay put while Wplace checks the draft for new edits instead of disappearing and animating back every few seconds.
+- 8ad0d2c: Template outlines in the alliance picture and banner editors sit under the painted art again, so a finished template no longer shows outlines over its pixels.
+- 7dc1130: Every Dangerous settings feature works on HQ, avatar and banner canvases without its switch, since Wplace doesn't flag input there, so the picker and middle-click pick template colours there again.
+- 8030440: Server templates on HQ, avatar and banner canvases export again instead of reporting they have not finished loading.
+- 108aef9: The extension's description on the browser's extensions page now says what Caelestis does on Wplace.
+- 37789f0: Colour-cycling shortcuts are greyed out while their Dangerous settings switch is off, and Dangerous settings name the keys each switch uses.
+- 4dc62f9: The extension's moon icon has a clear background instead of a faint checkerboard.
+- fced3a9: Wplace's own colour picker answers clicks by default; turn on **Caelestis colour picking** in Settings → Painting to pick from templates and placed pixels, including with the middle button.
+- e94baf3: After the camera moves, Space waits for a real mouse move before painting so it never paints a stale target.
+- 37789f0: Server rows use the panel font, and expand carets and close buttons across the panels show their icons instead of text glyphs.
+- 845537e: By default, Shift+Space painting no longer simulates input that Wplace flags.
+  
+  - The brush waits at skipped pixels; enable Paint past skipped pixels in Settings → Painting to restore the old behaviour that simulates input.
+- c63055d: The keyboard in the shortcut reference stays still while you hover keys, so a long description such as claim mode's no longer pushes the keys out from under the pointer and flickers.
+
 ## 1.0.1
 
 ### Patch Changes
