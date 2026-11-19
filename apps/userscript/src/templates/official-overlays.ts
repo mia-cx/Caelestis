@@ -5,7 +5,7 @@ import { findWplaceModules } from '../wplace-modules.js'
 import { forgetServerTemplate, hasRoomForServerTemplate, putServerTemplate } from './local-store.js'
 import { paletteIndices } from './native-store.js'
 import type { TemplateProgress } from './progress-types.js'
-import { rememberNodes } from './server-nodes.js'
+import { rememberWplaceOwnedNodes } from './server-nodes.js'
 import { OFFICIAL_OVERLAY_OWNER } from './wplace-owned.js'
 
 /**
@@ -172,7 +172,7 @@ export const installOfficialEvents = async (): Promise<void> => {
           typeof value.copyState === 'function' &&
           typeof value.refresh === 'function',
       ) as ProgressStore | undefined) ?? null
-    rememberNodes(OFFICIAL_OVERLAY_OWNER, [
+    rememberWplaceOwnedNodes(OFFICIAL_OVERLAY_OWNER, [
       { id: event.id, parentId: null },
       ...event.groups.map((group) => ({ id: group.id, parentId: event?.id ?? null })),
     ])

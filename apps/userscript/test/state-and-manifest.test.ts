@@ -1,3 +1,4 @@
+import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { importStateModules } from './state-modules.js'
 
@@ -118,14 +119,18 @@ describe('server manifest admission', () => {
       const fetch = vi.fn(() => response)
       vi.stubGlobal('fetch', fetch)
       window.fetch = fetch
-      const pending = state.listServerContents(server)
+      const pending = state.readManifest(server)
       expect(fetch).toHaveBeenCalledOnce()
       if (replacement === 'newer live manifest') {
-        expect(state.applyLiveServerManifest(server, manifest('0.9.0'))).not.toBeNull()
+        expect(
+          state.applyLiveManifest(server, WORLD_TEMPLATE_SURFACE, manifest('0.9.0')),
+        ).not.toBeNull()
       } else {
         state.removeServer(server.url)
         state.upsertServer({ ...server, info: { ...server.info, version: '0.9.0' } })
-        expect(state.applyLiveServerManifest(server, manifest('0.8.1'))).toBeNull()
+        expect(
+          state.applyLiveManifest(server, WORLD_TEMPLATE_SURFACE, manifest('0.8.1')),
+        ).toBeNull()
       }
       if (respond === undefined) throw new Error('poll response was not initialized')
       respond(Response.json(manifest('0.8.1')))

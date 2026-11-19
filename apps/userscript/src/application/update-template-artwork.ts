@@ -1,17 +1,14 @@
 import { encodeIndexedPng, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
+import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { currentSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
-import {
-  admittedServerContentsFor,
-  listServerContents,
-  uploadTemplateVersion,
-} from '../server-api.js'
+import { uploadTemplateVersion } from '../server-api.js'
 import {
   hasServerAdminToken,
   isCurrentServerConnection,
   serverConnectionIdentity,
 } from '../server-connections.js'
+import { admittedManifest, readManifest } from '../server-manifests.js'
 import { invalidateServerReads } from '../server-read-coalescer.js'
 import { getState } from '../settings.js'
 import { captureCurrentArtwork, captureTemplateArea } from '../templates/current-artwork.js'
@@ -61,11 +58,7 @@ const updateArtwork = async (
         !isCurrentServerConnection(server)
       )
         throw new Error('Admin access to this server is required.')
-      const manifest =
-        surface.kind === 'world'
-          ? admittedServerContentsFor(server)
-          : allianceManifestFor(server, surface)
-      const current = manifest?.templates.find(
+      const current = admittedManifest(server, surface)?.templates.find(
         (candidate) => candidate.id === template.serverTemplateId,
       )
       if (current === undefined || current.version !== template.serverVersion)
@@ -97,7 +90,7 @@ const updateArtwork = async (
     if (result.ok || result.ambiguous === true) {
       invalidateServerReads(serverConnectionIdentity(server))
       // Upload uncertainty is connection-wide and cleared by an admitted world manifest.
-      if (surface.kind === 'world' || !result.ok) await listServerContents(server)
+      if (surface.kind === 'world' || !result.ok) await readManifest(server)
       if (surface.kind !== 'world') await refreshAllianceManifest(server, surface)
     }
     if (!result.ok) throw new Error(result.message)

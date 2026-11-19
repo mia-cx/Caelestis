@@ -10,6 +10,7 @@ import { runWhileBusy } from '../concurrency.js'
 import { listServerNodes, patchTemplate, uploadTemplateVersion } from '../server-api.js'
 import { isCurrentServerConnection, serverByUrl, serverLabel } from '../server-connections.js'
 import type { ServerTemplate } from '../server-manifest.js'
+import { manifestRows } from '../server-manifests.js'
 import {
   isCurrentTemplate,
   localTemplates,
@@ -37,7 +38,7 @@ import {
   retryOptimisticMutation,
   serverNodesFailure,
 } from './tree-server.js'
-import { rowsForSurface, serverTemplateAt } from './tree-server-state.js'
+import { serverTemplateAt } from './tree-server-state.js'
 import { surfaceOf } from './tree-target.js'
 
 /** The template state from the same admitted snapshot that drew this row. */
@@ -50,7 +51,7 @@ export const templateStateOf = (target: TreeTarget): ServerTemplate | null =>
 export const folderTemplatesFor = (target: TreeTarget): readonly ServerTemplate[] | null => {
   if (target.server === null || target.nodeId === null || target.templateId !== undefined)
     return null
-  const rows = rowsForSurface(target.server, surfaceOf(target))
+  const rows = manifestRows(target.server, surfaceOf(target))
   return rows === undefined
     ? null
     : templatesInFolderSubtree(rows.nodes, rows.templates, target.nodeId)
@@ -351,7 +352,7 @@ export const setServerFolderPublished = async (
       showToast('That server was disconnected before the folder could change.', 'error')
       return
     }
-    const rows = rowsForSurface(current, surface)
+    const rows = manifestRows(current, surface)
     const templates =
       rows === undefined ? null : templatesInFolderSubtree(rows.nodes, rows.templates, nodeId)
     if (templates === null) {

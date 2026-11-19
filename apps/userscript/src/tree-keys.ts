@@ -10,6 +10,7 @@ import { type TemplateSurface, templateSurfaceKey, WORLD_TEMPLATE_SURFACE } from
  * - `local` — the Local root; `local:<templateId>` a Local template; `lf:<folderId>` a Local folder
  * - `server:<url>` — a server's root
  * - `node:<encoded url>:<serverId>:<season>:<nodeId>` — a server folder
+ * - `node:<encoded url>:<nodeId>` — a server folder's switch, which has no row of its own
  * - `st:<encoded url>:<serverId>:<season>:<templateId>` — a server template row
  * - `event:<templateId>`, `native:<templateId>` — Wplace-owned rows
  */
@@ -44,6 +45,9 @@ export const nodeTreeKey = (server: ServerIdentitySource, nodeId: string): strin
   scoped('node', server, nodeId)
 export const serverTemplateTreeKey = (server: ServerIdentitySource, templateId: string): string =>
   scoped('st', server, templateId)
+/** The switch key of a server folder, isolated from equal ids on another server. */
+export const nodeScopeKey = (serverUrl: string, nodeId: string): string =>
+  `node:${encodeURIComponent(serverUrl)}:${nodeId}`
 export const eventTemplateKey = (templateId: string): string => `event:${templateId}`
 export const nativeTemplateKey = (templateId: string): string => `native:${templateId}`
 

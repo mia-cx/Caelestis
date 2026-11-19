@@ -23,7 +23,7 @@ import {
   serverLiveSyncVersion,
 } from './live-socket.js'
 import { type AcceptedPaint, onAcceptedPaint } from './paint-requests.js'
-import { onServerContents, type ServerContents } from './server-api.js'
+import { PerServerMap } from './per-server-map.js'
 import {
   type ConnectedServer,
   connectedServerAt,
@@ -34,6 +34,12 @@ import {
   serverConnectionIdentity,
 } from './server-connections.js'
 import type { ServerTemplate } from './server-manifest.js'
+import {
+  admittedManifest,
+  type ManifestCoverage,
+  manifestCoverage,
+  onManifestChange,
+} from './server-manifests.js'
 import { invalidateServerMismatches, invalidateServerMismatchTiles } from './server-mismatch.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
 import { type ServerRequestOptions, serverRequest } from './server-request.js'
@@ -47,7 +53,7 @@ import {
   serverSyncRevision,
 } from './server-sync-coordinator.js'
 import { withRetries } from './server-transport.js'
-import { getState, onStateChange, type ServerConnection } from './settings.js'
+import { getState, isScopeVisible, onStateChange, type ServerConnection } from './settings.js'
 import { ClientStatusProjection } from './status-client-projection.js'
 import {
   alarmsSnapshotFrom,
@@ -56,7 +62,7 @@ import {
   statusSnapshotFrom,
 } from './telemetry-wire.js'
 import type { TemplateColourProgress, TemplateProgress } from './templates/progress-types.js'
-import { nodeScopeKey } from './templates/server-nodes.js'
+import { nodeChainVisible } from './templates/server-nodes.js'
 import { onFetchedTile } from './tile-attribution.js'
 import { TileOfferAcknowledgements } from './tile-offer-acknowledgements.js'
 import { serverScopeKey, serverTemplateKey } from './tree-keys.js'
@@ -80,13 +86,6 @@ interface OfferedTile extends TileOffer {
   readonly deliveryId: string
   readonly coord: TileCoord
   readonly bytes: Uint8Array
-}
-
-interface ServerCoverage {
-  readonly server: ConnectedServer
-  readonly tiles: ReadonlySet<string>
-  readonly contents: ServerContents
-  alarmsKnown: boolean
 }
 
 interface ServerQueue {
@@ -117,7 +116,13 @@ interface RetainedTileBlob {
   refs: number
 }
 
-const coverage = new Map<string, ServerCoverage>()
+/** The coverage each server's telemetry last reconciled against, and through which connection. */
+const reconciledCoverage = new Map<
+  string,
+  { readonly server: ConnectedServer; readonly coverage: ManifestCoverage }
+>()
+/** Coverage whose alarms have been read at least once. */
+const alarmsKnown = new WeakSet<ManifestCoverage>()
 const queued = new Map<string, ServerQueue>()
 const reportedPaints = new Map<string, ServerDedupe>()
 const flushTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -129,14 +134,12 @@ const attemptedTileOffers = new Set<string>()
 /** Servers whose next offer flush is a retry after a failure. */
 const retryingOffers = new Set<string>()
 const statuses = new ClientStatusProjection()
-const alarms = new Map<
-  string,
-  {
-    readonly server: ConnectedServer
-    readonly contents: ServerContents
-    readonly value: Alarm
-  }
->()
+/** Alarms per server and template, with the coverage they were read against. */
+const alarms = new PerServerMap<{
+  readonly server: ConnectedServer
+  readonly coverage: ManifestCoverage
+  readonly value: Alarm
+}>()
 const statusListeners = new Set<() => void>()
 const alarmListeners = new Set<() => void>()
 const recentTiles = new Map<string, OfferedTile>()
@@ -149,9 +152,9 @@ const tileOfferAcknowledgements = new TileOfferAcknowledgements()
 // connection lifetime and cleared when the state no longer lists the server.
 onServerRemoved((serverUrl) => {
   statuses.forget(serverUrl)
-  coverage.delete(serverUrl)
+  reconciledCoverage.delete(serverUrl)
   reportedPaints.delete(serverUrl)
-  for (const [key, held] of [...alarms]) if (held.server.url === serverUrl) alarms.delete(key)
+  alarms.forget(serverUrl)
 })
 
 const tileOfferMetric = (
@@ -305,13 +308,8 @@ const rememberDedupe = (dedupe: ServerDedupe, value: string): void => {
   dedupe.values.add(value)
 }
 
-const statusKey = (serverUrl: string, templateId: string): string =>
-  `${serverUrl}\u0000${templateId}`
-
-const coverageFor = (server: ConnectedServer): ReadonlySet<string> | null => {
-  const known = coverage.get(server.url)
-  return known !== undefined && isCurrentServerConnection(known.server) ? known.tiles : null
-}
+const coverageFor = (server: ConnectedServer): ReadonlySet<string> | null =>
+  manifestCoverage(server)?.tiles ?? null
 
 const wantsObservedTile = (tile: TileCoord): boolean => {
   if (!getState().shareTiles) return false
@@ -342,9 +340,6 @@ const telemetryRequest = (
     read: 'json',
     retry: true,
   }).catch(() => null)
-
-const coverageFrom = (contents: ServerContents): ReadonlySet<string> =>
-  new Set(contents.templates.flatMap((template) => template.chunks.map((chunk) => chunk.tile)))
 
 const uploadWanted = async (
   server: ConnectedServer,
@@ -1000,23 +995,18 @@ const replayRecent = (server: ConnectedServer, includeRecentTiles = true): void 
   for (const paint of recentPaints) void reportPaint(paint).catch(reportTelemetryError)
 }
 
-const rememberContents = (server: ServerConnection, contents: ServerContents): void => {
+/** Reconcile offers, receipts and reads with a newly admitted world manifest's coverage. */
+const reconcileCoverage = (server: ServerConnection): void => {
   if (!isConnected(server) || !isCurrentServerConnection(server)) return
-  const held = coverage.get(server.url)
-  const previous = coverageFor(server)
-  const next = coverageFrom(contents)
+  const coverage = manifestCoverage(server)
+  if (coverage === null) return
+  const held = reconciledCoverage.get(server.url)
+  const previous = held !== undefined && isCurrentServerConnection(held.server) ? held : undefined
+  const next = coverage.tiles
   const seasonChanged = held !== undefined && held.server.season !== server.season
-  const coverageChanged =
-    previous === null ||
-    contents.revision === undefined ||
-    held?.contents.revision !== contents.revision ||
-    previous.size !== next.size ||
-    [...previous].some((tile) => !next.has(tile))
-  // Preserve the snapshot token when a revisioned manifest is unchanged. Alarm reads use that
-  // identity to reject genuinely superseded coverage; replacing it with an equivalent object
-  // would turn an unchanged manifest into a false race and force a repair read.
-  if (coverageChanged || held === undefined)
-    coverage.set(server.url, { server, tiles: next, contents, alarmsKnown: false })
+  // The store keeps the coverage object while a revisioned manifest covers the same tiles.
+  const coverageChanged = previous?.coverage !== coverage
+  reconciledCoverage.set(server.url, { server, coverage })
   const unsettled = unsettledOffers.get(server.url)
   if (unsettled !== undefined) {
     if (unsettled.owner !== serverConnectionIdentity(server) || unsettled.season !== server.season)
@@ -1045,7 +1035,7 @@ const rememberContents = (server: ServerConnection, contents: ServerContents): v
     // The coordinator already includes status in the initial connection sweep. Only a later
     // manifest change invalidates an established status surface; alarms cannot run until the first
     // coverage snapshot exists, so they still need that first targeted read.
-    if (previous !== null) requestServerSync('manifest-applied', 'telemetry-status', server)
+    if (previous !== undefined) requestServerSync('manifest-applied', 'telemetry-status', server)
     requestServerSync('manifest-applied', 'telemetry-alarms', server)
   }
   replayRecent(server, !seasonChanged)
@@ -1154,10 +1144,8 @@ const refreshAlarms = async (
   reason: ReconciliationReason,
   transport: SyncTransport,
 ): Promise<ServerSyncResult> => {
-  if (!isCurrentServerConnection(server)) return { status: 'skipped' }
-  const snapshot = coverage.get(server.url)
-  if (snapshot === undefined || !isCurrentServerConnection(snapshot.server))
-    return { status: 'skipped' }
+  const coverage = manifestCoverage(server)
+  if (coverage === null) return { status: 'skipped' }
   return coalesceServerRead(
     serverConnectionIdentity(server),
     `${server.season}\u0000world\u0000alarms`,
@@ -1171,15 +1159,12 @@ const refreshAlarms = async (
         answer === null ||
         response === null ||
         !response.ok ||
-        !isCurrentServerConnection(server) ||
-        coverage.get(server.url) !== snapshot
+        manifestCoverage(server) !== coverage
       )
         return { status: 'failed' }
       const read = alarmsSnapshotFrom(answer.body, false)
       if (read === null) return { status: 'failed' }
-      if (!isCurrentServerConnection(server) || coverage.get(server.url) !== snapshot)
-        return { status: 'failed' }
-      const changed = applyAlarmsSnapshot(server, snapshot, read.alarms)
+      const changed = applyAlarmsSnapshot(server, coverage, read.alarms)
       return {
         status: changed ? 'changed' : 'unchanged',
         ...(read.version === undefined ? {} : { revision: read.version }),
@@ -1194,27 +1179,23 @@ const refreshAlarms = async (
  */
 const applyAlarmsSnapshot = (
   server: ConnectedServer,
-  snapshot: ServerCoverage,
+  coverage: ManifestCoverage,
   next: readonly Alarm[],
 ): boolean => {
-  let changed = !snapshot.alarmsKnown
-  snapshot.alarmsKnown = true
+  let changed = !alarmsKnown.has(coverage)
+  alarmsKnown.add(coverage)
   const present = new Set<string>()
   for (const alarm of next) {
-    const key = statusKey(server.url, alarm.templateId)
-    present.add(key)
-    const held = alarms.get(key)
-    if (
-      held?.contents === snapshot.contents &&
-      JSON.stringify(held.value) === JSON.stringify(alarm)
-    )
+    present.add(alarm.templateId)
+    const held = alarms.get(server.url, alarm.templateId)
+    if (held?.coverage === coverage && JSON.stringify(held.value) === JSON.stringify(alarm))
       continue
-    alarms.set(key, { server, contents: snapshot.contents, value: alarm })
+    alarms.set(server.url, alarm.templateId, { server, coverage, value: alarm })
     changed = true
   }
-  for (const key of [...alarms.keys()]) {
-    if (!key.startsWith(`${server.url}\u0000`) || present.has(key)) continue
-    alarms.delete(key)
+  for (const [templateId] of alarms.entries(server.url)) {
+    if (present.has(templateId)) continue
+    alarms.delete(server.url, templateId)
     changed = true
   }
   if (changed) notifyAlarmListeners()
@@ -1222,15 +1203,10 @@ const applyAlarmsSnapshot = (
 }
 
 const applyLiveAlarmsSnapshot = (server: ConnectedServer, value: unknown): boolean => {
-  const snapshot = coverage.get(server.url)
+  const coverage = manifestCoverage(server)
   const read = alarmsSnapshotFrom(value, true)
-  if (
-    snapshot === undefined ||
-    !isCurrentServerConnection(snapshot.server) ||
-    read?.version === undefined
-  )
-    return false
-  applyAlarmsSnapshot(server, snapshot, read.alarms)
+  if (coverage === null || read?.version === undefined) return false
+  applyAlarmsSnapshot(server, coverage, read.alarms)
   applyServerSyncRevision(server, 'world', 'telemetry-alarms', read.version)
   return true
 }
@@ -1251,38 +1227,25 @@ const notifyAlarmListeners = (): void => {
   }
 }
 
-const alarmEnabled = (server: ConnectedServer, template: ServerTemplate): boolean => {
-  const hidden = new Set(getState().hiddenScopes)
-  if (
-    hidden.has(serverScopeKey(server.url)) ||
-    hidden.has(serverTemplateKey(server.url, template.id))
-  )
-    return false
-  const contents = coverage.get(server.url)?.contents
-  const parents = new Map(contents?.nodes.map((node) => [node.id, node.parentId]) ?? [])
-  let nodeId = template.nodeId
-  for (let depth = 0; nodeId !== null && depth <= parents.size; depth++) {
-    if (hidden.has(nodeScopeKey(server.url, nodeId))) return false
-    nodeId = parents.get(nodeId) ?? null
-  }
-  return true
-}
+const alarmEnabled = (server: ConnectedServer, template: ServerTemplate): boolean =>
+  isScopeVisible(serverScopeKey(server.url)) &&
+  isScopeVisible(serverTemplateKey(server.url, template.id)) &&
+  nodeChainVisible(server.url, template.nodeId)
+
+const hasTemplate = (server: ServerConnection, templateId: string): boolean =>
+  admittedManifest(server)?.templates.some((template) => template.id === templateId) === true
 
 /** Current authoritative episode, including templates hidden from the canvas. */
 export const serverAlarmFor = (
   server: ServerConnection,
   template: Pick<ServerTemplate, 'id' | 'nodeId' | 'published'>,
 ): Alarm | null => {
-  const known = alarms.get(statusKey(server.url, template.id))
-  const snapshot = coverage.get(server.url)
-  const current = snapshot?.contents.templates.find((candidate) => candidate.id === template.id)
+  const known = alarms.get(server.url, template.id)
   if (
     known === undefined ||
     !isCurrentServerConnection(known.server) ||
-    snapshot === undefined ||
-    !isCurrentServerConnection(snapshot.server) ||
-    known.contents !== snapshot.contents ||
-    current === undefined
+    known.coverage !== manifestCoverage(server) ||
+    !hasTemplate(server, template.id)
   )
     return null
   return known.value
@@ -1293,13 +1256,8 @@ export const serverAlarmKindFor = (
   server: ServerConnection,
   template: Pick<ServerTemplate, 'id' | 'nodeId' | 'published'>,
 ): Alarm['kind'] | 'none' | undefined => {
-  const snapshot = coverage.get(server.url)
-  if (
-    snapshot?.alarmsKnown !== true ||
-    !isCurrentServerConnection(server) ||
-    !isCurrentServerConnection(snapshot.server) ||
-    !snapshot.contents.templates.some((current) => current.id === template.id)
-  )
+  const coverage = manifestCoverage(server)
+  if (coverage === null || !alarmsKnown.has(coverage) || !hasTemplate(server, template.id))
     return undefined
   return serverAlarmFor(server, template)?.kind ?? 'none'
 }
@@ -1315,9 +1273,7 @@ export const activeServerAlarms = (): readonly {
     alarm: Alarm
   }> = []
   for (const server of connectedServers()) {
-    const contents = coverage.get(server.url)?.contents
-    if (contents === undefined) continue
-    for (const template of contents.templates) {
+    for (const template of admittedManifest(server)?.templates ?? []) {
       if (!alarmEnabled(server, template)) continue
       const alarm = serverAlarmFor(server, template)
       if (alarm !== null) active.push({ server, template, alarm })
@@ -1376,7 +1332,9 @@ let installed = false
 export const installTelemetry = (): void => {
   if (installed) return
   installed = true
-  onServerContents(rememberContents)
+  onManifestChange((server, surface, change) => {
+    if (surface.kind === 'world' && change.status === 'admitted') reconcileCoverage(server)
+  })
   onFetchedTile((tile, bytes, observedAt) => {
     void observeTile(tile, bytes, observedAt).catch(reportTelemetryError)
   }, wantsObservedTile)

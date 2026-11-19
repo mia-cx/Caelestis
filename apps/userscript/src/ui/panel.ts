@@ -26,7 +26,7 @@ import { onTemplateStudioChange } from '../application/template-studio.js'
 import { cancelDestinationAdmissions } from '../application/transfer.js'
 import { treeActionUsesServer } from '../application/tree-copy.js'
 import { cancelTreeActionSetup } from '../application/tree-presentation.js'
-import { onServerSnapshot, primeFromCache } from '../application/tree-server-state.js'
+import { onServerSnapshot } from '../application/tree-server-state.js'
 import { onOtherBuildChange } from '../build-transfer.js'
 import { onCanvasWrite } from '../canvas-write.js'
 import { isClaimModeActive, onClaimEditorChange } from '../claim-editor.js'
@@ -38,12 +38,15 @@ import { onArtboardPixelsChange, onHeadquartersTilesChange } from '../gl/artboar
 import { onViewChange, redraw, viewportCentre } from '../map-view.js'
 import { onPresenceChange } from '../presence-client.js'
 import { measureProfile, recordProfileCounter } from '../profile.js'
-import { admittedServerContentsFor } from '../server-api.js'
 import {
   installServerConnectionRetry,
   refreshStoredServers,
   removeServer,
 } from '../server-connections.js'
+import {
+  admittedManifest as admittedServerContentsFor,
+  primeFromCache,
+} from '../server-manifests.js'
 import {
   getState,
   onStateChange,

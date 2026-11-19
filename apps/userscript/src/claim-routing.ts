@@ -19,7 +19,7 @@ import {
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { onServerSnapshot, rowsForSurface } from './application/tree-server-state.js'
+import { onServerSnapshot } from './application/tree-server-state.js'
 import { warn } from './debug.js'
 import {
   onPresenceClaimsChange,
@@ -30,6 +30,7 @@ import {
 import { claimRegion, type RegionWriteResult, releaseRegion } from './region-api.js'
 import { serverConnectionIdentity } from './server-connections.js'
 import type { ServerTemplate } from './server-manifest.js'
+import { manifestRows } from './server-manifests.js'
 import { onStateChange, type ServerConnection } from './settings.js'
 import { storedValue, storeValue, syncStoredValues } from './stored-values.js'
 import { accountIdentity } from './wplace-account.js'
@@ -652,7 +653,7 @@ const localRouter = (): ClaimRouter =>
   (router ??= new ClaimRouter(
     {
       servers: () => presenceServers().filter(presenceCanWriteClaims),
-      templates: (server, region) => rowsForSurface(server, region.surface)?.templates,
+      templates: (server, region) => manifestRows(server, region.surface)?.templates,
       claims: presenceServerClaims,
       actor: accountIdentity,
       persist: journal.persist,

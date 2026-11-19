@@ -11,24 +11,28 @@ import { count } from './debug.js'
 import {
   type ConnectedServer,
   connectedServerAt,
-  connectedServers,
   isCurrentServerConnection,
-  sameServerConnection,
-  serverConnectionIdentity,
 } from './server-connections.js'
-import type { ServerManifest } from './server-manifest.js'
-import { parseServerManifest } from './server-manifest.js'
-import { coalesceServerRead } from './server-read-coalescer.js'
-import { serverRequest } from './server-request.js'
+import {
+  applyLiveManifest,
+  forgetManifestSurface,
+  onManifestChange,
+  readManifest,
+} from './server-manifests.js'
 import {
   registerServerSyncResource,
   requestServerSync,
   type ServerSyncResult,
 } from './server-sync-coordinator.js'
-import { getState, onStateChange, type ServerConnection, type State } from './settings.js'
+import { getState, type ServerConnection } from './settings.js'
 import { forgetServerSurfaceTemplates } from './templates/local-store.js'
-import { forgetSurfaceNodes, rememberNodes } from './templates/server-nodes.js'
-import { syncServerTemplates } from './templates/server-sync.js'
+import { serverTemplatesSettled } from './templates/server-sync.js'
+
+/**
+ * Which alliance surface's manifests are read: only the one whose Wplace editor is active. Leaving
+ * a surface forgets its manifests and takes its templates off the canvas before the next one is
+ * read; the manifest store does the reading and admission itself.
+ */
 
 const ALLIANCE_MANIFEST_RESOURCE = 'alliance-manifest'
 
@@ -38,38 +42,12 @@ let controller: AbortController | null = null
 let selected: TemplateSurface | null = null
 let readyGeneration = -1
 let transition = Promise.resolve()
-let lastConnectedServers: readonly ConnectedServer[] = []
-const manifests = new Map<
-  string,
-  { readonly owner: ConnectedServer; readonly manifest: ServerManifest }
->()
-const requestSequences = new Map<string, number>()
-const manifestListeners = new Set<() => void>()
 
-const manifestKey = (serverUrl: string, surface: TemplateSurface): string =>
-  `${serverUrl}\n${templateSurfaceKey(surface)}`
-
-const notifyManifestChange = (): void => {
-  for (const listener of manifestListeners) listener()
-}
-
-/** The scoped rows behind the alliance panel; absent until that exact manifest has arrived. */
-export const allianceManifestFor = (
-  server: ServerConnection,
-  surface: TemplateSurface,
-): ServerManifest | null => {
-  const admitted = manifests.get(manifestKey(server.url, surface))
-  return admitted !== undefined &&
-    isCurrentServerConnection(server) &&
-    isCurrentServerConnection(admitted.owner)
-    ? admitted.manifest
-    : null
-}
-
-export const onAllianceManifestChange = (listener: () => void): (() => void) => {
-  manifestListeners.add(listener)
-  return () => manifestListeners.delete(listener)
-}
+/** Observe every alliance manifest admitted, refused or forgotten. */
+export const onAllianceManifestChange = (listener: () => void): (() => void) =>
+  onManifestChange((_server, surface) => {
+    if (surface.kind !== 'world') listener()
+  })
 
 /** Refresh an edited alliance surface and report whether its manifest was admitted. */
 export const refreshAllianceManifest = async (
@@ -114,63 +92,25 @@ const readServer = async (
     count('alliance-sync:surface superseded')
     return { status: 'skipped' }
   }
-  const key = manifestKey(server.url, surface)
-  const requestSequence = (requestSequences.get(key) ?? 0) + 1
-  requestSequences.set(key, requestSequence)
-  const requestCurrent = (): boolean =>
-    requestSequences.get(key) === requestSequence &&
-    currentSurface(surface, ownGeneration) &&
-    isCurrentServerConnection(server)
-  try {
-    count('alliance-sync:manifest requested')
-    const { response, body } = await coalesceServerRead(
-      serverConnectionIdentity(server),
-      `${server.season}\u0000${templateSurfaceKey(surface)}\u0000manifest`,
-      () =>
-        serverRequest(server, '/manifest', {
-          query: {
-            season: server.season,
-            surface: surface.kind,
-            allianceId: String(surface.allianceId),
-          },
-          limits: 'background',
-          read: 'json',
-          signal,
-          metrics: { transport, reason },
-        }),
-    )
-    if (!response.ok || !requestCurrent()) {
-      count('alliance-sync:manifest refused')
-      return { status: 'failed' }
-    }
-    const manifest = parseServerManifest(body, server.info, surface)
-    if (manifest === null || manifest.season !== server.season || !requestCurrent()) {
-      count('alliance-sync:manifest invalid')
-      return { status: 'failed' }
-    }
-    count('alliance-sync:manifest admitted')
-    manifests.set(key, { owner: server, manifest })
-    rememberNodes(server.url, manifest.nodes, surface)
-    notifyManifestChange()
-    await syncServerTemplates(server, manifest.templates, requestCurrent, surface)
-    return { status: 'unchanged', revision: manifest.version }
-  } catch {
+  count('alliance-sync:manifest requested')
+  const contents = await readManifest(server, { surface, signal, reason, transport })
+  if (contents === null || !currentSurface(surface, ownGeneration)) {
     count('alliance-sync:manifest failed')
-    // A failed alliance poll keeps the last admitted overlay, like the world manifest poll.
+    // A failed alliance read keeps the last admitted overlay, like the world manifest poll.
     return { status: 'failed' }
   }
+  await serverTemplatesSettled(server, surface)
+  return contents.revision === undefined
+    ? { status: 'unchanged' }
+    : { status: 'unchanged', revision: contents.revision }
 }
 
 const retire = async (surface: TemplateSurface): Promise<void> => {
-  let changed = false
-  const removals: Promise<void>[] = []
-  for (const server of getState().servers) {
-    changed = manifests.delete(manifestKey(server.url, surface)) || changed
-    forgetSurfaceNodes(server.url, surface)
-    removals.push(syncServerTemplates(server, [], undefined, surface))
-  }
-  if (changed) notifyManifestChange()
-  await Promise.all(removals)
+  await Promise.all(
+    getState().servers.map(
+      async (server) => await forgetServerSurfaceTemplates(server.url, surface),
+    ),
+  )
 }
 
 const selectActiveSurface = (): void => {
@@ -187,6 +127,8 @@ const selectActiveSurface = (): void => {
   const ownGeneration = generation
   controller?.abort()
   controller = next === null ? null : new AbortController()
+  // At once, so no read still in flight for the old surface can be admitted after it.
+  if (previous !== null) forgetManifestSurface(previous)
   transition = transition
     .catch(() => undefined)
     .then(async () => {
@@ -198,37 +140,10 @@ const selectActiveSurface = (): void => {
   void transition.catch(() => undefined)
 }
 
-const connectionsChanged = (next: readonly ConnectedServer[]): boolean =>
-  next.length !== lastConnectedServers.length ||
-  lastConnectedServers.some((previous) => !isCurrentServerConnection(previous)) ||
-  next.some(
-    (server) => !lastConnectedServers.some((previous) => sameServerConnection(previous, server)),
-  )
-
-const stateChanged = (next: State): void => {
-  const connected = connectedServers(next)
-  if (!connectionsChanged(connected)) return
-  const surface = selected
-  let changed = false
-  if (surface !== null) {
-    for (const previous of lastConnectedServers) {
-      if (isCurrentServerConnection(previous)) continue
-      const key = manifestKey(previous.url, surface)
-      changed = manifests.delete(key) || changed
-      requestSequences.delete(key)
-      forgetSurfaceNodes(previous.url, surface)
-      void forgetServerSurfaceTemplates(previous.url, surface)
-    }
-  }
-  lastConnectedServers = connected
-  if (changed) notifyManifestChange()
-  requestServerSync('state-change', ALLIANCE_MANIFEST_RESOURCE)
-}
 /** Poll exact alliance surface manifests only while that Wplace editor is active. */
 export const installAllianceServerSync = (): void => {
   if (installed) return
   installed = true
-  lastConnectedServers = connectedServers(getState())
   /** The active Wplace artboard and exact backend manifest scope selected for it. */
   registerDebugEntry('allianceSurface', () => ({
     active: activeAllianceSurface()?.surface ?? null,
@@ -241,7 +156,6 @@ export const installAllianceServerSync = (): void => {
     })),
   }))
   onActiveAllianceSurfaceChange(selectActiveSurface)
-  onStateChange(stateChanged)
   registerServerSyncResource({
     id: ALLIANCE_MANIFEST_RESOURCE,
     live: true,
@@ -257,31 +171,18 @@ export const installAllianceServerSync = (): void => {
     },
     applyLiveEvent: async (server, event) => {
       const surface = selected
+      const ownGeneration = generation
       if (
         surface === null ||
-        readyGeneration !== generation ||
+        readyGeneration !== ownGeneration ||
         event.type !== 'manifest-snapshot' ||
-        event.scope !== templateSurfaceKey(surface)
+        event.scope !== templateSurfaceKey(surface) ||
+        !currentSurface(surface, ownGeneration) ||
+        applyLiveManifest(server, surface, event.manifest) === null
       )
         return false
-      const manifest = parseServerManifest(event.manifest, server.info, surface)
-      if (
-        manifest === null ||
-        manifest.season !== server.season ||
-        !currentSurface(surface, generation) ||
-        !isCurrentServerConnection(server)
-      )
-        return false
-      manifests.set(manifestKey(server.url, surface), { owner: server, manifest })
-      rememberNodes(server.url, manifest.nodes, surface)
-      notifyManifestChange()
-      await syncServerTemplates(
-        server,
-        manifest.templates,
-        () => currentSurface(surface, generation) && isCurrentServerConnection(server),
-        surface,
-      )
-      return currentSurface(surface, generation) && isCurrentServerConnection(server)
+      await serverTemplatesSettled(server, surface)
+      return currentSurface(surface, ownGeneration) && isCurrentServerConnection(server)
     },
   })
   selectActiveSurface()

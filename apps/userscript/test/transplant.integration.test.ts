@@ -4,8 +4,8 @@ import { moveServerTemplateToServer } from '../src/application/transfer.js'
 import { transplant } from '../src/application/transplant.js'
 import '../src/application/tree-server-state.js'
 import { createLocalFolder } from '../src/local-folders.js'
-import { admittedServerContentsFor } from '../src/server-api.js'
 import { upsertServer } from '../src/server-connections.js'
+import { admittedManifest } from '../src/server-manifests.js'
 import { getState, type ServerConnection } from '../src/settings.js'
 import { addLocalTemplate, setTemplateFolder, templateById } from '../src/templates/local-store.js'
 import { serverTemplateKey } from '../src/tree-keys.js'
@@ -68,10 +68,16 @@ vi.mock('../src/application/tree-server-state.js', async (original) => ({
   ...(await original<typeof import('../src/application/tree-server-state.js')>()),
   serverTemplateAt: () => sourceRow.edited ?? published,
 }))
-vi.mock('../src/alliance-server-sync.js', async (original) => ({
-  ...(await original<typeof import('../src/alliance-server-sync.js')>()),
-  allianceManifestFor: () => allianceManifest.admitted,
-}))
+vi.mock('../src/server-manifests.js', async (original) => {
+  const store = await original<typeof import('../src/server-manifests.js')>()
+  return {
+    ...store,
+    manifestRows: (...[server, surface]: Parameters<typeof store.manifestRows>) =>
+      surface !== undefined && surface.kind !== 'world'
+        ? (allianceManifest.admitted ?? undefined)
+        : store.manifestRows(server, surface),
+  }
+})
 vi.mock('../src/application/tree-server.js', async (original) => ({
   ...(await original<typeof import('../src/application/tree-server.js')>()),
   refreshEditedSurface: async () => {},
@@ -189,7 +195,7 @@ describe('cross-server template transplant', () => {
       indices: new Uint8Array([4, 3, 2, 1]),
     })
     expect(sourceWasPresentWhenDestinationWasListed).toBe(true)
-    const admitted = admittedServerContentsFor(currentDestination)
+    const admitted = admittedManifest(currentDestination)
     if (admitted === null) throw new Error('destination manifest was not admitted')
     expect(admitted).toMatchObject({
       nodes: [expect.objectContaining({ id: result.destinationId, name: sourceFolder.name })],

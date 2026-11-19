@@ -9,9 +9,9 @@ import {
   officialProgress,
 } from '../templates/official-overlays.js'
 import type { TemplateProgress } from '../templates/progress-types.js'
-import { nodeChainVisible, nodeScopeKey } from '../templates/server-nodes.js'
+import { nodeChainVisible } from '../templates/server-nodes.js'
 import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
-import { eventTemplateKey, nativeTemplateKey, serverScopeKey } from '../tree-keys.js'
+import { eventTemplateKey, nativeTemplateKey, nodeScopeKey, serverScopeKey } from '../tree-keys.js'
 import type { TreeContext } from './tree-context.js'
 import { isTreeExpanded, previewArt, renderLevel, reportTreeError } from './tree-rows.js'
 import {

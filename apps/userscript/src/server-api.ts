@@ -1,45 +1,32 @@
 import {
   parseTemplateTags,
-  type ReconciliationReason,
   SERVER_ASSET_MAX_BYTES,
   type ServerAssetKind,
-  type SyncTransport,
   type TemplateSurface,
   type TemplateTag,
   templateRecipeJson,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { warn } from './debug.js'
 import {
   isCurrentServerConnection,
   noteAuthFailure,
   onServerRemoved,
-  serverConnectionIdentity,
-  serverConnectionSignal,
-  takeProbedManifest,
   upsertServer,
 } from './server-connections.js'
-import type { ServerTemplate } from './server-manifest.js'
 import {
   parseServerInfo,
-  parseServerManifest,
   parseTreeNode,
   parseTreeNodes,
   type ServerInfo,
-  type ServerManifest,
   type TreeNode,
 } from './server-manifest.js'
-import { coalesceServerRead } from './server-read-coalescer.js'
+import { admittedManifest, onManifestChange, readManifest } from './server-manifests.js'
 import { type ServerRequestOptions, serverRequest } from './server-request.js'
-import {
-  type ServerLimits,
-  serverManifestSequence,
-  withManifestReadSlot,
-} from './server-transport.js'
+import { type ServerLimits, serverManifestSequence } from './server-transport.js'
 import { getState, type ServerConnection } from './settings.js'
 import type { TemplateAuthoring } from './templates/authoring.js'
 
-/** The template server's HTTP API: the manifest every member reads, and the admin routes. */
+/** The template server's admin HTTP API; manifests are read through `server-manifests.ts`. */
 
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
@@ -233,12 +220,24 @@ const markUploadAmbiguous = (server: ServerConnection, message: string): UploadF
   return { ok: false, message, ambiguous: true }
 }
 
-const clearUploadAmbiguity = (server: ServerConnection, manifestRequest: number): void => {
+// A world manifest read after the ambiguous upload shows whether it landed.
+onManifestChange((server, surface, change) => {
   const pending = pendingUploadAmbiguities.get(server.url)
-  if (pending !== undefined && manifestRequest > pending.afterManifestRequest) {
+  if (
+    surface.kind === 'world' &&
+    change.status === 'admitted' &&
+    pending !== undefined &&
+    change.response > pending.afterManifestRequest
+  )
     pendingUploadAmbiguities.delete(server.url)
-  }
-}
+})
+
+// An upload left ambiguous or running belongs to the ended connection; the next connection to
+// this URL refreshes its own manifest before anything could be uploaded twice.
+onServerRemoved((url) => {
+  pendingUploadAmbiguities.delete(url)
+  activeUploads.delete(url)
+})
 
 const beginUpload = (
   server: ServerConnection,
@@ -387,266 +386,6 @@ export const countNodeSubtree = async (
   }
 }
 
-/**
- * Everything a server is publishing: the folder tree and the templates hanging off it.
- *
- * One fetch, from `/manifest`, and that endpoint is the right one for **both** — the structure is
- * not privileged information. Anyone with a read code is meant to see the tree; the admin boundary
- * is *changing* it, which lives on the `/admin` routes. Reading the tree from `GET /admin/nodes`
- * put the boundary in the wrong place and left every read-scope member staring at a server with no
- * folders, and therefore no templates, since a template row is drawn under its folder.
- *
- * Answers empty on any failure rather than throwing. A tree that has drawn a stale row is better
- * than a tree that has thrown, and the cached copy is what it falls back to.
- */
-export interface ServerContents {
-  readonly workRevision?: number
-  /** Opaque manifest revision, retained so the coordinator can back off while it is unchanged. */
-  readonly revision?: string
-  readonly nodes: readonly TreeNode[]
-  readonly templates: readonly ServerTemplate[]
-}
-
-const latestManifestResponse = new Map<string, number>()
-const manifestResponseOf = new WeakMap<ServerContents, number>()
-const admittedServerContents = new Map<
-  string,
-  { readonly server: ServerConnection; readonly contents: ServerContents }
->()
-const serverContentsListeners = new Set<
-  (server: ServerConnection, contents: ServerContents) => void
->()
-
-// Request ids are process-wide and monotonic, so an old response can never tie a request made
-// after this URL reconnects. Only the answer belonging to the ended connection is forgotten.
-onServerRemoved((url) => {
-  latestManifestResponse.delete(url)
-  admittedServerContents.delete(url)
-  // An upload left ambiguous or running belongs to the ended connection; the next connection to
-  // this URL refreshes its own manifest before anything could be uploaded twice.
-  pendingUploadAmbiguities.delete(url)
-  activeUploads.delete(url)
-})
-
-/** Observe each newest successful manifest, no matter which UI or poll requested it. */
-export const onServerContents = (
-  listener: (server: ServerConnection, contents: ServerContents) => void,
-): (() => void) => {
-  serverContentsListeners.add(listener)
-  return () => serverContentsListeners.delete(listener)
-}
-
-/** Whether this snapshot is still the newest successful manifest response for its server. */
-export const isLatestServerContents = (serverUrl: string, contents: ServerContents): boolean => {
-  const response = manifestResponseOf.get(contents)
-  return response === undefined || response === latestManifestResponse.get(serverUrl)
-}
-
-/**
- * Mark the newest manifest as safe for every consumer to use.
- *
- * Aggregate admission belongs to the tree snapshot authority because it spans all configured servers.
- * Keeping the winning snapshot here gives admin helpers and the canvas repair path the same answer,
- * while retaining the connection that earned it prevents a same-URL reconnect from inheriting it.
- */
-export const admitServerContents = (
-  server: ServerConnection,
-  contents: ServerContents,
-): boolean => {
-  const current = getState().servers.find((candidate) => candidate.url === server.url)
-  if (
-    current === undefined ||
-    !isCurrentServerConnection(server) ||
-    !isLatestServerContents(server.url, contents)
-  )
-    return false
-  admittedServerContents.set(server.url, { server: current, contents })
-  const request = manifestResponseOf.get(contents)
-  if (request !== undefined) clearUploadAmbiguity(server, request)
-  return true
-}
-
-/** The admitted snapshot belonging to this exact connection lifetime, if one exists. */
-export const admittedServerContentsFor = (server: ServerConnection): ServerContents | null => {
-  const admitted = admittedServerContents.get(server.url)
-  return admitted !== undefined &&
-    isCurrentServerConnection(server) &&
-    isCurrentServerConnection(admitted.server)
-    ? admitted.contents
-    : null
-}
-
-const awaitReadOrAbort = <T>(read: Promise<T>, signal: AbortSignal): Promise<T | null> =>
-  new Promise<T | null>((resolve, reject) => {
-    const aborted = (): void => {
-      cleanup()
-      resolve(null)
-    }
-    const cleanup = (): void => signal.removeEventListener('abort', aborted)
-    signal.addEventListener('abort', aborted, { once: true })
-    void read.then(
-      (value) => {
-        cleanup()
-        resolve(value)
-      },
-      (error: unknown) => {
-        cleanup()
-        reject(error)
-      },
-    )
-  })
-
-const refreshServerRelease = (server: ServerConnection, release: ServerInfo): ServerConnection => {
-  if (
-    server.info === null ||
-    (server.info.version === release.version && server.info.build === release.build)
-  )
-    return server
-  const { version: _version, build: _build, ...info } = server.info
-  const updated = {
-    ...server,
-    info: {
-      ...info,
-      ...(release.version === undefined ? {} : { version: release.version }),
-      ...(release.build === undefined ? {} : { build: release.build }),
-    },
-  }
-  upsertServer(updated)
-  return updated
-}
-
-const contentsOf = (manifest: ServerManifest): ServerContents => ({
-  revision: manifest.version,
-  ...(manifest.workRevision === undefined ? {} : { workRevision: manifest.workRevision }),
-  nodes: manifest.nodes,
-  templates: manifest.templates,
-})
-
-const publishContents = (
-  current: ServerConnection,
-  manifest: ServerManifest,
-  contents: ServerContents,
-  failure: string,
-): void => {
-  const updated = refreshServerRelease(current, manifest.server)
-  for (const listener of serverContentsListeners) {
-    try {
-      listener(updated, contents)
-    } catch (error) {
-      warn('install', failure, String(error))
-    }
-  }
-}
-
-export const listServerContents = async (
-  server: ServerConnection,
-  signal?: AbortSignal,
-  reason: ReconciliationReason = 'unknown',
-  transport: SyncTransport = 'compatibility-poll',
-): Promise<ServerContents | null> => {
-  if (server.info === null || server.season === null) return null
-  if (!isCurrentServerConnection(server)) return null
-  try {
-    const info = server.info
-    const season = server.season
-    const owner = serverConnectionIdentity(server)
-    const read = coalesceServerRead(
-      owner,
-      `${season}\u0000world\u0000manifest`,
-      async (): Promise<ServerContents | null> => {
-        const {
-          response,
-          body,
-          sequence: request,
-        } = await withManifestReadSlot(
-          serverConnectionSignal(server),
-          () => isCurrentServerConnection(server),
-          async (sequence) => ({
-            ...(await serverRequest(server, '/manifest', {
-              query: { season },
-              limits: 'tree',
-              read: 'json',
-              metrics: { transport, reason },
-            })),
-            sequence,
-          }),
-        )
-        if (response.status === 401 || response.status === 403)
-          noteAuthFailure(server, response.status)
-        if (!response.ok) return null
-        const manifest = parseServerManifest(body, info)
-        if (manifest === null || manifest.season !== season) return null
-        return publishManifestResponse(server, manifest, request)
-      },
-    )
-    if (signal === undefined) return await read
-    if (signal.aborted) return null
-    return await awaitReadOrAbort(read, signal)
-  } catch {
-    return null
-  }
-}
-
-/** Record one manifest response and, when it is this server's newest, hand it to every listener. */
-const publishManifestResponse = (
-  server: ServerConnection,
-  manifest: ServerManifest,
-  request: number,
-): ServerContents => {
-  const contents = contentsOf(manifest)
-  manifestResponseOf.set(contents, request)
-  const current = getState().servers.find((candidate) => candidate.url === server.url)
-  if (
-    current !== undefined &&
-    isCurrentServerConnection(server) &&
-    request > (latestManifestResponse.get(server.url) ?? 0)
-  ) {
-    latestManifestResponse.set(server.url, request)
-    publishContents(current, manifest, contents, 'could not publish fresh manifest contents')
-  }
-  return contents
-}
-
-/**
- * Start a connection from the manifest its probe downloaded to verify the credential.
- *
- * Connecting reads `/manifest` to prove the code works, and the first sync wanted the same manifest
- * moments later. Adopting the probe's copy makes it that first read, so a page load downloads each
- * manifest once. One use only, and never once a newer response has arrived: a later read must
- * fetch, because a mutation may have changed the manifest since.
- */
-export const adoptProbedServerContents = (server: ServerConnection): ServerContents | null => {
-  const probed = takeProbedManifest(server.url)
-  if (
-    probed === undefined ||
-    !isCurrentServerConnection(server) ||
-    !isCurrentServerConnection(probed.server) ||
-    probed.manifest.season !== server.season ||
-    probed.request <= (latestManifestResponse.get(server.url) ?? 0)
-  )
-    return null
-  return publishManifestResponse(server, probed.manifest, probed.request)
-}
-
-/** Publish one authenticated live manifest through the same listeners as the initial read. */
-export const applyLiveServerManifest = (
-  server: ServerConnection,
-  body: unknown,
-): ServerContents | null => {
-  if (server.info === null || server.season === null || !isCurrentServerConnection(server))
-    return null
-  const manifest = parseServerManifest(body, server.info)
-  if (manifest === null || manifest.season !== server.season) return null
-  const contents = contentsOf(manifest)
-  const request = (latestManifestResponse.get(server.url) ?? 0) + 1
-  latestManifestResponse.set(server.url, request)
-  manifestResponseOf.set(contents, request)
-  const current = getState().servers.find((candidate) => candidate.url === server.url)
-  if (current === undefined || !isCurrentServerConnection(server)) return null
-  publishContents(current, manifest, contents, 'could not publish live manifest contents')
-  return contents
-}
-
 export type ServerNodesResult =
   | { readonly status: 'ok'; readonly nodes: readonly TreeNode[] }
   | { readonly status: 'unreachable' | 'not-admitted' }
@@ -672,11 +411,11 @@ export const listServerNodes = async (
       return { status: 'unreachable' }
     return { status: 'ok', nodes: listed.nodes }
   }
-  const contents = await listServerContents(server, signal)
+  const contents = await readManifest(server, signal === undefined ? {} : { signal })
   const current = getState().servers.find((candidate) => candidate.url === server.url)
   if (contents === null || current === undefined || !isCurrentServerConnection(server))
     return { status: 'unreachable' }
-  const admitted = admittedServerContentsFor(current)
+  const admitted = admittedManifest(current)
   return admitted === null ? { status: 'not-admitted' } : { status: 'ok', nodes: admitted.nodes }
 }
 

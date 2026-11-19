@@ -1,14 +1,13 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import {
-  admittedServerContentsFor,
   deleteTemplate as deleteTemplateOnServer,
-  listServerContents,
   listServerNodes,
   patchTemplate,
   uploadTemplate,
 } from '../server-api.js'
 import { isCurrentServerConnection, serverLabel } from '../server-connections.js'
 import type { ServerTemplate, TreeNode } from '../server-manifest.js'
+import { admittedManifest, readManifest } from '../server-manifests.js'
 import type { ServerConnection } from '../settings.js'
 import { newTemplateId } from '../templates/import.js'
 import {
@@ -172,8 +171,8 @@ const admittedRows = async (
       templateAt: (id) => serverTemplateAt(server.url, id, surface) ?? undefined,
     }
   }
-  if ((await listServerContents(server, signal)) === null) return null
-  const admitted = admittedServerContentsFor(server)
+  if ((await readManifest(server, { signal })) === null) return null
+  const admitted = admittedManifest(server)
   if (admitted === null) return null
   const templates = new Map(admitted.templates.map((template) => [template.id, template]))
   return { nodes: admitted.nodes, templateAt: (id) => templates.get(id) }

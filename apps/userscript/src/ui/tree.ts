@@ -7,8 +7,9 @@ import type {
   TreeProgressModel,
   TreeRowModel,
 } from '@caelestis/ui/elements'
-import { isSameServerPlacement, rowsForSurface } from '../application/tree-server-state.js'
+import { isSameServerPlacement } from '../application/tree-server-state.js'
 import { measureProfileDetail } from '../profile.js'
+import { manifestRows as rowsForSurface } from '../server-manifests.js'
 import { getState, setState } from '../settings.js'
 import { localTagCatalog } from '../templates/tags.js'
 import { LOCAL_ROOT_KEY, serverScopeKey } from '../tree-keys.js'

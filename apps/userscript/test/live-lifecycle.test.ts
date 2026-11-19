@@ -1,6 +1,5 @@
 import { LIVE_PROTOCOL_V1, LIVE_PROTOCOL_V2 } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
-import { importStateModules } from './state-modules.js'
 
 const SERVER_ID = '018f4f2a-1234-7abc-8def-0123456789ab'
 const MANIFEST_VERSION = 'a'.repeat(64)
@@ -69,7 +68,8 @@ it('resumes live sync without accepting retired frames and reconciles a divergen
   vi.useFakeTimers()
   vi.stubGlobal('WebSocket', FakeWebSocket)
 
-  const state = await importStateModules()
+  // Connections only: the manifest store's cache cleanup would leave IndexedDB work pending.
+  const state = await import('../src/server-connections.js')
   const sync = {
     ...(await import('../src/server-sync-coordinator.js')),
     ...(await import('../src/live-socket.js')),

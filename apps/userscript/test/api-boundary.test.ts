@@ -4,6 +4,7 @@ import {
   LIVE_PROTOCOL_V2,
   sha256Hex,
   type TemplateRecipe,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TemplateAuthoring } from '../src/templates/authoring.js'
@@ -234,13 +235,15 @@ describe('userscript to backend API boundary', () => {
 
       await installBackend({ version: '0.9.0', build: 'new-build' })
       if (transport === 'poll') {
-        expect(await state.listServerContents(server)).not.toBeNull()
+        expect(await state.readManifest(server)).not.toBeNull()
       } else {
         const response = await fetch(`${origin}/v1/manifest?season=3`, {
           headers: { authorization: `Bearer ${adminToken}` },
         })
         expect(response.ok).toBe(true)
-        expect(state.applyLiveServerManifest(server, await response.json())).not.toBeNull()
+        expect(
+          state.applyLiveManifest(server, WORLD_TEMPLATE_SURFACE, await response.json()),
+        ).not.toBeNull()
       }
 
       const current = state.getState().servers.find((candidate) => candidate.url === origin)
@@ -323,7 +326,7 @@ describe('userscript to backend API boundary', () => {
     expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
       ok: true,
     })
-    const contents = await state.listServerContents(server)
+    const contents = await state.readManifest(server)
     expect(contents).not.toBeNull()
     const template = contents?.templates.find((candidate) => candidate.id === uploaded.id)
     expect(template).toMatchObject({
@@ -447,7 +450,7 @@ describe('userscript to backend API boundary', () => {
     expect(await state.deleteNode(server, folder.node.id, { nodes: 1, templates: 1 })).toEqual({
       ok: true,
     })
-    expect(await state.listServerContents(server)).toMatchObject({ nodes: [], templates: [] })
+    expect(await state.readManifest(server)).toMatchObject({ nodes: [], templates: [] })
   })
 
   it('keeps a newer template when the backend refuses a stale delete', async () => {
@@ -467,7 +470,7 @@ describe('userscript to backend API boundary', () => {
       ok: true,
     })
 
-    const before = (await state.listServerContents(server))?.templates.find(
+    const before = (await state.readManifest(server))?.templates.find(
       (template) => template.id === uploaded.id,
     )
     if (before === undefined) throw new Error('uploaded template was not in the manifest')
@@ -482,12 +485,12 @@ describe('userscript to backend API boundary', () => {
     })
     expect(refused.ok).toBe(false)
     expect(
-      (await state.listServerContents(server))?.templates.some(
+      (await state.readManifest(server))?.templates.some(
         (template) => template.id === uploaded.id && template.name === 'Newer pixels',
       ),
     ).toBe(true)
 
-    const current = (await state.listServerContents(server))?.templates.find(
+    const current = (await state.readManifest(server))?.templates.find(
       (template) => template.id === uploaded.id,
     )
     if (current === undefined) throw new Error('template disappeared after stale delete')
@@ -498,9 +501,7 @@ describe('userscript to backend API boundary', () => {
       }),
     ).toEqual({ ok: true })
     expect(
-      (await state.listServerContents(server))?.templates.some(
-        (template) => template.id === uploaded.id,
-      ),
+      (await state.readManifest(server))?.templates.some((template) => template.id === uploaded.id),
     ).toBe(false)
   })
 
@@ -509,7 +510,7 @@ describe('userscript to backend API boundary', () => {
     const { state, server } = await connect(readToken)
     expect(server).toMatchObject({ isAdmin: false, token: readToken })
 
-    expect(await state.listServerContents(server)).toMatchObject({ nodes: [], templates: [] })
+    expect(await state.readManifest(server)).toMatchObject({ nodes: [], templates: [] })
     await expect(state.createNode(server, 'Forbidden folder', null)).resolves.toMatchObject({
       ok: false,
       message: 'That code cannot create folders — it needs admin access.',
@@ -620,7 +621,7 @@ describe('userscript to backend API boundary', () => {
     const { state, server } = await connect()
     const result = await state.createNode(server, 'Legacy folder', null)
     if (!result.ok) throw new Error(result.message)
-    expect(await state.listServerContents(server)).toMatchObject({
+    expect(await state.readManifest(server)).toMatchObject({
       nodes: [expect.objectContaining({ id: result.node.id, name: 'Legacy folder' })],
     })
     const paths = legacy.mock.calls.map(
@@ -637,7 +638,7 @@ describe('admin drafts and page-readable storage', () => {
     await installBackend()
     installBitmapDecoder()
     const { state, server } = await connect()
-    await import('../src/application/tree-server-state.js')
+    await import('../src/templates/server-sync.js')
     const { loadServerCache } = await import('../src/server-cache.js')
     const { serverTemplateKey } = await import('../src/tree-keys.js')
     const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
@@ -656,7 +657,7 @@ describe('admin drafts and page-readable storage', () => {
     const cached = async () => (await loadServerCache([origin]))[0]
 
     // The admin still sees and draws the draft; only the disk copies are missing.
-    await state.listServerContents(server)
+    await state.readManifest(server)
     await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
     await vi.waitFor(async () => expect((await cached())?.fetchedAt).toBeDefined())
     expect(await cached()).toMatchObject({ nodes: [], templates: [] })
@@ -666,7 +667,7 @@ describe('admin drafts and page-readable storage', () => {
     expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
       ok: true,
     })
-    await state.listServerContents(server)
+    await state.readManifest(server)
     await vi.waitFor(async () =>
       expect((await cached())?.templates?.map((template) => template.id)).toEqual([uploaded.id]),
     )
@@ -765,7 +766,7 @@ describe('server data reuse', () => {
     await installBackend()
     const decode = installBitmapDecoder()
     const { state, server } = await connect()
-    await import('../src/application/tree-server-state.js')
+    await import('../src/templates/server-sync.js')
     const store = await import('../src/templates/local-store.js')
     const { serverTemplateKey } = await import('../src/tree-keys.js')
     // Four pixels across the boundary of tiles 0/0 and 1/0: one chunk on each side.
@@ -782,7 +783,7 @@ describe('server data reuse', () => {
     })
     if (!uploaded.ok) throw new Error(uploaded.message)
     const key = serverTemplateKey(origin, uploaded.id)
-    await state.listServerContents(server)
+    await state.readManifest(server)
     const pixels = async () => {
       const template = store.templateById(key)
       return template === undefined ? [] : [...(await store.templatePixels(template))]
@@ -798,7 +799,7 @@ describe('server data reuse', () => {
       png: await artwork([5, 6]),
     })
     if (!replaced.ok) throw new Error(replaced.message)
-    await state.listServerContents(server)
+    await state.readManifest(server)
     await vi.waitFor(() => expect(store.templateById(key)?.serverVersion).toBe(replaced.versionId))
     expect(await pixels()).toEqual([1, 2, 5, 6])
     expect(decode).toHaveBeenCalledTimes(1)

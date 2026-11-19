@@ -134,9 +134,13 @@ const probedManifests = new Map<
   { readonly server: ServerConnection; readonly manifest: ServerManifest; readonly request: number }
 >()
 
-/** Hand over, once, the manifest the probe for this URL downloaded. */
+/**
+ * Hand over, once, the manifest the probe for this URL downloaded, as soon as the connection that
+ * probe produced is the configured one.
+ */
 export const takeProbedManifest = (serverUrl: string) => {
   const probed = probedManifests.get(serverUrl)
+  if (probed === undefined || !isCurrentServerConnection(probed.server)) return undefined
   probedManifests.delete(serverUrl)
   return probed
 }

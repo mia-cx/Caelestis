@@ -10,10 +10,12 @@ import {
   workClaimants,
 } from '@caelestis/shared'
 import type { TemplateClaimsModel, TemplateTreeModel } from '@caelestis/ui/elements'
-import { allianceManifestFor } from '../alliance-server-sync.js'
-import { rowsForSurface } from '../application/tree-server-state.js'
-import { admittedServerContentsFor } from '../server-api.js'
 import { isCurrentServerConnection, serverConnectionSignal } from '../server-connections.js'
+import {
+  admittedManifest as admittedServerContentsFor,
+  admittedManifest as allianceManifestFor,
+  manifestRows as rowsForSurface,
+} from '../server-manifests.js'
 import { serverRequest } from '../server-request.js'
 import { commitState, getState, type ServerConnection } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'

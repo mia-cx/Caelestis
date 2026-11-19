@@ -18,7 +18,7 @@ import {
   prefersReducedMotion,
   SETTLE_MARGIN_MS,
 } from '@caelestis/ui/motion'
-import { allianceManifestFor, refreshAllianceManifest } from '../alliance-server-sync.js'
+import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { transferAuthoring } from '../application/template-authoring.js'
 import { holdDeleting, templateBusy } from '../application/template-busy.js'
@@ -30,13 +30,16 @@ import type { ScreenProjection } from '../coordinates.js'
 import { log, warn } from '../debug.js'
 import { redraw, repaint, screenProjection } from '../map-view.js'
 import {
-  admittedServerContentsFor,
   deleteTemplate as deleteTemplateOnServer,
-  listServerContents,
   patchTemplate,
   uploadTemplateVersion,
 } from '../server-api.js'
 import { activeServerToken, hasServerAdminToken } from '../server-connections.js'
+import {
+  admittedManifest as admittedServerContentsFor,
+  admittedManifest as allianceManifestFor,
+  readManifest as listServerContents,
+} from '../server-manifests.js'
 import {
   getState,
   getSurfaceAppearance,

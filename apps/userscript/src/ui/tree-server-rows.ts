@@ -5,15 +5,16 @@ import {
   isServerRefreshing,
   refreshServerSnapshot,
   renderedParent,
-  rowsForSurface,
   serverSnapshotError,
 } from '../application/tree-server-state.js'
 import type { ServerTemplate } from '../server-manifest.js'
+import { manifestRows as rowsForSurface } from '../server-manifests.js'
 import { isScopeVisible, type ServerConnection, setScopeVisible } from '../settings.js'
 import { serverAlarmFor, serverAlarmKindFor, serverProgressFor } from '../telemetry.js'
 import { isTemplateVisible, setLocalVisible } from '../templates/local-store.js'
-import { nodeChainVisible, nodeScopeKey } from '../templates/server-nodes.js'
+import { nodeChainVisible } from '../templates/server-nodes.js'
 import {
+  nodeScopeKey,
   nodeTreeKey,
   serverScopeKey,
   serverTemplateKey,
