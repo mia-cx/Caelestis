@@ -1,4 +1,4 @@
-import type { Millis, TileCoord } from '@caelestis/shared'
+import { type Millis, type TileCoord, tileKey } from '@caelestis/shared'
 import type { VisibilityScope } from '../manifest/read-model.js'
 
 export const TILE_GENERATION_CACHE_TTL_MILLISECONDS = 5 * 60_000
@@ -46,8 +46,6 @@ interface PendingTileGenerationCommits {
   readonly active: Map<string, number>
   candidate: CachedTileGeneration | null
 }
-
-const tileKey = (tile: TileCoord): string => `${tile.x}/${tile.y}`
 
 /** Shared season cache. D1 remains authoritative whenever this module answers unresolved. */
 export const createTileGenerationCache = (

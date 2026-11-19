@@ -107,12 +107,25 @@ const sameTemplates = (
   right: readonly TemplateStatus[],
 ): boolean => JSON.stringify(left) === JSON.stringify(right)
 
+/** The templates one visibility scope sees. */
+export const scopeTemplates = (
+  state: PersistedStatusReadModel,
+  scope: VisibilityScope,
+): readonly TemplateStatus[] => (scope === 'admin' ? state.adminTemplates : state.publicTemplates)
+
+/**
+ * Whether a template's status is unchanged. A mutation keeps every template it did not touch as
+ * the same object, so only replaced templates pay for a deep comparison.
+ */
+export const sameStatus = (held: TemplateStatus | undefined, status: TemplateStatus): boolean =>
+  held === status || JSON.stringify(held) === JSON.stringify(status)
+
 const snapshotFor = (
   state: PersistedStatusReadModel,
   scope: VisibilityScope,
 ): RevisionedStatusSnapshot => ({
   revision: state.revision,
-  templates: scope === 'admin' ? state.adminTemplates : state.publicTemplates,
+  templates: scopeTemplates(state, scope),
 })
 
 const deltaFor = (
@@ -123,22 +136,14 @@ const deltaFor = (
   invalidateAllTiles = false,
 ): StatusDelta => {
   const before = new Map(
-    (scope === 'admin' ? previous.adminTemplates : previous.publicTemplates).map((status) => [
-      status.templateId,
-      status,
-    ]),
+    scopeTemplates(previous, scope).map((status) => [status.templateId, status]),
   )
-  const after = scope === 'admin' ? next.adminTemplates : next.publicTemplates
+  const after = scopeTemplates(next, scope)
   const afterIds = new Set(after.map((status) => status.templateId))
   return {
     baseRevision: previous.revision,
     revision: next.revision,
-    // A mutation keeps every template it did not touch as the same object, so only replaced
-    // templates pay for a deep comparison.
-    templates: after.filter((status) => {
-      const held = before.get(status.templateId)
-      return held !== status && JSON.stringify(held) !== JSON.stringify(status)
-    }),
+    templates: after.filter((status) => !sameStatus(before.get(status.templateId), status)),
     removedTemplateIds: [...before.keys()].filter((templateId) => !afterIds.has(templateId)),
     ...(invalidateAllTiles
       ? { invalidateAllTiles: true as const }

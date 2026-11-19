@@ -5,6 +5,8 @@ import {
   byTemplateId,
   type PersistedStatusReadModel,
   type StatusReadModelPersistence,
+  sameStatus,
+  scopeTemplates,
 } from './model.js'
 
 const STATUS_PREFIX = 'status-read-model:v3:'
@@ -22,11 +24,6 @@ const STATUS_SCOPES = ['public', 'admin'] as const
 
 const statusTemplatePrefix = (scope: VisibilityScope): string => `${STATUS_PREFIX}${scope}:`
 
-const scopeTemplates = (
-  state: PersistedStatusReadModel,
-  scope: VisibilityScope,
-): readonly TemplateStatus[] => (scope === 'admin' ? state.adminTemplates : state.publicTemplates)
-
 /**
  * Atomic persistence for a season projection that keeps each template's status under its own key,
  * so a commit writes only the templates it changed rather than the whole season.
@@ -35,8 +32,7 @@ export const createKeyedStatusPersistence = (
   storage: CoordinatorStorage,
   season: number,
 ): StatusReadModelPersistence => {
-  // The projection storage holds, as the objects last loaded or saved. A mutation keeps every
-  // template it did not touch as the same object, so identity finds what changed.
+  // The projection storage holds, as the objects last loaded or saved.
   let saved: PersistedStatusReadModel | null = null
   const listScope = async (scope: VisibilityScope) =>
     [
@@ -76,7 +72,7 @@ export const createKeyedStatusPersistence = (
           for (const status of scopeTemplates(next, scope)) {
             const before = held.get(status.templateId)
             held.delete(status.templateId)
-            if (before === status || JSON.stringify(before) === JSON.stringify(status)) continue
+            if (sameStatus(before, status)) continue
             await transaction.put(`${statusTemplatePrefix(scope)}${status.templateId}`, status)
           }
           for (const templateId of held.keys())
