@@ -1,4 +1,3 @@
-import { StaleArchiveOperationError } from '../../archive/gate.js'
 import type { CounterArchive } from '../../archive/port.js'
 import type { CounterArchiveTable } from '../../coordination/telemetry.js'
 import type { CounterDelta, CounterStore, PendingCounters } from '../../ports/index.js'
@@ -41,29 +40,17 @@ export class DurableObjectCounterStore implements CounterStore, CounterArchive {
     return this.shard.exportCounterRows(table, after, limit)
   }
 
-  /** RPC errors arrive as plain Errors; restore the type the restore relies on. */
-  private static async call<T>(operation: () => Promise<T>): Promise<T> {
-    try {
-      return await operation()
-    } catch (error) {
-      if (error instanceof Error && error.message === new StaleArchiveOperationError().message)
-        throw new StaleArchiveOperationError()
-      throw error
-    }
-  }
-
+  // A stale-operation rejection keeps its `name` across RPC, which the restore matches on.
   async importCounterRows(
     operationId: string,
     table: CounterArchiveTable,
     rows: readonly Readonly<Record<string, string | number>>[],
   ): Promise<void> {
-    await DurableObjectCounterStore.call(() =>
-      this.shard.importCounterRows(operationId, table, rows),
-    )
+    await this.shard.importCounterRows(operationId, table, rows)
   }
 
   async discardCounterRows(operationId: string): Promise<void> {
-    await DurableObjectCounterStore.call(() => this.shard.discardCounterRows(operationId))
+    await this.shard.discardCounterRows(operationId)
   }
 
   async beginCounterImport(operationId: string): Promise<void> {

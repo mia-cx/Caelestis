@@ -1,5 +1,5 @@
 import { type Millis, millis, type Seconds, seconds } from '@caelestis/shared'
-import { ArchiveOperationActiveError, StaleArchiveOperationError } from '../archive/gate.js'
+import { ArchiveOperationActiveError, StaleArchiveOperationError } from '../archive/errors.js'
 import type { SqlStore } from '../ports/index.js'
 import {
   addCounters,

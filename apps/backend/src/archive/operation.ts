@@ -1,16 +1,18 @@
 import { uuidV7 } from '@caelestis/shared'
-import { ArchiveError } from './format.js'
+import { ArchiveError } from './errors.js'
+import { ARCHIVE_SETTLE_MILLISECONDS, closeProcessWrites, openProcessWrites } from './fence.js'
 import {
-  ARCHIVE_SETTLE_MILLISECONDS,
   type ArchiveLease,
   type ArchiveOperationRow,
   acquireArchiveLease,
-  closeProcessWrites,
-  openProcessWrites,
+  advanceOperation,
+  deleteOperation,
+  operationHolds,
   readArchiveOperation,
   releaseArchiveLease,
-} from './gate.js'
+} from './operation-row.js'
 import type { ArchiveHost } from './port.js'
+import { ARCHIVE_LEASE_BUSY } from './wire.js'
 
 /**
  * The archive operation lifecycle. The `archive_operation` row is the durable record of the one
@@ -70,12 +72,7 @@ export const transition = async <State extends { readonly phase: ArchivePhase }>
   position = from.position,
 ): Promise<ArchiveOperationRow | null> => {
   const stateJson = JSON.stringify(state)
-  const changed = await host.connection
-    .prepare(
-      'UPDATE "archive_operation" SET "state_json" = ?, "position" = ? WHERE "id" = 1 AND "operation_id" = ? AND "position" = ? AND "state_json" = ?',
-    )
-    .bind(stateJson, position, from.operationId, from.position, from.stateJson)
-    .run()
+  const changed = await advanceOperation(host.connection, from, stateJson, position).run()
   return changed.meta.changes === 1 ? { ...from, stateJson, position } : null
 }
 
@@ -84,7 +81,12 @@ export const changedError = () =>
 
 /** The archive lease was already taken when this request asked. Distinct from `changedError`. */
 export const leaseBusyError = () =>
-  new ArchiveError('Another archive request is running. Retry shortly.', 409)
+  new ArchiveError(
+    'Another archive request is running. Retry shortly.',
+    409,
+    undefined,
+    ARCHIVE_LEASE_BUSY,
+  )
 
 /** The call reached its deadline; whatever it wrote outside the database stays idempotent. */
 export class ArchiveLeaseDeadline extends ArchiveError {
@@ -203,8 +205,8 @@ export const releaseServer = async (
   return true
 }
 
-/** D1 binds at most 100 parameters per statement; two go to the operation fence. */
-const LEGACY_TOKEN_DELETE_CHUNK = 98
+/** D1 binds at most 100 parameters per statement; three go to the operation fence. */
+const LEGACY_TOKEN_DELETE_CHUNK = 97
 
 /**
  * A restore begun before archives stopped carrying credentials may have imported the archive's
@@ -230,11 +232,12 @@ const dropLegacyCredentials = async (host: ArchiveHost, operation: ArchiveOperat
   // since. Chunked by the imported hashes, never the keep list, to stay inside D1's parameters.
   for (let start = 0; start < imported.length; start += LEGACY_TOKEN_DELETE_CHUNK) {
     const chunk = imported.slice(start, start + LEGACY_TOKEN_DELETE_CHUNK)
+    const holds = operationHolds(operation)
     await host.connection
       .prepare(
-        `DELETE FROM "access_tokens" WHERE EXISTS (SELECT 1 FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?) AND "token_hash" IN (${chunk.map(() => '?').join(', ')})`,
+        `DELETE FROM "access_tokens" WHERE ${holds.sql} AND "token_hash" IN (${chunk.map(() => '?').join(', ')})`,
       )
-      .bind(operation.operationId, operation.stateJson, ...chunk)
+      .bind(...holds.values, ...chunk)
       .run()
   }
 }
@@ -248,12 +251,7 @@ const dropLegacyCredentials = async (host: ArchiveHost, operation: ArchiveOperat
 const completeRelease = async (host: ArchiveHost, operation: ArchiveOperationRow) => {
   await dropLegacyCredentials(host, operation)
   await host.counters.closeCounterOperation(operation.operationId)
-  await host.connection
-    .prepare(
-      'DELETE FROM "archive_operation" WHERE "id" = 1 AND "operation_id" = ? AND "state_json" = ?',
-    )
-    .bind(operation.operationId, operation.stateJson)
-    .run()
+  await deleteOperation(host.connection, operation).run()
   try {
     await host.counters.thaw(operation.operationId)
   } finally {

@@ -2,12 +2,12 @@ import { sha256Hex } from '@caelestis/shared'
 import { validateObjectKey } from '@caelestis/storage'
 import type { SqlStatement } from '../adapters/sql-connection.js'
 import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/telemetry.js'
+import { ArchiveError, isArchiveError } from './errors.js'
 import {
   ARCHIVE_CHAIN_SEED,
   ARCHIVE_OBJECT_PREFIXES,
   ARCHIVE_TABLES,
   ARCHIVE_VERSION,
-  ArchiveError,
   type ArchiveHeader,
   type ArchiveRow,
   type ArchiveTable,
@@ -17,15 +17,11 @@ import {
   countKey,
   decodeBase64,
   parseArchiveLine,
+  quoted,
+  TABLE_DISCARD_ORDER,
+  type TableStep,
   UNARCHIVED_TABLES,
 } from './format.js'
-import {
-  type ArchiveLease,
-  type ArchiveOperationRow,
-  archiveFence,
-  readArchiveOperation,
-  StaleArchiveOperationError,
-} from './gate.js'
 import {
   ArchiveLeaseDeadline,
   archiveReadyAt,
@@ -40,10 +36,16 @@ import {
   transition,
   withArchiveLease,
 } from './operation.js'
+import {
+  type ArchiveLease,
+  type ArchiveOperationRow,
+  advanceOperation,
+  archiveFence,
+  readArchiveOperation,
+} from './operation-row.js'
 import type { ArchiveHost } from './port.js'
+import { MAX_RESTORE_LINES } from './wire.js'
 
-/** One append stays inside a Worker request and a D1 batch. */
-export const MAX_RESTORE_LINES = 500
 const DISCARD_PAGE = 128
 /** Backfill ids one discard call verifies in its final pass; the rest resume on the next call. */
 const DISCARD_VERIFY_PAGE = 500
@@ -76,8 +78,6 @@ interface RestoreState {
     readonly verified?: number
   }
 }
-
-const quoted = (name: string) => `"${name}"`
 
 /** Adapters wrap driver errors; the innermost message names the violated constraint. */
 const databaseReason = (error: unknown): string =>
@@ -450,7 +450,7 @@ const appendRestoreHeld = async (
       await host.counters.importCounterRows(operation.operationId, table, rows)
     }
   } catch (error) {
-    if (error instanceof StaleArchiveOperationError) throw changedError()
+    if (isArchiveError(error, 'StaleArchiveOperationError')) throw changedError()
     throw error
   }
   for (const [templateId, page] of backfillPages) {
@@ -462,15 +462,10 @@ const appendRestoreHeld = async (
   const nextState: RestoreState = { ...state, chain, counts, ended }
   // The fence aborts the whole batch unless the operation still carries exactly this state and
   // the lease is still this call's — a stale call commits nothing, rows included.
-  const advance = host.connection
-    .prepare(
-      'UPDATE "archive_operation" SET "position" = ?, "state_json" = ? WHERE "id" = 1 AND "operation_id" = ? AND "position" = ? AND "state_json" = ?',
-    )
-    .bind(next, JSON.stringify(nextState), operation.operationId, position, operation.stateJson)
   try {
     await host.connection.batch([
       archiveFence(host.connection, operation, lease),
-      advance,
+      advanceOperation(host.connection, operation, JSON.stringify(nextState), next),
       ...statements,
     ])
   } catch (cause) {
@@ -513,21 +508,14 @@ const activateRestoreHeld = async (host: ArchiveHost) => {
 type DiscardStep =
   | { readonly kind: 'backfill' }
   | { readonly kind: 'counters' }
-  | { readonly kind: 'unlink'; readonly table: ArchiveTable }
-  | { readonly kind: 'rows'; readonly table: ArchiveTable }
+  | TableStep
   | { readonly kind: 'objects'; readonly prefix: string }
 
-/** Import state needs the template ids, so it goes first; rows go in reverse dependency order. */
+/** Import state needs the template ids, so it goes first. */
 const DISCARD_STEPS: readonly DiscardStep[] = [
   { kind: 'backfill' },
   { kind: 'counters' },
-  ...ARCHIVE_TABLES.filter((table) => table.deferred.length > 0).map((table) => ({
-    kind: 'unlink' as const,
-    table,
-  })),
-  ...ARCHIVE_TABLES.filter((table) => !table.seeded)
-    .reverse()
-    .map((table) => ({ kind: 'rows' as const, table })),
+  ...TABLE_DISCARD_ORDER,
   ...ARCHIVE_OBJECT_PREFIXES.map((prefix) => ({ kind: 'objects' as const, prefix })),
 ]
 
@@ -656,11 +644,11 @@ const discardRestoreHeld = async (
         try {
           await host.counters.discardCounterRows(operation.operationId)
         } catch (error) {
-          if (error instanceof StaleArchiveOperationError) throw changedError()
+          if (isArchiveError(error, 'StaleArchiveOperationError')) throw changedError()
           throw error
         }
         break
-      case 'unlink':
+      case 'links':
         checkArchiveDeadline(lease)
         await host.connection.batch([
           archiveFence(host.connection, operation, lease),

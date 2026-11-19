@@ -1,6 +1,7 @@
 import { millis, sha256Hex } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
+import { MemoryCounterStore } from '../src/adapters/memory/memory-counter-store.js'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
@@ -11,26 +12,23 @@ import type {
   SqlStatement,
   TransactionalSqlConnection,
 } from '../src/adapters/sql-connection.js'
+import { createApp } from '../src/app.js'
+import { ArchiveOperationActiveError, StaleArchiveOperationError } from '../src/archive/errors.js'
 import { exportPage, finishExport, startExport } from '../src/archive/export.js'
+import { closeProcessWrites, fencedConnection, openProcessWrites } from '../src/archive/fence.js'
 import {
   ARCHIVE_CHAIN_SEED,
   ARCHIVE_OBJECT_PREFIXES,
   ARCHIVE_TABLES,
 } from '../src/archive/format.js'
-import {
-  ArchiveOperationActiveError,
-  closeProcessWrites,
-  fencedConnection,
-  openProcessWrites,
-  readArchiveOperation,
-  StaleArchiveOperationError,
-} from '../src/archive/gate.js'
 import { releaseServer } from '../src/archive/operation.js'
+import { readArchiveOperation } from '../src/archive/operation-row.js'
 import type { ArchiveHost } from '../src/archive/port.js'
 import { appendRestore, beginRestore, discardRestore } from '../src/archive/restore.js'
 import { type BackfillStorage, TemplateBackfill } from '../src/backfill/import.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
+import { makeBackendContext } from '../src/runtime/backend-runtime.js'
 import { MemoryObjectStorage, runningImport } from './support/archive.js'
 import { openRelationalStore } from './support/relational.js'
 
@@ -169,6 +167,32 @@ describe('archive snapshot boundary', () => {
     await expect(store.writeServerSettings({ name: 'Too late' })).rejects.toMatchObject({
       cause: expect.any(ArchiveOperationActiveError),
     })
+    expect((await opened.sql.readServerSettings()).name).toBeNull()
+  })
+
+  it('answers an HTTP write that slips past the cached gate with the gate’s own 503', async () => {
+    const opened = await relational()
+    const d1: SqlConnection = {
+      dialect: 'sqlite',
+      prepare: (query) => opened.connection.prepare(query),
+      batch: (statements) => opened.connection.batch(statements),
+    }
+    const store = new RelationalSqlStore(d1)
+    const admin = 'race-admin'
+    const app = createApp(
+      makeBackendContext(new MemoryBlobStore(), store, new MemoryCounterStore(store)),
+      { bootstrapAdminToken: admin },
+    )
+    // This isolate read the gate open just before another one began an export.
+    expect(await store.archiveOperationActive()).toBe(false)
+    await holdRow(opened.connection, 'export-elsewhere')
+    const response = await app.request('/v1/admin/server', {
+      method: 'PATCH',
+      headers: { authorization: `Bearer ${admin}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Too late' }),
+    })
+    expect(response.status).toBe(503)
+    expect(response.headers.get('retry-after')).toBe('60')
     expect((await opened.sql.readServerSettings()).name).toBeNull()
   })
 

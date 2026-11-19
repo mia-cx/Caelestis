@@ -36,7 +36,7 @@ import {
   type SQL,
   sql,
 } from 'drizzle-orm'
-import { archiveGate, fencedConnection } from '../archive/gate.js'
+import { archiveGate, fencedConnection } from '../archive/fence.js'
 import {
   accessTokens,
   appliedEvents,

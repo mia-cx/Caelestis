@@ -12,11 +12,10 @@ import {
   finishExport,
   importFromFile,
 } from '../src/archive/cli.js'
+import { ArchiveOperationActiveError } from '../src/archive/errors.js'
+import { ARCHIVE_GATE_CACHE_MILLISECONDS } from '../src/archive/fence.js'
 import { ARCHIVE_TABLES, chainLine, UNARCHIVED_TABLES } from '../src/archive/format.js'
-import {
-  ARCHIVE_GATE_CACHE_MILLISECONDS,
-  ArchiveOperationActiveError,
-} from '../src/archive/gate.js'
+import { ARCHIVE_LEASE_BUSY } from '../src/archive/wire.js'
 import { hashToken } from '../src/auth/tokens.js'
 import * as schema from '../src/db/schema.js'
 import {
@@ -340,6 +339,19 @@ describe('server archives', { timeout: 60_000 }, () => {
     expect(await chainLine('0'.repeat(64), 'x')).toMatch(/^[0-9a-f]{64}$/)
   })
 
+  it('bounds a restore request by its bytes, even without Content-Length', async () => {
+    const destination = await server()
+    const line = new Uint8Array(1024 * 1024).fill(0x0a)
+    const endless = new ReadableStream<Uint8Array>({ pull: (controller) => controller.enqueue(line) })
+    const refused = await admin(destination, '/admin/archive/import/records?position=1', {
+      method: 'POST',
+      body: endless,
+      duplex: 'half',
+    } as RequestInit)
+    expect(refused.status).toBe(413)
+    expect(await errorOf(refused)).toBe('Send at most 64 MiB of records per request.')
+  })
+
   it('refuses to merge into a server that already has data', async () => {
     const file = await scratch()
     const source = await server()
@@ -653,16 +665,17 @@ class HeldProbe extends MemoryObjectStorage {
 }
 
 describe('archive client retries', () => {
-  const busy = () =>
-    ({
+  const busy = () => {
+    const body = JSON.stringify({
+      error: 'Another archive request is running. Retry shortly.',
+      code: ARCHIVE_LEASE_BUSY,
+    })
+    return {
       status: 409,
-      clone: () => ({
-        text: async () =>
-          JSON.stringify({ error: 'Another archive request is running. Retry shortly.' }),
-      }),
-      text: async () =>
-        JSON.stringify({ error: 'Another archive request is running. Retry shortly.' }),
-    }) as unknown as Response
+      clone: () => ({ text: async () => body }),
+      text: async () => body,
+    } as unknown as Response
+  }
   const failure = () => ({ status: 503, text: async () => 'unavailable' }) as unknown as Response
   const done = () =>
     ({ status: 200, text: async () => JSON.stringify({ done: true }) }) as unknown as Response
