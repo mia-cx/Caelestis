@@ -5,10 +5,10 @@
   import type { TemplateStudioModel } from '../studio/model.js'
   import TemplateStudio from '../studio/TemplateStudio.svelte'
   import { intentEmitter } from './registry.js'
-  let { model, mapBox = null }: { model: TemplateStudioModel; mapBox?: Box | null } = $props()
+  let { model, mapBox = null }: { model?: TemplateStudioModel; mapBox?: Box | null } = $props()
   const emit = intentEmitter($host(), 'caelestis-template-studio')
 </script>
-<TemplateStudio {model} {mapBox} onIntent={emit} />
+{#if model}<TemplateStudio {model} {mapBox} onIntent={emit} />{/if}
 <PixelStyles />
 
 <style>

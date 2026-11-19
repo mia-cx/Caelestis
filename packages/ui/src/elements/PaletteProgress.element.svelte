@@ -5,10 +5,10 @@
   import PixelStyles from '../foundations/PixelStyles.svelte'
   import type { PaletteProgressModel } from '../progress/model.js'
 
-  let { model = { value: '' } }: { model?: PaletteProgressModel } = $props()
+  let { model }: { model?: PaletteProgressModel } = $props()
 </script>
 
-<PaletteProgress {model} />
+{#if model}<PaletteProgress {model} />{/if}
 
 <PixelStyles />
 

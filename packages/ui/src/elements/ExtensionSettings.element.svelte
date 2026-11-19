@@ -14,7 +14,7 @@
 
 <MenuStyles />
 
-{#if model !== undefined}
+{#if model}
   <div class="settings">
     <p class="version">Extension {model.version}</p>
     {#each ['notifications', 'contribution', 'painters', 'wplace-performance', 'diagnostics', 'accessibility'] as const as section}

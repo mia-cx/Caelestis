@@ -6,12 +6,11 @@
   import type { NotificationsModel } from '../notifications/model.js'
   import { intentEmitter } from './registry.js'
 
-  const EMPTY_MODEL = { toasts: [], confirm: null } as const
-  let { model = EMPTY_MODEL }: { model?: NotificationsModel } = $props()
+  let { model }: { model?: NotificationsModel } = $props()
   const emit = intentEmitter($host(), 'caelestis-notifications')
 </script>
 
-<Notifications {model} onIntent={emit} />
+{#if model}<Notifications {model} onIntent={emit} />{/if}
 
 <PixelStyles />
 

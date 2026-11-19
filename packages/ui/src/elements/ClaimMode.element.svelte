@@ -4,10 +4,10 @@
   import PixelStyles from '../foundations/PixelStyles.svelte'
   import type { ClaimModeModel } from '../claim/model.js'
   import { intentEmitter } from './registry.js'
-  let { model }: { model: ClaimModeModel } = $props()
+  let { model }: { model?: ClaimModeModel } = $props()
   const emit = intentEmitter($host(), 'caelestis-claim-mode')
 </script>
-<ClaimMode {model} onIntent={emit} />
+{#if model}<ClaimMode {model} onIntent={emit} />{/if}
 <PixelStyles />
 
 <style>

@@ -6,12 +6,11 @@
   import type { PanelIntent, PanelModel } from '../panel/model.js'
   import { intentEmitter } from './registry.js'
 
-  const DEFAULT_MODEL: PanelModel = { view: 'tree', width: 360, minWidth: 260, maxWidth: 720 }
-  let { model = DEFAULT_MODEL }: { model?: PanelModel } = $props()
+  let { model }: { model?: PanelModel } = $props()
   const element: HTMLElement = $host()
   const dispatch = intentEmitter(element, 'caelestis-panel')
 
-  $effect(() => { element.style.width = `${model.width}px` })
+  $effect(() => { if (model) element.style.width = `${model.width}px` })
 
   const emit = (detail: PanelIntent): void => {
     if (detail.type === 'resize-preview' || detail.type === 'resize-commit') {
@@ -21,7 +20,7 @@
   }
 </script>
 
-<div class="pane"><Panel {model} onIntent={emit} /></div>
+{#if model}<div class="pane"><Panel {model} onIntent={emit} /></div>{/if}
 
 <PixelStyles />
 

@@ -6,12 +6,11 @@
   import type { RailControlModel } from '../rail/model.js'
   import { intentEmitter } from './registry.js'
 
-  const DEFAULT_MODEL: RailControlModel = { id: 'panel', label: 'Caelestis', pressed: false }
-  let { model = DEFAULT_MODEL }: { model?: RailControlModel } = $props()
+  let { model }: { model?: RailControlModel } = $props()
   const emit = intentEmitter($host(), 'caelestis-rail-control')
 </script>
 
-<RailControl {model} onIntent={emit} />
+{#if model}<RailControl {model} onIntent={emit} />{/if}
 
 <PixelStyles />
 

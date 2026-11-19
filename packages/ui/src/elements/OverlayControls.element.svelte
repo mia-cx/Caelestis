@@ -6,19 +6,11 @@
   import type { OverlayControlsModel } from '../overlay/model.js'
   import { intentEmitter } from './registry.js'
 
-  const DEFAULT_MODEL: OverlayControlsModel = {
-    name: 'Template',
-    failures: [],
-    appearance: {
-      values: { size: 1, radius: 0, translateX: 0, translateY: 0, rotation: 0, opacity: 1, contrastOutline: false, contrastOutlineSize: 1, markMismatch: false, markUnpainted: false, unpaintedLimit: 0.05, markerColour: '#ff0000', markerSize: 9, markSelectedColour: false, selectedMarkerColour: '#ffffff', selectedMarkerSize: 9, dimOthers: false, otherOpacity: 0.15, otherColour: null },
-      sliders: [], pixelPresets: [], colourPresets: [], palette: [], onlySelectedColour: false, paintOpen: false,
-    },
-  }
-  let { model = DEFAULT_MODEL }: { model?: OverlayControlsModel } = $props()
+  let { model }: { model?: OverlayControlsModel } = $props()
   const emit = intentEmitter($host(), 'caelestis-overlay-controls')
 </script>
 
-<OverlayControls {model} onIntent={emit} />
+{#if model}<OverlayControls {model} onIntent={emit} />{/if}
 
 <PixelStyles />
 
