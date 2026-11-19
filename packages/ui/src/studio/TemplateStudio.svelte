@@ -190,7 +190,6 @@
   /* The bar's popups, and crop mode's keys: Enter applies the crop, Escape discards it. */
   let popup = $state<'panels' | 'image' | null>(null)
   const togglePopup = (which: 'panels' | 'image'): void => { popup = popup === which ? null : which }
-  /** Loading an image from the Replace image popup closes it. */
   const pickImage = (intent: TemplateStudioIntent): void => {
     popup = null
     onIntent(intent)
@@ -211,7 +210,6 @@
     onIntent(event.key === 'Enter' ? { type: 'crop-apply' } : { type: 'crop-mode', on: false })
   }
 
-  /* An image dropped anywhere over the studio becomes its source. */
   let dropping = $state(false)
   const carriesFiles = (event: DragEvent): boolean => event.dataTransfer?.types.includes('Files') === true
   const onWindowDragover = (event: DragEvent): void => {
@@ -233,7 +231,6 @@
     if (popup !== null && !event.composedPath().some((node) => node instanceof Element && node.classList.contains('popup-anchor'))) popup = null
   }
 
-  /* Bar. */
   const replacing = $derived(model.target.kind === 'replace')
   const status = $derived.by((): string => {
     if (model.message !== undefined) return model.message
@@ -305,7 +302,6 @@
   {/if}
 {/snippet}
 
-<!-- `part` marks the parts a docked frame stacks, which a panel docks between. -->
 {#snippet nodeView(node: StudioNode, frame: number)}
   {#if node.kind === 'split'}
     <div class="split" data-axis={node.axis}>
@@ -333,7 +329,6 @@
 
 {#snippet frameView(frame: StudioFrame, index: number)}
   {@const moving = followed(index)}
-  <!-- A moving frame follows the pointer from its own place, so its panels stay mounted. -->
   <div
     class="frame caelestis-panel-surface"
     class:moving={moving !== null}
@@ -418,7 +413,6 @@
     <span class="break" aria-hidden="true"></span>
   </div>
 
-  <!-- Before its image, the middle of the map says how to load one. -->
   {#if model.source === null}
     <div class="first-image caelestis-panel-surface" role="group" aria-label="Image">
       {#if model.loadingSource}
@@ -430,7 +424,6 @@
     </div>
   {/if}
 
-  <!-- Under the crop on the map. -->
   {#if model.cropping !== null}
     {@const draft = model.cropping.draft}
     {@const content = model.cropping.content}
@@ -581,7 +574,6 @@
     background: var(--caelestis-surface, white);
     box-shadow: var(--caelestis-popover-shadow, 0 10px 24px -6px rgb(0 0 0 / 0.28));
   }
-  /* Centred on the map, where the image will be. */
   .first-image {
     position: absolute;
     inset-block-start: 40%;

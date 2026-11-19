@@ -276,7 +276,6 @@ export const templateStudioModel = (): TemplateStudioModel => ({
           name: source.name,
           width: source.image.width,
           height: source.image.height,
-          url: source.url,
         },
   loadingSource,
   crop,

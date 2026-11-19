@@ -102,12 +102,11 @@ export interface TemplateStudioModel {
     | { readonly kind: 'create'; readonly destination: string }
     | { readonly kind: 'replace'; readonly template: string }
   readonly name: string
-  /** The decoded image, with an object URL the Source window draws. Null until one loads. */
+  /** The decoded image. Null until one loads. */
   readonly source: {
     readonly name: string
     readonly width: number
     readonly height: number
-    readonly url: string
   } | null
   readonly loadingSource: boolean
   /** The part of the source the template uses, in source pixels. */
