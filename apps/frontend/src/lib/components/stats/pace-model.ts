@@ -26,7 +26,7 @@ type PaceWindow = (typeof PACE_WINDOWS)[number]
 
 /** The coarsest bucket a rolling window can draw from: it needs at least two buckets. */
 export const maxPaceResolution = (windowSeconds: number): number => windowSeconds / 2
-export const paceWindowUsable = (windowSeconds: number, bucketSeconds: number): boolean =>
+const paceWindowUsable = (windowSeconds: number, bucketSeconds: number): boolean =>
   bucketSeconds <= maxPaceResolution(windowSeconds)
 
 /** A window's place from shortest (0) to longest (1), which sets its line's colour and width. */
@@ -113,7 +113,7 @@ export const progressSegments = (samples: readonly ObservedProgressSample[]): Pr
 }
 
 /** Everyone's rolling pace for one window, from observed net progress. */
-export type PaceLine = PaceWindow & {
+type PaceLine = PaceWindow & {
   readonly rank: number
   readonly segments: readonly PaceRatePoint[][]
   /** Where the imported archive intervals this window counts end, or -Infinity without any. */
@@ -152,7 +152,7 @@ export const painterSource = (
   return { ...history, resolution: history.resolution, coverageStart: history.coverageStart }
 }
 
-export interface PainterLine {
+interface PainterLine {
   readonly painter: PainterTotal
   readonly window: PaceWindow['key']
   readonly rank: number

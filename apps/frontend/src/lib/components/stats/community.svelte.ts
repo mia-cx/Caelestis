@@ -13,7 +13,7 @@ import type { StatsScope } from './stats-scope.svelte.js'
 /** The heatmap draws up to a year of weeks, and that is all the contribution read is for. */
 const CONTRIBUTION_SECONDS = DAY_SECONDS * 7 * 53
 /** The same length whether the leaderboard streams or polls. */
-export const LEADERBOARD_LIMIT = 100
+const LEADERBOARD_LIMIT = 100
 
 /** A painter in a contribution history, with everything they placed in it. */
 export interface ContributionPainter extends PainterIdentity {

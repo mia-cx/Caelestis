@@ -33,7 +33,7 @@ export const templateRect = (template: Template): CanvasRect => {
   }
 }
 
-export interface TilePlacement {
+interface TilePlacement {
   readonly key: TileKey
   /** Where the tile's top-left corner lands in rect-local pixels. */
   readonly drawX: number
@@ -41,7 +41,7 @@ export interface TilePlacement {
 }
 
 /** Every canvas tile the rectangle touches, with its rect-local draw position. */
-export const tilesInRect = (rect: CanvasRect): TilePlacement[] => {
+const tilesInRect = (rect: CanvasRect): TilePlacement[] => {
   const placements: TilePlacement[] = []
   const firstTileX = Math.floor(rect.x / TILE_SIZE)
   const lastTileX = Math.ceil((rect.x + rect.width) / TILE_SIZE) - 1
@@ -169,14 +169,14 @@ const osmImage = (z: number, x: number, y: number): Promise<HTMLImageElement> =>
   )
 
 /** One chunk's draw position in world (canvas-pixel) coordinates. */
-export interface ChunkPlacement {
+interface ChunkPlacement {
   readonly hash: string
   readonly x: number
   readonly y: number
 }
 
 /** One captured canvas tile in world pixels, with every template whose capture covers it. */
-export interface TimelapseTile {
+interface TimelapseTile {
   readonly key: TileKey
   readonly x: number
   readonly y: number

@@ -9,7 +9,7 @@ const nowSeconds = (): number => Math.floor(Date.now() / 1_000)
  * again when it becomes visible. Polls and the chart's live edge follow it, so a hidden tab reads
  * nothing.
  */
-export class VisibleClock {
+class VisibleClock {
   now = $state(nowSeconds())
 
   constructor() {

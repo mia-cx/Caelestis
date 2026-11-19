@@ -58,13 +58,13 @@ export interface AppBootstrap {
   readonly error: string | null
 }
 
-export interface DashboardSnapshot {
+interface DashboardSnapshot {
   readonly contributions: ContributionsResponse
   readonly leaderboard: LeaderboardResponse
 }
 
 /** What one dashboard panel streams: contributions from a time and a leaderboard of a length. */
-export interface DashboardSubscription {
+interface DashboardSubscription {
   readonly templateIds: readonly string[]
   readonly contributionsFrom: number
   readonly leaderboardLimit: number

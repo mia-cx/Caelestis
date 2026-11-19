@@ -6,7 +6,7 @@ import {
 } from '@caelestis/shared'
 
 /** What the history routes answer: buckets on one grid, with that grid's width when bounded. */
-export interface HistoryRead<Bucket extends HistoryBucket = HistoryBucket> {
+interface HistoryRead<Bucket extends HistoryBucket = HistoryBucket> {
   readonly resolution?: number
   readonly coverageStart?: Seconds
   readonly buckets: readonly Bucket[]
