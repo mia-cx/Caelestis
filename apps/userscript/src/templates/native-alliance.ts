@@ -6,6 +6,7 @@ import {
 } from '../alliance-surface.js'
 import { warn } from '../debug.js'
 import { serverTemplateKey } from '../tree-keys.js'
+import { newTemplateId } from './import.js'
 import {
   addLocalTemplate,
   forgetServerTemplate,
@@ -317,7 +318,7 @@ export const copyWplaceTemplate = async (id: string): Promise<void> => {
   if (source === undefined) throw new Error('The Wplace template is no longer available')
   await addLocalTemplate(
     {
-      id: `local-${crypto.randomUUID()}`,
+      id: newTemplateId(),
       name: source.name,
       source: 'wplace',
       originX: source.originX,
