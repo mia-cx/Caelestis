@@ -26,7 +26,7 @@
     TreeRowModel,
   } from './model.js'
 
-  let { model, allowGrid = false, toolbar = true, onIntent }: { model: TemplateTreeModel; allowGrid?: boolean; toolbar?: boolean; onIntent?: (intent: TemplateTreeIntent) => void } = $props()
+  let { model, toolbar = true, onIntent }: { model: TemplateTreeModel; toolbar?: boolean; onIntent?: (intent: TemplateTreeIntent) => void } = $props()
   let query = $state('')
   let activeKey = $state<string | null>(null)
   let renameDraft = $state('')
@@ -46,7 +46,21 @@
   let menuInvoker: HTMLElement | null = null
   let openSubmenuId = $state<string>()
   let operationSelection = $state('')
-  const grid = $derived(allowGrid && model.displayMode === 'grid')
+  const grid = $derived(model.displayMode === 'grid')
+  /** Each row's ARIA place among the rows that share its parent. */
+  const setPositions = $derived.by(() => {
+    const siblings = new Map<string | null, string[]>()
+    for (const entry of model.entries) {
+      if (entry.type !== 'row') continue
+      const keys = siblings.get(entry.parentKey)
+      if (keys === undefined) siblings.set(entry.parentKey, [entry.key])
+      else keys.push(entry.key)
+    }
+    return new Map([...siblings.values()].flatMap((keys) => keys.map((key, index) => [key, { size: keys.length, position: index + 1 }] as const)))
+  })
+  /** Tree mode leads a row's actions with its fly-to; grid shows that on the heading and the artwork. */
+  const rowActions = (row: TreeRowModel): readonly TreeActionModel[] =>
+    grid || row.navigate === undefined ? (row.actions ?? []) : [row.navigate, ...(row.actions ?? [])]
   const progressEntry = $derived(model.entries.find((entry): entry is TreeRowModel => entry.type === 'row' && entry.key === progressKey && entry.progress !== undefined))
 
   /**
@@ -511,7 +525,11 @@
     event.preventDefault()
     const box = event.currentTarget instanceof HTMLElement ? event.currentTarget.getBoundingClientRect() : null
     const ratio = box === null || box.height <= 0 ? 0.5 : (event.clientY - box.top) / box.height
-    const position = row.container && ratio >= 0.3 && ratio <= 0.7 ? 'inside' : ratio < 0.5 ? 'before' : 'after'
+    const dragged = model.entries.find((entry): entry is TreeRowModel => entry.type === 'row' && entry.key === draggingKey)
+    // Dropping inside a folder files the row there, which needs both rows to allow reparenting
+    // unless the folder already is the row's parent.
+    const accepts = row.container && (dragged?.parentKey === row.key || (row.canReparent === true && dragged?.canReparent === true))
+    const position = accepts && ratio >= 0.3 && ratio <= 0.7 ? 'inside' : ratio < 0.5 ? 'before' : 'after'
     dropTarget = { key: row.key, position }
   }
 
@@ -699,7 +717,7 @@
     <FilterMenu filters={model.filters} serverFiltersAvailable={model.serverFiltersAvailable ?? false} tagOptions={model.tagOptions} onFilter={(filters) => emit({ type: 'filter', filters })} />
   {/if}
   <SortMenu sort={model.sort} onSort={(sort) => emit({ type: 'sort', sort })} />
-  {#if allowGrid}
+  {#if model.displayMode !== undefined}
   <div class="view-switcher" role="group" aria-label="Template display">
     <button type="button" aria-label="Tree view" title="Tree view" aria-pressed={!grid} onclick={() => emit({ type: 'display-mode', mode: 'tree' })}>
       <Icon name="treeView" />
@@ -785,7 +803,9 @@
         {@const requestedDisclosure = disclosures.get(entry.key)}
         {@const canShowExpandedProgress = entry.progress !== undefined && (!entry.container || entry.expanded)}
         {@const disclosure = grid || !canShowExpandedProgress || requestedDisclosure === undefined ? undefined : requestedDisclosure === 'colours' && (entry.colourProgress?.length ?? 0) === 0 ? 'expanded' : requestedDisclosure}
-        {@const tallHeading = entry.progress !== undefined || (entry.actions?.length ?? 0) > 0 || (entry.leadingActions?.length ?? 0) > 0}
+        {@const tallHeading = entry.progress !== undefined || (entry.actions?.length ?? 0) > 0 || entry.navigate !== undefined}
+        {@const place = setPositions.get(entry.key)}
+        {@const actions = rowActions(entry)}
         {@const connectorWidth = entry.depth === 0 ? 0 : (entry.branches?.length ?? 0) * branchIndent + (entry.container ? 0 : leafHeadingIndent)}
         {@const progressDetailOffset = entry.container ? leafHeadingIndent : 0}
         {@const alarmKind = entry.descendantAlarmKind ?? entry.lifecycle?.alarmKind ?? (entry.lifecycle?.griefed ? 'sustained-griefing' : undefined)}
@@ -809,9 +829,9 @@
           aria-current={model.focusedKey === entry.key ? 'true' : undefined}
           aria-level={entry.depth + 1}
           aria-expanded={entry.container ? entry.expanded : undefined}
-          aria-setsize={entry.setSize}
-          aria-posinset={entry.positionInSet}
-          tabindex={activeKey === null ? (entry.positionInSet === 1 && entry.depth === 0 ? 0 : -1) : activeKey === entry.key ? 0 : -1}
+          aria-setsize={place?.size}
+          aria-posinset={place?.position}
+          tabindex={activeKey === null ? (place?.position === 1 && entry.depth === 0 ? 0 : -1) : activeKey === entry.key ? 0 : -1}
           data-caelestis-tree-key={entry.key}
           draggable={entry.draggable === true}
           style:padding-inline-start={card || connectorWidth === 0 ? '0.5rem' : `calc(0.5rem + ${grid ? Math.min(entry.depth, 3) * branchIndent : connectorWidth}px)`}
@@ -830,8 +850,8 @@
           inert={leavingKeys.has(entry.key)}
         >
           {#if card && entry.preview !== undefined}
-            {@const navigation = entry.leadingActions?.find((item) => item.icon === 'search')}
-            <button class="artwork" type="button" aria-label={`Go to ${entry.name}`} disabled={navigation === undefined} onclick={(event) => { if (navigation !== undefined) action(entry, navigation, event) }}>
+            {@const navigate = entry.navigate}
+            <button class="artwork" type="button" aria-label={`Go to ${entry.name}`} disabled={navigate === undefined} onclick={(event) => { if (navigate !== undefined) action(entry, navigate, event) }}>
               <TemplatePreview preview={entry.preview} name={entry.name} />
             </button>
             <div class="card-caption">
@@ -864,12 +884,11 @@
             {#if alarmKind !== undefined}
               <TemplateState compact showLifecycle={false} {...(entry.descendantAlarmKind === undefined ? {} : { descendantAlarmKind: entry.descendantAlarmKind })} {...entry.lifecycle} />
             {/if}
-            {#if grid}
-              {#each entry.leadingActions ?? [] as item (item.id)}
-                <button class="icon-action" type="button" title={item.label} aria-label={item.label} onclick={(event) => action(entry, item, event)}>
-                  <Icon name={item.icon} />
-                </button>
-              {/each}
+            {#if grid && entry.navigate !== undefined}
+              {@const navigate = entry.navigate}
+              <button class="icon-action" type="button" title={navigate.label} aria-label={navigate.label} onclick={(event) => action(entry, navigate, event)}>
+                <Icon name={navigate.icon} />
+              </button>
             {/if}
             {#if model.renamingKey === entry.key}
               <input use:focusRename class="rename caelestis-field" data-caelestis-rename aria-label={`Rename ${entry.name}`} bind:value={renameDraft} onkeydown={(event) => { event.stopPropagation(); if (event.key === 'Enter') commitRename(entry); if (event.key === 'Escape') { event.preventDefault(); emit({ type: 'cancel-rename', key: entry.key }) } }} />
@@ -883,7 +902,7 @@
                   <ProgressMeter progress={entry.progress} size="sm" />
                 </span>
                 <span class="actions">
-                  {#each [...(grid ? [] : entry.leadingActions ?? []), ...(entry.actions ?? [])] as item (item.id)}
+                  {#each actions as item (item.id)}
                     <button class="icon-action" type="button" title={item.label} aria-label={item.label} onclick={(event) => action(entry, item, event)}>
                       <Icon name={item.icon} />
                     </button>
@@ -893,9 +912,9 @@
                   </button>
                 </span>
               </span>
-            {:else if (entry.actions?.length ?? 0) > 0 || (!grid && (entry.leadingActions?.length ?? 0) > 0) || (entry.progress !== undefined && disclosure !== undefined) || card}
+            {:else if actions.length > 0 || (entry.progress !== undefined && disclosure !== undefined) || card}
               <span class="actions">
-                {#each [...(grid ? [] : entry.leadingActions ?? []), ...(entry.actions ?? [])] as item (item.id)}
+                {#each actions as item (item.id)}
                   <button class="icon-action" type="button" title={item.label} aria-label={item.label} onclick={(event) => action(entry, item, event)}>
                     <Icon name={item.icon} />
                   </button>
@@ -961,14 +980,10 @@
         </div>
       {:else}
         <div class:compact={entry.variant === 'compact'} class:ghost={entry.variant === 'ghost'} class="standalone" role="treeitem" aria-selected="false" aria-level={entry.depth + 1}>
-          {#if entry.showIcon === true}
-            <Button label={entry.action.label} title={entry.title} kind={entry.variant === 'ghost' ? 'ghost' : 'default'} size={entry.variant === 'compact' ? 'compact' : 'small'} onclick={() => emit({ type: 'action', key: entry.key, actionId: entry.action.id })}>
-              <span class="standalone-icon"><Icon name={entry.action.icon} /></span>
-              <span>{entry.action.label}</span>
-            </Button>
-          {:else}
-            <Button label={entry.action.label} title={entry.title} kind={entry.variant === 'ghost' ? 'ghost' : 'default'} size={entry.variant === 'compact' ? 'compact' : 'small'} onclick={() => emit({ type: 'action', key: entry.key, actionId: entry.action.id })} />
-          {/if}
+          <Button label={entry.action.label} title={entry.title} kind={entry.variant === 'ghost' ? 'ghost' : 'default'} size={entry.variant === 'compact' ? 'compact' : 'small'} onclick={() => emit({ type: 'action', key: entry.key, actionId: entry.action.id })}>
+            {#if entry.action.icon !== undefined}<span class="standalone-icon"><Icon name={entry.action.icon} /></span>{/if}
+            <span>{entry.action.label}</span>
+          </Button>
         </div>
       {/if}
     {/each}

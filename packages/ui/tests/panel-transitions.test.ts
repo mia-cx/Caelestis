@@ -30,8 +30,6 @@ const row = (key: string, depth: number, container = false, expanded = false): T
     container,
     expanded,
     visible: true,
-    setSize: 1,
-    positionInSet: depth + 1,
   }) as TreeRowModel
 
 const settingsModel = (): SettingsModel =>

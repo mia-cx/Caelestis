@@ -87,14 +87,13 @@ export interface TreeRowModel {
   }
   readonly progress?: Progress
   readonly colourProgress?: readonly TreeColourProgressModel[]
-  readonly leadingActions?: readonly TreeActionModel[]
+  /** Fly to the template: the artwork and a heading button in grid, the first row action in tree. */
+  readonly navigate?: TreeActionModel
   readonly actions?: readonly TreeActionModel[]
-  readonly renamable?: boolean
   readonly contextMenu?: boolean
   readonly draggable?: boolean
+  /** The row may move under another parent, and, on a folder, take rows dropped inside it. */
   readonly canReparent?: boolean
-  readonly setSize: number
-  readonly positionInSet: number
 }
 
 /** Who keeps a template among their favourites, and what the current painter may change. */
@@ -120,9 +119,9 @@ export interface TreeStandaloneActionModel {
   readonly type: 'action'
   readonly key: string
   readonly depth: number
-  readonly action: TreeActionModel
+  /** A text button, led by the icon when one is set. */
+  readonly action: Omit<TreeActionModel, 'icon'> & { readonly icon?: TreeIcon }
   readonly variant: 'compact' | 'ghost'
-  readonly showIcon?: boolean
   readonly title: string
 }
 
@@ -133,7 +132,8 @@ export type TreeSortModel = import('@caelestis/shared').TemplateSortOrder
 export interface TemplateTreeModel {
   readonly query: string
   readonly sort: TreeSortModel
-  readonly displayMode?: 'tree' | 'grid'
+  /** The saved layout, with a tree/grid switcher in the toolbar; absent where only the tree is offered. */
+  readonly displayMode?: 'tree' | 'grid' | undefined
   readonly filters?: import('@caelestis/shared').TemplateFilters
   readonly serverFiltersAvailable?: boolean
   readonly tagOptions?: readonly {

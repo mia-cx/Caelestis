@@ -79,7 +79,7 @@
     const action = intent.type === 'context-menu-action'
       ? tree?.contextMenu?.items.find((item) => item.id === intent.actionId)
       : intent.type === 'action' && entry?.type === 'row'
-        ? [...(entry.leadingActions ?? []), ...(entry.actions ?? [])].find((action) => action.id === intent.actionId)
+        ? [...(entry.navigate === undefined ? [] : [entry.navigate]), ...(entry.actions ?? [])].find((action) => action.id === intent.actionId)
         : entry?.type === 'action' ? entry.action
         : undefined
     if (poppedOut && action?.returnToCanvas === true) void dock()
@@ -94,6 +94,9 @@
   }
 
   $effect(() => { width = model.width })
+
+  /** Grid browsing lives in the popout; the docked sidebar offers only the tree. */
+  const tree = $derived(model.tree === undefined || poppedOut ? model.tree : { ...model.tree, displayMode: undefined })
 
   const clamp = (value: number): number =>
     Math.min(model.maxWidth, Math.max(model.minWidth, Math.round(value)))
@@ -204,8 +207,8 @@
   <div class="body">
     {#each [model.view] as view (view)}
       <div class="page" in:page|global={{ distance: '--caelestis-distance-large', dx: pageDir, blur: '--caelestis-blur-small' }} out:page|global={{ distance: '--caelestis-distance-large', dx: -pageDir, blur: '--caelestis-blur-small' }}>
-        {#if view === 'tree' && model.tree !== undefined}
-          <TemplateTree model={model.tree} allowGrid={poppedOut} onIntent={treeIntent} />
+        {#if view === 'tree' && tree !== undefined}
+          <TemplateTree model={tree} onIntent={treeIntent} />
           {#if model.work !== undefined}
             <PanelDrawers model={model.work} showOtherClaims={model.showOtherClaims ?? false} onIntent={drawerIntent} />
           {/if}

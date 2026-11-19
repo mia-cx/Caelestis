@@ -195,17 +195,7 @@ export const withTemplateClaims = (
       },
     ]
   })
-  return {
-    ...tree,
-    entries:
-      showOtherClaims === undefined
-        ? entries
-        : entries.map((entry, index) =>
-            entry.type === 'row'
-              ? { ...entry, positionInSet: index + 1, setSize: entries.length }
-              : entry,
-          ),
-  }
+  return { ...tree, entries }
 }
 
 /** Apply a personal claim or an admin assignment, preserving every other painter's claim. */
