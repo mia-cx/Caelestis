@@ -26,6 +26,7 @@ import {
 } from './format.js'
 import {
   ArchiveLeaseDeadline,
+  type ArchivePhase,
   archiveReadyAt,
   assertSettled,
   changedError,
@@ -60,7 +61,7 @@ interface RestoreState {
   readonly counts: Readonly<Record<string, number>>
   readonly ended: boolean
   /** See the lifecycle in operation.ts. Records arrive only while `ready`. */
-  readonly phase: 'preparing' | 'ready' | 'discarding' | 'releasing'
+  readonly phase: Exclude<ArchivePhase, 'freezing' | 'frozen'>
   /**
    * Only in a restore begun before archives stopped carrying credentials: the destination's own
    * token hashes, which every release keeps (see `completeRelease`). Preparation drops the old
@@ -576,17 +577,8 @@ const discardRestoreHeld = async (
           if (verified - from >= verifyPage) break
         }
       } catch (error) {
-        // Out of lease time: the checkpoint already made lets the next call resume here.
-        if (error instanceof ArchiveLeaseDeadline) {
-          await saveProgress({
-            step: DISCARD_STEPS.length,
-            after: null,
-            templates: ids,
-            verified,
-          })
-          return false
-        }
-        throw error
+        // Out of lease time with nothing found: the checkpoint below resumes the next call here.
+        if (!(error instanceof ArchiveLeaseDeadline)) throw error
       }
       if (occupied.length > 0) {
         // Restart from the recorded ids: the template rows are already gone, so the ids
