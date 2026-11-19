@@ -239,7 +239,7 @@ Version 1 is newline-delimited JSON, one record per line:
 | `row` | one table row, keyed by column name |
 | `link` | a self or cyclic reference, applied once every row exists |
 | `counter` | one telemetry coordinator row |
-| `backfill` | one Eralyon import key |
+| `backfill` | one Eralyon import key of a template; a folder import writes its results there and keeps only its own progress, which archives leave out |
 | `object` | key, SHA-256, content type, metadata, and base64 bytes |
 | `end` | the chain value and the count of each record kind |
 

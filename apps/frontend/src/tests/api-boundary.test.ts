@@ -13,7 +13,7 @@ import {
   type BackfillStorage,
   TemplateBackfill,
 } from '../../../backend/dist/backfill/import.js'
-import { type BackfillClients, backfillReply } from '../../../backend/dist/backfill/port.js'
+import { type BackfillClients, localBackfillClient } from '../../../backend/dist/backfill/port.js'
 import {
   type ApiError,
   chunkImageUrl,
@@ -207,13 +207,7 @@ const backfillClients = () => {
   const client: BackfillClients = (templateId) => {
     const importer = importers.get(templateId)
     if (importer === undefined) throw new Error(`Archive importer is not ready for ${templateId}`)
-    return {
-      preview: (id) => backfillReply(() => importer.preview(id)),
-      job: () => backfillReply(() => importer.job()),
-      history: (version, tile) => backfillReply(() => importer.history(version, tile)),
-      start: (id, version, snapshot) => backfillReply(() => importer.start(id, version, snapshot)),
-      cancel: () => backfillReply(() => importer.cancel()),
-    }
+    return localBackfillClient(importer)
   }
   return { client, importers }
 }

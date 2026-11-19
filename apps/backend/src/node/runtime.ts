@@ -24,7 +24,7 @@ import { closeProcessWrites, readArchiveOperation } from '../archive/gate.js'
 import { hashToken, mintToken } from '../auth/tokens.js'
 import { EralyonArchive } from '../backfill/eralyon.js'
 import { TemplateBackfill } from '../backfill/import.js'
-import { backfillReply } from '../backfill/port.js'
+import { localBackfillClient } from '../backfill/port.js'
 import { DurableScheduler } from '../coordination/scheduler.js'
 import { TelemetryCoordinator } from '../coordination/telemetry.js'
 import { presenceRequest } from '../presence/port.js'
@@ -190,16 +190,31 @@ export const openNodeRuntime = async (
         presenceRoom(season, surface).publishRegions(season, surface),
     })
     const backendRuntime = createBackendRuntime(context)
-    const imports = new Map<
-      string,
-      { importer: TemplateBackfill; exclusive<T>(operation: () => Promise<T>): Promise<T> }
-    >()
-    const importer = (id: string) => {
+    interface HeldImport {
+      importer: TemplateBackfill
+      exclusive<T>(operation: () => Promise<T>): Promise<T>
+    }
+    const imports = new Map<string, HeldImport>()
+    const importer = (id: string): HeldImport => {
       const existing = imports.get(id)
       if (existing) return existing
       let tail: Promise<unknown> = Promise.resolve()
-      const created = {
-        importer: new TemplateBackfill(state(`backfill:${id}`), sql, blobs, new EralyonArchive()),
+      const created: HeldImport = {
+        importer: new TemplateBackfill(
+          state(`backfill:${id}`),
+          sql,
+          blobs,
+          new EralyonArchive(),
+          Date.now,
+          (templateId) => {
+            const template = importer(templateId)
+            return {
+              get: <T>(key: string) =>
+                template.exclusive(() => template.importer.readState<T>(key)),
+              put: (entries) => template.exclusive(() => template.importer.importState(entries)),
+            }
+          },
+        ),
         exclusive<T>(operation: () => Promise<T>): Promise<T> {
           const running = tail.then(operation, operation)
           tail = running.then(
@@ -254,16 +269,7 @@ export const openNodeRuntime = async (
       },
       backfillClients: (id) => {
         const held = importer(id)
-        return {
-          preview: (template) => backfillReply(() => held.importer.preview(template)),
-          job: () => backfillReply(() => held.importer.job()),
-          history: (version, tile) => backfillReply(() => held.importer.history(version, tile)),
-          start: (template, version, snapshot) =>
-            held.exclusive(() =>
-              backfillReply(() => held.importer.start(template, version, snapshot)),
-            ),
-          cancel: () => held.exclusive(() => backfillReply(() => held.importer.cancel())),
-        }
+        return localBackfillClient(held.importer, held.exclusive)
       },
     })
     const scheduler = new DurableScheduler(database, async (actor) => {
