@@ -1,3 +1,4 @@
+import { type TileCoord, tileKey } from '@caelestis/shared'
 import { onMapFrame } from './map-view.js'
 import { onStateChange } from './settings.js'
 import { onLocalChange } from './templates/catalog.js'
@@ -19,12 +20,10 @@ export const installTilePixelCapture = (): void => {
   // The pipette fallback reads the exact pixel-art tile, so Paint itself is a pixel consumer even
   // when mismatch markers are off. Starting at drawer-open gives visible tiles time to populate
   // before the one-shot picker click; a miss is also chased on demand by `placedIndexAt`.
-  const interest = (tile: { readonly x: number; readonly y: number }): boolean =>
-    isPaintOpen() || pixelAccounting.wantsTilePixels(tile)
+  const interest = (tile: TileCoord): boolean =>
+    isPaintOpen() || pixelAccounting.captureScopeTiles().has(tileKey(tile))
   const captureScope = watchCaptureScope()
   const sync = (): void => {
-    // The scope holds a tile exactly when `wantsTilePixels()` would answer yes, and unlike it,
-    // costs nothing on a frame where nothing changed.
     const scope = pixelAccounting.captureScopeTiles()
     captureTilePixels(scope.size > 0 || isPaintOpen(), interest)
     // Pixels kept while capture was off may be stale, and tiles are not re-downloaded on a timer

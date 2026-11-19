@@ -1,7 +1,6 @@
 import {
   sameTemplateSurface,
   TILE_SIZE,
-  type TileCoord,
   type TileKey,
   tileKey,
   WORLD_TEMPLATE_SURFACE,
@@ -17,7 +16,7 @@ import {
 } from './catalog.js'
 import { horizontalSpans } from './placement.js'
 import { serverNodesRevision } from './server-nodes.js'
-import { type TemplateTileKey, templatePrefix, templateTileKey, tileOf } from './template-tile.js'
+import { type TemplateTileKey, templatePrefix, tileOf } from './template-tile.js'
 
 /**
  * Which Wplace tiles the browser must read pixels for: the tiles each visible locally measured
@@ -25,7 +24,7 @@ import { type TemplateTileKey, templatePrefix, templateTileKey, tileOf } from '.
  */
 
 // The editor's draft changes with every setting and has no progress worth scanning.
-export const isWorldTemplate = (template: PlacedTemplate): boolean =>
+const isWorldTemplate = (template: PlacedTemplate): boolean =>
   !isTemplateDraft(template) && sameTemplateSurface(template.surface, WORLD_TEMPLATE_SURFACE)
 
 export const worldTemplates = (): readonly PlacedTemplate[] =>
@@ -51,38 +50,6 @@ export const forgetProgressPixels = (templateId: string): void => {
   for (const key of [...pendingProgressPixels]) {
     if (key.startsWith(prefix)) pendingProgressPixels.delete(key)
   }
-}
-
-/**
- * Whether anything currently wants to know what disagrees on this tile. Whether anything wants any
- * tile is `captureScopeTiles()` being non-empty.
- *
- * Kept here rather than worked out at draw time so it can be answered before the first frame. The
- * tiles on screen at load are decoded exactly once, and if capture is not on by then we miss all of
- * them and have to read every one back from a preview later — paying twice for pixels that went
- * past us while we were not looking.
- */
-export const wantsTilePixels = (tile: TileCoord): boolean => {
-  // A server template's marker list comes from its server mismatch mask and its progress comes
-  // from telemetry. Capturing the underlying Wplace tile as a fallback makes every newly visible
-  // tile perform a million-pixel canvas read during a pan, precisely when the map needs its frame
-  // budget most. Local and Wplace-owned templates have neither server source, so they keep
-  // exact-pixel capture for both mismatch markers and progress (including when their marker
-  // switches are off).
-  const templates = worldTemplates().filter((template) => template.origin !== 'server')
-  const left = tile.x * TILE_SIZE
-  const top = tile.y * TILE_SIZE
-  return templates.some((template) => {
-    if (pendingProgressPixels.has(templateTileKey(template.id, tile))) return true
-    return (
-      isTemplateVisible(template) &&
-      template.originY < top + TILE_SIZE &&
-      template.originY + template.height > top &&
-      horizontalSpans(template).some(
-        (span) => span.worldStart < left + TILE_SIZE && span.worldEnd > left,
-      )
-    )
-  })
 }
 
 const captureScopeListeners = new Set<() => void>()
@@ -121,6 +88,12 @@ const inCaptureScope = (template: PlacedTemplate): boolean => {
     scopeEpoch = { state, nodes, answers: new WeakMap() }
   const known = scopeEpoch.answers.get(template)
   if (known !== undefined) return known
+  // A server template's marker list comes from its server mismatch mask and its progress comes
+  // from telemetry. Capturing the underlying Wplace tile as a fallback makes every newly visible
+  // tile perform a million-pixel canvas read during a pan, precisely when the map needs its frame
+  // budget most. Local and Wplace-owned templates have neither server source, so they keep
+  // exact-pixel capture for both mismatch markers and progress (including when their marker
+  // switches are off).
   const answer =
     isWorldTemplate(template) && template.origin !== 'server' && isTemplateVisible(template)
   scopeEpoch.answers.set(template, answer)
@@ -155,10 +128,8 @@ const scopeUnchanged = (templates: readonly PlacedTemplate[]): boolean => {
 }
 
 /**
- * Every world tile `wantsTilePixels(tile)` currently answers yes for.
- *
- * Built from the same two sources, so the two cannot drift: each hidden template tile that progress
- * asked for, and the tiles each visible local template covers at its position. A tile entering
+ * Every world tile capture must read pixels for: each hidden template tile that progress asked
+ * for, and the tiles each visible local template covers at its position. A tile entering
  * means pixels kept from before may not describe what it needs, and that tile is re-read. Returns
  * the same set until one of those changes, so it is cheap to ask every frame.
  */

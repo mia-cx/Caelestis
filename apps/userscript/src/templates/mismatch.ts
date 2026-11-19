@@ -42,7 +42,6 @@ import {
   onCaptureScopeChange,
   requestProgressPixels,
   settleProgressPixels,
-  wantsTilePixels,
   worldTemplates,
 } from './capture-scope.js'
 import {
@@ -1561,7 +1560,6 @@ export const pixelAccounting = Object.freeze({
       endMismatchFrame()
     }
   },
-  wantsTilePixels,
   captureScopeTiles,
   onCaptureScopeChange,
   onChange: onMismatchesChanged,
