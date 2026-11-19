@@ -27,6 +27,7 @@ import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
 import { applyServerSyncRevision, registerServerSyncResource } from '../server-sync-coordinator.js'
 import { serverEndpoint } from '../server-url.js'
 import { type ConnectedServer, getState, onStateChange } from '../settings.js'
+import { serverTemplateIdPrefix, serverTemplateKey } from '../tree-keys.js'
 import { ByteCache } from './byte-cache.js'
 import {
   forgetServerTemplate,
@@ -345,24 +346,12 @@ export const forgetChunks = (hashes: Iterable<string>): void => {
   }
 }
 
-/** Our id for a server's template, namespaced so two servers cannot collide. */
-export const serverTemplateKey = (
-  serverUrl: string,
-  id: string,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): string => {
-  const prefix = `srv:${encodeURIComponent(serverUrl)}:`
-  return surface.kind === 'world'
-    ? `${prefix}${id}`
-    : `${prefix}@${templateSurfaceKey(surface)}:${id}`
-}
-
 const serverTemplateBelongsToSurface = (
   key: string,
   serverUrl: string,
   surface: TemplateSurface,
 ): boolean => {
-  const prefix = serverTemplateKey(serverUrl, '')
+  const prefix = serverTemplateIdPrefix(serverUrl)
   if (!key.startsWith(prefix)) return false
   const scopedId = key.slice(prefix.length)
   return surface.kind === 'world'
@@ -431,7 +420,7 @@ export const endServerGeneration = (serverUrl: string): void => {
   }
   // The versions this server had asked for go with it. Kept, they outlive the connection for the
   // rest of the session, and a second server whose URL extends this one's shares their key prefix.
-  const prefix = serverTemplateKey(serverUrl, '')
+  const prefix = serverTemplateIdPrefix(serverUrl)
   for (const key of [...latest.keys()]) {
     if (key.startsWith(prefix)) latest.delete(key)
   }
@@ -561,7 +550,7 @@ const syncServerTemplatesOnce = async (
   for (const [key, template] of wanted) latest.set(key, { server, template })
   // Cached pixels of templates this server stopped publishing while nobody was looking.
   void retainServerPixels(
-    serverTemplateKey(server.url, ''),
+    serverTemplateIdPrefix(server.url),
     (key) => wanted.has(key) || !serverTemplateBelongsToSurface(key, server.url, surface),
   )
 

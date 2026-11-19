@@ -8,7 +8,7 @@ import {
 } from '../server-connections.js'
 import { serverEndpoint } from '../server-url.js'
 import { templateAsPng, templateById } from '../templates/local-store.js'
-import { serverTemplateKey } from '../templates/server-sync.js'
+import { serverTemplateKey } from '../tree-keys.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree.js'

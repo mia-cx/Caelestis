@@ -6,6 +6,7 @@ import {
   onActiveAllianceSurfaceChange,
 } from '../alliance-surface.js'
 import { warn } from '../debug.js'
+import { serverTemplateKey } from '../tree-keys.js'
 import {
   addLocalTemplate,
   forgetServerTemplate,
@@ -186,7 +187,12 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
     const admitted = new Set<string>()
     const signal = controller.signal
     for (const placement of placements) {
-      const id = `srv:${encodeURIComponent(NATIVE_ALLIANCE_OWNER)}:${await nativeLocalId(`${active.surface.allianceId}:${target.target}:${target.draftId ?? ''}:${placement.id}`)}`
+      const id = serverTemplateKey(
+        NATIVE_ALLIANCE_OWNER,
+        await nativeLocalId(
+          `${active.surface.allianceId}:${target.target}:${target.draftId ?? ''}:${placement.id}`,
+        ),
+      )
       admitted.add(id)
       const existing = localTemplates().find((template) => template.id === id)
       if (existing?.serverVersion === placement.version) continue

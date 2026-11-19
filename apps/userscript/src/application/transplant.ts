@@ -31,7 +31,7 @@ import {
   templateById,
 } from '../templates/local-store.js'
 import { movingId } from '../templates/move.js'
-import { serverTemplateKey } from '../templates/server-sync.js'
+import { serverTemplateKey } from '../tree-keys.js'
 import { transferAuthoring } from './template-authoring.js'
 
 /**

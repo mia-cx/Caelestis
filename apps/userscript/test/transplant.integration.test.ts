@@ -7,7 +7,7 @@ import { admittedServerContentsFor } from '../src/server-api.js'
 import { upsertServer } from '../src/server-connections.js'
 import { type ConnectedServer, getState } from '../src/settings.js'
 import { addLocalTemplate, setTemplateFolder, templateById } from '../src/templates/local-store.js'
-import { serverTemplateKey } from '../src/templates/server-sync.js'
+import { serverTemplateKey } from '../src/tree-keys.js'
 import { adminToken, createTestBackend } from './backend.js'
 
 const ids = {

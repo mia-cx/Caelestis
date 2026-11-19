@@ -25,12 +25,10 @@ import {
   hasRefreshedServer,
   isSameServerPlacement,
   isServerRefreshing,
-  nodeTreeKey,
   refreshServerSnapshot,
   renderedParent,
   rowsForSurface,
   serverSnapshotError,
-  serverTemplateTreeKey,
 } from '../application/tree-server-state.js'
 import { artboardColourProgress, artboardTemplateProgress } from '../gl/artboard-markers.js'
 import { NO_ARTBOARD_PIXELS, readArtboardPixels } from '../gl/artboard-pixels.js'
@@ -83,10 +81,10 @@ import {
   officialProgress,
 } from '../templates/official-overlays.js'
 import { nodeChainVisible, nodeScopeKey } from '../templates/server-nodes.js'
-import { serverTemplateKey } from '../templates/server-sync.js'
 import { localFolderTags, localTagCatalog, localTemplateTags } from '../templates/tags.js'
 import { loadTemplateThumbnail, templateThumbnail } from '../templates/thumbnail.js'
 import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
+import { nodeTreeKey, serverTemplateKey, serverTemplateTreeKey } from '../tree-keys.js'
 import { templateDisplayMode } from './display-mode.js'
 import {
   emptyProgress,

@@ -11,7 +11,7 @@ import {
 } from '@caelestis/shared'
 import type { TemplateClaimsModel, TemplateTreeModel } from '@caelestis/ui/elements'
 import { allianceManifestFor } from '../alliance-server-sync.js'
-import { rowsForSurface, serverTemplateTreeKey } from '../application/tree-server-state.js'
+import { rowsForSurface } from '../application/tree-server-state.js'
 import { admittedServerContentsFor } from '../server-api.js'
 import {
   activeServerToken,
@@ -22,6 +22,7 @@ import { requestServerTree } from '../server-transport.js'
 import { serverEndpoint } from '../server-url.js'
 import { type ConnectedServer, commitState, getState } from '../settings.js'
 import { isServerTemplate, localTemplates } from '../templates/local-store.js'
+import { serverTemplateTreeKey } from '../tree-keys.js'
 import { accountIdentity, loadAccount } from '../wplace-account.js'
 import { toast } from './toast.js'
 import type { TreeTarget } from './tree.js'

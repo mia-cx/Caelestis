@@ -28,6 +28,14 @@ import {
   setServerTemplatePreference,
 } from '../settings.js'
 import {
+  LOCAL_ROOT_KEY,
+  localFolderKey,
+  localTemplateKey,
+  nodeTreeKey,
+  serverScopeKey,
+  serverTemplateTreeKey,
+} from '../tree-keys.js'
+import {
   APPEARANCE_GROUPS,
   type Appearance,
   type AppearanceGroup,
@@ -300,11 +308,6 @@ const customOrdered = <T extends { readonly key: string }>(
   return [...ranked, ...unranked]
 }
 
-const serverTreeIdentity = (serverUrl: string): string => {
-  const verified = getState().servers.find((server) => server.url === serverUrl)?.lastVerified
-  return verified == null ? 'unknown:unknown' : `${verified.serverId}:${verified.season}`
-}
-
 /** Flatten one tree in the same custom sibling order the panel shows. */
 const flattenTree = (
   rows: readonly PlacedTemplate[],
@@ -372,31 +375,27 @@ const displayOrder = (): readonly PlacedTemplate[] => {
   const rank = new Map(state.customOrder.map((key, index) => [key, index]))
   const categories = [
     {
-      key: 'local',
+      key: LOCAL_ROOT_KEY,
       rows: flattenTree(
         ordered.filter((template) => !isServerTemplate(template)),
         state.localFolders.map((folder) => [folder.id, folder.parentId] as const),
-        (id) => `lf:${id}`,
-        (template) => `local:${template.id}`,
+        localFolderKey,
+        (template) => localTemplateKey(template.id),
         (template) => template.folderId,
         rank,
       ),
     },
-    ...state.servers.map((server) => {
-      const identity = serverTreeIdentity(server.url)
-      return {
-        key: `server:${server.url}`,
-        rows: flattenTree(
-          ordered.filter((template) => template.serverUrl === server.url),
-          serverNodeParents(server.url),
-          (id) => `node:${encodeURIComponent(server.url)}:${identity}:${id}`,
-          (template) =>
-            `st:${encodeURIComponent(server.url)}:${identity}:${template.serverTemplateId ?? ''}`,
-          (template) => template.serverNodeId ?? null,
-          rank,
-        ),
-      }
-    }),
+    ...state.servers.map((server) => ({
+      key: serverScopeKey(server.url),
+      rows: flattenTree(
+        ordered.filter((template) => template.serverUrl === server.url),
+        serverNodeParents(server.url),
+        (id) => nodeTreeKey(server, id),
+        (template) => serverTemplateTreeKey(server, template.serverTemplateId ?? ''),
+        (template) => template.serverNodeId ?? null,
+        rank,
+      ),
+    })),
   ]
   const result = customOrdered(categories, rank).flatMap(({ rows }) => rows)
   const included = new Set(result.map((template) => template.id))
@@ -856,7 +855,7 @@ export const isTemplateVisible = (template: PlacedTemplate): boolean => {
       !isCurrentServerConnection(template.serverConnection)
     )
       return false
-    if (!isScopeVisible(`server:${template.serverUrl}`)) return false
+    if (!isScopeVisible(serverScopeKey(template.serverUrl))) return false
     return nodeChainVisible(
       template.serverUrl,
       template.serverNodeId ?? null,

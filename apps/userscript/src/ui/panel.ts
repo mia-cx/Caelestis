@@ -58,7 +58,6 @@ import {
   forgetServerRows,
   onServerSnapshot,
   primeFromCache,
-  serverTemplateTreeKey,
 } from '../application/tree-server-state.js'
 import {
   importFromOtherBuild,
@@ -128,9 +127,10 @@ import { pixelAccounting } from '../templates/mismatch.js'
 import { focusedTemplate } from '../templates/nearest.js'
 import { onOfficialOverlaysChange } from '../templates/official-overlays.js'
 import { forgetNodes, nodeScopeKey } from '../templates/server-nodes.js'
-import { endServerGeneration, forgetChunks, serverTemplateKey } from '../templates/server-sync.js'
+import { endServerGeneration, forgetChunks } from '../templates/server-sync.js'
 import { ensureLocalTags } from '../templates/tags.js'
 import { reloadTiles } from '../tile-transform.js'
+import { serverTemplateKey, serverTemplateTreeKey } from '../tree-keys.js'
 import { backendVersionOutdated } from '../userscript-update.js'
 import { ownedColours, refreshAccount } from '../wplace-account.js'
 import { isPaintOpen, onPaintSelectionChange, selectedColour } from '../wplace-paint.js'

@@ -20,6 +20,14 @@ import {
 import { type ConnectedServer, getState } from '../settings.js'
 import { rememberNodes } from '../templates/server-nodes.js'
 import { rejectServerContentsForSync, syncServerTemplates } from '../templates/server-sync.js'
+import {
+  nodeTreeKey,
+  parseTreeKey,
+  serverIdentity,
+  serverRowPrefix,
+  serverTemplateTreeKey,
+  serverUrlOfScopeKey,
+} from '../tree-keys.js'
 
 /** @internal Arithmetic seam for the aggregate cost of all connected manifest rows. */
 const manifestAggregateWithinBudget = (
@@ -65,13 +73,6 @@ export const renderedParent = (key: string, serverParent: string | null): string
   return optimistic === undefined ? serverParent : optimistic.parentId
 }
 
-const serverIdentity = (server: ConnectedServer): string | null => {
-  if (server.info !== null && server.season !== null) return `${server.info.id}:${server.season}`
-  return server.lastVerified == null
-    ? null
-    : `${server.lastVerified.serverId}:${server.lastVerified.season}`
-}
-
 export const rowsFor = (
   server: ConnectedServer,
 ): { nodes: readonly TreeNode[]; templates: readonly ServerTemplate[] } | undefined => {
@@ -88,12 +89,6 @@ export const rowsForSurface = (
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): { nodes: readonly TreeNode[]; templates: readonly ServerTemplate[] } | undefined =>
   surface.kind === 'world' ? rowsFor(server) : (allianceManifestFor(server, surface) ?? undefined)
-
-export const nodeTreeKey = (server: ConnectedServer, nodeId: string): string =>
-  `node:${encodeURIComponent(server.url)}:${serverIdentity(server) ?? 'unknown:unknown'}:${nodeId}`
-
-export const serverTemplateTreeKey = (server: ConnectedServer, templateId: string): string =>
-  `st:${encodeURIComponent(server.url)}:${serverIdentity(server) ?? 'unknown:unknown'}:${templateId}`
 
 export interface OptimisticServerPlacement {
   /** Keep the eager position after the server confirms it. */
@@ -219,8 +214,7 @@ const serverUrlForTreeParent = (
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): string | null => {
   if (key === null) return null
-  if (key.startsWith('server:')) return key.slice('server:'.length)
-  return findServerNode(key, surface)?.serverUrl ?? null
+  return serverUrlOfScopeKey(key) ?? findServerNode(key, surface)?.serverUrl ?? null
 }
 
 export const isSameServerPlacement = (
@@ -228,11 +222,13 @@ export const isSameServerPlacement = (
   parentKey: string | null,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): boolean => {
-  const sourceUrl = draggedKey.startsWith('st:')
-    ? findServerTemplate(draggedKey, surface)?.serverUrl
-    : draggedKey.startsWith('node:')
-      ? findServerNode(draggedKey, surface)?.serverUrl
-      : undefined
+  const dragged = parseTreeKey(draggedKey)?.kind
+  const sourceUrl =
+    dragged === 'server-template'
+      ? findServerTemplate(draggedKey, surface)?.serverUrl
+      : dragged === 'server-node'
+        ? findServerNode(draggedKey, surface)?.serverUrl
+        : undefined
   return sourceUrl !== undefined && sourceUrl === serverUrlForTreeParent(parentKey, surface)
 }
 
@@ -529,8 +525,8 @@ export const forgetServerRows = (serverUrl: string): readonly string[] => {
   nodesByServer.delete(serverUrl)
   templatesByServer.delete(serverUrl)
   rowIdentityByServer.delete(serverUrl)
-  const nodePrefix = `node:${encodeURIComponent(serverUrl)}:`
-  const templatePrefix = `st:${encodeURIComponent(serverUrl)}:`
+  const nodePrefix = serverRowPrefix('node', serverUrl)
+  const templatePrefix = serverRowPrefix('st', serverUrl)
   for (const key of optimisticParents.keys()) {
     if (key.startsWith(nodePrefix) || key.startsWith(templatePrefix)) optimisticParents.delete(key)
   }

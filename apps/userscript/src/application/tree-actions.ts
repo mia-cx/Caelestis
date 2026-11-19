@@ -73,8 +73,19 @@ import {
 } from '../templates/move.js'
 import { centreOf, navigateTo } from '../templates/navigate.js'
 import { nodeChainVisible, serverNodeParents } from '../templates/server-nodes.js'
-import { serverTemplateKey } from '../templates/server-sync.js'
 import { exportFilename, templateAsWplace } from '../templates/wplace-export.js'
+import {
+  LOCAL_ROOT_KEY,
+  localFolderIdOf,
+  localFolderKey,
+  localTemplateIdOf,
+  localTemplateKey,
+  nodeTreeKey,
+  parseTreeKey,
+  serverScopeKey,
+  serverTemplateKey,
+  serverTemplateTreeKey,
+} from '../tree-keys.js'
 import { openBackfill } from '../ui/backfill.js'
 import { confirmDestructive } from '../ui/confirm.js'
 import { toast } from '../ui/toast.js'
@@ -100,13 +111,11 @@ import { goToLocalTemplate, goToServerTemplate } from './tree-navigation.js'
 import {
   findServerNode,
   findServerTemplate,
-  nodeTreeKey,
   optimisticallyPlaceServerRow,
   refreshServerSnapshot,
   rowsForSurface,
   type ServerSnapshotResult,
   serverTemplateAt,
-  serverTemplateTreeKey,
   templatesForServer,
   templatesOfNode,
 } from './tree-server-state.js'
@@ -296,10 +305,6 @@ export const takenLocalFolderNames = (
       .map((folder) => folder.name.toLowerCase()),
   )
 
-/** `local:<id>` is a template; `local`, `server:<url>` and `node:<id>` are containers. */
-const localTemplateId = (target: TreeTarget): string | null =>
-  target.key.startsWith('local:') ? target.key.slice('local:'.length) : null
-
 const surfaceOf = (target: TreeTarget): TemplateSurface => target.surface ?? WORLD_TEMPLATE_SURFACE
 
 const download = (file: Blob, filename: string): void => {
@@ -316,7 +321,7 @@ const download = (file: Blob, filename: string): void => {
 
 /** `.wplace` carries placement and authoring for Wplace and Caelestis; `.png` is the artwork alone. */
 const exportTemplate = async (target: TreeTarget, format: 'wplace' | 'png'): Promise<void> => {
-  const localId = localTemplateId(target)
+  const localId = localTemplateIdOf(target.key)
   const id =
     localId ??
     (target.server !== null && target.templateId !== undefined
@@ -374,7 +379,7 @@ const applyDelete = async (
   rerender: () => void,
   restoreFocusTo: HTMLElement | null = null,
 ): Promise<void> => {
-  const templateId = localTemplateId(target)
+  const templateId = localTemplateIdOf(target.key)
   if (templateId !== null) {
     if (
       !(await askToDelete(
@@ -418,7 +423,7 @@ const applyDelete = async (
     }
     return
   }
-  const folderId = localFolderIdOf(target)
+  const folderId = localFolderIdOf(target.key)
   if (folderId !== null) {
     const confirmed = await confirmDestructive({
       title: `Delete “${target.name}”?`,
@@ -596,10 +601,11 @@ export const moveBranch = async (
   rerender: () => void,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): Promise<string | null> => {
-  const fromServer = draggedKey.startsWith('node:')
+  const fromServer = parseTreeKey(draggedKey)?.kind === 'server-node'
   const found = fromServer ? findServerNode(draggedKey, surface) : null
   if (fromServer && found === null) return null
-  const sourceId = found?.node.id ?? draggedKey.slice(draggedKey.indexOf(':') + 1)
+  const sourceId = found?.node.id ?? localFolderIdOf(draggedKey)
+  if (sourceId === null) return null
 
   const sourceServer =
     found === null
@@ -674,7 +680,7 @@ export const moveBranch = async (
   if (!result.ok || result.destinationRootId === undefined) return null
   return destination.kind === 'server'
     ? nodeTreeKey(destination.server, result.destinationRootId)
-    : `lf:${result.destinationRootId}`
+    : localFolderKey(result.destinationRootId)
 }
 
 /**
@@ -723,7 +729,7 @@ export const copyServerTemplateToLocal = async (
   )
   toast(result.message, result.tone === 'success' ? undefined : result.tone)
   rerender()
-  return result.destinationId === undefined ? null : `local:${result.destinationId}`
+  return result.destinationId === undefined ? null : localTemplateKey(result.destinationId)
 }
 
 /**
@@ -754,11 +760,12 @@ export const dropOnServerNode = async (
   //
   // This is also the one destination that may be the server itself rather than a folder on it —
   // dropping onto the server's own row means the top level for folders and templates alike.
-  if (draggedKey.startsWith('node:') || draggedKey.startsWith('lf:')) {
+  const dragged = parseTreeKey(draggedKey)
+  if (dragged?.kind === 'server-node' || dragged?.kind === 'local-folder') {
     return await moveBranch(draggedKey, { kind: 'server', server, nodeId }, rerender, surface)
   }
-  if (draggedKey.startsWith('local:')) {
-    const local = templateById(draggedKey.slice('local:'.length))
+  if (dragged?.kind === 'local-template') {
+    const local = templateById(dragged.id)
     if (local === undefined) return null
     // The refusal the Copy dialog makes, for the same reason: while a placement is running the
     // stored origin is the position being dragged away from, so publishing it puts the template on
@@ -780,7 +787,7 @@ export const dropOnServerNode = async (
     return result.ok ? serverTemplateTreeKey(server, result.id) : null
   }
 
-  if (!draggedKey.startsWith('st:')) return null
+  if (dragged?.kind !== 'server-template') return null
   const found = findServerTemplate(draggedKey, surface)
   if (found === null) return null
   const templateId = found.template.id
@@ -1153,14 +1160,14 @@ const setServerFolderPublished = async (
  */
 const rowVisibility = (target: TreeTarget): readonly [drawn: boolean, parentDrawn: boolean] => {
   if (target.server === null) {
-    const id = localFolderIdOf(target)
+    const id = localFolderIdOf(target.key)
     const folder = getState().localFolders.find((candidate) => candidate.id === id)
-    if (folder === undefined) return [isScopeVisible('local'), true]
+    if (folder === undefined) return [isScopeVisible(LOCAL_ROOT_KEY), true]
     return [localFolderChainVisible(folder.id), localFolderChainVisible(folder.parentId)]
   }
   const { url } = target.server
   const surface = surfaceOf(target)
-  const serverShown = isScopeVisible(`server:${url}`)
+  const serverShown = isScopeVisible(serverScopeKey(url))
   if (target.templateId !== undefined) {
     const parentDrawn = serverShown && nodeChainVisible(url, target.nodeId, surface)
     const own = isScopeVisible(serverTemplateKey(url, target.templateId, surface))
@@ -1208,7 +1215,7 @@ export const openContextMenu = (
   rerender: () => void,
   surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
 ): void => {
-  const templateId = localTemplateId(target)
+  const templateId = localTemplateIdOf(target.key)
   const artworkId =
     target.server !== null && target.templateId !== undefined
       ? serverTemplateKey(target.server.url, target.templateId, surfaceOf(target))
@@ -1650,7 +1657,7 @@ const importTemplateData = async (
   }
   // Straight into whichever Local folder was clicked. Importing from a folder's own button
   // and then finding the result at the top level would make the button a lie.
-  const folderId = localFolderIdOf(target)
+  const folderId = localFolderIdOf(target.key)
   // Each record stands or falls on its own. Rolling the whole file back on one failure meant
   // importing two templates with one slot left admitted the first, hit the cap on the second,
   // and then deleted the first as well — a success thrown away to tidy up after a failure
@@ -1973,12 +1980,8 @@ export const copyToServer = async (
   )
 }
 
-/** `lf:<id>` is a Local folder; `local` is the Local root. */
-const localFolderIdOf = (target: TreeTarget): string | null =>
-  target.key.startsWith('lf:') ? target.key.slice('lf:'.length) : null
-
 const isLocalTarget = (target: TreeTarget): boolean =>
-  target.server === null && (target.key === 'local' || target.key.startsWith('lf:'))
+  target.server === null && (target.key === LOCAL_ROOT_KEY || localFolderIdOf(target.key) !== null)
 
 /**
  * Make sure the row about to be created will be on screen.
@@ -2001,7 +2004,7 @@ export const createFolder = async (
   const { server, nodeId } = target
   if (isLocalTarget(target)) {
     // Nested under whichever Local folder was clicked, or at the top when it was Local itself.
-    const parentId = localFolderIdOf(target)
+    const parentId = localFolderIdOf(target.key)
     expandForNewChild(target.key)
     const taken = takenLocalFolderNames(getState().localFolders, parentId, surface)
     const folder = createLocalFolder(parentId, freeFolderName(taken), surface)
@@ -2012,7 +2015,7 @@ export const createFolder = async (
       )
       return
     }
-    startRenaming(`lf:${folder.id}`)
+    startRenaming(localFolderKey(folder.id))
     rerender()
     return
   }

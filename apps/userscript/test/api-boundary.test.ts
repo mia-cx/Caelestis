@@ -639,7 +639,7 @@ describe('admin drafts and page-readable storage', () => {
     const { state, server } = await connect()
     await import('../src/application/tree-server-state.js')
     const { loadServerCache } = await import('../src/server-cache.js')
-    const { serverTemplateKey } = await import('../src/templates/server-sync.js')
+    const { serverTemplateKey } = await import('../src/tree-keys.js')
     const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
     const store = await import('../src/templates/local-store.js')
     const folder = await state.createNode(server, 'Drafts', null)
@@ -767,7 +767,7 @@ describe('server data reuse', () => {
     const { state, server } = await connect()
     await import('../src/application/tree-server-state.js')
     const store = await import('../src/templates/local-store.js')
-    const { serverTemplateKey } = await import('../src/templates/server-sync.js')
+    const { serverTemplateKey } = await import('../src/tree-keys.js')
     // Four pixels across the boundary of tiles 0/0 and 1/0: one chunk on each side.
     const artwork = async (right: readonly number[]) => {
       const bytes = await encodeIndexedPng(4, 1, new Uint8Array([1, 2, ...right]))
@@ -870,7 +870,8 @@ describe('server data reuse', () => {
     fetch.mockClear()
     state.upsertServer(await state.probeServer(origin, adminToken))
 
-    const key = serverSync.serverTemplateKey(origin, uploaded.id)
+    const { serverTemplateKey } = await import('../src/tree-keys.js')
+    const key = serverTemplateKey(origin, uploaded.id)
     await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
     const socket = sockets[0]
     if (socket === undefined) throw new Error('coordinator did not open a live socket')

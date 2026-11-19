@@ -1,5 +1,6 @@
 import { latLngToCanvasPixel } from '@caelestis/shared'
 import { warn } from '../debug.js'
+import { serverTemplateKey } from '../tree-keys.js'
 import { forgetServerTemplate, hasRoomForServerTemplate, putServerTemplate } from './local-store.js'
 import type { TemplateProgress } from './mismatch.js'
 import { findWplaceModules, paletteIndices } from './native-store.js'
@@ -67,7 +68,7 @@ const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
 const templateIdOf = (index: number): string =>
-  `srv:${encodeURIComponent(OFFICIAL_OVERLAY_OWNER)}:seven-seals-template-${index}`
+  serverTemplateKey(OFFICIAL_OVERLAY_OWNER, `seven-seals-template-${index}`)
 
 let event: OfficialEvent | null = null
 let progressStore: ProgressStore | null = null

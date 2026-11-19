@@ -4,7 +4,7 @@ import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.j
 import { type ConnectedServer, setScopeVisible } from '../src/settings.js'
 import * as store from '../src/templates/local-store.js'
 import { abort, movingId } from '../src/templates/move.js'
-import { serverTemplateKey } from '../src/templates/server-sync.js'
+import { serverTemplateKey } from '../src/tree-keys.js'
 import { toast } from '../src/ui/toast.js'
 import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
 
