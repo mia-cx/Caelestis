@@ -1,7 +1,10 @@
 import { TRANSPARENT_INDEX as T } from '@caelestis/shared'
 import { expect, it } from 'vitest'
+import type { ArtboardPixels } from '../gl/artboard-pixels.js'
 import { UNPAINTED } from '../native-pixels.js'
-import { artboardColourProgress, artboardCounts } from './artboard-accounting.js'
+import { artboardCounts } from './artboard-accounting.js'
+import type { PlacedPixels, TemplateArtwork } from './local-store.js'
+import { colourProgressFrom } from './pixel-tally.js'
 import { cutPixels } from './sparse-pixels.js'
 
 const colour = (index: number, counts: Record<string, number>) => ({
@@ -13,6 +16,11 @@ const colour = (index: number, counts: Record<string, number>) => ({
   total: 0,
   ...counts,
 })
+
+const artboardColourProgress = (
+  template: PlacedPixels & { readonly artwork: TemplateArtwork },
+  native: ArtboardPixels,
+) => colourProgressFrom(template.artwork, artboardCounts(template, native))
 
 it('reuses alliance progress until the native pixels or the template placement change', () => {
   const pixels = cutPixels(6, 1, new Uint8Array([1, 2, 2, 2, T, 1]))

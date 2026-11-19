@@ -9,18 +9,8 @@ import { artboardPixelsFor } from '../active-artboard.js'
 import type { ArtboardPixels } from '../gl/artboard-pixels.js'
 import { type NativePixelSnapshot, nativePixelWindow } from '../native-pixels.js'
 import type { PlacedPixels, PlacedTemplate, TemplateArtwork } from './local-store.js'
-import {
-  classifyPixel,
-  colourProgressFrom,
-  colourSlot,
-  type ProgressCounts,
-  progressFrom,
-} from './pixel-tally.js'
-import type {
-  ColourTargetKind,
-  TemplateColourProgress,
-  TemplateProgress,
-} from './progress-types.js'
+import { classifyPixel, colourSlot, type ProgressCounts } from './pixel-tally.js'
+import type { ColourTargetKind } from './progress-types.js'
 import { forEachPixel, type SparsePixels } from './sparse-pixels.js'
 
 /**
@@ -101,33 +91,6 @@ export const artboardProgressCounts = (template: PlacedTemplate): ProgressCounts
   lastCounts.set(template.artwork, counts)
   return counts
 }
-
-/**
- * Per-colour progress against one artboard read, in palette order.
- *
- * Kept for the panel tree, which still reads the artboard itself; `pixelAccounting.read` answers
- * the same for any template.
- */
-export const artboardColourProgress = (
-  template: PlacedPixels & Pick<PlacedTemplate, 'artwork'>,
-  pixels: ArtboardPixels,
-): readonly TemplateColourProgress[] =>
-  colourProgressFrom(template.artwork, artboardCounts(template, pixels))
-
-/** Overall progress summed from per-colour counts. */
-export const artboardTemplateProgress = (
-  colours: readonly TemplateColourProgress[],
-): TemplateProgress =>
-  colours.reduce(
-    (total, colour) => ({
-      completed: total.completed + colour.completed,
-      mismatched: total.mismatched + colour.mismatched,
-      unpainted: total.unpainted + colour.unpainted,
-      known: total.known + colour.known,
-      total: total.total + colour.total,
-    }),
-    progressFrom(undefined, 0),
-  )
 
 export interface ArtboardColourTarget {
   readonly x: number

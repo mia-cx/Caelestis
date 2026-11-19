@@ -3,21 +3,11 @@ import {
   type TemplateSurface,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { activeAllianceSurface } from '../alliance-surface.js'
-import { NO_ARTBOARD_PIXELS, readArtboardPixels } from '../gl/artboard-pixels.js'
 import type { ServerTemplate } from '../server-manifest.js'
 import { getState, type ServerConnection } from '../settings.js'
 import { serverColourProgressFor, serverProgressFor } from '../telemetry.js'
-import {
-  artboardColourProgress,
-  artboardTemplateProgress,
-} from '../templates/artboard-accounting.js'
-import {
-  isServerTemplate,
-  localTemplates,
-  type PlacedTemplate,
-  type TemplateArtwork,
-} from '../templates/local-store.js'
+import { artboardProgressCounts } from '../templates/artboard-accounting.js'
+import { isServerTemplate, localTemplates, type PlacedTemplate } from '../templates/local-store.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import type { TemplateColourProgress, TemplateProgress } from '../templates/progress-types.js'
 import {
@@ -29,47 +19,13 @@ import {
 } from './progress.js'
 import { type TreeFacts, templateTreeKeyFor } from './tree-context.js'
 
-interface Counts {
-  readonly progress: TemplateProgress
-  readonly colours: readonly TemplateColourProgress[]
-}
-
-/** Alliance progress last counted per artwork, shown while that template's pixels are evicted. */
-const lastAllianceProgress = new WeakMap<TemplateArtwork, Counts>()
-
-/** Count every drawn alliance template against the artboard's pixels, once per build. */
-const allianceCounts = (
-  surface: TemplateSurface,
-  drawn: readonly PlacedTemplate[],
-): ReadonlyMap<string, Counts> => {
-  const counts = new Map<string, Counts>()
-  if (surface.kind === 'world' || drawn.length === 0) return counts
-  const active = activeAllianceSurface()
-  const bounds = active?.bounds ?? null
-  const regions =
-    active !== null && bounds !== null && sameTemplateSurface(active.surface, surface)
-      ? readArtboardPixels(active, {
-          originX: bounds.minX,
-          originY: bounds.minY,
-          width: bounds.maxX - bounds.minX,
-          height: bounds.maxY - bounds.minY,
-        })
-      : NO_ARTBOARD_PIXELS
-  for (const template of drawn) {
-    const pixels = template.artwork.pixels
-    const colours =
-      pixels === null ? null : artboardColourProgress({ ...template, pixels }, regions)
-    // An evicted template keeps the counts it had when its pixels were last in memory.
-    const known =
-      colours === null
-        ? lastAllianceProgress.get(template.artwork)
-        : { progress: artboardTemplateProgress(colours), colours }
-    if (known === undefined) continue
-    lastAllianceProgress.set(template.artwork, known)
-    counts.set(template.id, known)
-  }
-  return counts
-}
+/**
+ * Whether an alliance template has never been counted: its pixels left memory before any artboard
+ * read. The tree has always shown such a row as empty rather than as `opaque` pixels unknown.
+ */
+const neverCounted = (template: PlacedTemplate): boolean =>
+  (template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world' &&
+  artboardProgressCounts(template) === undefined
 
 /**
  * Read the templates a build lists, and how far along each is, once for the whole build.
@@ -86,7 +42,6 @@ export const treeFacts = (
       sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface) &&
       (templateKeys === undefined || templateKeys.has(templateTreeKeyFor(template, servers) ?? '')),
   )
-  const alliance = allianceCounts(surface, drawn)
   const drawnByServer = new Map<string, Map<string, PlacedTemplate>>()
   for (const template of drawn) {
     if (template.serverUrl === undefined || template.serverTemplateId === undefined) continue
@@ -100,13 +55,9 @@ export const treeFacts = (
     localOnly: drawn.filter((template) => !isServerTemplate(template)),
     drawnServerTemplate: (server, id) => drawnByServer.get(server.url)?.get(id),
     progress: (template) =>
-      surface.kind === 'world'
-        ? pixelAccounting.read(template).progress
-        : (alliance.get(template.id)?.progress ?? emptyProgress(0)),
+      neverCounted(template) ? emptyProgress(0) : pixelAccounting.read(template).progress,
     colourProgress: (template) =>
-      surface.kind === 'world'
-        ? pixelAccounting.read(template).colours
-        : (alliance.get(template.id)?.colours ?? []),
+      neverCounted(template) ? [] : pixelAccounting.read(template).colours,
   }
 }
 
