@@ -1,6 +1,7 @@
 import type { TemplateSurface } from '@caelestis/shared'
 import type { StudioRect } from '@caelestis/ui/elements'
 import { activeAllianceDialog, activeAllianceEditorStage } from '../alliance-editor-dom.js'
+import { onViewChange } from '../map-view.js'
 import { placementScale, placementScreenPoint } from './move.js'
 
 /**
@@ -537,8 +538,13 @@ const onScreen = (frame: StudioFrameView, box: Box) => {
   return { x: start.x, y: start.y, width: end.x - start.x, height: end.y - start.y }
 }
 
+/** Keep the studio's handles on the template as the world map or an alliance artboard moves. */
+export const installStudioFrame = (): void => {
+  onViewChange(syncStudioFrame, 'Template studio handles')
+}
+
 /** Redraw at the current projection. Runs every map frame and after every studio change. */
-export const syncStudioFrame = (): void => {
+const syncStudioFrame = (): void => {
   const frame = view
   if (frame === null) {
     overlay?.root.remove()

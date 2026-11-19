@@ -15,12 +15,13 @@ import {
   prefersReducedMotion,
   SETTLE_MARGIN_MS,
 } from '@caelestis/ui/motion'
-import type { ActiveAllianceSurface } from '../alliance-surface.js'
+import { type ActiveAllianceSurface, currentSurface } from '../alliance-surface.js'
 import { templateBusy } from '../application/template-busy.js'
 import { ALLIANCE_PANEL_ID, ALLIANCE_RAIL_ID, PANEL_ID } from '../chrome-ids.js'
 import type { ScreenProjection } from '../coordinates.js'
 import { log } from '../debug.js'
-import { redraw, repaint, screenProjection } from '../map-view.js'
+import type { ArtboardView } from '../gl/artboard-layer.js'
+import { onMapFrame, redraw, repaint, screenProjection } from '../map-view.js'
 import { shortcutHint } from '../shortcuts.js'
 import {
   isTemplateVisible,
@@ -1068,7 +1069,7 @@ const renderControls = (
  * wplace's to rename, and guessing it wrong would sweep every control away on a frame that painted
  * the overlay perfectly well.
  */
-export const renderOverlayControls = (mapCanvas: HTMLCanvasElement): void =>
+const renderOverlayControls = (mapCanvas: HTMLCanvasElement): void =>
   renderControls(
     repaint,
     mapCanvas,
@@ -1077,6 +1078,19 @@ export const renderOverlayControls = (mapCanvas: HTMLCanvasElement): void =>
     document.body,
     worldControlViewport(),
   )
+
+/** Follow the world map's frames with its template controls; an alliance artboard draws its own. */
+export const installOverlayControls = (): void => {
+  onMapFrame((frame) => {
+    if (currentSurface().kind === 'world') renderOverlayControls(frame.canvas)
+  }, 'Overlay controls')
+}
+
+/** The template controls for an alliance artboard's view, or none while it has no usable geometry. */
+export const showAllianceOverlayControls = (view: ArtboardView | null): void => {
+  if (view === null) detachOverlayControls()
+  else renderAllianceOverlayControls(view.rerender, view.active, view.geometry, view.canvas)
+}
 
 interface AllianceControlGeometry {
   readonly originX: number

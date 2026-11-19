@@ -8,9 +8,10 @@ import {
 import { count, warn } from './debug.js'
 import type { PixelRect } from './geometry.js'
 import { getMap } from './map-handle.js'
+import { onMapFrame, redraw } from './map-view.js'
 import { UNPAINTED } from './native-pixels.js'
 import { applyPixels, invalidateOnTilePixels, notifyPixelBatch } from './pixel-changes.js'
-import { measureProfile } from './profile.js'
+import { measureProfile, recordProfileAction } from './profile.js'
 import { paletteRgbIndex, rgbaPaletteIndex } from './rgb-index.js'
 import { draftedPixelsIn } from './templates/drafted.js'
 import {
@@ -23,6 +24,7 @@ import {
   pendingAcceptedPixelAt,
   reusableCaptureContext,
 } from './tile-pixels.js'
+import { isPaintOpen, onPaintSelectionChange } from './wplace-paint.js'
 import { isDraftLayer } from './wplace-raster.js'
 
 /**
@@ -241,7 +243,7 @@ const reconcileDraftedTile = (tile: TileCoord, before?: Map<number, number>): vo
 const RECONCILE_INTERVAL_MS = 150
 let lastReconcile = 0
 
-export const reconcileDrafts = (): void => {
+const reconcileDrafts = (): void => {
   const now = performance.now()
   if (now - lastReconcile < RECONCILE_INTERVAL_MS) return
   lastReconcile = now
@@ -305,7 +307,7 @@ const sourceCanvas = (source: unknown): object | undefined => {
  * does not work: those quads measure 0.125x and 0.063x of a tile. Run on every frame, so the first
  * native writes are attributed at once, including when Paint closes and reopens between frames.
  */
-export const syncDraftCanvases = (): void => {
+const syncDraftCanvases = (): void => {
   const map = getMap()
   const order = map?.style?._order
   if (map === null || order === undefined) {
@@ -640,4 +642,24 @@ export const refreshDraftCanvas = (
   dirtyCanvases.delete(source)
   stamps.capturedAt.set(source, captureGeneration())
   queuedWrites.delete(source)
+}
+
+/**
+ * Follow Wplace's drafts: name its draft canvases each frame, read its crosshairs for what a canvas
+ * hook cannot see, and drop every draft when the paint drawer closes.
+ */
+export const installDraftPixels = (): void => {
+  // The selected-colour marker lives in MapLibre's custom layer. Returning from Eraser to Pencil
+  // changes the selected swatch without moving the map, so repainting only the retained
+  // screen-space frame leaves that marker stale until some unrelated map animation happens.
+  onPaintSelectionChange(() => {
+    recordProfileAction(isPaintOpen() ? 'paint selection changed' : 'paint drawer closed')
+    if (!isPaintOpen()) clearDraftPixels()
+    redraw()
+  })
+  // Wplace adds a layer per tile being painted; its canvas is where unsubmitted pixels are drawn.
+  onMapFrame(syncDraftCanvases, 'Name draft canvases')
+  // Drafting Transparent writes nothing a canvas hook can see, so the only place it shows up is
+  // Wplace's crosshairs. Throttled inside; with nothing drafted there is nothing to read.
+  onMapFrame(reconcileDrafts, 'Reconcile drafted pixels')
 }

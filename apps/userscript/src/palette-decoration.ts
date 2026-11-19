@@ -10,6 +10,7 @@ import {
   onArtboardPixelsChange,
   onHeadquartersTilesChange,
 } from './gl/artboard-pixels.js'
+import { onMapFrame } from './map-view.js'
 import {
   colourKindOrder,
   navigateFocusedColour,
@@ -117,7 +118,7 @@ const queueRender = (): void => {
 }
 
 /** Refresh the counters only when panning or zooming changes which template owns them. */
-export const refreshPaintPaletteFocus = (): void => {
+const refreshPaintPaletteFocus = (): void => {
   if (!isPaintOpen()) return
   const next = focusedTemplate()?.id ?? null
   if (next === focusedTemplateId) return
@@ -148,5 +149,6 @@ export const installPaintPaletteProgress = (): void => {
   // Picking a colour changes marker styling, not the draft totals, so only new swatch elements
   // need decorating: a mount, or Svelte replacing them while the drawer stays open.
   onPaintSwatchesChange(queueRender)
+  onMapFrame(refreshPaintPaletteFocus, 'Paint palette focus')
   queueRender()
 }

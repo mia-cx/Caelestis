@@ -1,5 +1,6 @@
 import { isRecord, latLngToCanvasPixel, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { warn } from '../debug.js'
+import { onMapAttached } from '../map-handle.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { findWplaceModules } from '../wplace-modules.js'
 import { paletteIndices } from './native-store.js'
@@ -155,6 +156,7 @@ const readEvent = (module: Record<string, unknown>): OfficialEvent | null => {
 
 /** Load the current event from Wplace, then keep its openings and progress current. */
 export const installOfficialEvents = async (): Promise<void> => {
+  onMapAttached(syncOfficialOverlays)
   try {
     const found = await findWplaceModules({
       event: (source) => source.includes('/img/seven-seals/') && source.includes('titleEn'),

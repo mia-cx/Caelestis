@@ -1,6 +1,6 @@
 import { count } from './debug.js'
-import type { PatchableMap } from './map-handle.js'
-import { isWplacePatchEnabled } from './wplace-switches.js'
+import { getMap, onMapAttached, type PatchableMap } from './map-handle.js'
+import { isWplacePatchEnabled, onWplacePatchChange } from './wplace-switches.js'
 import { patchTileRefresh } from './wplace-tile-refresh.js'
 
 /**
@@ -175,10 +175,7 @@ const syncMarkerAnimations = (): void => {
   document.head.append(markerStyle)
 }
 
-/**
- * Apply every map patch. Idempotent, and cheap enough for the one-second attach loop, which also
- * catches the hover source being re-created after a theme switch.
- */
+/** Apply every map patch. Idempotent: it runs on each map attach and each patch switch. */
 export const applyWplacePatches = (map: PatchableMap | null): void => {
   syncMarkerAnimations()
   if (map === null) return
@@ -192,4 +189,10 @@ export const applyWplacePatches = (map: PatchableMap | null): void => {
     })
   }
   syncHoverCanvas(map)
+}
+
+/** Keep the patches on whichever map Wplace shows, and in step with their switches. */
+export const installWplacePatches = (): void => {
+  onMapAttached(applyWplacePatches)
+  onWplacePatchChange(() => applyWplacePatches(getMap()))
 }

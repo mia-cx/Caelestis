@@ -1,6 +1,6 @@
 import { onAllianceArtboardNavigated } from './alliance-navigation.js'
 import { activeAllianceSurface, currentSurface } from './alliance-surface.js'
-import type { MapLike } from './map-handle.js'
+import { type MapLike, onMapAttached } from './map-handle.js'
 import {
   forwardPaintMove,
   heldKeys,
@@ -146,8 +146,10 @@ export const installPaintTargetGuard = (): (() => void) => {
     markPaintTargetStale()
     requestAnimationFrame(() => refreshPaintTarget(active.frame, 'pointermove'))
   })
+  const stopFollowingMap = onMapAttached(syncPaintTargetMap)
   return () => {
     stopNavigation()
+    stopFollowingMap()
     for (const type of pointers) window.removeEventListener(type, remember, true)
     window.removeEventListener('pointerout', leave, true)
     window.removeEventListener('keydown', keydown, true)
