@@ -20,6 +20,7 @@ import {
   WORLD_TILES,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
+import { yieldToBrowser } from '../concurrency.js'
 import { log, warn } from '../debug.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
 import type { TemplateAuthoring } from './authoring.js'
@@ -80,17 +81,6 @@ const checkedName = (value: unknown, fallback: string): string => {
   const name = typeof value === 'string' ? value : fallback
   if (name.length > MAX_TEMPLATE_NAME_LENGTH) throw new Error('template name is too long')
   return name
-}
-
-const yieldToBrowser = async (): Promise<void> => {
-  const browserScheduler = (
-    globalThis as typeof globalThis & { scheduler?: { yield?: () => Promise<void> } }
-  ).scheduler
-  if (browserScheduler?.yield !== undefined) {
-    await browserScheduler.yield()
-    return
-  }
-  await new Promise<void>((resolve) => setTimeout(resolve, 0))
 }
 
 const pngDimensions = async (blob: Blob): Promise<{ width: number; height: number }> => {

@@ -7,6 +7,7 @@ import {
   WORLD_TEMPLATE_SURFACE,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
+import { yieldToBrowser } from '../concurrency.js'
 import type { SparsePixels } from './sparse-pixels.js'
 
 /** Where a template sits, without its pixels. */
@@ -68,17 +69,6 @@ export const validatePlacement = (
   }
   if (originY + template.height > WORLD_PIXELS)
     throw new RangeError('template runs past the south edge')
-}
-
-const yieldToBrowser = async (): Promise<void> => {
-  const browserScheduler = (
-    globalThis as typeof globalThis & { scheduler?: { yield?: () => Promise<void> } }
-  ).scheduler
-  if (browserScheduler?.yield !== undefined) {
-    await browserScheduler.yield()
-    return
-  }
-  await new Promise<void>((resolve) => setTimeout(resolve, 0))
 }
 
 /**

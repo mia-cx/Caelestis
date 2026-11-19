@@ -138,3 +138,15 @@ export const runWhileBusy = async <T>(key: string, work: () => Promise<T>): Prom
     release()
   }
 }
+
+/** Let the browser render and handle input between chunks of long work. */
+export const yieldToBrowser = async (): Promise<void> => {
+  const browserScheduler = (
+    globalThis as typeof globalThis & { scheduler?: { yield?: () => Promise<void> } }
+  ).scheduler
+  if (browserScheduler?.yield !== undefined) {
+    await browserScheduler.yield()
+    return
+  }
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+}
