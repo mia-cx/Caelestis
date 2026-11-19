@@ -150,8 +150,8 @@ const setup = async () => {
   vi.stubGlobal('navigator', { deviceMemory: 8 })
   vi.stubGlobal('OffscreenCanvas', OffscreenCanvasStub)
   vi.resetModules()
-  const tileTransform = {
-    ...(await import('../src/tile-transform.js')),
+  const pageTaps = {
+    ...(await import('../src/page-taps.js')),
     ...(await import('../src/tile-pixels.js')),
     ...(await import('../src/draft-pixels.js')),
     ...(await import('../src/paint-requests.js')),
@@ -187,14 +187,14 @@ const setup = async () => {
       }
     },
   } as unknown as Window & typeof globalThis
-  tileTransform.install(realm)
-  tileTransform.captureTilePixels(true)
-  stopCapture = () => tileTransform.captureTilePixels(false)
+  pageTaps.install(realm)
+  pageTaps.captureTilePixels(true)
+  stopCapture = () => pageTaps.captureTilePixels(false)
   const tileResponse = await realm.fetch(
     `https://backend.wplace.live/files/s0/tiles/${TILE.x}/${TILE.y}.png`,
   )
   await realm.createImageBitmap(new realm.Blob([await tileResponse.arrayBuffer()]))
-  await tileTransform.settledTileCaptures()
+  await pageTaps.settledTileCaptures()
 
   const indices = new Uint8Array(SIDE * SIDE)
   for (let y = 0; y < SIDE; y++)
@@ -256,12 +256,12 @@ const setup = async () => {
   /** Native draft writes, one batch at a time, as Wplace's draft canvas reports them. */
   const drafts = (pixels: readonly (readonly [number, number, number])[]) => {
     for (const [x, y, colour] of pixels) draft[y * SIZE + x] = colour
-    tileTransform.captureDraftPixels(TILE, draft.slice())
+    pageTaps.captureDraftPixels(TILE, draft.slice())
   }
   /** Submit pixels to the faked paint endpoint and wait for Caelestis to accept them. */
   const submit = async (pixels: readonly (readonly [number, number, number])[]) => {
     const accepted = new Promise<void>((resolve) => {
-      const stop = tileTransform.onAcceptedPaint(() => {
+      const stop = pageTaps.onAcceptedPaint(() => {
         stop()
         resolve()
       })

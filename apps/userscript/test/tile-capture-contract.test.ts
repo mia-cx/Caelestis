@@ -112,7 +112,7 @@ const setup = async () => {
   vi.stubGlobal('navigator', { deviceMemory: 1 })
   vi.resetModules()
   const tileTransform = {
-    ...(await import('../src/tile-transform.js')),
+    ...(await import('../src/page-taps.js')),
     ...(await import('../src/tile-pixels.js')),
     ...(await import('../src/draft-pixels.js')),
     ...(await import('../src/pixel-changes.js')),

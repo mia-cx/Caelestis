@@ -1,5 +1,6 @@
 import { installCanvasWriteTaps } from './canvas-taps.js'
 import { registerDebugEntry } from './console-api.js'
+import { count } from './debug.js'
 import { draftPixelMemoryBytes } from './draft-pixels.js'
 import { installMapContextObserver } from './gl-observer.js'
 import type { InstalledValueHook } from './page-hooks.js'
@@ -48,6 +49,7 @@ export const install = (realm: Window & typeof globalThis = pageWindow()): void 
       // A throwing installer refuses like one that returns null.
     }
     if (installed === null) {
+      count('install:tap refused')
       for (const hook of hooks.reverse()) hook.restore()
       return
     }
@@ -56,5 +58,5 @@ export const install = (realm: Window & typeof globalThis = pageWindow()): void 
 }
 
 /** What captured tile and draft pixels hold in memory, for the profile. */
-export const capturedPixelMemoryBytes = (): number =>
+const capturedPixelMemoryBytes = (): number =>
   tilePixelMemoryBytes() + draftPixelMemoryBytes() + paletteRgbIndexMemoryBytes()

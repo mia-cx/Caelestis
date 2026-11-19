@@ -23,6 +23,7 @@ import {
   requestMapFrame,
   screenProjection,
 } from './map-view.js'
+import { install as installTileCapture } from './page-taps.js'
 import { installPaintTargetGuard, syncPaintTargetMap } from './paint-target-guard.js'
 import { installPaintPaletteProgress, refreshPaintPaletteFocus } from './palette-decoration.js'
 import { installPresence, onPresenceChange } from './presence-client.js'
@@ -42,7 +43,6 @@ import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
 import { syncStudioFrame } from './templates/studio-frame.js'
 import { installTilePixelCapture } from './tile-capture-scope.js'
-import { install as installTileCapture } from './tile-transform.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
 import {
   detachOverlayControls,

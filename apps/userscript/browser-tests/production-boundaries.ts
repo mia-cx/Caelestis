@@ -2,6 +2,7 @@ import { encodeIndexedPng } from '@caelestis/shared'
 import './open-menu.js'
 import './overlay-menu.js'
 import { clearDraftPixels, draftPixels, registerDraftCanvas } from '../src/draft-pixels.js'
+import { install } from '../src/page-taps.js'
 import {
   forgetInWorker,
   mismatchWorkerMemoryBytes,
@@ -13,7 +14,6 @@ import {
   settledTileCaptures,
   tilePixels,
 } from '../src/tile-pixels.js'
-import { install } from '../src/tile-transform.js'
 import { installWplaceCursors } from '../src/wplace-cursors.js'
 import { installWplaceFont } from '../src/wplace-font.js'
 import { runMarkerPatchingContracts } from './marker-patching.js'
@@ -109,7 +109,7 @@ export const runProductionBrowserBoundaries = async () => {
   context.putImageData(painted, 2, 3)
   const draft = draftPixels(tile)
   if (draft === null || !draft.some((index) => index !== UNPAINTED))
-    throw new Error('tile-transform did not retain a real canvas write')
+    throw new Error('page-taps did not retain a real canvas write')
 
   const bitmapSource = new OffscreenCanvas(1, 1)
   const bitmapContext = bitmapSource.getContext('2d')
