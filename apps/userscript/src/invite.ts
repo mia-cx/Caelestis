@@ -1,3 +1,4 @@
+import { decodeBase64Url, encodeBase64Url } from './base64url.js'
 import { canonicalServerUrl } from './server-url.js'
 import { MAX_CONNECTED_SERVERS, type ServerConnection } from './settings.js'
 
@@ -11,14 +12,7 @@ export interface Invite {
  * base64url (RFC 4648 §5) of UTF-8 bytes. The link carries the token, so it is shared like one.
  */
 export const encodeInvite = (serverUrl: string, token: string): string => {
-  const canonical = canonicalServerUrl(serverUrl)
-  const encode = (value: string): string => {
-    const bytes = new TextEncoder().encode(value)
-    let binary = ''
-    for (const byte of bytes) binary += String.fromCharCode(byte)
-    return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
-  }
-  return `${encode(canonical)}.${encode(token)}`
+  return `${encodeBase64Url(canonicalServerUrl(serverUrl))}.${encodeBase64Url(token)}`
 }
 
 /**
@@ -27,23 +21,6 @@ export const encodeInvite = (serverUrl: string, token: string): string => {
  * segments. Wplace's own fragments never look like that, so they are ignored deterministically.
  */
 const INVITE_CANDIDATE = /^aHR0c[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]*)+$/
-
-const decodePart = (part: string): string | null => {
-  // Unpadded input only: a length of 1 mod 4 can never decode.
-  if (part.length % 4 === 1) return null
-  let binary: string
-  try {
-    binary = atob(part.replaceAll('-', '+').replaceAll('_', '/'))
-  } catch {
-    return null
-  }
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
-  try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  } catch {
-    return null
-  }
-}
 
 const tokenUsable = (token: string): boolean => {
   if (token === '') return false
@@ -65,8 +42,8 @@ export const readInvite = (hash: string): Invite | 'malformed' | null => {
   if (!INVITE_CANDIDATE.test(fragment)) return null
   const parts = fragment.split('.')
   if (parts.length !== 2) return 'malformed'
-  const serverRaw = decodePart(parts[0] ?? '')
-  const token = decodePart(parts[1] ?? '')
+  const serverRaw = decodeBase64Url(parts[0] ?? '')
+  const token = decodeBase64Url(parts[1] ?? '')
   if (serverRaw === null || token === null) return 'malformed'
   let serverUrl: string
   try {

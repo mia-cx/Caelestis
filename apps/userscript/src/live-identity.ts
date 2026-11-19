@@ -1,4 +1,5 @@
 import { uuidV7 } from '@caelestis/shared'
+import { encodeBase64Url } from './base64url.js'
 import { canonicalServerUrl } from './server-url.js'
 
 /**
@@ -33,10 +34,5 @@ export const liveClientId = (serverUrl: string): string => {
 }
 
 /** The bearer token as a WebSocket subprotocol, the only header a browser socket can carry. */
-export const liveCredentialProtocol = (token: string): string => {
-  const bytes = new TextEncoder().encode(token)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-  return `${LIVE_AUTH_PREFIX}${encoded}`
-}
+export const liveCredentialProtocol = (token: string): string =>
+  `${LIVE_AUTH_PREFIX}${encodeBase64Url(token)}`
