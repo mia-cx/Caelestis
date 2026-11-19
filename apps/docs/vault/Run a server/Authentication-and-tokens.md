@@ -22,7 +22,11 @@ Use **Report** for painters. Use **Read** for the dashboard's backend connection
 
 ![Dashboard entered as the token label, with Read selected and Create visible.](images/settings/create-read-token.png)
 
+![The Access tokens list for a server, with each token's label, scope and creation date, and the form for a new token.](images/settings/access-tokens.png)
+
 In **Access token created**, choose **Copy token** or **Copy invite link** before closing the dialog. Send the value privately. Opening the invite connects Caelestis to the server on Wplace. For the dashboard's backend credential, copy the token itself.
+
+![Access token created for Madeline, with masked token and invite link values beside Copy token and Copy invite link.](images/settings/token-created.png)
 
 ## Revoke a token
 

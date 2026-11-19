@@ -20,6 +20,8 @@ Templates can contain up to 64 megapixels. Caelestis loads artwork into memory a
 2. Use the drawing tools to select the painted area. **Download PNG** saves the selection as an image.
 3. To use the selection on the map, choose **Add as template** and confirm its placement.
 
+![A rectangle selected over artwork in capture mode, with the drawing tools, Download PNG and Add as template.](images/templates/capture-from-canvas.png)
+
 ## Organise your library
 
 Hover a row for its controls. Right-click to open its menu, or hold the row on a touchscreen. Arrow keys and Enter also work in the menu.
@@ -46,6 +48,8 @@ Hover a row for its controls. Right-click to open its menu, or hold the row on a
 | **Export .wplace** | Keep the world placement with the artwork. Caelestis also includes the source and processing settings when available. |
 | **Use canvas artwork** | Make the committed canvas pixels the target for the whole template. |
 | **Update an area** | Select part of a world template to update from committed paint. |
+
+![A template's menu with Export .wplace and Export .png.](images/templates/export-menu.png)
 
 ![Confirm and cancel buttons beside artwork during a move.](images/getting-started/placement-controls.png)
 

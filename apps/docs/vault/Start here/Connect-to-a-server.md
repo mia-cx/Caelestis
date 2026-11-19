@@ -37,6 +37,8 @@ Use **Report** for painting reports, presence, and claims. **Read** lets you vie
 
 After connecting, click **Back to templates** in the header. The server's templates appear under its name.
 
+![Connected servers listed under the address field, each with its backend version.](images/settings/server-connection.png)
+
 ## Change or remove a connection
 
 To replace a token, expand the connected server, paste its replacement, and click **Update**.

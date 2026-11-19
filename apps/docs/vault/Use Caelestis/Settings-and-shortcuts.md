@@ -10,6 +10,8 @@ Click the gear in the Caelestis panel header to open **Settings**. The extension
 
 Each server has an address and can have its own access token. Expand its entry to see the backend version. Its status tells you whether it is connected, needs a token, or cannot be reached.
 
+![Two connected servers listed under the address field, each with its backend version.](images/settings/server-connection.png)
+
 [Connect to a server](Connect-to-a-server) walks through adding an address and token. **Disconnect** removes this browser's connection.
 
 An administrator connection also shows [access-token management](Authentication-and-tokens#create-a-token). For details on what each connection sends, read the [privacy policy](Privacy).
@@ -57,13 +59,15 @@ To rebind an action, open **Settings → Keyboard shortcuts** and click its key 
 
 Assigning a key already in use removes its previous assignment. **Reset** restores the default bindings.
 
-![Complete shortcut rows with their key controls in Settings.](images/settings/rebinding.png)
+![Shortcut rows with their key controls, with the previous and next unfinished colour bindings greyed out.](images/settings/rebinding.png)
 
 ## Wplace appearance and performance
 
 In Wplace's accessibility settings, **FalseType font** changes the font and **Caelestis cursors** changes the pointer artwork. Both switches also appear in the extension popup.
 
 Under **Wplace performance**, **Stop idle redraws** and **Settle event outlines** reduce map redraws. **Download changed tiles only** checks visible tiles for changes between full refreshes. **Reload drafted tiles only** refreshes tiles affected by draft edits. **Skip identical tile reads** avoids reading the same pixels twice. **Pause hidden marker animations** pauses the event marker animation while it is hidden.
+
+![The six Wplace performance switches, all on.](images/settings/wplace-performance.png)
 
 ## Diagnostics
 
@@ -90,5 +94,7 @@ On the world map, each switch enables an action that sends simulated input to Wp
 | **Paint key commits drafts** | The paint key commits an open draft. | `UntrustedPaintSubmit` |
 
 Each description shows your assigned keys. With the switches off, Wplace's own picker can still read a world template colour. The colour cycling bindings appear grey under **Keyboard shortcuts**. The paint key opens the drawer. Use Wplace's paint button to submit the draft.
+
+![The seven Dangerous settings switches, all off, each with its Pawtect flags.](images/settings/dangerous-settings.png)
 
 On an alliance HQ, avatar or banner, these controls work inside the editor regardless of the world-map switches. If Wplace's world paint drawer is open underneath, **Paint past skipped pixels** still needs its world-map switch.

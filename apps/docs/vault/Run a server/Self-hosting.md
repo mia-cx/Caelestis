@@ -44,8 +44,15 @@ SQLite needs local or block-backed storage with working POSIX locks. Do not put 
 ## Set up the dashboard for your group
 
 1. In the Wplace panel, connect as an administrator. On the server row, choose **Edit server details**.
+
+   ![The server row's controls, with Edit server details outlined.](images/self-hosting/edit-server-details-button.png)
+
 2. Set **Name**, **Description**, **Home page copy** and **Discord invite**. The invite adds a join button to the dashboard header.
 3. Set **Logo text** or upload a **Logo image**. Use **Link preview image** for the home page's share image. Click **Save details**.
+
+   ![Edit server details with a name, description, home page copy, logo text and the logo and link preview uploads.](images/self-hosting/edit-server-details.png)
+
+   ![The dashboard home page showing the saved name and home page copy above the template folders.](images/self-hosting/dashboard-result.png)
 
 Before upgrading, read [Storage and backups](Storage-and-backups) and [Deployment and upgrades](Deployment-and-upgrades).
 

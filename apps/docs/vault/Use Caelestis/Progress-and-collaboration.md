@@ -38,7 +38,14 @@ Import older world-map history from the Eralyon archive on a season 0 server you
 
 1. Right-click a server template or folder and choose **Backfill history**. For a folder job, both your client and server must support folder backfill. It includes templates in subfolders. With a template-only version, run the action on each template.
 2. Choose a UTC snapshot under **Backfill from**. Check the template, snapshot and tile counts and any gaps in coverage.
+
+   ![The Backfill history form for one template, with its earliest snapshot, snapshot count and archive gaps.](images/progress/backfill-template.png)
+
+   ![The folder form, counting five templates and five tiles per snapshot.](images/progress/backfill-folder.png)
+
 3. Click **Backfill**. You can close the form or tab and reopen it to check progress. **Cancel** stops remaining work and keeps imported observations. Use **Retry backfill** after a cancellation or failure.
+
+   ![A running backfill at 174 of 421 tile observations, with imported, skipped and failed counts and Cancel.](images/progress/backfill-running.png)
 
 The server compares snapshots with the current artwork at its current position. Existing observations take precedence. Archive pace measures net progress between snapshots. The archive cannot identify who painted those pixels.
 

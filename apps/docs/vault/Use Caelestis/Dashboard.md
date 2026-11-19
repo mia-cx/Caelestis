@@ -22,6 +22,8 @@ Browse shared artwork and watch its progress without opening Wplace. Visit your 
 
 ![Playback speed, timeline and live indicator below the map.](images/dashboard/timelapse.png)
 
+![A folder timelapse paused on 31 October, with the progress chart's playhead at the same point.](images/dashboard/timelapse-playhead.png)
+
 ## Read progress and pace
 
 **Progress & pace** shows how many pixels match the target and how many have the wrong colour. Combined pace uses the change in matching pixels between observations. It includes work by painters who do not use Caelestis. A change to the target artwork can move the progress line without counting as painting.
@@ -37,6 +39,12 @@ Hover the graph for counts and rates in pixels per hour. Scroll over a tall hove
 
 ![Progress and pace with its window selectors and timeline.](images/dashboard/pace.png)
 
+![The who selector open, listing All users and each painter with their reported pixels.](images/dashboard/pace-who.png)
+
+![The based on selector open, from last day to all.](images/dashboard/based-on.png)
+
+![A hover card for an imported snapshot, with its date, source and correct and mismatched counts.](images/dashboard/hover-card.png)
+
 ## Find remaining colours and contributions
 
 **Progress by colour** shows how many pixels match each colour. Use **Sort by** to find the largest remaining jobs.
@@ -47,8 +55,12 @@ Hover the graph for counts and rates in pixels per hour. Scroll over a tall hove
 
 ![The daily contribution heatmap.](images/dashboard/contributions.png)
 
+![Contributions filtered to one painter with the who selector.](images/dashboard/contributions-who.png)
+
 ## Connect the dashboard
 
 A dashboard can use its owner's backend connection. If the footer offers **connect to a server**, enter the **Server URL** and any required **Access token**, then click **Connect**. On a dashboard with a fixed address, **access token** appears when the server requests one.
+
+![Connect to a template server, with an example Server URL, an empty Access token field and Connect.](images/dashboard/connect-server.png)
 
 For a connection error, see [Troubleshooting](Troubleshooting#the-dashboard-says-it-cannot-reach-the-server).
