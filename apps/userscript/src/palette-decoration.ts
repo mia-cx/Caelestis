@@ -2,14 +2,14 @@ import { formatCount, formatPixels, shortcutLabel } from '@caelestis/shared'
 import type { CaelestisPaletteProgress } from '@caelestis/ui/elements'
 import { activeAllianceSurface } from './alliance-surface.js'
 import { onCanvasWrite } from './canvas-write.js'
+import { registerDebugEntry } from './console-api.js'
+import { count } from './debug.js'
+import { onArtboardPixelsChange, onHeadquartersTilesChange } from './gl/artboard-pixels.js'
 import {
   colourKindOrder,
   navigateFocusedColour,
   paintPaletteProgress,
-} from './colour-navigation.js'
-import { registerDebugEntry } from './console-api.js'
-import { count } from './debug.js'
-import { onArtboardPixelsChange, onHeadquartersTilesChange } from './gl/artboard-pixels.js'
+} from './palette-navigation.js'
 import { onStateChange } from './settings.js'
 import { activeShortcutBindings, currentShortcutPlatform } from './shortcuts.js'
 import { onServerStatusChange } from './telemetry.js'
