@@ -30,7 +30,13 @@ export interface CustomLayer {
   readonly type: 'custom'
 }
 
-type MapEvent = 'move' | 'moveend' | 'style.load'
+type MapEvent = 'move' | 'moveend' | 'style.load' | 'sourcedata'
+
+/** What a map event carries that we read: the input behind a move, the source of a `sourcedata`. */
+interface MapEventData {
+  readonly originalEvent?: Event
+  readonly sourceId?: string
+}
 
 /**
  * The part of MapLibre's `Map` we use. `style` and `painter` are MapLibre-private: read them
@@ -45,8 +51,10 @@ export interface MapLike {
   getCanvas(): HTMLCanvasElement
   unproject(point: [number, number]): { lng: number; lat: number }
   project(lngLat: [number, number]): { x: number; y: number }
-  on(type: MapEvent, listener: (event: { readonly originalEvent?: Event }) => void): unknown
-  off(type: MapEvent, listener: (event: { readonly originalEvent?: Event }) => void): unknown
+  on(type: MapEvent, listener: (event: MapEventData) => void): unknown
+  off(type: MapEvent, listener: (event: MapEventData) => void): unknown
+  /** MapLibre-private: re-request some or all tiles of a source. */
+  refreshTiles?(id: string, tiles?: readonly { x: number; y: number; z: number }[]): unknown
   cameraForBounds?(
     bounds: [[number, number], [number, number]],
     options?: Record<string, unknown>,
@@ -62,7 +70,8 @@ export interface MapLike {
     readonly _order?: readonly string[]
     /** Whether the style can take layers. */
     readonly _loaded?: boolean
-    readonly tileManagers?: unknown
+    /** Per source; MapLibre has used both a `Map` and a plain record here. */
+    readonly tileManagers?: Record<string, unknown>
   }
   readonly painter?: {
     /** Index into `style._order` of the layer being drawn. */
@@ -232,15 +241,13 @@ export const onMapAttached = (listener: (map: MapLike) => void): (() => void) =>
   return () => attachListeners.delete(listener)
 }
 
-/** The slice of MapLibre's `Map` the Wplace performance patches use. */
-export interface PatchableMap {
+/**
+ * The slice of the map the Wplace performance patches use. Every member is optional, so a patch
+ * still applies, partly, to a MapLibre that lacks one, and a test can stand in for the map with less.
+ */
+export type PatchableMap = Partial<
+  Pick<MapLike, 'getSource' | 'refreshTiles' | 'moveLayer' | 'on' | 'style'>
+> & {
+  /** Only whether the canvas is still in the document. */
   getCanvas?(): { readonly isConnected: boolean }
-  getSource?(id: string): unknown
-  refreshTiles?(id: string, tiles?: readonly { x: number; y: number; z: number }[]): unknown
-  moveLayer?(id: string, before?: string): unknown
-  on?(type: string, listener: (event: { sourceId?: string }) => void): unknown
-  style?: {
-    _order?: readonly string[]
-    tileManagers?: Record<string, unknown>
-  }
 }

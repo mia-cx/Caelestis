@@ -14,7 +14,7 @@ import { markerLayer } from './gl/markers.js'
 import { pickCellLayer } from './gl/pick-cell-layer.js'
 import { presenceLayer, repaintPresence } from './gl/presence-layer.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
-import { getMap, installMapCapture, onMapAttached, type PatchableMap } from './map-handle.js'
+import { getMap, installMapCapture, onMapAttached } from './map-handle.js'
 import {
   installMapView,
   onMapFrame,
@@ -231,9 +231,9 @@ const attachOverlayLayer = (): void => {
   onMapAttached((map) => {
     syncPaintTargetMap(map)
     syncOfficialOverlays(map)
-    applyWplacePatches(map as PatchableMap)
+    applyWplacePatches(map)
   })
-  onWplacePatchChange(() => applyWplacePatches(getMap() as PatchableMap | null))
+  onWplacePatchChange(() => applyWplacePatches(getMap()))
 }
 
 /** Runs now, or at `DOMContentLoaded` in registration order while the page is still loading. */
