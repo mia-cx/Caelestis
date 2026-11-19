@@ -1,4 +1,11 @@
-import { PALETTE_SIZE, parseTileKey, TILE_SIZE, type TileCoord } from '@caelestis/shared'
+import {
+  BLANK,
+  PALETTE_SIZE,
+  parseTileKey,
+  TILE_SIZE,
+  type TileCoord,
+  WRONG,
+} from '@caelestis/shared'
 import { count } from '../debug.js'
 import { comparisonDraftPixels } from '../draft-pixels.js'
 import { UNPAINTED } from '../native-pixels.js'
@@ -10,6 +17,7 @@ import {
   templateChunks,
   templateTileKeys,
 } from './local-store.js'
+import { classifyPixel } from './pixel-tally.js'
 import { horizontalSpans, wrappedDeltaX } from './placement.js'
 import type {
   ColourNavigationExclusion,
@@ -137,6 +145,7 @@ const scanCandidate = (
   const tileLeft = candidate.tile.x * TILE_SIZE
   const tileTop = candidate.tile.y * TILE_SIZE
   const window = candidateWindow(candidate, wantedPixels)
+  const sought = kind === 'unpainted' ? BLANK : WRONG
   let windowAt = 0
   for (let y = candidate.top; y < candidate.bottom; y++) {
     let tileAt = (y - tileTop) * TILE_SIZE + (candidate.left - tileLeft)
@@ -145,10 +154,8 @@ const scanCandidate = (
       if (wanted !== index) continue
       desiredPixels++
       const drafted = draft?.[tileAt] ?? UNPAINTED
-      const placed = drafted === UNPAINTED ? pixels[tileAt] : drafted
-      const matches =
-        kind === 'unpainted' ? placed === UNPAINTED : placed !== UNPAINTED && placed !== wanted
-      if (!matches) continue
+      const placed = drafted === UNPAINTED ? (pixels[tileAt] as number) : drafted
+      if (classifyPixel(wanted, placed, UNPAINTED) !== sought) continue
       matchingPixels++
       if (
         exclude?.templateId === candidate.template.id &&
