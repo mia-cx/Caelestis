@@ -1,12 +1,7 @@
 import type { Manifest, ServerInfo, Template, TemplateStatus } from '@caelestis/shared'
 import { API_VERSION_PATH, progressFromStatus, serverAssetPath } from '@caelestis/shared'
-import {
-  DEFAULT_SOCIAL_IMAGE,
-  SOCIAL_IMAGE_HEIGHT,
-  SOCIAL_IMAGE_WIDTH,
-  socialImageKey,
-} from '@caelestis/social'
-import type { ObjectInfo, ObjectStorage } from '@caelestis/storage'
+import { DEFAULT_SOCIAL_IMAGE, SOCIAL_IMAGE_HEIGHT, SOCIAL_IMAGE_WIDTH } from '@caelestis/social'
+import type { ObjectInfo } from '@caelestis/storage'
 import { READ_PROXY } from '#lib/deployment.js'
 import { pageTitle } from '#lib/server-info.js'
 import { discordComponentEmbed } from './discord-embed.js'
@@ -54,10 +49,9 @@ const configuredPreview = (url: URL, server: ServerInfo | null): SocialImage | n
 export const socialMetadata = async (
   url: URL,
   context: SocialContext,
-  images?: Pick<ObjectStorage, 'head'>,
   ensureImage?: (template: Template) => Promise<ObjectInfo | null>,
 ) => {
-  const metadata = await pageMetadata(url, context, images, ensureImage)
+  const metadata = await pageMetadata(url, context, ensureImage)
   return {
     ...metadata,
     discordEmbed: discordComponentEmbed(metadata, context.server?.discordInviteUrl),
@@ -67,7 +61,6 @@ export const socialMetadata = async (
 const pageMetadata = async (
   url: URL,
   context: SocialContext,
-  images?: Pick<ObjectStorage, 'head'>,
   ensureImage?: (template: Template) => Promise<ObjectInfo | null>,
 ) => {
   const { server, manifest, statuses } = context
@@ -107,7 +100,7 @@ const pageMetadata = async (
   }
   if (kind !== 'artwork') return metadata
   const template = manifest?.templates.find((entry) => entry.id === id && entry.published)
-  if (template === undefined || manifest === null) return metadata
+  if (template === undefined) return metadata
   metadata.title = pageTitle(server?.name, template.name)
   const progress = progressFromStatus(
     template.totalPixels,
@@ -118,9 +111,7 @@ const pageMetadata = async (
       ? ''
       : ` ${Math.round((progress.completed / progress.total) * 100)}% painted correctly.`
   metadata.description = `${template.totalPixels.toLocaleString('en-US')} pixels on Wplace.${painted} Watch the timelapse and follow its progress.`
-  const image = ensureImage
-    ? await ensureImage(template)
-    : await images?.head(socialImageKey(manifest.season, template))
+  const image = await ensureImage?.(template)
   if (image != null) {
     const imageUrl = new URL(`/social/template/${encodeURIComponent(template.id)}.gif`, url.origin)
     imageUrl.searchParams.set('v', image.etag)

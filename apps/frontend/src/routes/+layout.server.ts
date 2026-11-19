@@ -42,7 +42,6 @@ export const load: LayoutServerLoad = async (event) => {
       social = await socialMetadata(
         url,
         bootstrap,
-        event.locals.objectStorage,
         manifest ? (template) => ensureSocialImage(backend, manifest.season, template) : undefined,
       )
     } catch (error) {

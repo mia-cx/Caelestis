@@ -374,8 +374,9 @@ describe('public social metadata and stored image routes', () => {
         manifest: data,
         statuses: [{ templateId: template().id, correct: 2, total: 4 } as TemplateStatus],
       }
-      const images = { head: async () => ({ etag: 'gif-1' }) as ObjectInfo }
-      const animated = embedOf(await socialMetadata(url, context, images))
+      const animated = embedOf(
+        await socialMetadata(url, context, async () => ({ etag: 'gif-1' }) as ObjectInfo),
+      )
       expect(text(animated)).toContain('4 pixels on Wplace. 50% painted correctly.')
       expect(gallery(animated)).toEqual([
         {
@@ -383,7 +384,7 @@ describe('public social metadata and stored image routes', () => {
           description: 'Painting timelapse of Artwork on Wplace',
         },
       ])
-      const still = embedOf(await socialMetadata(url, context, { head: async () => null }))
+      const still = embedOf(await socialMetadata(url, context, async () => null))
       expect(gallery(still)).toEqual([
         {
           media: { url: 'https://frontend.test/social/site.png' },
