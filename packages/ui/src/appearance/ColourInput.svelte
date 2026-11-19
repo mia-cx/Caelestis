@@ -36,6 +36,7 @@
 
 <script lang="ts">
   import { tick } from 'svelte'
+  import { commitOnGestureEnd } from '../foundations/gesture.js'
 
   interface Props {
     label: string
@@ -53,8 +54,6 @@
   let hsv = $state<Hsv>({ h: 0, s: 0, v: 0 })
   let pending = $state<string | null>(null)
   let hex = $state('')
-  let squareKeyHeld = false
-  let hueKeyHeld = false
 
   const hueHex = (h: number): string => hsvToHex({ h, s: 1, v: 1 })
   const current = $derived(hsvToHex(hsv))
@@ -131,7 +130,6 @@
     const delta = movement[event.key]
     if (delta === undefined) return
     event.preventDefault()
-    squareKeyHeld = true
     preview({ ...hsv, s: clamp(hsv.s + delta[0], 0, 1), v: clamp(hsv.v + delta[1], 0, 1) })
   }
 
@@ -189,12 +187,8 @@
       style:background={squareBackground}
       onpointerdown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); event.currentTarget.focus(); fromPoint(event) }}
       onpointermove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) fromPoint(event) }}
-      onpointerup={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) commit() }}
-      onpointercancel={commit}
-      onlostpointercapture={commit}
       onkeydown={squareKey}
-      onkeyup={(event) => { if (squareKeyHeld && event.key.startsWith('Arrow')) { squareKeyHeld = false; commit() } }}
-      onblur={commit}
+      {@attach commitOnGestureEnd(commit)}
     >
       <span class="handle" style:left={`${hsv.s * 100}%`} style:top={`${(1 - hsv.v) * 100}%`} style:background={current}></span>
     </div>
@@ -206,11 +200,8 @@
       step="1"
       aria-label="Hue"
       value={Math.round(hsv.h)}
-      onkeydown={(event) => { if (event.key.startsWith('Arrow') || ['Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) hueKeyHeld = true }}
       oninput={(event) => preview({ ...hsv, h: Number(event.currentTarget.value) })}
-      onchange={() => { if (!hueKeyHeld) commit() }}
-      onkeyup={() => { if (hueKeyHeld) { hueKeyHeld = false; commit() } }}
-      onblur={commit}
+      {@attach commitOnGestureEnd(commit)}
     />
     <div class="bottom">
       <span class="preview" style:background={current}></span>

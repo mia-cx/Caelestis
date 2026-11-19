@@ -163,6 +163,7 @@ describe('claim and appearance intent boundaries', () => {
         props: { model, onIntent: (intent: AppearanceEditorIntent) => intents.push(intent) },
       }),
     )
+    await tick()
     const ownership = target.querySelector(
       'input[aria-label="Use default pixels"]',
     ) as HTMLInputElement

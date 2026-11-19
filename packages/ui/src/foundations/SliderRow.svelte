@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { commitOnGestureEnd } from './gesture.js'
   import Icon from './Icon.svelte'
   import SliderStyles from './SliderStyles.svelte'
 
@@ -40,7 +41,6 @@
 
   let local = $state(0)
   let dirty = $state(false)
-  let keyHeld = $state(false)
   $effect(() => { local = value })
 
   const input = (): void => {
@@ -78,18 +78,9 @@
       style:--fill={`${max === min ? 0 : ((local - min) / (max - min)) * 100}%`}
       bind:value={local}
       oninput={input}
-      onchange={() => { if (!keyHeld) commit() }}
       onpointerdown={(event) => { if (disabled) event.preventDefault() }}
-      onkeydown={(event) => {
-        if (disabled) event.preventDefault()
-        else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) keyHeld = true
-      }}
-      onkeyup={(event) => {
-        if (!keyHeld || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) return
-        keyHeld = false
-        commit()
-      }}
-      onblur={() => setTimeout(commit, 0)}
+      onkeydown={(event) => { if (disabled) event.preventDefault() }}
+      {@attach commitOnGestureEnd(commit)}
     />
     <span class="readout">{format(local)}</span>
     {#if resettable}<button
