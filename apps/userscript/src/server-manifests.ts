@@ -8,7 +8,7 @@ import {
 import { warn } from './debug.js'
 import { withManifestReadSlot } from './manifest-order.js'
 import { PerServerMap } from './per-server-map.js'
-import { cacheServer, forgetServer, loadServerCache } from './server-cache.js'
+import { cacheServer, forgetCachedServer, loadServerCache } from './server-cache.js'
 import {
   type ConnectedServer,
   isConnected,
@@ -539,5 +539,5 @@ onServerRemoved(async (serverUrl) => {
   latestResponse.forget(serverUrl)
   const forgotten = held.forget(serverUrl)
   if (forgotten.size > 0) nodesRevision++
-  await forgetServer(serverUrl)
+  await forgetCachedServer(serverUrl)
 })

@@ -137,7 +137,7 @@ export const cacheServer = async (entry: CachedServer): Promise<void> => {
   await run('readwrite', (store) => store.put(stored))
 }
 
-export const forgetServer = async (url: string): Promise<void> => {
+export const forgetCachedServer = async (url: string): Promise<void> => {
   await run('readwrite', (store) => store.delete(url))
 }
 
