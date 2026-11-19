@@ -6,7 +6,7 @@ import {
   tileKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { count } from '../debug.js'
+import { notifyEach } from '../page-hooks.js'
 import { getState, type State } from '../settings.js'
 import {
   displayTemplates,
@@ -89,15 +89,12 @@ export const wantsTilePixels = (tile: TileCoord): boolean => {
 const captureScopeListeners = new Set<() => void>()
 
 /** Tell capture its scope grew. One throwing listener must not stop the others. */
-export const announceCaptureScope = (): void => {
-  for (const listener of captureScopeListeners) {
-    try {
-      listener()
-    } catch {
-      count('mismatch:capture-scope-listener-failed')
-    }
-  }
-}
+export const announceCaptureScope = (): void =>
+  notifyEach(
+    captureScopeListeners,
+    (listener) => listener(),
+    'mismatch:capture-scope-listener-failed',
+  )
 
 /** Notified synchronously when progress adds a tile to what capture wants. */
 export const onCaptureScopeChange = (listener: () => void): (() => void) => {
