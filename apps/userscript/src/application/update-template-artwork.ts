@@ -17,21 +17,19 @@ import { getState } from '../settings.js'
 import { captureCurrentArtwork, captureTemplateArea } from '../templates/current-artwork.js'
 import {
   isCurrentTemplate,
-  isDeletingLocal,
   isServerTemplate,
   type PlacedTemplate,
   replaceLocalArtwork,
   templateById,
   templatePixels,
 } from '../templates/local-store.js'
-import { movingId } from '../templates/move.js'
 import { requestConfirmation, showToast } from '../ui/notification-host.js'
+import { holdUpdating, templateBusy } from './template-busy.js'
 
-const pending = new Set<string>()
 const confirming = new Set<string>()
 
 /** Whether either template menu is already capturing or saving this template. */
-export const isUpdatingTemplateArtwork = (id: string): boolean => pending.has(id)
+export const isUpdatingTemplateArtwork = (id: string): boolean => templateBusy(id, 'updating')
 
 /**
  * Save captured art as a new target version without submitting paint events. `capture` reads the
@@ -41,8 +39,8 @@ const updateArtwork = async (
   id: string,
   capture: (template: PlacedTemplate) => Promise<Uint8Array | null>,
 ): Promise<boolean> => {
-  if (pending.has(id)) throw new Error('This template is already being updated.')
-  pending.add(id)
+  if (templateBusy(id, 'updating')) throw new Error('This template is already being updated.')
+  const release = holdUpdating(id)
   try {
     const template = templateById(id)
     if (template === undefined)
@@ -52,9 +50,9 @@ const updateArtwork = async (
       ? getState().servers.find((candidate) => candidate.url === template.serverUrl)
       : undefined
     const checkCurrent = (): void => {
-      if (!isCurrentTemplate(template) || isDeletingLocal(id))
+      if (!isCurrentTemplate(template) || templateBusy(id, 'deleting'))
         throw new Error('That template changed during the update. Try again.')
-      if (movingId() === id || (template.source === 'image' && !template.everPlaced))
+      if (templateBusy(id, 'placing') || (template.source === 'image' && !template.everPlaced))
         throw new Error('Finish placing this template before updating it.')
       if (!isServerTemplate(template)) return
       if (
@@ -105,13 +103,13 @@ const updateArtwork = async (
     if (!result.ok) throw new Error(result.message)
     return true
   } finally {
-    pending.delete(id)
+    release()
   }
 }
 
 /** Confirm the target change before either menu starts capturing or saving artwork. */
 export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): void => {
-  if (confirming.has(id) || pending.has(id)) return
+  if (confirming.has(id) || templateBusy(id, 'updating')) return
   const template = templateById(id)
   if (template === undefined) return
   let trigger = document.activeElement

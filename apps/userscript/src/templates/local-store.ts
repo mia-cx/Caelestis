@@ -661,6 +661,9 @@ export const leaseLocalTemplate = (id: string): (() => void) | null => {
   }
 }
 
+/** Whether a lease from `leaseLocalTemplate` is keeping `id` from being deleted. */
+export const isLeasedLocal = (id: string): boolean => (deletionLeases.get(id) ?? 0) > 0
+
 let displayOrderCache:
   | {
       readonly customOrder: readonly string[]
@@ -2241,7 +2244,7 @@ export const removeLocalTemplate = async (id: string): Promise<boolean> => {
   // Local deletion must never make one disappear temporarily and then reappear on the next poll.
   if (isServerTemplate(existing)) return false
   if (deleting.has(id)) return false
-  if ((deletionLeases.get(id) ?? 0) > 0) return false
+  if (isLeasedLocal(id)) return false
   // Terminal immediately: in-flight scans and newly requested mutations must not queue a save
   // behind this delete and resurrect the record.
   deleting.add(id)
