@@ -1,4 +1,4 @@
-import { isStoredBlob, isUint8Array } from '../page-world.js'
+import { isStoredBlob, isUint8Array } from '../cross-realm.js'
 
 /** Old persisted palette indices mapped to wplace's authoritative current ordering. */
 const OLD_TO_CURRENT = [

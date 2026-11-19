@@ -1,15 +1,16 @@
 import {
-  HANDED_OFF_KEY,
+  handedOff,
   linkOtherBuild,
   meetOtherBuild,
+  recoverFromMissingExtension,
   serveOtherBuild,
 } from './build-transfer.js'
-import { claimPage, isPageClaimed } from './page-claim.js'
-import { pageWindow } from './page-world.js'
+import { claimPage } from './page-claim.js'
+import { RAN_ATTRIBUTE } from './page-markers.js'
 import { connectStorageBridge } from './storage-bridge/connect.js'
-import { canServeManagerStorage, managerStore } from './storage-bridge/manager-store.js'
+import { managerStore } from './storage-bridge/manager-store.js'
 import { serveStorageBridge } from './storage-bridge/serve.js'
-import { deleteStoredValue, storedValue } from './stored-values.js'
+import { canServeManagerStorage } from './stored-values.js'
 
 /**
  * The userscript's entrypoint, run twice: once by the userscript manager, once in the page.
@@ -37,8 +38,6 @@ declare const caelestis: (world: PageWorld) => void
 /** The page copy that runs Caelestis if it can claim the page, or one that only serves its values. */
 type PageWorld = 'page' | 'standby'
 
-const RAN = 'data-caelestis-ran'
-
 const application = () => import('./main.js')
 
 /** Run the page copy, served by this copy. False when it has to stay here. */
@@ -56,32 +55,15 @@ const moveIntoPage = (pageWorld: PageWorld): boolean => {
     console.warn('[caelestis] could not start in the page', error)
   }
   // A page that refuses inline scripts never ran it.
-  if (script.hasAttribute(RAN)) return true
+  if (script.hasAttribute(RAN_ATTRIBUTE)) return true
   stop()
   return false
 }
 
-/** Whether this userscript handed over to the extension. Read in the manager's world. */
-const handedOff = (): boolean => {
-  try {
-    return storedValue(HANDED_OFF_KEY) === 'true'
-  } catch {
-    return false
-  }
-}
-
-/** Run again on this copy's own values once the page loads without the extension. */
-const recoverFromMissingExtension = (): void =>
-  pageWindow().addEventListener('load', () => {
-    // Wplace's own frames run userscripts but never the extension, so only the top page decides.
-    if (isPageClaimed() || pageWindow().top !== pageWindow()) return
-    deleteStoredValue(HANDED_OFF_KEY)
-    pageWindow().location.reload()
-  })
-
-if (world !== 'manager') {
+/** The page copy: run Caelestis if it claims the page, otherwise serve its values to the build that did. */
+const runInPage = (pageWorld: PageWorld): void => {
   // Inline scripts run as they are inserted, so the manager's copy reads this before removing it.
-  document.currentScript?.setAttribute(RAN, '')
+  document.currentScript?.setAttribute(RAN_ATTRIBUTE, '')
   const other = meetOtherBuild()
   void application().then(({ installPageHooks, installUserscriptFeatures }) => {
     const claimed = connectStorageBridge(
@@ -94,11 +76,14 @@ if (world !== 'manager') {
         installUserscriptFeatures()
         if (other !== null) linkOtherBuild(other, 'userscript', false)
       },
-      world === 'standby',
+      pageWorld === 'standby',
     )
     if (claimed) installPageHooks()
   })
-} else if (handedOff()) {
+}
+
+if (world !== 'manager') runInPage(world)
+else if (handedOff()) {
   console.info('[caelestis] this userscript handed over to the extension, so it stays off')
   moveIntoPage('standby')
   recoverFromMissingExtension()

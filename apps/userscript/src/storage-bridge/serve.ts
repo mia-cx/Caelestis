@@ -1,6 +1,6 @@
-import type { Build } from '../page-claim.js'
+import { BRIDGE_HANDOFF, type Build } from '../page-markers.js'
 import { pageWindow } from '../page-world.js'
-import { BRIDGE_HANDOFF, type BridgeMessage, type PageMessage } from './protocol.js'
+import type { BridgeMessage, PageMessage } from './protocol.js'
 
 /** Where a build keeps its stored strings, seen from its storage world. */
 export interface StringStore {

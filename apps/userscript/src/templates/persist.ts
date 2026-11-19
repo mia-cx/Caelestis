@@ -8,8 +8,8 @@ import {
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import { isStoredBlob, isUint8Array, type StoredBlob } from '../cross-realm.js'
 import { warn } from '../debug.js'
-import { isStoredBlob, isUint8Array, type StoredBlob } from '../page-world.js'
 import type { Appearance, AppearanceGroup } from './appearance.js'
 import { storedAuthoring } from './authoring.js'
 import {

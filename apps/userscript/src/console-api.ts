@@ -1,3 +1,4 @@
+import { CONSOLE_PROPERTY } from './page-markers.js'
 import { pageWindow } from './page-world.js'
 
 /** The page's `__caelestis` console object. Each module adds its own entries as it installs. */
@@ -11,7 +12,7 @@ export const registerDebugEntry = (name: string, entry: unknown): void => {
 /** Put `__caelestis` on the page's global; entries registered later appear on it as they arrive. */
 export const exposeDebugApi = (): void => {
   try {
-    Object.defineProperty(pageWindow(), '__caelestis', {
+    Object.defineProperty(pageWindow(), CONSOLE_PROPERTY, {
       value: api,
       writable: true,
       configurable: true,

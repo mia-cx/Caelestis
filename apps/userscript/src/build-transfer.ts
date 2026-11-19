@@ -1,5 +1,6 @@
 import { warn } from './debug.js'
-import type { Build } from './page-claim.js'
+import { isPageClaimed } from './page-claim.js'
+import { type Build, MEETING_PROPERTY } from './page-markers.js'
 import { pageWindow } from './page-world.js'
 import {
   deleteStoredValue,
@@ -22,7 +23,25 @@ import {
  */
 
 /** Set in the userscript once the extension stored its values; it then yields to it. */
-export const HANDED_OFF_KEY = `${LOCAL_KEY_PREFIX}handed-off`
+const HANDED_OFF_KEY = `${LOCAL_KEY_PREFIX}handed-off`
+
+/** Whether this userscript handed over to the extension. Read in the manager's world. */
+export const handedOff = (): boolean => {
+  try {
+    return storedValue(HANDED_OFF_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+/** Take this userscript back from the extension, on its own values, if the page loads without it. */
+export const recoverFromMissingExtension = (): void =>
+  pageWindow().addEventListener('load', () => {
+    // Wplace's own frames run userscripts but never the extension, so only the top page decides.
+    if (isPageClaimed() || pageWindow().top !== pageWindow()) return
+    deleteStoredValue(HANDED_OFF_KEY)
+    pageWindow().location.reload()
+  })
 
 /** Set while values from the other build are being stored, and cleared once all of them are. */
 const RECEIVING_KEY = `${LOCAL_KEY_PREFIX}receiving`
@@ -44,8 +63,6 @@ const receive = async (values: Record<string, string>): Promise<void> => {
   deleteStoredValue(RECEIVING_KEY)
   await syncStoredValues()
 }
-
-const MEETING = '__caelestisMeeting'
 
 /** Whether the parser has started the page: every Wplace script lives in its head or body. */
 const pageStarted = (): boolean => document.head !== null || document.body !== null
@@ -70,8 +87,8 @@ export const meetOtherBuild = (
   page: object = pageWindow() as unknown as object,
 ): MessagePort | null => {
   if (pageStarted()) return null
-  if (MEETING in page) {
-    const offered: unknown = Reflect.get(page, MEETING)
+  if (MEETING_PROPERTY in page) {
+    const offered: unknown = Reflect.get(page, MEETING_PROPERTY)
     return offered === undefined ? null : (offered as MessagePort)
   }
   const channel = new MessageChannel()
@@ -83,7 +100,7 @@ export const meetOtherBuild = (
   const observer = new MutationObserver(() => {
     if (pageStarted()) close()
   })
-  Object.defineProperty(page, MEETING, {
+  Object.defineProperty(page, MEETING_PROPERTY, {
     get: () => {
       const taken = offer
       close()
@@ -176,20 +193,21 @@ export const sendToOtherBuild = async (): Promise<void> => {
 
 /**
  * The first switch, with no button: the userscript's values fill an extension still awaiting its
- * settings, and only once the extension stored all of them does the userscript yield.
+ * settings, and only once the extension stored all of them does the userscript yield. Whichever of
+ * the two runs Caelestis on this page moves the values; `otherAwaiting` is the other's answer.
  */
-const handOff = async (running: Build, from: Build, empty: boolean, awaiting: boolean) => {
-  if (running === 'extension' && from === 'userscript' && awaiting && !empty) {
+const handOff = async (running: Build, otherAwaiting: boolean, awaiting: boolean) => {
+  if (running === 'extension') {
+    if (!awaiting || otherAwaiting) return
     await receive(await ask({ type: 'read', id: ++lastRequest }))
     await ask({ type: 'hand-off', id: ++lastRequest })
-    pageWindow().location.reload()
-  } else if (running === 'userscript' && from === 'extension' && empty) {
-    if (Object.keys(portableValues()).length === 0) return
+  } else {
+    if (!otherAwaiting || Object.keys(portableValues()).length === 0) return
     await sendToOtherBuild()
     storeValue(HANDED_OFF_KEY, 'true')
     await syncStoredValues()
-    pageWindow().location.reload()
   }
+  pageWindow().location.reload()
 }
 
 /**
@@ -207,7 +225,7 @@ export const linkOtherBuild = (port: MessagePort, running: Build, awaiting: bool
     link = port
     other = reply.build
     for (const listener of listeners) listener()
-    handOff(running, reply.build, reply.empty, awaiting).catch((error: unknown) =>
+    handOff(running, reply.empty, awaiting).catch((error: unknown) =>
       warn('install', 'could not hand settings over', String(error)),
     )
   }

@@ -25,9 +25,17 @@ const manager = globalThis as typeof globalThis & {
   GM_setValue?: (key: string, value: string) => void
   GM_deleteValue?: (key: string) => void
   GM_listValues?: () => string[]
+  GM_addValueChangeListener?: (
+    key: string,
+    listener: (key: string, before: unknown, after: unknown, remote: boolean) => void,
+  ) => unknown
 }
 
-const managerValues: StoredValues = {
+/**
+ * The userscript manager's `GM_*` storage, read and written directly. Without any manager storage,
+ * as in a page-world dev harness or a test, `localStorage` stands in.
+ */
+export const managerValues: StoredValues = {
   get(key) {
     if (typeof manager.GM_getValue !== 'function') return localStorage.getItem(key)
     const value = manager.GM_getValue(key, null)
@@ -45,6 +53,20 @@ const managerValues: StoredValues = {
     if (typeof manager.GM_listValues === 'function') return manager.GM_listValues()
     return Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index) ?? '')
   },
+}
+
+/**
+ * Whether the manager's storage can be served over the storage bridge: it needs listing for the
+ * snapshot. `localStorage` always can.
+ */
+export const canServeManagerStorage = (): boolean =>
+  manager.GM_getValue === undefined || manager.GM_listValues !== undefined
+
+/** Run `listener` with each value another tab writes to `key` in the manager's storage. */
+export const watchManagerValue = (key: string, listener: (value: string | null) => void): void => {
+  manager.GM_addValueChangeListener?.(key, (_key, _before, after, remote) => {
+    if (remote) listener(typeof after === 'string' ? after : null)
+  })
 }
 
 let backing = managerValues

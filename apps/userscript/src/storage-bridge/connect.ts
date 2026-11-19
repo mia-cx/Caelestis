@@ -1,6 +1,7 @@
-import { type Build, claimPage } from '../page-claim.js'
+import { claimPage } from '../page-claim.js'
+import { BRIDGE_HANDOFF, type Build } from '../page-markers.js'
 import { useStoredValues } from '../stored-values.js'
-import { BRIDGE_HANDOFF, type BridgeMessage, type PageMessage } from './protocol.js'
+import type { BridgeMessage, PageMessage } from './protocol.js'
 
 /**
  * Claim the page for `build`, unless `standby`, and take its stored values over the storage bridge.

@@ -1,5 +1,5 @@
+import { isStoredBlob } from '../cross-realm.js'
 import { warn } from '../debug.js'
-import { isStoredBlob } from '../page-world.js'
 import { openTemplateDatabase, SERVER_PIXELS_STORE } from './persist.js'
 import { cutPixels, packPixels, type SparsePixels, unpackPixels } from './sparse-pixels.js'
 

@@ -4,7 +4,7 @@ import {
   sha256Hex,
   type TemplateRecipe,
 } from '@caelestis/shared'
-import { isStoredBlob } from '../page-world.js'
+import { isStoredBlob } from '../cross-realm.js'
 
 /** Authoring inputs kept beside a template's processed indices. */
 export interface TemplateAuthoring {
