@@ -7,6 +7,7 @@ import { templateById } from '../templates/catalog.js'
 import { templateAsPng } from '../templates/residency.js'
 import { serverTemplateKey } from '../tree-keys.js'
 import { closeDialogHost } from './dialog.js'
+import { deepActiveElement } from './focus.js'
 import { applyWplaceTheme } from './theme.js'
 import type { TreeTarget } from './tree-context.js'
 
@@ -34,17 +35,14 @@ export const openBackfill = (target: TreeTarget): void => {
     return
   closeBackfill?.()
   const element = document.createElement(BACKFILL_TAG)
-  let focused = document.activeElement
-  while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement
+  const focused = deepActiveElement()
   const focusRoot = focused?.getRootNode()
   const rowSelector = `[data-caelestis-tree-key="${CSS.escape(target.key)}"]`
   const treeRoot =
     focusRoot instanceof ShadowRoot
       ? focusRoot
       : document.querySelector('caelestis-panel')?.shadowRoot
-  const restoreFocus =
-    treeRoot?.querySelector<HTMLElement>(rowSelector) ??
-    (focused instanceof HTMLElement ? focused : null)
+  const restoreFocus = treeRoot?.querySelector<HTMLElement>(rowSelector) ?? focused
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false

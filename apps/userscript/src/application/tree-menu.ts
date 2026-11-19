@@ -11,6 +11,10 @@ import { exportFilename, templateAsWplace } from '../templates/wplace-export.js'
 import { localTemplateIdOf, serverTemplateKey } from '../tree-keys.js'
 import { openBackfill } from '../ui/backfill.js'
 import { showToast } from '../ui/notification-host.js'
+import {
+  requestTemplateAreaUpdate,
+  requestTemplateArtworkUpdate,
+} from '../ui/template-artwork-update.js'
 import type { TreeTarget } from '../ui/tree-context.js'
 import { startRenaming } from '../ui/tree-view-state.js'
 import { canClaimTemplate, claimTemplate, hasOwnTemplateClaim } from '../ui/work.js'
@@ -32,10 +36,6 @@ import {
   templateStateOf,
 } from './tree-server-template.js'
 import { hiddenNotice, surfaceOf } from './tree-target.js'
-import {
-  requestTemplateAreaUpdate,
-  requestTemplateArtworkUpdate,
-} from './update-template-artwork.js'
 
 /** `.wplace` carries placement and authoring for Wplace and Caelestis; `.png` is the artwork alone. */
 const exportTemplate = async (target: TreeTarget, format: 'wplace' | 'png'): Promise<void> => {

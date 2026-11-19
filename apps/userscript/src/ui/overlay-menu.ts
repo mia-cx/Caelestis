@@ -17,7 +17,6 @@ import {
 } from '@caelestis/ui/motion'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { templateBusy } from '../application/template-busy.js'
-import { requestTemplateArtworkUpdate } from '../application/update-template-artwork.js'
 import { ALLIANCE_PANEL_ID, ALLIANCE_RAIL_ID, PANEL_ID } from '../chrome-ids.js'
 import type { ScreenProjection } from '../coordinates.js'
 import { log } from '../debug.js'
@@ -39,6 +38,7 @@ import {
 } from '../templates/move.js'
 import { OPEN_DIALOG } from '../wplace-dom.js'
 import { handleAppearanceIntent } from './appearance.js'
+import { deepActiveElement } from './focus.js'
 import { CLEAR_OF_RAIL, EDGE, GAP, RAIL_BUTTON } from './metrics.js'
 import {
   actionIds,
@@ -62,6 +62,7 @@ import {
 import { allianceRailTop } from './panel-scope.js'
 import { mountRailButton } from './rail-button.js'
 import { createRangeGestures } from './range-gestures.js'
+import { requestTemplateArtworkUpdate } from './template-artwork-update.js'
 import { applyWplaceTheme } from './theme.js'
 import { findWplaceRightControls, onWplaceLayoutChange } from './wplace-rail.js'
 
@@ -753,16 +754,6 @@ const controlIn = (menu: HTMLElement, key: string): HTMLElement | null => {
 
 const builtControl = (menu: HTMLElement, key: string): HTMLElement | null =>
   controlIn(menu, key) ?? railActions.find((action) => action.dataset[CONTROL] === key) ?? null
-
-const deepActiveElement = (): HTMLElement | null => {
-  let active = document.activeElement
-  while (active instanceof HTMLElement) {
-    const nested = active.shadowRoot?.activeElement
-    if (!(nested instanceof HTMLElement)) break
-    active = nested
-  }
-  return active instanceof HTMLElement ? active : null
-}
 
 const focusControl = (control: HTMLElement | null): void => {
   const target = control?.shadowRoot?.querySelector<HTMLElement>('[data-caelestis-control], button')
