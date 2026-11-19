@@ -20,6 +20,8 @@ Add one new Changeset file for each atomic, user-visible change. Target every af
 app: userscript (which also covers the browser extension), frontend, or backend. Never target shared, ui, or wire-schema. Use one short summary
 sentence. Add nested bullets only for closely related parts of the same change. Keep pending
 Changeset files immutable so each released top-level bullet stays linked to its own commit.
+A pull request with a Changeset links its issue as `Ships #N`, never `Closes #N`, so the release
+pull request closes the issue when the change ships.
 
 <!-- BEGIN:turborepo-agent-rules -->
 

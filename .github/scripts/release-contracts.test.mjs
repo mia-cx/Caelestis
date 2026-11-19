@@ -15,6 +15,7 @@ import { postReleaseAnnouncement, releaseAnnouncementPayloads } from './post-rel
 import { prepareAppRelease } from './prepare-app-release.mjs'
 import { portableImages, portableVersion } from './prepare-portable-release.mjs'
 import { prepareUserscriptRelease } from './prepare-userscript-release.mjs'
+import { releaseBody, shippedIssues } from './release-issues.mjs'
 import { isReleaseMerge, releaseValidated } from './release-merge.mjs'
 import { releaseNotesFor } from './release-notes.mjs'
 import { userscriptMetricVersions } from './userscript-metric-versions.mjs'
@@ -626,4 +627,22 @@ test('Firefox skips a missing public listing even when configured credentials ar
     },
   )
   assert.match(output, /has no addons.mozilla.org listing yet; skipping Firefox/)
+})
+
+test('the release PR closes exactly the issues its pull requests ship, once per rewrite', () => {
+  const cases = [
+    ['Ships #835', [835]],
+    ['Ships [#835](https://github.com/mia-cx/Caelestis/issues/835)', [835]],
+    ['ships https://github.com/mia-cx/Caelestis/issues/835 and Ships #12', [835, 12]],
+    ['Closes #835\nPart of [#685](https://github.com/mia-cx/Caelestis/issues/685)', []],
+    [null, []],
+  ]
+  for (const [body, issues] of cases) assert.deepEqual(shippedIssues(body), issues, String(body))
+
+  const action = '# Releases\n## @caelestis/userscript@1.1.0\n'
+  const once = releaseBody(action, [12, 835])
+  assert.match(once, /\nCloses #12\nCloses #835\n$/)
+  // changesets/action rewrites the body on every push to main, and a rerun may also see it already listed.
+  assert.equal(releaseBody(once, [12, 835]), once)
+  assert.equal(releaseBody(once, []), action)
 })

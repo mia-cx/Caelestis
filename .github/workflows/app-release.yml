@@ -35,6 +35,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: read
       actions: read
     outputs:
       release: ${{ steps.release.outputs.release }}
@@ -155,6 +156,13 @@ jobs:
           pr-base-branch: main
           create-github-releases: false
           push-git-tags: false
+
+      - name: List the issues the release closes
+        if: steps.changesets.outputs.pr-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.changesets.outputs.pr-number }}
+        run: node .github/scripts/release-issues.mjs "$RELEASE_PR" "$GITHUB_REPOSITORY"
 
   deploy:
     name: Deploy approved release

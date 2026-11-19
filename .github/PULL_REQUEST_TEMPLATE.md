@@ -1,4 +1,5 @@
 <!-- Keep this pull request to one coherent change. -->
+<!-- With a Changeset, write "Ships #N": the release pull request closes the issue when it ships. -->
 
 Closes #
 

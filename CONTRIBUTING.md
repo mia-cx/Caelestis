@@ -83,7 +83,9 @@ tests, and internal maintenance do not need a Changeset.
 
 ## Pull requests
 
-- Link the issue the pull request completes with `Closes #N`.
+- Link the issue the pull request completes. Write `Ships #N` when the pull request adds a
+  Changeset: the issue stays open until the release pull request merges and closes it. Write
+  `Closes #N` otherwise.
 - Use a conventional title such as `fix(userscript): preserve template placement`.
 - Rebase on the latest `main` and keep unrelated changes out of the branch.
 - Describe the problem, the outcome, and the checks you ran.
