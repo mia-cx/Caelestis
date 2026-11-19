@@ -1,4 +1,12 @@
-import { type Millis, millis, PngError, SliceError, type TemplateSurface } from '@caelestis/shared'
+import {
+  type Millis,
+  millis,
+  PngError,
+  parseInteger,
+  parseWholeNumber,
+  SliceError,
+  type TemplateSurface,
+} from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { TemplatePatch } from '../ports/index.js'
 import {
@@ -38,8 +46,6 @@ type TemplateError =
   | ResourceConflictError
   | BackendStorageError
 
-const WHOLE_NUMBER = /^(0|[1-9]\d*)$/
-
 /**
  * Presence carries region hints only for published templates. A publication change re-sends the
  * list; a failed send never undoes the change it follows.
@@ -49,13 +55,6 @@ const republishRegions = (season: number, surface: TemplateSurface) =>
     const presence = yield* PresenceService
     yield* Effect.promise(() => presence.publishRegions(season, surface).catch(console.error))
   })
-const INTEGER = /^(?:0|-?[1-9]\d*)$/
-
-const parseInteger = (value: unknown, signed: boolean): number | null => {
-  if (typeof value !== 'string' || !(signed ? INTEGER : WHOLE_NUMBER).test(value)) return null
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
-}
 
 const templateFailure = (operation: string, cause: unknown): TemplateError => {
   if (
@@ -188,8 +187,8 @@ export const replaceTemplateVersion = (input: {
       return yield* Effect.fail(new ResourceNotFoundError({ message: 'not found' }))
     }
     const signed = existing.surface.kind !== 'world'
-    const originX = parseInteger(input.originX, signed)
-    const originY = parseInteger(input.originY, signed)
+    const originX = signed ? parseInteger(input.originX) : parseWholeNumber(input.originX)
+    const originY = signed ? parseInteger(input.originY) : parseWholeNumber(input.originY)
     if (originX === null || originY === null) {
       return yield* Effect.fail(
         new RequestValidationError({

@@ -1,4 +1,5 @@
 import type { BoundingBox } from './manifest.js'
+import { parseWholeNumber } from './numbers.js'
 
 /**
  * wplace serves the world canvas as PNG tiles from
@@ -33,23 +34,14 @@ export type TileKey = `${number}/${number}`
 
 export const tileKey = (t: TileCoord): TileKey => `${t.x}/${t.y}`
 
-/**
- * Matched against each segment rather than parsing with `Number`, which accepts far too much:
- * `Number('')` is 0, so an empty segment would silently become tile 0, and `Number(' 1')` and
- * `Number('1e3')` both parse cleanly into coordinates nobody wrote.
- */
-const CANONICAL_NON_NEGATIVE_INTEGER = /^(0|[1-9]\d*)$/
-
 export const parseTileKey = (key: string): TileCoord | null => {
   const parts = key.split('/')
   if (parts.length !== 2) return null
 
-  const [x, y] = parts
-  if (x === undefined || y === undefined) return null
-  if (!CANONICAL_NON_NEGATIVE_INTEGER.test(x) || !CANONICAL_NON_NEGATIVE_INTEGER.test(y))
-    return null
+  const [x, y] = parts.map(parseWholeNumber)
+  if (x == null || y == null) return null
 
-  const tile = { x: Number(x), y: Number(y) }
+  const tile = { x, y }
   if (tile.x >= WORLD_TILES || tile.y >= WORLD_TILES) return null
   return tile
 }

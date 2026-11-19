@@ -23,6 +23,8 @@ import {
   MAX_LIVE_BINARY_PAYLOAD_BYTES,
   MAX_LIVE_MESSAGE_BYTES,
   parseTileKey,
+  type Scope,
+  satisfiesScope,
   seconds,
   sha256Hex,
   type TileCoord,
@@ -36,7 +38,6 @@ import {
   PaintEvent as PaintEventSchema,
 } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
-import { type Scope, satisfiesScope } from './auth/tokens.js'
 import type { CoordinatorStorage } from './coordination/database.js'
 import {
   createSeasonManifestReadModel,

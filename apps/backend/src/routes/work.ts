@@ -1,8 +1,10 @@
 import {
+  isUuidV7,
   isWorkFields,
   isWorkIdentity,
   MAX_RASTER_BITS,
   MAX_REGION_ITEMS,
+  parseWholeNumber,
   templateSurface,
   type WorkMutation,
 } from '@caelestis/shared'
@@ -15,7 +17,6 @@ import { runBackendHttp } from '../runtime/hono.js'
 import { deleteRegion, listRegions, putRegion } from '../work/regions.js'
 import { listWork, mutateWork, workHistory } from '../work/use-cases.js'
 
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 // Keep the existing document budget plus room for every item's largest packed mask.
 const MAX_REGION_REQUEST_LENGTH =
   16_384 + MAX_REGION_ITEMS * Math.ceil(Math.ceil(MAX_RASTER_BITS / 8) / 3) * 4
@@ -44,11 +45,6 @@ const readRegionBody = async (request: Request, limit: number): Promise<string |
   }
 }
 
-const natural = (text: string | undefined): number | null => {
-  if (text === undefined || !/^(0|[1-9]\d*)$/.test(text)) return null
-  const value = Number(text)
-  return Number.isSafeInteger(value) ? value : null
-}
 const parseMutation = (body: unknown): WorkMutation | null => {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null
   const value = body as Record<string, unknown>
@@ -81,20 +77,20 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
   const routes = new Hono()
   routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
   routes.get('/regions', async (c) => {
-    const season = natural(c.req.query('season'))
+    const season = parseWholeNumber(c.req.query('season'))
     const allianceId = c.req.query('allianceId')
     const surface = templateSurface(
       c.req.query('surface') ?? 'world',
-      allianceId === undefined ? null : natural(allianceId),
+      allianceId === undefined ? null : parseWholeNumber(allianceId),
     )
     const templateId = c.req.query('templateId')
     const actorId = c.req.query('painterId')
     if (
       season === null ||
       surface === null ||
-      (actorId !== undefined && natural(actorId) === null) ||
-      (allianceId !== undefined && natural(allianceId) === null) ||
-      (templateId !== undefined && !uuid.test(templateId))
+      (actorId !== undefined && parseWholeNumber(actorId) === null) ||
+      (allianceId !== undefined && parseWholeNumber(allianceId) === null) ||
+      (templateId !== undefined && !isUuidV7(templateId))
     )
       return c.json({ error: 'Invalid drawing scope or template ID' }, 400)
     return runBackendHttp(
@@ -111,17 +107,17 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
   })
   routes.put('/regions/:id', requireScopeEffect(runtime, auth, 'report'), async (c) => {
     const id = c.req.param('id')
-    const season = natural(c.req.query('season'))
+    const season = parseWholeNumber(c.req.query('season'))
     const allianceId = c.req.query('allianceId')
     const surface = templateSurface(
       c.req.query('surface') ?? 'world',
-      allianceId === undefined ? null : natural(allianceId),
+      allianceId === undefined ? null : parseWholeNumber(allianceId),
     )
     if (
-      !uuid.test(id) ||
+      !isUuidV7(id) ||
       season === null ||
       surface === null ||
-      (allianceId !== undefined && natural(allianceId) === null)
+      (allianceId !== undefined && parseWholeNumber(allianceId) === null)
     )
       return c.json({ error: 'Invalid region ID or drawing scope' }, 400)
     const text = await readRegionBody(c.req.raw, MAX_REGION_REQUEST_LENGTH)
@@ -141,7 +137,7 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
   })
   routes.delete('/regions/:id', requireScopeEffect(runtime, auth, 'report'), async (c) => {
     const id = c.req.param('id')
-    if (!uuid.test(id)) return c.json({ error: 'Invalid region ID' }, 400)
+    if (!isUuidV7(id)) return c.json({ error: 'Invalid region ID' }, 400)
     const text = await readRegionBody(c.req.raw, 16_384)
     if (text === null) return c.json({ error: 'Region request is too large' }, 413)
     let body: unknown
@@ -173,15 +169,15 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
     )
   })
   routes.get('/', async (c) => {
-    const season = natural(c.req.query('season'))
+    const season = parseWholeNumber(c.req.query('season'))
     const surface = templateSurface(
       c.req.query('surface') ?? 'world',
-      natural(c.req.query('allianceId')),
+      parseWholeNumber(c.req.query('allianceId')),
     )
     if (season === null || surface === null) return c.json({ error: 'Invalid drawing scope' }, 400)
     const scope = c.get('caller').scope
     const after = c.req.query('after') ?? ''
-    if (after !== '' && !uuid.test(after)) return c.json({ error: 'Invalid work cursor' }, 400)
+    if (after !== '' && !isUuidV7(after)) return c.json({ error: 'Invalid work cursor' }, 400)
     return runBackendHttp(
       c,
       runtime,
@@ -198,8 +194,10 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
   routes.get('/:id/history', async (c) => {
     const id = c.req.param('id')
     const before =
-      c.req.query('before') === undefined ? Number.MAX_SAFE_INTEGER : natural(c.req.query('before'))
-    if (!uuid.test(id) || before === null) return c.json({ error: 'Invalid history cursor' }, 400)
+      c.req.query('before') === undefined
+        ? Number.MAX_SAFE_INTEGER
+        : parseWholeNumber(c.req.query('before'))
+    if (!isUuidV7(id) || before === null) return c.json({ error: 'Invalid history cursor' }, 400)
     return runBackendHttp(
       c,
       runtime,
@@ -209,12 +207,12 @@ export const createWorkRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
   })
   routes.put('/:id', requireScopeEffect(runtime, auth, 'report'), async (c) => {
     const id = c.req.param('id')
-    const season = natural(c.req.query('season'))
+    const season = parseWholeNumber(c.req.query('season'))
     const surface = templateSurface(
       c.req.query('surface') ?? 'world',
-      natural(c.req.query('allianceId')),
+      parseWholeNumber(c.req.query('allianceId')),
     )
-    if (!uuid.test(id) || season === null || surface === null)
+    if (!isUuidV7(id) || season === null || surface === null)
       return c.json({ error: 'Invalid work ID or drawing scope' }, 400)
     // Bound text before parsing so an authenticated client cannot submit an unbounded document.
     const body = await c.req.text()

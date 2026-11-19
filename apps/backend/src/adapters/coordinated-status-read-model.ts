@@ -1,4 +1,4 @@
-import type { TemplateSurface, TileCoord } from '@caelestis/shared'
+import type { Scope, TemplateSurface, TileCoord } from '@caelestis/shared'
 import type { ManifestProjectionInput, ManifestProjectionRead } from '../manifest/read-model.js'
 import {
   type MeasuredD1Operation,
@@ -162,7 +162,7 @@ export class CoordinatedStatusReadModel implements StatusReadModelPort {
     connection: {
       readonly season: number
       readonly scope: StatusVisibilityScope
-      readonly credentialScope: 'read' | 'report' | 'admin'
+      readonly credentialScope: Scope
       readonly tokenHash: string
       readonly clientHash: string
       readonly anonymous: boolean

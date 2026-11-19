@@ -1,5 +1,5 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks'
-import { MAX_PRESENCE_SUBSCRIBERS } from '@caelestis/shared'
+import { isSha256Hex, MAX_PRESENCE_SUBSCRIBERS } from '@caelestis/shared'
 import { type LiveSocket, MAX_LIVE_SUBSCRIBERS } from '../status-coordinator.js'
 
 export type AdmissionChannel = 'live-sync' | 'presence'
@@ -44,8 +44,6 @@ interface IdentityAttachment {
   readonly closed?: unknown
 }
 
-const HASH = /^[0-9a-f]{64}$/
-
 const attachmentOf = (socket: LiveSocket): IdentityAttachment | null => {
   const attachment = socket.deserializeAttachment()
   return typeof attachment === 'object' && attachment !== null
@@ -60,12 +58,8 @@ const attachmentOf = (socket: LiveSocket): IdentityAttachment | null => {
 export const userKey = (attachment: IdentityAttachment | null): string | null => {
   if (attachment === null) return null
   if (attachment.anonymous === true)
-    return typeof attachment.clientHash === 'string' && HASH.test(attachment.clientHash)
-      ? `client:${attachment.clientHash}`
-      : null
-  return typeof attachment.tokenHash === 'string' && HASH.test(attachment.tokenHash)
-    ? `token:${attachment.tokenHash}`
-    : null
+    return isSha256Hex(attachment.clientHash) ? `client:${attachment.clientHash}` : null
+  return isSha256Hex(attachment.tokenHash) ? `token:${attachment.tokenHash}` : null
 }
 
 /** Count sockets the same way each coordinator's admission check counts them. */

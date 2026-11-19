@@ -1,10 +1,11 @@
+import type { Scope } from '@caelestis/shared'
 import { millis } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { AccessToken, AccessTokenQuery } from '../ports/index.js'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import { BackendStorageError } from '../runtime/errors.js'
 import { closeLiveCredential } from '../status-read-model/port.js'
-import { hashToken, mintToken, type Scope } from './tokens.js'
+import { hashToken, mintToken } from './tokens.js'
 
 const storage = <A>(operation: string, run: () => Promise<A>) =>
   Effect.tryPromise({

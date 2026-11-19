@@ -1,4 +1,5 @@
-import type { ServerInfo } from '@caelestis/shared'
+import type { Scope, ServerInfo } from '@caelestis/shared'
+import { isUuidV7, MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from '@caelestis/shared'
 import { Effect, Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -63,7 +64,7 @@ export interface AppOptions {
         connection: {
           readonly season: number
           readonly scope: 'public' | 'admin'
-          readonly credentialScope: 'read' | 'report' | 'admin'
+          readonly credentialScope: Scope
           readonly tokenHash: string
           readonly clientHash: string
           readonly anonymous: boolean
@@ -96,12 +97,12 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
   const serverBase = {
     id: configured(
       options.serverId ?? '00000000-0000-7000-8000-000000000000',
-      (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id),
+      isUuidV7,
       'serverId',
     ),
     name: configured(
       options.serverName ?? 'Template Server',
-      (name) => name.length > 0 && name.length <= 256,
+      (name) => name.length > 0 && name.length <= MAX_NAME_LENGTH,
       'serverName',
     ),
     auth: options.openAccess === true ? 'none' : 'access_token',
@@ -124,7 +125,7 @@ export const createApp = (context: BackendContext, options: AppOptions = {}) => 
           ...serverBase,
           description: configured(
             options.serverDescription,
-            (description) => description.length > 0 && description.length <= 4_096,
+            (description) => description.length > 0 && description.length <= MAX_DESCRIPTION_LENGTH,
             'serverDescription',
           ),
         }

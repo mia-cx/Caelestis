@@ -1,5 +1,4 @@
-import type { PainterIdentity, TemplateSurface } from '@caelestis/shared'
-import type { Scope } from '../auth/tokens.js'
+import type { PainterIdentity, Scope, TemplateSurface } from '@caelestis/shared'
 import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
 
 /** Runtime delivery of persisted region changes. */

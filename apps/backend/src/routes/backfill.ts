@@ -1,3 +1,4 @@
+import { isSha256Hex, isUuidV7 } from '@caelestis/shared'
 import { Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
@@ -9,7 +10,6 @@ import {
   SqlStoreService,
 } from '../runtime/backend-runtime.js'
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const respond = <T>(c: Context, result: BackfillReply<T>): Response => {
   mergeD1Usage(result.usage)
   return result.ok ? Response.json(result.value) : c.json({ error: result.error }, result.status)
@@ -29,7 +29,7 @@ export const createBackfillAdminRoutes = (
   }
   // Registered before the template routes, whose `:templateId` would otherwise claim `folders`.
   routes.use('/folders/:nodeId/*', async (c, next) => {
-    if (!UUID.test(c.req.param('nodeId') ?? '')) return c.json({ error: 'Invalid folder ID.' }, 400)
+    if (!isUuidV7(c.req.param('nodeId'))) return c.json({ error: 'Invalid folder ID.' }, 400)
     if (clients === undefined)
       return c.json({ error: 'This server does not support backfill yet.' }, 503)
     await next()
@@ -47,7 +47,7 @@ export const createBackfillAdminRoutes = (
       !('versionIds' in body) ||
       !('snapshotId' in body) ||
       !Array.isArray(body.versionIds) ||
-      !body.versionIds.every((id) => typeof id === 'string' && UUID.test(id)) ||
+      !body.versionIds.every(isUuidV7) ||
       typeof body.snapshotId !== 'number' ||
       !Number.isSafeInteger(body.snapshotId) ||
       body.snapshotId < 0
@@ -62,8 +62,7 @@ export const createBackfillAdminRoutes = (
     respond(c, await folderClient(c).cancelFolder()),
   )
   routes.use('/:templateId/*', async (c, next) => {
-    if (!UUID.test(c.req.param('templateId') ?? ''))
-      return c.json({ error: 'Invalid template ID.' }, 400)
+    if (!isUuidV7(c.req.param('templateId'))) return c.json({ error: 'Invalid template ID.' }, 400)
     if (clients === undefined)
       return c.json({ error: 'This server does not support backfill yet.' }, 503)
     await next()
@@ -82,7 +81,7 @@ export const createBackfillAdminRoutes = (
       !('versionId' in body) ||
       !('snapshotId' in body) ||
       typeof body.versionId !== 'string' ||
-      !UUID.test(body.versionId) ||
+      !isUuidV7(body.versionId) ||
       typeof body.snapshotId !== 'number' ||
       !Number.isSafeInteger(body.snapshotId) ||
       body.snapshotId < 0
@@ -115,12 +114,12 @@ export const createArchiveRoutes = (
   routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
   routes.get('/templates/:templateId', async (c) => {
     const id = c.req.param('templateId')
-    if (!UUID.test(id)) return c.json({ error: 'Invalid template ID.' }, 400)
+    if (!isUuidV7(id)) return c.json({ error: 'Invalid template ID.' }, 400)
     const template = await sql.readTemplate(id)
     if (template === null || (c.get('caller').scope !== 'admin' && !template.published))
       return c.json({ error: 'Template not found.' }, 404)
     const version = c.req.query('version') ?? template.currentVersionId
-    if (version === null || !UUID.test(version))
+    if (version === null || !isUuidV7(version))
       return c.json({ error: 'Invalid template version.' }, 400)
     const record = await sql.readTemplateVersion(version)
     if (record?.templateId !== id) return c.json({ error: 'Template version not found.' }, 404)
@@ -144,7 +143,7 @@ export const createArchiveRoutes = (
   })
   routes.get('/tiles/:hash', async (c) => {
     const hash = c.req.param('hash')
-    if (!/^[0-9a-f]{64}$/.test(hash)) return c.json({ error: 'Invalid tile hash.' }, 400)
+    if (!isSha256Hex(hash)) return c.json({ error: 'Invalid tile hash.' }, 400)
     const bytes = await blobs.get('archives', hash)
     if (bytes === null) return c.notFound()
     return new Response(Uint8Array.from(bytes), {

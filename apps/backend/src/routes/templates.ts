@@ -1,11 +1,13 @@
 import {
+  isSha256Hex,
+  isUuidV7,
+  MAX_NAME_LENGTH,
   MAX_TEMPLATE_SOURCE_BYTES,
   millis,
+  parseInteger,
   parseTemplateRecipe,
+  parseWholeNumber,
   type TemplateRecipe,
-  type TemplateSurface,
-  templateSurface,
-  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
@@ -21,34 +23,9 @@ import {
   readTemplateRecipe,
   replaceTemplateVersion,
 } from '../templates/use-cases.js'
-
-const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const SHA256_HEX = /^[0-9a-f]{64}$/
-const WHOLE_NUMBER = /^(0|[1-9]\d*)$/
-const INTEGER = /^(?:0|-?[1-9]\d*)$/
-const MAX_NAME_LENGTH = 256
+import { parseSurface } from './params.js'
 
 const isValidName = (name: string): boolean => name.length > 0 && name.length <= MAX_NAME_LENGTH
-
-const parseWholeNumber = (value: unknown): number | null => {
-  if (typeof value !== 'string' || !WHOLE_NUMBER.test(value)) return null
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
-}
-
-const parseInteger = (value: unknown): number | null => {
-  if (typeof value !== 'string' || !INTEGER.test(value)) return null
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
-}
-
-const parseSurface = (kind: unknown, allianceId: unknown): TemplateSurface | null => {
-  if (kind === undefined && allianceId === undefined) return WORLD_TEMPLATE_SURFACE
-  if (typeof kind !== 'string') return null
-  if (kind === 'world') return allianceId === undefined ? WORLD_TEMPLATE_SURFACE : null
-  const parsedAllianceId = parseWholeNumber(allianceId)
-  return parsedAllianceId === null ? null : templateSurface(kind, parsedAllianceId)
-}
 
 /** Optional authoring parts. A source without its recipe, or the reverse, is refused. */
 const authoringParts = async (
@@ -77,7 +54,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
   routes.delete('/:templateId/alarms/:alarmId', async (c) => {
     const templateId = c.req.param('templateId')
     const alarmId = c.req.param('alarmId')
-    if (!UUID_V7.test(templateId) || !UUID_V7.test(alarmId)) {
+    if (!isUuidV7(templateId) || !isUuidV7(alarmId)) {
       return c.json({ error: 'templateId and alarmId must be canonical lowercase UUIDv7' }, 400)
     }
     return runBackendHttp(c, runtime, dismissTemplateAlarm(templateId, alarmId), (result) =>
@@ -109,7 +86,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
     const parts = await authoringParts(source, recipe)
     if ('error' in parts) return c.json({ error: parts.error }, 400)
     const nodeId = rawNodeId === undefined ? null : rawNodeId
-    if (nodeId !== null && (typeof nodeId !== 'string' || !UUID_V7.test(nodeId))) {
+    if (nodeId !== null && !isUuidV7(nodeId)) {
       return c.json({ error: 'nodeId must be a canonical lowercase UUIDv7 or omitted' }, 400)
     }
     const season = rawSeason === undefined ? undefined : parseWholeNumber(rawSeason)
@@ -179,7 +156,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
    */
   routes.post('/:id/versions', async (c) => {
     const templateId = c.req.param('id')
-    if (!UUID_V7.test(templateId)) {
+    if (!isUuidV7(templateId)) {
       return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
     }
     if (!c.req.header('content-type')?.toLowerCase().startsWith('multipart/form-data')) {
@@ -218,7 +195,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
    */
   routes.patch('/:id', async (c) => {
     const templateId = c.req.param('id')
-    if (!UUID_V7.test(templateId)) {
+    if (!isUuidV7(templateId)) {
       return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
     }
     const body: unknown = await c.req.json().catch(() => null)
@@ -234,11 +211,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
     if (name !== undefined && (typeof name !== 'string' || !isValidName(name))) {
       return c.json({ error: 'name must be 1..256 characters' }, 400)
     }
-    if (
-      nodeId !== undefined &&
-      nodeId !== null &&
-      (typeof nodeId !== 'string' || !UUID_V7.test(nodeId))
-    ) {
+    if (nodeId !== undefined && nodeId !== null && !isUuidV7(nodeId)) {
       return c.json({ error: 'nodeId must be a canonical lowercase UUIDv7 or null' }, 400)
     }
     if (published !== undefined && typeof published !== 'boolean') {
@@ -286,7 +259,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
 
   routes.delete('/:id', async (c) => {
     const templateId = c.req.param('id')
-    if (!UUID_V7.test(templateId)) {
+    if (!isUuidV7(templateId)) {
       return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
     }
     const expectedVersionQuery = c.req.query('expectedVersion')
@@ -301,7 +274,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime, auth: AuthOptions)
         428,
       )
     }
-    if (!UUID_V7.test(expectedVersionQuery ?? '') || parsedUpdatedAt === null) {
+    if (!isUuidV7(expectedVersionQuery) || parsedUpdatedAt === null) {
       return c.json(
         { error: 'expectedVersion and expectedUpdatedAt must identify the confirmed revision' },
         400,
@@ -328,7 +301,7 @@ const createBlobRoutes = (
 
   routes.get('/:hash', async (c) => {
     const hash = c.req.param('hash')
-    if (!SHA256_HEX.test(hash)) return c.json({ error: `invalid ${namespace} hash` }, 400)
+    if (!isSha256Hex(hash)) return c.json({ error: `invalid ${namespace} hash` }, 400)
 
     return runBackendHttp(
       c,
@@ -363,7 +336,7 @@ export const createRecipeRoutes = (runtime: BackendRuntime, auth: AuthOptions) =
   routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
   routes.get('/:versionId', async (c) => {
     const versionId = c.req.param('versionId')
-    if (!UUID_V7.test(versionId)) {
+    if (!isUuidV7(versionId)) {
       return c.json({ error: 'versionId must be a canonical lowercase UUIDv7' }, 400)
     }
     return runBackendHttp(

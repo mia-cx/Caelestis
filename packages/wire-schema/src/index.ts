@@ -4,6 +4,7 @@ import {
   isRegionDocument,
   isRegionItem,
   isRegionShape,
+  MAX_DESCRIPTION_LENGTH,
   MAX_HOME_COPY_LENGTH,
   MAX_LIVE_MESSAGE_BYTES,
   MAX_LIVE_PAINT_BYTES,
@@ -11,6 +12,7 @@ import {
   MAX_LIVE_PROJECTIONS,
   MAX_LIVE_TEMPLATE_IDS,
   MAX_LOGO_TEXT_LENGTH,
+  MAX_NAME_LENGTH,
   MAX_PATH_NODES,
   MAX_PRESENCE_PEERS,
   MAX_PRESENCE_REGION_LABEL,
@@ -29,18 +31,18 @@ import {
   parseHomeCopy,
   parseTemplateTags,
   SERVER_ASSET_CONTENT_TYPES,
+  SHA256_HEX_PATTERN,
   TILE_SIZE,
   TRANSPARENT_INDEX,
   templateSurface,
   templateSurfaceBounds,
+  UUID_V7_PATTERN,
   WORLD_PIXELS,
   WORLD_TILES,
 } from '@caelestis/shared'
 import { Schema } from 'effect'
 
 const MAX_IDENTIFIER_LENGTH = 64
-const MAX_NAME_LENGTH = 256
-const MAX_DESCRIPTION_LENGTH = 4_096
 /**
  * A materialized path is a handful of group names joined by slashes, not prose. Reusing the
  * description bound made MAX_MANIFEST_NODES paths worth ~442 MB — 22x the ceiling MAX_MANIFEST_CHUNKS
@@ -112,7 +114,7 @@ const Season = NonNegativeInteger
 
 const Identifier = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, {
+    Schema.isPattern(UUID_V7_PATTERN, {
       message: 'must be a canonical lowercase UUIDv7',
     }),
   ),
@@ -122,7 +124,7 @@ const Name = boundedString(MAX_NAME_LENGTH)
 const Description = boundedString(MAX_DESCRIPTION_LENGTH)
 const Hash = Schema.String.pipe(
   Schema.check(
-    Schema.isPattern(/^[0-9a-f]{64}$/, {
+    Schema.isPattern(SHA256_HEX_PATTERN, {
       message: 'must be a lowercase SHA-256 hex digest',
     }),
   ),

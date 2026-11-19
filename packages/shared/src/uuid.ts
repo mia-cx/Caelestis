@@ -62,3 +62,10 @@ export const uuidV7 = (): string => {
 
   return `${hex(bytes[0] ?? 0)}${hex(bytes[1] ?? 0)}${hex(bytes[2] ?? 0)}${hex(bytes[3] ?? 0)}-${hex(bytes[4] ?? 0)}${hex(bytes[5] ?? 0)}-${hex(bytes[6] ?? 0)}${hex(bytes[7] ?? 0)}-${hex(bytes[8] ?? 0)}${hex(bytes[9] ?? 0)}-${hex(bytes[10] ?? 0)}${hex(bytes[11] ?? 0)}${hex(bytes[12] ?? 0)}${hex(bytes[13] ?? 0)}${hex(bytes[14] ?? 0)}${hex(bytes[15] ?? 0)}`
 }
+
+/** A canonical lowercase UUIDv7, the form `uuidV7` produces. */
+export const UUID_V7_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+export const isUuidV7 = (value: unknown): value is string =>
+  typeof value === 'string' && UUID_V7_PATTERN.test(value)

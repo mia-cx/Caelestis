@@ -1,10 +1,11 @@
+import { type Scope, satisfiesScope } from '@caelestis/shared'
 import { Effect } from 'effect'
 import type { MiddlewareHandler } from 'hono'
 import type { AccessToken } from '../ports/index.js'
 import { type BackendRuntime, SqlStoreService } from '../runtime/backend-runtime.js'
 import { BackendStorageError, ForbiddenError, UnauthorizedError } from '../runtime/errors.js'
 import { runBackendMiddleware } from '../runtime/hono.js'
-import { hashToken, type Scope, satisfiesScope } from './tokens.js'
+import { hashToken } from './tokens.js'
 
 /** What a request proved about itself. */
 export interface Caller {

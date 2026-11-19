@@ -1,3 +1,4 @@
+import { isSha256Hex } from '@caelestis/shared'
 import { getTableColumns, getTableName } from 'drizzle-orm'
 import { getTableConfig, type SQLiteColumn, type SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { COUNTER_ARCHIVE_TABLES, type CounterArchiveTable } from '../coordination/telemetry.js'
@@ -182,7 +183,6 @@ export class ArchiveError extends Error {
   }
 }
 
-const SHA256 = /^[0-9a-f]{64}$/
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 const isScalar = (value: unknown): value is ArchiveValue =>
@@ -246,7 +246,7 @@ export const parseArchiveLine = (line: string, position: number): ArchiveRecord 
       if (
         typeof value.key !== 'string' ||
         typeof value.sha256 !== 'string' ||
-        !SHA256.test(value.sha256) ||
+        !isSha256Hex(value.sha256) ||
         typeof value.data !== 'string' ||
         !isStrings(value.metadata) ||
         (value.contentType !== undefined && typeof value.contentType !== 'string')
@@ -258,7 +258,7 @@ export const parseArchiveLine = (line: string, position: number): ArchiveRecord 
         !isRecord(value.counts) ||
         !Object.values(value.counts).every((count) => Number.isSafeInteger(count)) ||
         typeof value.chain !== 'string' ||
-        !SHA256.test(value.chain)
+        !isSha256Hex(value.chain)
       )
         throw invalid('the end record is incomplete')
       return value as unknown as ArchiveRecord

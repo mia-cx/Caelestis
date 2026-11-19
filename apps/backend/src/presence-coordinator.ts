@@ -16,6 +16,7 @@ import {
   type PresenceRect,
   type PresenceServerEvent,
   padRect,
+  parseWholeNumber,
   quantiseRect,
   REGION_CLAIM_TTL_MS,
   type RegionClaim,
@@ -67,12 +68,6 @@ interface RegionExpiry {
   readonly season: number
   readonly surface: TemplateSurface
   readonly at: number | null
-}
-
-const natural = (text: string | null): number | null => {
-  if (text === null || !/^(0|[1-9]\d*)$/.test(text)) return null
-  const value = Number(text)
-  return Number.isSafeInteger(value) ? value : null
 }
 
 /** Repack a mask after snapping its rectangle outward; the bit origins must move together. */
@@ -418,11 +413,11 @@ export class PresenceCoordinator<Client> {
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket')
       return new Response('WebSocket upgrade required', { status: 426 })
     const headers = request.headers
-    const season = natural(headers.get('x-caelestis-season'))
+    const season = parseWholeNumber(headers.get('x-caelestis-season'))
     const alliance = headers.get('x-caelestis-alliance-id')
     const surface = templateSurface(
       headers.get('x-caelestis-surface-kind'),
-      alliance === null ? null : natural(alliance),
+      alliance === null ? null : parseWholeNumber(alliance),
     )
     let displayName: string
     try {
@@ -430,7 +425,10 @@ export class PresenceCoordinator<Client> {
     } catch {
       return new Response('Invalid painter name', { status: 400 })
     }
-    const painter = { wplaceUserId: natural(headers.get('x-caelestis-painter-id')), displayName }
+    const painter = {
+      wplaceUserId: parseWholeNumber(headers.get('x-caelestis-painter-id')),
+      displayName,
+    }
     const tokenHash = headers.get('x-caelestis-token-hash')
     const clientHash = headers.get('x-caelestis-client-hash')
     const publisherId = headers.get('x-caelestis-publisher-id')
@@ -440,7 +438,7 @@ export class PresenceCoordinator<Client> {
     if (
       season === null ||
       surface === null ||
-      (alliance !== null && natural(alliance) === null) ||
+      (alliance !== null && parseWholeNumber(alliance) === null) ||
       !isWorkIdentity(painter) ||
       tokenHash === null ||
       !/^[0-9a-f]{64}$/.test(tokenHash) ||

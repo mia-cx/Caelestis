@@ -1,7 +1,6 @@
-import { millis } from '@caelestis/shared'
+import { millis, SCOPES, type Scope } from '@caelestis/shared'
 import { Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
-import { SCOPES, type Scope } from '../auth/tokens.js'
 import {
   listAccessTokens,
   mintAccessToken,

@@ -1,10 +1,14 @@
+import type { Scope } from '@caelestis/shared'
 import {
+  isSha256Hex,
+  isUuidV7,
   isWorkIdentity,
   MAX_TILE_OFFERS,
   millis,
   type PaintEvent as PaintEventValue,
   PRESENCE_PROTOCOL_V1,
   parseTileKey,
+  parseWholeNumber,
   type Seconds,
   type ServerInfo,
   type StatusDelta,
@@ -58,14 +62,11 @@ import {
 
 export { selectTelemetryHistoryResolution, selectTileHistoryResolution }
 
-const SHA256_HEX = /^[0-9a-f]{64}$/
-const WHOLE_NUMBER = /^(?:0|[1-9]\d*)$/
 const MIN_EPOCH_SECONDS = 1_577_836_800
 const MAX_EPOCH_SECONDS = 4_102_444_800
 /** Preserve ordinary device-clock skew without allowing a client to outrank scans indefinitely. */
 const MAX_TILE_FUTURE_SKEW_SECONDS = 5 * 60
 
-const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 /** Larger leaderboards stop being leaderboards; page by narrowing the window instead. */
 const MAX_LEADERBOARD_LIMIT = 200
@@ -123,19 +124,13 @@ const liveAuthorization = (
       }
 }
 
-const wholeNumber = (value: string | undefined): number | null => {
-  if (value === undefined || !WHOLE_NUMBER.test(value)) return null
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
-}
-
 /** Comma-separated template ids, validated per id and bounded by the port's read cap. */
 /** The most painters `/painters` lists; the wire schema bounds the response to the same. */
 const MAX_PAINTER_TOTALS = 500
 
 const parsePainterIds = (value: string | undefined): number[] | null => {
   if (value === undefined || value.length === 0) return null
-  const ids = value.split(',').map((id) => wholeNumber(id))
+  const ids = value.split(',').map((id) => parseWholeNumber(id))
   if (ids.length > MAX_PAINTER_HISTORY_IDS || ids.some((id) => id === null)) return null
   return [...new Set(ids as number[])]
 }
@@ -144,7 +139,7 @@ const parseTemplateIds = (value: string | undefined): string[] | null => {
   if (value === undefined || value.length === 0) return null
   const ids = value.split(',')
   if (ids.length > MAX_READ_BUCKETS_TEMPLATE_IDS) return null
-  return ids.every((id) => UUID_V7.test(id)) ? ids : null
+  return ids.every(isUuidV7) ? ids : null
 }
 
 /**
@@ -156,8 +151,8 @@ const parseRange = (
   from: string | undefined,
   to: string | undefined,
 ): { readonly fromSeconds: Seconds; readonly toSeconds: Seconds } | null => {
-  const parsedFrom = wholeNumber(from)
-  const parsedTo = wholeNumber(to)
+  const parsedFrom = parseWholeNumber(from)
+  const parsedTo = parseWholeNumber(to)
   if (parsedFrom === null || parsedTo === null) return null
   if (parsedTo <= parsedFrom || parsedTo > MAX_EPOCH_SECONDS) return null
   return { fromSeconds: seconds(parsedFrom), toSeconds: seconds(parsedTo) }
@@ -234,7 +229,7 @@ export const createTelemetryRoutes = (
       connection: {
         readonly season: number
         readonly scope: 'public' | 'admin'
-        readonly credentialScope: 'read' | 'report' | 'admin'
+        readonly credentialScope: Scope
         readonly tokenHash: string
         readonly clientHash: string
         readonly anonymous: boolean
@@ -253,15 +248,15 @@ export const createTelemetryRoutes = (
     c.header('cache-control', 'no-store')
     if (options.connectPresence === undefined || options.presenceOnline === undefined)
       return c.json({ error: 'not found' }, 404)
-    const season = wholeNumber(c.req.query('season'))
+    const season = parseWholeNumber(c.req.query('season'))
     if (season === null || season !== options.currentSeason)
       return c.json({ error: 'season is not served by this live endpoint' }, 404)
     const allianceId = c.req.query('allianceId')
     const surface = templateSurface(
       c.req.query('surface') ?? 'world',
-      allianceId === undefined ? null : wholeNumber(allianceId),
+      allianceId === undefined ? null : parseWholeNumber(allianceId),
     )
-    if (surface === null || (allianceId !== undefined && wholeNumber(allianceId) === null))
+    if (surface === null || (allianceId !== undefined && parseWholeNumber(allianceId) === null))
       return c.json({ error: 'invalid drawing surface' }, 400)
     return c.json({ online: await options.presenceOnline(season, surface) })
   })
@@ -289,32 +284,32 @@ export const createTelemetryRoutes = (
     },
     async (c) => {
       if (options.connectPresence === undefined) return c.json({ error: 'not found' }, 404)
-      const season = wholeNumber(c.req.query('season'))
+      const season = parseWholeNumber(c.req.query('season'))
       if (season === null || season !== options.currentSeason)
         return c.json({ error: 'season is not served by this live endpoint' }, 404)
       const allianceId = c.req.query('allianceId')
       const surface = templateSurface(
         c.req.query('surface') ?? 'world',
-        allianceId === undefined ? null : wholeNumber(allianceId),
+        allianceId === undefined ? null : parseWholeNumber(allianceId),
       )
       const painter = {
-        wplaceUserId: wholeNumber(c.req.query('painterId')),
+        wplaceUserId: parseWholeNumber(c.req.query('painterId')),
         displayName: c.req.query('painterName'),
       }
       if (
         surface === null ||
-        (allianceId !== undefined && wholeNumber(allianceId) === null) ||
+        (allianceId !== undefined && parseWholeNumber(allianceId) === null) ||
         !isWorkIdentity(painter)
       )
         return c.json({ error: 'invalid drawing surface or painter identity' }, 400)
       const caller = c.get('caller')
       const anonymous = caller.token === null && caller.scope === 'read'
       const clientId = c.req.query('clientId')
-      if (clientId === undefined || !UUID_V7.test(clientId))
+      if (clientId === undefined || !isUuidV7(clientId))
         return c.json({ error: 'clientId must be a UUID' }, 400)
       const clientHash = await hashToken(`${caller.tokenHash}\u0000${clientId}`)
       const publisherId = c.req.query('publisherId')
-      if (publisherId !== undefined && !UUID_V7.test(publisherId))
+      if (publisherId !== undefined && !isUuidV7(publisherId))
         return c.json({ error: 'publisherId must be a UUID' }, 400)
       const metricClient = normalizeMetricClientIdentity(
         c.req.query('client') ?? 'unknown',
@@ -364,10 +359,10 @@ export const createTelemetryRoutes = (
         c.req.header('authorization'),
       )
       if (credentials === null) return c.json({ error: 'invalid websocket protocol' }, 400)
-      const season = wholeNumber(c.req.query('season'))
+      const season = parseWholeNumber(c.req.query('season'))
       const requestedScope = c.req.query('scope')
       const lastRevisionRaw = c.req.query('revision')
-      const lastRevision = lastRevisionRaw === undefined ? null : wholeNumber(lastRevisionRaw)
+      const lastRevision = lastRevisionRaw === undefined ? null : parseWholeNumber(lastRevisionRaw)
       const caller = c.get('caller')
       const scope =
         requestedScope === 'public' || (requestedScope === 'admin' && caller.scope === 'admin')
@@ -384,7 +379,7 @@ export const createTelemetryRoutes = (
       let clientHash = caller.tokenHash
       if (anonymous) {
         const clientId = c.req.query('clientId')
-        if (clientId === undefined || !UUID_V7.test(clientId)) {
+        if (clientId === undefined || !isUuidV7(clientId)) {
           return c.json({ error: 'clientId must be a UUID' }, 400)
         }
         clientHash = await hashToken(`${caller.tokenHash}\u0000${clientId}`)
@@ -413,7 +408,7 @@ export const createTelemetryRoutes = (
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
-        : wholeNumber(c.req.query('season'))
+        : parseWholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     // Weak comparison over a comma-separated list, as the manifest route does (RFC 9110).
     const candidates = (c.req.header('if-none-match') ?? '')
@@ -437,7 +432,7 @@ export const createTelemetryRoutes = (
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
-        : wholeNumber(c.req.query('season'))
+        : parseWholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     return runBackendHttp(
       c,
@@ -453,15 +448,15 @@ export const createTelemetryRoutes = (
     async (c) => {
       const templateId = c.req.param('templateId')
       const versionId = c.req.param('versionId')
-      const x = wholeNumber(c.req.param('x'))
-      const y = wholeNumber(c.req.param('y'))
+      const x = parseWholeNumber(c.req.param('x'))
+      const y = parseWholeNumber(c.req.param('y'))
       const season =
         c.req.query('season') === undefined
           ? options.currentSeason
-          : wholeNumber(c.req.query('season'))
+          : parseWholeNumber(c.req.query('season'))
       if (
-        !UUID_V7.test(templateId) ||
-        !UUID_V7.test(versionId) ||
+        !isUuidV7(templateId) ||
+        !isUuidV7(versionId) ||
         x === null ||
         y === null ||
         x >= WORLD_TILES ||
@@ -508,11 +503,7 @@ export const createTelemetryRoutes = (
     const id = c.req.param('templateId')
     const versionId = c.req.query('version')
     const range = parseRange(c.req.query('from'), c.req.query('to'))
-    if (
-      !UUID_V7.test(id) ||
-      (versionId !== undefined && !UUID_V7.test(versionId)) ||
-      range === null
-    )
+    if (!isUuidV7(id) || (versionId !== undefined && !isUuidV7(versionId)) || range === null)
       return c.json({ error: 'Choose a template, optional version, and valid time range.' }, 400)
     const sql = Services.get(runtime.context, SqlStoreService)
     const template = await sql.readTemplate(id)
@@ -539,10 +530,10 @@ export const createTelemetryRoutes = (
     }
     const requestedResolution = c.req.query('resolution')
     const legacyResolution =
-      requestedResolution === undefined ? undefined : wholeNumber(requestedResolution)
+      requestedResolution === undefined ? undefined : parseWholeNumber(requestedResolution)
     const requestedMaxResolution = c.req.query('maxResolution')
     const maxResolution =
-      requestedMaxResolution === undefined ? undefined : wholeNumber(requestedMaxResolution)
+      requestedMaxResolution === undefined ? undefined : parseWholeNumber(requestedMaxResolution)
     if (
       requestedResolution !== undefined &&
       (typeof legacyResolution !== 'number' || !LADDER_RESOLUTIONS.includes(legacyResolution))
@@ -586,7 +577,7 @@ export const createTelemetryRoutes = (
     }
     const requestedMaxResolution = c.req.query('maxResolution')
     const maxResolution =
-      requestedMaxResolution === undefined ? undefined : wholeNumber(requestedMaxResolution)
+      requestedMaxResolution === undefined ? undefined : parseWholeNumber(requestedMaxResolution)
     if (
       requestedMaxResolution !== undefined &&
       (typeof maxResolution !== 'number' || maxResolution < (LADDER_RESOLUTIONS[0] ?? 0))
@@ -632,7 +623,8 @@ export const createTelemetryRoutes = (
       return c.json({ error: 'from and to must be Unix seconds with from < to' }, 400)
     }
     const requestedLimit = c.req.query('limit')
-    const limit = requestedLimit === undefined ? MAX_PAINTER_TOTALS : wholeNumber(requestedLimit)
+    const limit =
+      requestedLimit === undefined ? MAX_PAINTER_TOTALS : parseWholeNumber(requestedLimit)
     if (limit === null || limit < 1) {
       return c.json({ error: 'limit must be a positive integer' }, 400)
     }
@@ -677,7 +669,7 @@ export const createTelemetryRoutes = (
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
-        : wholeNumber(c.req.query('season'))
+        : parseWholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     const rawTemplateIds = c.req.query('templateIds')
     const templateIds = rawTemplateIds === undefined ? undefined : parseTemplateIds(rawTemplateIds)
@@ -689,15 +681,15 @@ export const createTelemetryRoutes = (
     }
     const rawFrom = c.req.query('from')
     const rawTo = c.req.query('to')
-    const from = rawFrom === undefined ? undefined : wholeNumber(rawFrom)
-    const to = rawTo === undefined ? undefined : wholeNumber(rawTo)
+    const from = rawFrom === undefined ? undefined : parseWholeNumber(rawFrom)
+    const to = rawTo === undefined ? undefined : parseWholeNumber(rawTo)
     if (from === null || to === null || (from !== undefined && to !== undefined && to <= from)) {
       return c.json({ error: 'from and to must be Unix seconds with from < to' }, 400)
     }
     const limit =
       c.req.query('limit') === undefined
         ? DEFAULT_LEADERBOARD_LIMIT
-        : wholeNumber(c.req.query('limit'))
+        : parseWholeNumber(c.req.query('limit'))
     if (limit === null || limit < 1 || limit > MAX_LEADERBOARD_LIMIT) {
       return c.json({ error: `limit must be 1..${MAX_LEADERBOARD_LIMIT}` }, 400)
     }
@@ -721,7 +713,7 @@ export const createTelemetryRoutes = (
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
-        : wholeNumber(c.req.query('season'))
+        : parseWholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     return runBackendHttp(
       c,
@@ -734,19 +726,19 @@ export const createTelemetryRoutes = (
   // GET here, PUT with a trailing `:hash` above — Hono matches on method and path together, so the
   // two never collide, and `history` is not a valid hash so nothing shadows the upload either.
   routes.get('/tiles/:x/:y/history', requireScopeEffect(runtime, auth, 'read'), async (c) => {
-    const x = wholeNumber(c.req.param('x'))
-    const y = wholeNumber(c.req.param('y'))
+    const x = parseWholeNumber(c.req.param('x'))
+    const y = parseWholeNumber(c.req.param('y'))
     if (x === null || y === null || x >= WORLD_TILES || y >= WORLD_TILES) {
       return c.json({ error: 'tile coordinates must be on the canvas' }, 400)
     }
     const season =
       c.req.query('season') === undefined
         ? options.currentSeason
-        : wholeNumber(c.req.query('season'))
+        : parseWholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     const requestedResolution = c.req.query('resolution')
     const legacyResolution =
-      requestedResolution === undefined ? undefined : wholeNumber(requestedResolution)
+      requestedResolution === undefined ? undefined : parseWholeNumber(requestedResolution)
     if (
       requestedResolution !== undefined &&
       (typeof legacyResolution !== 'number' || !TILE_HISTORY_RESOLUTIONS.includes(legacyResolution))
@@ -838,12 +830,12 @@ export const createTelemetryRoutes = (
   })
 
   routes.put('/tiles/:x/:y/:hash', requireScopeEffect(runtime, auth, 'report'), async (c) => {
-    const x = wholeNumber(c.req.param('x'))
-    const y = wholeNumber(c.req.param('y'))
+    const x = parseWholeNumber(c.req.param('x'))
+    const y = parseWholeNumber(c.req.param('y'))
     const hash = c.req.param('hash')
-    const season = wholeNumber(c.req.header('x-caelestis-season'))
-    const observedAt = wholeNumber(c.req.header('x-caelestis-observed-at'))
-    const wplaceUserId = wholeNumber(c.req.header('x-caelestis-wplace-user-id'))
+    const season = parseWholeNumber(c.req.header('x-caelestis-season'))
+    const observedAt = parseWholeNumber(c.req.header('x-caelestis-observed-at'))
+    const wplaceUserId = parseWholeNumber(c.req.header('x-caelestis-wplace-user-id'))
     const displayName = decodedHeader(c.req.header('x-caelestis-display-name'))
     const rawCoverageToken = c.req.header('x-caelestis-tile-coverage-token')
     const coverageToken =
@@ -853,7 +845,7 @@ export const createTelemetryRoutes = (
       y === null ||
       x >= WORLD_TILES ||
       y >= WORLD_TILES ||
-      !SHA256_HEX.test(hash) ||
+      !isSha256Hex(hash) ||
       season === null ||
       season !== options.currentSeason ||
       observedAt === null ||

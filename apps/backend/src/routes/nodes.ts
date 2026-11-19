@@ -1,8 +1,9 @@
 import {
+  isUuidV7,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_NAME_LENGTH,
   nodeSlug,
-  type TemplateSurface,
-  templateSurface,
-  WORLD_TEMPLATE_SURFACE,
+  parseWholeNumber,
 } from '@caelestis/shared'
 import { Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
@@ -16,30 +17,16 @@ import {
 } from '../nodes/use-cases.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
+import { parseSurface } from './params.js'
 
-const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 // Wplace's first and current canvas is season 0; later seasons increment from there.
-const SEASON_NUMBER = /^(?:0|[1-9]\d*)$/
-const MAX_NAME_LENGTH = 256
-const MAX_DESCRIPTION_LENGTH = 4_096
-const POSITIVE_NUMBER = /^[1-9]\d*$/
 
-const parseSeason = (value: unknown): number | null => {
-  if (typeof value === 'number') return Number.isSafeInteger(value) && value >= 0 ? value : null
-  if (typeof value !== 'string' || !SEASON_NUMBER.test(value)) return null
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
-}
-
-const parseSurface = (kind: unknown, allianceId: unknown): TemplateSurface | null => {
-  if (kind === undefined && allianceId === undefined) return WORLD_TEMPLATE_SURFACE
-  if (kind === 'world') return allianceId === undefined ? WORLD_TEMPLATE_SURFACE : null
-  if (typeof kind !== 'string') return null
-  const text = typeof allianceId === 'number' ? String(allianceId) : allianceId
-  if (typeof text !== 'string' || !POSITIVE_NUMBER.test(text)) return null
-  const parsedAllianceId = Number(text)
-  return Number.isSafeInteger(parsedAllianceId) ? templateSurface(kind, parsedAllianceId) : null
-}
+const parseSeason = (value: unknown): number | null =>
+  typeof value === 'number'
+    ? Number.isSafeInteger(value) && value >= 0
+      ? value
+      : null
+    : parseWholeNumber(value)
 
 /**
  * Derive a path segment from a display name.
@@ -86,7 +73,7 @@ export const createNodeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
         400,
       )
     }
-    if (parentId !== null && (typeof parentId !== 'string' || !UUID_V7.test(parentId))) {
+    if (parentId !== null && !isUuidV7(parentId)) {
       return c.json({ error: 'parentId must be null or a canonical lowercase UUIDv7' }, 400)
     }
     if (typeof name !== 'string' || name.length === 0 || name.length > MAX_NAME_LENGTH) {
@@ -132,7 +119,7 @@ export const createNodeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
 
   routes.patch('/:id', async (c) => {
     const nodeId = c.req.param('id')
-    if (!UUID_V7.test(nodeId)) {
+    if (!isUuidV7(nodeId)) {
       return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
     }
     const body: unknown = await c.req.json().catch(() => null)
@@ -144,11 +131,7 @@ export const createNodeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
     ) {
       return c.json({ error: 'name must be 1..256 characters' }, 400)
     }
-    if (
-      parentId !== undefined &&
-      parentId !== null &&
-      (typeof parentId !== 'string' || !UUID_V7.test(parentId))
-    ) {
+    if (parentId !== undefined && parentId !== null && !isUuidV7(parentId)) {
       return c.json({ error: 'parentId must be null or a canonical lowercase UUIDv7' }, 400)
     }
     if (name === undefined && parentId === undefined) {
@@ -173,7 +156,7 @@ export const createNodeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
 
   routes.get('/:id/subtree', async (c) => {
     const nodeId = c.req.param('id')
-    if (!UUID_V7.test(nodeId)) {
+    if (!isUuidV7(nodeId)) {
       return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
     }
     return runBackendHttp(c, runtime, countNodeSubtree(nodeId), (counts) => c.json(counts))
@@ -181,7 +164,7 @@ export const createNodeRoutes = (runtime: BackendRuntime, auth: AuthOptions) => 
 
   routes.delete('/:id', async (c) => {
     const nodeId = c.req.param('id')
-    if (!UUID_V7.test(nodeId)) {
+    if (!isUuidV7(nodeId)) {
       return c.json({ error: 'id must be a canonical lowercase UUIDv7' }, 400)
     }
     if (c.req.query('cascade') === 'true') {

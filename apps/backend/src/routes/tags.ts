@@ -1,11 +1,9 @@
-import { tagName, uuidV7 } from '@caelestis/shared'
+import { isUuidV7, tagName, uuidV7 } from '@caelestis/shared'
 import { Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { mutateTag, readTags } from '../tags/use-cases.js'
-
-const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 /** Tags share the admin boundary of server template metadata. */
 export const createTagRoutes = (
@@ -18,9 +16,9 @@ export const createTagRoutes = (
   routes.get('/', async (c) => {
     const templateId = c.req.query('templateId')
     const folderId = c.req.query('folderId')
-    if (folderId !== undefined && (!UUID_V7.test(folderId) || templateId !== undefined))
+    if (folderId !== undefined && (!isUuidV7(folderId) || templateId !== undefined))
       return c.json({ error: 'Choose one valid template or folder ID.' }, 400)
-    if (templateId !== undefined && !UUID_V7.test(templateId))
+    if (templateId !== undefined && !isUuidV7(templateId))
       return c.json({ error: 'Invalid template ID.' }, 400)
     return runBackendHttp(c, runtime, readTags(templateId, folderId), (result) => c.json(result))
   })
@@ -39,12 +37,12 @@ export const createTagRoutes = (
     )
   })
   routes.use('/:id/*', async (c, next) => {
-    if (!UUID_V7.test(c.req.param('id') ?? '')) return c.json({ error: 'Invalid tag ID.' }, 400)
+    if (!isUuidV7(c.req.param('id'))) return c.json({ error: 'Invalid tag ID.' }, 400)
     await next()
   })
   routes.patch('/:id', async (c) => {
     const id = c.req.param('id')
-    if (!UUID_V7.test(id)) return c.json({ error: 'Invalid tag ID.' }, 400)
+    if (!isUuidV7(id)) return c.json({ error: 'Invalid tag ID.' }, 400)
     const body: unknown = await c.req.json().catch(() => null)
     const name = tagName(
       typeof body === 'object' && body !== null && 'name' in body ? body.name : null,
@@ -60,7 +58,7 @@ export const createTagRoutes = (
   })
   routes.delete('/:id', async (c) => {
     const id = c.req.param('id')
-    if (!UUID_V7.test(id)) return c.json({ error: 'Invalid tag ID.' }, 400)
+    if (!isUuidV7(id)) return c.json({ error: 'Invalid tag ID.' }, 400)
     return runBackendHttp(c, runtime, mutateTag({ type: 'delete', id }, currentSeason), () =>
       c.body(null, 204),
     )
@@ -69,7 +67,7 @@ export const createTagRoutes = (
     routes.on(attached ? 'PUT' : 'DELETE', '/:id/folders/:folderId', async (c) => {
       const id = c.req.param('id')
       const folderId = c.req.param('folderId')
-      if (!UUID_V7.test(id) || !UUID_V7.test(folderId))
+      if (!isUuidV7(id) || !isUuidV7(folderId))
         return c.json({ error: 'Invalid tag or folder ID.' }, 400)
       return runBackendHttp(
         c,
@@ -81,7 +79,7 @@ export const createTagRoutes = (
     routes.on(attached ? 'PUT' : 'DELETE', '/:id/templates/:templateId', async (c) => {
       const id = c.req.param('id')
       const templateId = c.req.param('templateId')
-      if (!UUID_V7.test(id) || !UUID_V7.test(templateId))
+      if (!isUuidV7(id) || !isUuidV7(templateId))
         return c.json({ error: 'Invalid tag or template ID.' }, 400)
       return runBackendHttp(
         c,

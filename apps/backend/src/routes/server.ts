@@ -1,5 +1,7 @@
 import {
   logoText,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_NAME_LENGTH,
   normaliseHomeCopy,
   parseDiscordInviteUrl,
   parseHomeCopy,
@@ -26,9 +28,6 @@ import { runBackendHttp } from '../runtime/hono.js'
 import { mergeServerInfo, serverAssetInfo } from '../server-info.js'
 import { publishManifestChange } from '../status-read-model/port.js'
 import { ingestTimings } from '../telemetry/ingest-timing.js'
-
-const MAX_NAME_LENGTH = 256
-const MAX_DESCRIPTION_LENGTH = 4096
 
 const assetKind = (kind: string): ServerAssetKind | null =>
   kind === 'logo' || kind === 'preview' ? kind : null

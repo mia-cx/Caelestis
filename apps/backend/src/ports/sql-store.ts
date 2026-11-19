@@ -6,6 +6,8 @@ import {
   PALETTE_SIZE,
   type PixelBounds,
   parseTemplateRecipe,
+  SCOPES,
+  type Scope,
   type Seconds,
   type ServerAssetContentType,
   seconds,
@@ -21,7 +23,6 @@ import {
   WORLD_PIXELS,
   WORLD_TILES,
 } from '@caelestis/shared'
-import { SCOPES, type Scope } from '../auth/tokens.js'
 import type { TagStore } from '../tags/store.js'
 import type { CounterDelta } from './counter-store.js'
 

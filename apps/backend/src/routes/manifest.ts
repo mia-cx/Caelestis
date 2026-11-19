@@ -1,38 +1,11 @@
-import {
-  type ServerInfo,
-  type TemplateSurface,
-  templateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { parseWholeNumber, type ServerInfo } from '@caelestis/shared'
 import { Hono } from 'hono'
 import { type AuthOptions, requireScopeEffect } from '../auth/middleware.js'
 import { readManifestProjection } from '../manifest/use-cases.js'
 import { recordCacheOutcome } from '../metrics/request-metrics.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
-
-// Wplace's first and current canvas is season 0; later seasons increment from there.
-const SEASON_NUMBER = /^(?:0|[1-9]\d*)$/
-const POSITIVE_NUMBER = /^[1-9]\d*$/
-
-const parseSeason = (value: string | undefined, fallback: number): number | null => {
-  if (value === undefined) return fallback
-  if (!SEASON_NUMBER.test(value)) return null
-  const parsed = Number(value)
-  return Number.isSafeInteger(parsed) ? parsed : null
-}
-
-const parseSurface = (
-  kind: string | undefined,
-  allianceId: string | undefined,
-): TemplateSurface | null => {
-  if (kind === undefined && allianceId === undefined) return WORLD_TEMPLATE_SURFACE
-  if (kind === 'world') return allianceId === undefined ? WORLD_TEMPLATE_SURFACE : null
-  if (kind === undefined || allianceId === undefined || !POSITIVE_NUMBER.test(allianceId))
-    return null
-  const parsedAllianceId = Number(allianceId)
-  return Number.isSafeInteger(parsedAllianceId) ? templateSurface(kind, parsedAllianceId) : null
-}
+import { parseSurface } from './params.js'
 
 export const createManifestRoutes = (
   runtime: BackendRuntime,
@@ -44,7 +17,10 @@ export const createManifestRoutes = (
   routes.use('/*', requireScopeEffect(runtime, auth, 'read'))
 
   routes.get('/', async (c) => {
-    const season = parseSeason(c.req.query('season'), options.currentSeason)
+    const season =
+      c.req.query('season') === undefined
+        ? options.currentSeason
+        : parseWholeNumber(c.req.query('season'))
     if (season === null) return c.json({ error: 'season must be a non-negative integer' }, 400)
     const surface = parseSurface(c.req.query('surface'), c.req.query('allianceId'))
     if (surface === null) {

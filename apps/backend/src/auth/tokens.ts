@@ -1,3 +1,5 @@
+import { sha256Hex } from '@caelestis/shared'
+
 /**
  * Access-token minting and hashing.
  *
@@ -7,11 +9,6 @@
  *
  * @see .scratch/v1/issues/03-auth-model.md
  */
-
-/** Scopes, ordered: each one grants everything below it. */
-export const SCOPES = ['read', 'report', 'admin'] as const
-
-export type Scope = (typeof SCOPES)[number]
 
 /** RFC 4648 base32 without padding, minus the characters that invite transcription errors. */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ0123456789'
@@ -45,18 +42,5 @@ export const mintToken = (): string => {
 }
 
 /** Lowercase hex SHA-256, the form stored in `access_tokens.token_hash`. */
-export const hashToken = async (token: string): Promise<string> => {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
-/**
- * Whether `held` satisfies `required`.
- *
- * Scopes are a ladder, not a set: admin manages tokens and templates, so refusing it a read it could
- * grant itself in one request buys nothing. The ordering is the whole rule — a `read` holder must
- * never satisfy `report`, which is what stops someone who obtained read access from poisoning the
- * counters.
- */
-export const satisfiesScope = (held: Scope, required: Scope): boolean =>
-  SCOPES.indexOf(held) >= SCOPES.indexOf(required)
+export const hashToken = (token: string): Promise<string> =>
+  sha256Hex(new TextEncoder().encode(token))
