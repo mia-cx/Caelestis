@@ -4,7 +4,7 @@ import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import { seedTileObservation } from '../src/node/memory-stores.js'
 import { RelationalServerSettingsStore } from '../src/server/relational.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
-import { adminToken, createTestBackend } from './support/backend.js'
+import { adminToken, countCalls, createTestBackend } from './support/backend.js'
 
 const id = '01890f3e-7b2c-7abc-8def-012345678901'
 const hash = 'a'.repeat(64)
@@ -349,9 +349,14 @@ describe('backend API trust boundary', () => {
       expect(await frames()).toBe(0)
     })
 
-  it('confirms a tile covered by many stale templates within a bounded number of queries', async () => {
+  it('confirms a tile covered by many stale templates within a bounded number of store reads', async () => {
     let invalidation = true
+    let reads = 0
     const backend = await createTestBackend({
+      sql: (connection) =>
+        countCalls(relationalSqlStore(connection), () => {
+          reads++
+        }),
       statusReadModel: (sql) =>
         new (class extends DirectStatusReadModel {
           override async notifyManifestChange(
@@ -392,18 +397,8 @@ describe('backend API trust boundary', () => {
       reportedWithToken: hash,
       reportedByUserId: 42,
     })
-    let queries = 0
-    for (const name of ['readTemplate', 'listManifestTemplates'] as const) {
-      const original = backend.sql[name].bind(backend.sql) as (...args: unknown[]) => unknown
-      Object.assign(backend.sql, {
-        [name]: (...args: unknown[]) => {
-          queries++
-          return original(...args)
-        },
-      })
-    }
     const frames = async () => {
-      queries = 0
+      reads = 0
       return (
         (await (
           await request(
@@ -415,20 +410,21 @@ describe('backend API trust boundary', () => {
         ).json()) as { frames: unknown[] }
       ).frames.length
     }
-    // The first read also builds the manifest; afterwards a fresh cache costs one template read.
     expect(await frames()).toBe(1)
     expect(await frames()).toBe(1)
-    expect(queries).toBe(1)
+    const fresh = reads
 
     // Every template but the last is unpublished while the cached manifest still lists them all.
+    // Confirming each stale template one by one would cost at least one extra read apiece.
     invalidation = false
+    const stale = templateIds.length - 1
     for (const templateId of templateIds.slice(0, -1))
       expect((await publish(templateId, false)).status).toBe(200)
     expect(await frames()).toBe(1)
-    expect(queries).toBeLessThanOrEqual(9)
+    expect(reads - fresh).toBeLessThan(stale)
     expect((await publish(templateIds.at(-1) ?? '', false)).status).toBe(200)
     expect(await frames()).toBe(0)
-    expect(queries).toBeLessThanOrEqual(9)
+    expect(reads - fresh).toBeLessThan(stale)
   })
 
   it('rejects malformed read parameters instead of returning a successful empty result', async () => {

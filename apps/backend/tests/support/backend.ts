@@ -40,6 +40,19 @@ export const createTestBackend = async (
   return { ...stores, app }
 }
 
+/** `sql` with `onCall` run before every method call made through it, whatever the method. */
+export const countCalls = (sql: SqlStore, onCall: () => void): SqlStore =>
+  new Proxy(sql, {
+    get: (target, key) => {
+      const member: unknown = Reflect.get(target, key)
+      if (typeof member !== 'function') return member
+      return (...args: unknown[]) => {
+        onCall()
+        return Reflect.apply(member, target, args)
+      }
+    },
+  })
+
 export const authorized = (path: string, init: RequestInit = {}): Request =>
   new Request(`https://backend.test${path}`, {
     ...init,

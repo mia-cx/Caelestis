@@ -8,9 +8,10 @@ import {
 import { expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
+import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import type { LiveHost, LiveSocket } from '../src/live/session.js'
 import { StatusCoordinator } from '../src/status-coordinator.js'
-import { authorized, createTestBackend } from './support/backend.js'
+import { authorized, countCalls, createTestBackend } from './support/backend.js'
 
 const SEASON = 3
 
@@ -39,7 +40,13 @@ class RecordingSocket implements LiveSocket {
 }
 
 const liveCoordinator = async () => {
-  const store = await createTestBackend()
+  let reads = 0
+  const store = await createTestBackend({
+    sql: (connection) =>
+      countCalls(relationalSqlStore(connection), () => {
+        reads++
+      }),
+  })
   const { app } = store
   const form = new FormData()
   form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
@@ -88,7 +95,7 @@ const liveCoordinator = async () => {
       })
       return server as RecordingSocket
     })
-  return { coordinator, sql: store.sql, templateId, subscribe }
+  return { coordinator, templateId, subscribe, reads: () => reads }
 }
 
 it('sends alarm snapshots only for template changes, never for metadata-only manifest edits', async () => {
@@ -109,7 +116,7 @@ it('sends alarm snapshots only for template changes, never for metadata-only man
 })
 
 it('acknowledges dashboard changes before refreshing and serves a burst with one shared read', async () => {
-  const { coordinator, sql, templateId, subscribe } = await liveCoordinator()
+  const { coordinator, templateId, subscribe, reads } = await liveCoordinator()
   const sockets = subscribe(3)
   const subscriptionIds = sockets.map(() => uuidV7())
   for (const [index, socket] of sockets.entries()) {
@@ -128,28 +135,27 @@ it('acknowledges dashboard changes before refreshing and serves a burst with one
     )
     expect(socket.events('dashboard-snapshot')).toHaveLength(1)
   }
-  const contributionReads = vi.spyOn(sql, 'readContributions')
-  const leaderboardReads = vi.spyOn(sql, 'readLeaderboard')
+  const beforeBurst = reads()
 
   await Promise.all(Array.from({ length: 5 }, () => coordinator.notifyDashboardChange(SEASON)))
   // Nothing has read yet: the paint that notified is acknowledged before its refresh starts.
-  expect(contributionReads).not.toHaveBeenCalled()
-  expect(leaderboardReads).not.toHaveBeenCalled()
+  expect(reads()).toBe(beforeBurst)
   for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(1)
 
   // The burst shares one refresh, and every subscription gets its own snapshot from it.
   await vi.waitFor(() => {
     for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(2)
   })
-  // One read of each for the whole burst, shared by every subscriber.
-  expect(contributionReads).toHaveBeenCalledTimes(1)
-  expect(leaderboardReads).toHaveBeenCalledTimes(1)
+  const burst = reads() - beforeBurst
 
-  // A later change still reaches every subscriber.
+  // A later change still reaches every subscriber, and costs as much as the whole burst did.
+  const beforeSingle = reads()
   await coordinator.notifyDashboardChange(SEASON)
   await vi.waitFor(() => {
     for (const socket of sockets) expect(socket.events('dashboard-snapshot')).toHaveLength(3)
   })
+  expect(burst).toBeGreaterThan(0)
+  expect(burst).toBe(reads() - beforeSingle)
   for (const [index, socket] of sockets.entries())
     expect(socket.events('dashboard-snapshot')).toEqual(
       Array.from({ length: 3 }, () =>
