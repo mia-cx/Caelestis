@@ -2,10 +2,6 @@ import { userscriptVersion } from './client-metrics.js'
 import { getState } from './settings.js'
 import { showAmbientToast } from './ui/notification-host.js'
 
-export const USERSCRIPT_INSTALLER_URL =
-  'https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js'
-
-const LATEST_RELEASE_URL = 'https://api.github.com/repos/mia-cx/Caelestis/releases/latest'
 const UPDATE_CHECK_DELAY_MS = 5_000
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 const RELEASE_TAG = /^userscript-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
@@ -15,12 +11,6 @@ type VersionParts = readonly [major: bigint, minor: bigint, patch: bigint]
 interface PublishedVersion {
   readonly label: string
   readonly parts: VersionParts
-}
-
-interface UpdateCheckDependencies {
-  readonly runningVersion: string
-  readonly fetchLatest: typeof fetch
-  readonly notify: typeof showAmbientToast
 }
 
 const parseVersion = (value: string, pattern: RegExp): PublishedVersion | null => {
@@ -71,18 +61,14 @@ const decodeLatestVersion = (value: unknown): PublishedVersion | null => {
 }
 
 /** Check when update notices are enabled, announcing each published version at most once. */
-export const createUserscriptUpdateCheck = (
-  dependencies: Partial<UpdateCheckDependencies> = {},
-): (() => Promise<void>) => {
-  const running = parseVersion(dependencies.runningVersion ?? userscriptVersion, VERSION)
-  const fetchLatest = dependencies.fetchLatest ?? fetch
-  const notify = dependencies.notify ?? showAmbientToast
+const createUserscriptUpdateCheck = (): (() => Promise<void>) => {
+  const running = parseVersion(userscriptVersion, VERSION)
   let announcedVersion: string | null = null
 
   return async (): Promise<void> => {
     try {
       if (running === null || !getState().notifyUpdates) return
-      const response = await fetchLatest(LATEST_RELEASE_URL, {
+      const response = await fetch(__CAELESTIS_RELEASE__.latestReleaseApiUrl, {
         headers: { accept: 'application/vnd.github+json' },
       })
       if (!response.ok) return
@@ -96,9 +82,9 @@ export const createUserscriptUpdateCheck = (
         return
 
       announcedVersion = latest.label
-      notify(`Caelestis v${latest.label} is available.`, 'info', {
+      showAmbientToast(`Caelestis v${latest.label} is available.`, 'info', {
         label: 'Update userscript',
-        href: USERSCRIPT_INSTALLER_URL,
+        href: __CAELESTIS_RELEASE__.installerUrl,
       })
     } catch {
       // Update checks are advisory. Wplace and Caelestis continue without one.

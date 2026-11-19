@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
+import { CDP_PORT } from '../chromium.mjs'
 
-const port = process.env.CDP_PORT ?? '9222'
+const port = process.env.CDP_PORT ?? String(CDP_PORT)
 const bundle = process.env.BROWSER_BUNDLE
 if (bundle === undefined) throw new Error('BROWSER_BUNDLE is required')
 const browser = await fetch(`http://127.0.0.1:${port}/json/version`, {

@@ -1,6 +1,13 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { build, context } from 'esbuild'
+import {
+  INSTALLER_URL,
+  LATEST_RELEASE_API_URL,
+  REPOSITORY_URL,
+  USERSCRIPT_BUNDLE,
+  WPLACE_MATCH,
+} from './build-config.mjs'
 import { ditherettePlugin } from './ditherette-plugin.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
@@ -48,15 +55,15 @@ const metadata = `// ==UserScript==
 // @description  Shared pixel-art templates for wplace.live, overlaid from one or more alliance servers
 // @author       mia-riezebos
 // @copyright    2026, Mia Riezebos (https://mia.cx)
-// @license      https://github.com/mia-cx/Caelestis/blob/main/LICENSE
+// @license      ${REPOSITORY_URL}/blob/main/LICENSE
 // @compatible   chrome Tampermonkey, Violentmonkey, or another userscript manager
 // @compatible   firefox Tampermonkey, Violentmonkey, or another userscript manager
 // @compatible   edge Tampermonkey, Violentmonkey, or another userscript manager
-// @homepageURL  https://github.com/mia-cx/Caelestis
-// @supportURL   https://github.com/mia-cx/Caelestis/issues
-// @downloadURL  https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js
-// @updateURL    https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js
-// @match        https://wplace.live/*
+// @homepageURL  ${REPOSITORY_URL}
+// @supportURL   ${REPOSITORY_URL}/issues
+// @downloadURL  ${INSTALLER_URL}
+// @updateURL    ${INSTALLER_URL}
+// @match        ${WPLACE_MATCH}
 // @run-at       document-start
 // @inject-into  page
 // @grant        GM_getValue
@@ -79,7 +86,7 @@ const oflNotice = `/*! FalseType font, bundled under the SIL Open Font License 1
  */
 const options = {
   entryPoints: ['src/entry.ts'],
-  outfile: 'dist/wplace-template-server.user.js',
+  outfile: USERSCRIPT_BUNDLE,
   bundle: true,
   format: 'iife',
   target: 'es2022',
@@ -89,6 +96,10 @@ const options = {
     __CAELESTIS_USERSCRIPT_VERSION__: JSON.stringify(pkg.version),
     __CAELESTIS_EXPECTED_BACKEND_VERSION__: JSON.stringify(backendPkg.version),
     __CAELESTIS_BUILD__: JSON.stringify({ revision, dirty, development }),
+    __CAELESTIS_RELEASE__: JSON.stringify({
+      installerUrl: INSTALLER_URL,
+      latestReleaseApiUrl: LATEST_RELEASE_API_URL,
+    }),
   },
   banner: { js: `${metadata};(function caelestis(world) {` },
   footer: { js: `${oflNotice}\n})('manager')` },
@@ -119,7 +130,7 @@ const manifest = {
   /** The store summary on Chrome, Edge, and AMO; keep it in step with store/listing.md. */
   description:
     'Template overlay for Wplace. Place your pixel art on the map, find the pixels left to paint, and paint with your alliance.',
-  homepage_url: 'https://github.com/mia-cx/Caelestis',
+  homepage_url: REPOSITORY_URL,
   minimum_chrome_version: '111',
   browser_specific_settings: {
     gecko: {
@@ -141,12 +152,12 @@ const manifest = {
   action: { default_title: 'Caelestis', default_popup: 'popup.html', default_icon: icons },
   content_scripts: [
     {
-      matches: ['https://wplace.live/*'],
+      matches: [WPLACE_MATCH],
       js: ['bridge.js'],
       run_at: 'document_start',
     },
     {
-      matches: ['https://wplace.live/*'],
+      matches: [WPLACE_MATCH],
       js: ['caelestis.js'],
       run_at: 'document_start',
       world: 'MAIN',

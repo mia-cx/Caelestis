@@ -4,14 +4,10 @@ import {
   type SyncTransport,
 } from '@caelestis/shared'
 
-declare const __CAELESTIS_USERSCRIPT_VERSION__: string
-
 export const userscriptVersion =
   typeof __CAELESTIS_USERSCRIPT_VERSION__ === 'string'
     ? __CAELESTIS_USERSCRIPT_VERSION__
     : 'development'
-
-declare const __CAELESTIS_EXPECTED_BACKEND_VERSION__: string
 
 /**
  * The backend version this userscript was built against. Backend and userscript are versioned

@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { build } from 'esbuild'
+import { CDP, CDP_PORT } from '../chromium.mjs'
 import { ditherettePlugin } from '../ditherette-plugin.mjs'
 
 const profile = await mkdtemp(join(tmpdir(), 'caelestis-browser-test-'))
@@ -62,10 +63,10 @@ try {
   let port = process.env.CDP_PORT
   if (!port) {
     try {
-      const response = await fetch('http://127.0.0.1:9222/json/version', {
+      const response = await fetch(`${CDP}/json/version`, {
         signal: AbortSignal.timeout(2000),
       })
-      if (response.ok) port = '9222'
+      if (response.ok) port = String(CDP_PORT)
     } catch {
       /* No existing debug browser; start an isolated test instance. */
     }

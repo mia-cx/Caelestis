@@ -7,12 +7,6 @@ import { getState } from './settings.js'
 import { isTemplateVisible, localTemplates } from './templates/local-store.js'
 import { isPaintOpen, selectedColour } from './wplace-paint.js'
 
-declare const __CAELESTIS_BUILD__: {
-  readonly revision: string | null
-  readonly dirty: boolean | null
-  readonly development: boolean
-}
-
 /** Read report metadata on demand; no environment probes run in the render loop. */
 export const readProfileContext = () => {
   const map = getMap()
