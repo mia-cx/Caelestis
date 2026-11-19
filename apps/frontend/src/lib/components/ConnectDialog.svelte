@@ -88,7 +88,8 @@ const connect = async (event: SubmitEvent): Promise<void> => {
           <button type="submit" class="btn btn-primary btn-sm">Connect</button>
         </div>
       </form>
-      <Dialog.Close class="btn btn-ghost btn-sm btn-square absolute top-2 right-2">
+      <!-- `absolute!` outranks the pixel `.btn` rule's `position: relative` in app.css. -->
+      <Dialog.Close class="btn btn-ghost btn-sm btn-square absolute! top-2 right-2">
         <Icon name="close" />
         <span class="sr-only">Close</span>
       </Dialog.Close>
