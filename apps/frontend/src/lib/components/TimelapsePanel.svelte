@@ -68,7 +68,8 @@
       step={0.05}
       value={overlayAlpha}
       oninput={(event) => (storedOverlay.value = event.currentTarget.valueAsNumber)}
-      class="range range-xs range-primary max-w-44 flex-1"
+      class="slider max-w-44 flex-1"
+      style:--fill="{overlayAlpha * 100}%"
       aria-label="template overlay opacity"
     />
     <span class="w-9 text-end text-xs tabular-nums text-base-content/50">
@@ -154,7 +155,8 @@
         value={player.transport.toStep(player.playhead)}
         oninput={(event) =>
           player.seekTo(player.transport.toTime(event.currentTarget.valueAsNumber))}
-        class="range range-xs range-primary min-w-40 flex-1"
+        class="slider min-w-40 flex-1"
+        style:--fill="{(player.transport.toStep(player.playhead) / player.transport.steps) * 100}%"
         aria-label="timelapse position"
         aria-valuetext={formatTime(player.playhead)}
         data-playhead={player.playhead}
@@ -174,3 +176,50 @@
     </div>
   {/if}
 </section>
+
+<style>
+  /*
+   * A thin track filled to --fill with a small outlined thumb, both with the pixel corners every
+   * rounded-full shape takes. Chromium has no fill pseudo-element, so the fill is a gradient.
+   */
+  .slider {
+    --track: 0.375rem;
+    --thumb: 0.75rem;
+    appearance: none;
+    block-size: var(--thumb);
+    background: transparent;
+  }
+  .slider:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+  .slider::-webkit-slider-runnable-track {
+    block-size: var(--track);
+    background: linear-gradient(to right, var(--color-primary) var(--fill), var(--color-base-300) var(--fill));
+    clip-path: var(--pixel-corners-xs);
+  }
+  .slider::-moz-range-track {
+    block-size: var(--track);
+    background: linear-gradient(to right, var(--color-primary) var(--fill), var(--color-base-300) var(--fill));
+    clip-path: var(--pixel-corners-xs);
+  }
+  .slider::-webkit-slider-thumb {
+    appearance: none;
+    box-sizing: border-box;
+    inline-size: var(--thumb);
+    block-size: var(--thumb);
+    margin-block-start: calc((var(--track) - var(--thumb)) / 2);
+    border: 1px solid var(--color-primary);
+    background: white;
+    clip-path: var(--pixel-corners-xs);
+  }
+  .slider::-moz-range-thumb {
+    box-sizing: border-box;
+    inline-size: var(--thumb);
+    block-size: var(--thumb);
+    border: 1px solid var(--color-primary);
+    border-radius: 0;
+    background: white;
+    clip-path: var(--pixel-corners-xs);
+  }
+</style>
