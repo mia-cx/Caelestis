@@ -8,6 +8,7 @@ import {
   type IndexedImage,
   MATCH,
   PALETTE_RGB,
+  PngError,
   pngSize,
   quantiseToPalette,
   TILE_SIZE,
@@ -157,20 +158,26 @@ export class InvalidTileError extends PortError {
 }
 
 const decodeCanvas = async (bytes: Uint8Array): Promise<IndexedImage> => {
-  // Reporters upload these. Check the header before decoding allocates the size it declares.
-  const { width, height } = pngSize(bytes)
-  if (width !== TILE_SIZE || height !== TILE_SIZE) {
-    throw new InvalidTileError(
-      `canvas tile is ${width}x${height}, expected ${TILE_SIZE}x${TILE_SIZE}`,
-    )
+  try {
+    // Reporters upload these. Check the header before decoding allocates the size it declares.
+    const { width, height } = pngSize(bytes)
+    if (width !== TILE_SIZE || height !== TILE_SIZE) {
+      throw new InvalidTileError(
+        `canvas tile is ${width}x${height}, expected ${TILE_SIZE}x${TILE_SIZE}`,
+      )
+    }
+    const { indices } = quantiseToPalette((await decodePng(bytes)).pixels, PALETTE_RGB)
+    return { width, height, indices }
+  } catch (cause) {
+    // A reporter's file that does not decode is their bad input, not a server fault to retry.
+    if (cause instanceof PngError) throw new InvalidTileError(cause.message, { cause })
+    throw cause
   }
-  const { indices } = quantiseToPalette((await decodePng(bytes)).pixels, PALETTE_RGB)
-  return { width, height, indices }
 }
 
 const imageBytes = (image: IndexedImage | null): number => image?.indices.byteLength ?? 0
 
-/** Decode uploaded canvas bytes to palette indices. A wrong-sized tile rejects as invalid. */
+/** Decode uploaded canvas bytes to palette indices. A wrong-sized or undecodable tile rejects as invalid. */
 export const decodeCanvasBytes = async (hash: string, bytes: Uint8Array): Promise<Uint8Array> => {
   const image = await memoize(
     decodedImages,

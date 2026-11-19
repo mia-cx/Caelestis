@@ -68,6 +68,39 @@ it('classifies uploaded canvas bytes against persisted artwork and exposes the s
   ])
 })
 
+it('refuses a tile that does not decode as bad input, not a server fault the reporter retries', async () => {
+  const { app } = await createTestBackend()
+  const form = new FormData()
+  form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
+  form.set('name', 'Undecodable')
+  form.set('season', '3')
+  form.set('originX', '0')
+  form.set('originY', '0')
+  expect(
+    (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+  ).toBe(201)
+  const canvas = await encodeIndexedPng(
+    1000,
+    1000,
+    new Uint8Array(1_000_000).fill(TRANSPARENT_INDEX),
+  )
+  // IHDR bit depth: an indexed PNG cannot be 16-bit.
+  canvas[24] = 16
+  const response = await app.fetch(
+    authorized(`/v1/telemetry/tiles/0/0/${await sha256Hex(canvas)}`, {
+      method: 'PUT',
+      body: canvas,
+      headers: {
+        'x-caelestis-season': '3',
+        'x-caelestis-observed-at': String(Math.floor(Date.now() / 1000) - 10),
+        'x-caelestis-wplace-user-id': '42',
+        'x-caelestis-display-name': 'Painter',
+      },
+    }),
+  )
+  expect(response.status).toBe(400)
+})
+
 it('keeps a regression open through partial recovery and ignores follow-ups from an old episode', () => {
   const snapshot = {
     templateId: 'template',

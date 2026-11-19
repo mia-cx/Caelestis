@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { crc32, deflateSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import {
@@ -28,12 +29,13 @@ const png = (
   extra: readonly Uint8Array[] = [],
   width = 1,
   height = 1,
+  depth = 8,
 ): Uint8Array => {
   const ihdr = new Uint8Array(13)
   const view = new DataView(ihdr.buffer)
   view.setUint32(0, width)
   view.setUint32(4, height)
-  ihdr[8] = 8
+  ihdr[8] = depth
   ihdr[9] = colourType
   const parts = [
     signature,
@@ -83,6 +85,31 @@ describe('PNG ingest contract', () => {
     expect((await decodePng(png(0, scanline, [], 2, 2))).pixels).toEqual(
       new Uint8Array([10, 10, 10, 255, 20, 20, 20, 255, 30, 30, 30, 255, 50, 50, 50, 255]),
     )
+  })
+
+  it.each([
+    ['1-bit', 'sparse-tile-1-bit'],
+    ['4-bit', 'sparse-tile-4-bit'],
+  ])('decodes a %s Wplace tile to the same pixels as its 8-bit copy', async (_depth, name) => {
+    // Wplace serves sparse tiles packed. The 1-bit copy is Wplace's own 8-bit re-encode of the same
+    // pixels, the 4-bit copy an 8-bit RGBA conversion by ImageMagick.
+    const fixture = (file: string) => readFile(new URL(`./fixtures/${file}`, import.meta.url))
+    const packed = await decodePng(await fixture(`${name}.png`))
+    const eightBit = await decodePng(await fixture(`${name}.8-bit.png`))
+    // Compared as buffers: a failing toEqual on 4 MB of pixels spends minutes building its diff.
+    expect(Buffer.compare(packed.pixels, eightBit.pixels)).toBe(0)
+  })
+
+  it('unpacks 2-bit indices across a padded row end and a Sub-filtered row', async () => {
+    const palette = chunk('PLTE', new Uint8Array([0, 0, 0, 10, 10, 10, 20, 20, 20, 30, 30, 30]))
+    // 5 pixels at 2 bits fill 10 bits, padded to 2 bytes: indices 0 1 2 3 | 1, then 3 2 1 0 | 2.
+    // The second row's Sub filter adds the byte on its left, so its bytes are deltas.
+    const [first, last] = [0b11100100, 0b10000000]
+    const scanline = [0, 0b00011011, 0b01000000, 1, first, (last - first) & 0xff]
+    const { pixels } = await decodePng(png(3, scanline, [palette], 5, 2, 2))
+    expect([...pixels].filter((_, index) => index % 4 === 0)).toEqual([
+      0, 10, 20, 30, 10, 30, 20, 10, 0, 20,
+    ])
   })
 
   it('rejects inflated data shorter or longer than its declared dimensions', async () => {
@@ -140,6 +167,10 @@ describe('PNG ingest contract', () => {
     const corrupt = png(0, [0, 1])
     corrupt[42] = (corrupt[42] ?? 0) ^ 0xff
     await expect(decodePng(corrupt)).rejects.toBeInstanceOf(PngError)
+    await expect(decodePng(png(0, [0, 0], [], 1, 1, 1))).rejects.toThrow('unsupported bit depth')
+    await expect(decodePng(png(6, [0, 0, 0, 0, 0], [], 1, 1, 16))).rejects.toThrow(
+      'unsupported bit depth',
+    )
   })
 
   it('rejects truncated chunks through both decode entrypoints', async () => {
