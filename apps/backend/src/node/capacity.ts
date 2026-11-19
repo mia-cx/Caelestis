@@ -69,8 +69,10 @@ const occupied = (kind: AdmissionChannel, host: CapacityHost): LiveSocket[] =>
     return attachmentOf(socket)?.closed !== true && (socket.readyState ?? 1) === 1
   })
 
+/** `liveSubscriberLimit` is the limit live-sync admission uses, which deployments may override. */
 export const snapshotCapacity = (
   coordinators: readonly CapacityCoordinator[],
+  liveSubscriberLimit = MAX_LIVE_SUBSCRIBERS,
 ): CapacitySnapshot => {
   const users = new Set<string>()
   let liveSlots = 0
@@ -93,7 +95,7 @@ export const snapshotCapacity = (
       kind,
       key,
       connections: Math.max(previous, sockets.length),
-      limit: kind === 'live-sync' ? MAX_LIVE_SUBSCRIBERS : MAX_PRESENCE_SUBSCRIBERS,
+      limit: kind === 'live-sync' ? liveSubscriberLimit : MAX_PRESENCE_SUBSCRIBERS,
     })
   }
   return {
@@ -122,10 +124,13 @@ export class AdmissionCounters {
   }
 }
 
-/** Which admission channel a request path belongs to, or null for ordinary HTTP. */
+/**
+ * Which admission channel a request path belongs to, or null for ordinary HTTP. The app serves
+ * each route at `/v1` and at the unversioned alias, so both count.
+ */
 export const admissionChannel = (pathname: string): AdmissionChannel | null => {
-  if (pathname.endsWith('/v1/telemetry/live')) return 'live-sync'
-  if (pathname.endsWith('/v1/telemetry/presence')) return 'presence'
+  if (pathname.endsWith('/telemetry/live')) return 'live-sync'
+  if (pathname.endsWith('/telemetry/presence')) return 'presence'
   return null
 }
 
