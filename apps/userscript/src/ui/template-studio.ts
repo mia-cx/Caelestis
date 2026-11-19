@@ -57,7 +57,7 @@ import {
   studioRecipe,
 } from '../templates/studio-recipe.js'
 import type { ImportedTemplate } from '../templates/template-record.js'
-import { MAX_TEMPLATE_NAME_LENGTH } from '../templates/template-record.js'
+import { MAX_IMAGE_BYTES, MAX_TEMPLATE_NAME_LENGTH } from '../templates/template-record.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
 import { requestConfirmation } from './notification-host.js'
 import { applyWplaceTheme } from './theme.js'
@@ -117,7 +117,6 @@ interface Processed {
 
 /** Settings rerun processing after this long without another change, so a drag stays smooth. */
 const SETTLE_MS = 120
-const MAX_SOURCE_BYTES = 64 * 1024 * 1024
 const DEFAULT_ALPHA_THRESHOLD = 128
 const STUDIO_ID = 'caelestis-template-studio'
 /** Room under the image crop mode frames, for its card, as a share of the image's height. */
@@ -563,7 +562,7 @@ const loadSource = async (blob: Blob, sourceName: string, started?: number): Pro
   if (target === null || pending) return
   const ticket = started ?? beginLoad()
   try {
-    if (blob.size > MAX_SOURCE_BYTES) throw new Error('the image is too large')
+    if (blob.size > MAX_IMAGE_BYTES) throw new Error('the image is too large')
     const png = await asPng(blob)
     if (png.size > MAX_TEMPLATE_SOURCE_BYTES) throw new Error('the image is too large')
     // Decode the stored PNG itself: replaying the recipe later reads exactly these pixels.

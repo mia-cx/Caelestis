@@ -11,7 +11,7 @@ import {
 import { pageWindow } from '../page-world.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
 import { findWplaceModules, type WplaceModule } from '../wplace-modules.js'
-import type { ImportedTemplate } from './template-record.js'
+import { type ImportedTemplate, MAX_IMAGE_BYTES } from './template-record.js'
 import type { resizeWplaceImage } from './wplace-resize.js'
 
 /** Wplace owns these fields. Caelestis folders, appearance, and history stay in its own database. */
@@ -89,7 +89,6 @@ export class NativeConflict extends Error {
 }
 
 const MAX_NATIVE_PIXELS = MAX_TEMPLATE_PIXELS
-const MAX_NATIVE_IMAGE_BYTES = 64 * 1024 * 1024
 const PROJECTION_EPSILON = 1e-9
 
 /** Geographic edges map to integer canvas pixels, including the eastern world boundary. */
@@ -320,7 +319,7 @@ export class NativeTemplates {
     const writes = this.imageWrites
     const image = await this.images.read(id)
     if (image === undefined) throw new Error(`Wplace image is unavailable for ${template.name}`)
-    if (image.size > MAX_NATIVE_IMAGE_BYTES) throw new Error('Wplace source image is too large')
+    if (image.size > MAX_IMAGE_BYTES) throw new Error('Wplace source image is too large')
     const cached = this.digests.get(id)
     const digest =
       reuseDigest && cached?.metadata === serialized && cached.size === image.size

@@ -26,7 +26,11 @@ import { loadAccount, ownedColours } from '../wplace-account.js'
 import type { TemplateAuthoring } from './authoring.js'
 import { type CaelestisBlock, parseCaelestisBlock } from './caelestis-file.js'
 import type { NativeTemplate } from './native-store.js'
-import { type ImportedTemplate, MAX_TEMPLATE_NAME_LENGTH } from './template-record.js'
+import {
+  type ImportedTemplate,
+  MAX_IMAGE_BYTES,
+  MAX_TEMPLATE_NAME_LENGTH,
+} from './template-record.js'
 import { resizeWplaceImage } from './wplace-resize.js'
 
 /**
@@ -52,9 +56,6 @@ export interface TemplateOrigin {
 /** Every palette index, for recipes that do not restrict colours. */
 const ALL_COLOURS: readonly number[] = PALETTE_RGB.map((_, index) => index)
 
-// Large enough for the observed 11 MB / 1612x2584 `.wplace` fixture, while keeping a malformed or
-// hostile local file from turning one click into an unbounded browser allocation.
-const MAX_FILE_BYTES = 64 * 1024 * 1024
 const MAX_IMPORT_PIXELS = MAX_TEMPLATE_PIXELS
 const MAX_MARBLE_TILES = 64
 const MAX_MARBLE_TEMPLATES = 64
@@ -78,7 +79,7 @@ const checkedName = (value: unknown, fallback: string): string => {
 }
 
 const pngDimensions = async (blob: Blob): Promise<{ width: number; height: number }> => {
-  if (blob.size > MAX_FILE_BYTES) throw new Error('image is too large to import safely')
+  if (blob.size > MAX_IMAGE_BYTES) throw new Error('image is too large to import safely')
   const bytes = new Uint8Array(await blob.slice(0, 24).arrayBuffer())
   const signature = [137, 80, 78, 71, 13, 10, 26, 10]
   if (
@@ -894,7 +895,7 @@ export const importFile = async (
   importRunning = true
   try {
     const started = performance.now()
-    if (file.size > MAX_FILE_BYTES) throw new Error('file is too large to import safely')
+    if (file.size > MAX_IMAGE_BYTES) throw new Error('file is too large to import safely')
     const isJson =
       file.name.toLowerCase().endsWith('.wplace') ||
       file.name.toLowerCase().endsWith('.json') ||

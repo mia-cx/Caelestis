@@ -33,6 +33,12 @@ const TEMPLATE_SOURCES: readonly unknown[] = [
 
 export const MAX_TEMPLATE_ID_LENGTH = 128
 export const MAX_TEMPLATE_NAME_LENGTH = 256
+/**
+ * The largest image or template file read into memory. Large enough for the observed 11 MB /
+ * 1612x2584 `.wplace` fixture, while keeping a malformed or hostile file from turning one click
+ * into an unbounded browser allocation.
+ */
+export const MAX_IMAGE_BYTES = 64 * 1024 * 1024
 
 /** What every template is, wherever it came from: identity, placement and pixel counts. */
 export interface TemplateRecord {

@@ -29,6 +29,7 @@ import {
   putTemplateCopy,
 } from './template-copies.js'
 import { addLocalTemplate } from './template-edits.js'
+import { MAX_IMAGE_BYTES } from './template-record.js'
 import { WPLACE_OWNER_URL } from './wplace-owned.js'
 
 export const NATIVE_ALLIANCE_TREE_KEY = 'native-alliance'
@@ -211,7 +212,7 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
       )
       if (!response.ok) throw new Error(`Wplace alliance image returned ${response.status}`)
       const image = await response.blob()
-      if (image.size > 64 * 1024 * 1024) throw new Error('Wplace alliance image is too large')
+      if (image.size > MAX_IMAGE_BYTES) throw new Error('Wplace alliance image is too large')
       const geometry = {
         id,
         name: placement.name,
