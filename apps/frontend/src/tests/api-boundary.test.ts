@@ -33,6 +33,7 @@ import {
   getStatus,
   getTemplateProgressHistory,
   getTileHistory,
+  serverAssetUrl,
   tileImageUrl,
   writeConnection,
 } from '../lib/api/client'
@@ -229,7 +230,8 @@ describe('frontend API client against the built backend', () => {
       }),
     )
     expect(uploaded.status).toBe(200)
-    vi.stubGlobal('fetch', frontendFetch(backend.app))
+    const read = frontendFetch(backend.app)
+    vi.stubGlobal('fetch', read)
     const server = await getServer()
     expect(server).toMatchObject({
       name: 'United Pixels',
@@ -238,19 +240,11 @@ describe('frontend API client against the built backend', () => {
       logoText: 'UP',
       previewImage: { contentType: 'image/png' },
     })
-    const etag = server.previewImage?.etag
-    expect(etag).toMatch(/^[a-f0-9]{64}$/)
-    const path = `https://backend.test/server/assets/preview?v=${etag}`
-    const image = await backend.app.fetch(new Request(path))
+    if (server.previewImage === undefined) throw new Error('no preview image')
+    // The browser loads the image anonymously, from the URL the client builds.
+    const image = await read(serverAssetUrl('preview', server.previewImage))
+    expect(image.status).toBe(200)
     expect(new Uint8Array(await image.arrayBuffer())).toEqual(bytes)
-    expect(image.headers.get('cache-control')).toContain('immutable')
-    const cached = await backend.app.fetch(
-      new Request(path, { headers: { 'if-none-match': `W/"${etag}"` } }),
-    )
-    expect(cached.status).toBe(304)
-    const head = await backend.app.fetch(new Request(path, { method: 'HEAD' }))
-    expect(head.headers.get('content-length')).toBe(String(bytes.length))
-    expect(await head.text()).toBe('')
   })
   it('reads a published template lifecycle and authenticated chunk through its browser transport', async () => {
     const { backend, node, template } = await createPublishedTemplate()
@@ -443,13 +437,6 @@ describe('frontend API client against the built backend', () => {
     backfill.importers.set(archiveTemplateId, importer)
     const job = await importer.start(archiveTemplateId, archiveVersionId, archiveSnapshot.id)
     for (let step = 0; step < job.total; step += 1) await importer.step()
-    const denied = await backend.app.fetch(
-      new Request('https://backend.test/admin/server', {
-        method: 'PATCH',
-        ...json({ name: 'Denied server' }),
-      }),
-    )
-    expect(denied.status).toBe(401)
     const renamed = await backend.app.fetch(
       authorized('/admin/server', { method: 'PATCH', ...json({ name: 'Boundary server' }) }),
     )

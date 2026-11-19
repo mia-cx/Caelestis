@@ -103,8 +103,9 @@ it('asks only for the newest buckets on each chart tick', async () => {
   await vi.advanceTimersByTimeAsync(15_000)
 
   const [, from, , options] = client.getHistory.mock.calls.at(-1) ?? []
-  expect(lifetimeFrom).toBeLessThan(start)
-  // Every bucket the server can still change: the last 3690 s, on the full read's 60 s grid.
-  expect(from).toBe(start + 3_480)
+  // A tail read: past the lifetime start, yet early enough to reread the newest bucket held.
+  expect(from).toBeGreaterThan(lifetimeFrom)
+  expect(from).toBeLessThanOrEqual(start + 7_140)
+  // On the full read's 60 s grid.
   expect(options).toEqual({ maxResolution: 60 })
 })

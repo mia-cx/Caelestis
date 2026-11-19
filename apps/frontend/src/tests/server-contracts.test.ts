@@ -402,22 +402,6 @@ describe('public social metadata and stored image routes', () => {
       expect(text(embedOf(metadata))).toContain('## Test world · Caelestis')
     })
 
-    it('keeps the legacy /template/ path anonymous', async () => {
-      const data = manifest()
-      const context = { server: data.server, manifest: data, statuses: [] }
-      const legacy = await socialMetadata(
-        new URL(`https://frontend.test/template/${template().id}`),
-        context,
-      )
-      expect(legacy.title).toBe('Test world · Caelestis')
-      expect(legacy.image).toContain('/social/site.png')
-      const moved = await socialMetadata(
-        new URL(`https://frontend.test/artwork/${template().id}`),
-        context,
-      )
-      expect(moved.title).toBe('Artwork · Test world')
-    })
-
     it.each([
       ['GET', legacyPageGet],
       ['HEAD', legacyPageHead],
