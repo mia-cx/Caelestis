@@ -1,5 +1,6 @@
 import { log } from './debug.js'
 import { showPickCell } from './gl/pick-cell-layer.js'
+import { CLICK_SLOP_PX } from './map-pointer.js'
 import { overlayIndexAt, pickedIndexAt, pickerPointAt } from './paint-cell.js'
 import {
   forwardPaintMove,
@@ -200,8 +201,8 @@ export const installColourPicker = (): void => {
         event.button !== 0 ||
         event.target !== pending.target ||
         performance.now() > pending.until ||
-        Math.abs(event.clientX - pending.x) > 4 ||
-        Math.abs(event.clientY - pending.y) > 4
+        Math.abs(event.clientX - pending.x) > CLICK_SLOP_PX ||
+        Math.abs(event.clientY - pending.y) > CLICK_SLOP_PX
       )
         return
       event.preventDefault()
