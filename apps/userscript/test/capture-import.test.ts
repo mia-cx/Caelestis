@@ -183,14 +183,10 @@ describe('server file import', () => {
     opaque: 2,
   })
   const importBoth = () =>
-    importTemplatesToServer(
-      [marble('first', 0), marble('second', 4)],
-      server,
-      null,
-      null,
-      () => {},
-      async () => {},
-    )
+    importTemplatesToServer([marble('first', 0), marble('second', 4)], server, null, {
+      reservation: null,
+      rerender: () => {},
+    })
 
   it('keeps a template admitted after the first was refused in Local', async () => {
     vi.spyOn(store, 'addLocalTemplate').mockRejectedValueOnce(new Error('pixel budget'))

@@ -15,15 +15,13 @@ import type { MoveReservation } from '../templates/move.js'
 import { movingId } from '../templates/move.js'
 import { toast } from '../ui/toast.js'
 import { authoringOf } from './template-authoring.js'
-
-type RefreshServer = (server: ServerConnection, rerender: () => void) => Promise<void>
+import { refreshEditedSurface } from './tree-server.js'
 
 const uploadAdmitted = async (
   server: ServerConnection,
   nodeId: string | null,
   templateIds: readonly string[],
   rerender: () => void,
-  refreshServer: RefreshServer,
   surface: TemplateSurface,
 ): Promise<void> => {
   let uploaded = 0
@@ -77,7 +75,7 @@ const uploadAdmitted = async (
     // Uploaded copies are gone; whatever remains is kept in Local, where the sidebar lists it.
     for (const templateId of templateIds) await unstageLocalTemplate(templateId)
   }
-  if (uploaded > 0) await refreshServer(server, rerender)
+  if (uploaded > 0) await refreshEditedSurface(server, surface, rerender)
   rerender()
 
   const serverName = server.info?.name ?? server.url
@@ -94,17 +92,27 @@ const uploadAdmitted = async (
 }
 
 /** Stage file imports locally only long enough to place and upload them to their chosen server. */
+export interface ServerImportOptions {
+  /** The placement an image import waits for; released whatever happens. */
+  readonly reservation: MoveReservation | null
+  readonly rerender: () => void
+  readonly surface?: TemplateSurface
+  readonly signal?: AbortSignal
+  /** Positioned in the template studio: upload straight away, without a placement. */
+  readonly placed?: boolean
+}
+
 export const importTemplatesToServer = async (
   imported: readonly ImportedTemplate[],
   server: ServerConnection,
   nodeId: string | null,
-  reservation: MoveReservation | null,
-  rerender: () => void,
-  refreshServer: RefreshServer,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-  signal?: AbortSignal,
-  /** Positioned in the template studio: upload straight away, without a placement. */
-  placed = false,
+  {
+    reservation,
+    rerender,
+    surface = WORLD_TEMPLATE_SURFACE,
+    signal,
+    placed = false,
+  }: ServerImportOptions,
 ): Promise<boolean> => {
   if (!server.isAdmin) {
     reservation?.release()
@@ -148,7 +156,7 @@ export const importTemplatesToServer = async (
       signal?.throwIfAborted()
       const started = reservation?.start(first.id, () => {
         rerender()
-        void uploadAdmitted(server, nodeId, admitted, rerender, refreshServer, surface)
+        void uploadAdmitted(server, nodeId, admitted, rerender, surface)
       })
       if (started !== true) {
         for (const templateId of admitted) await removeLocalTemplate(templateId)
@@ -160,7 +168,7 @@ export const importTemplatesToServer = async (
       return true
     }
 
-    await uploadAdmitted(server, nodeId, admitted, rerender, refreshServer, surface)
+    await uploadAdmitted(server, nodeId, admitted, rerender, surface)
     return true
   } catch (error) {
     if (signal?.aborted) {

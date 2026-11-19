@@ -1120,7 +1120,7 @@ const templateStatusFrom = (value: unknown): TemplateStatus | null => {
   return candidate as TemplateStatus
 }
 
-export const statusDeltaFrom = (value: unknown): StatusDelta | null => {
+const statusDeltaFrom = (value: unknown): StatusDelta | null => {
   if (typeof value !== 'object' || value === null) return null
   const candidate = value as Partial<StatusDelta>
   if (
@@ -1612,6 +1612,6 @@ export const installTelemetry = (): void => {
   })
 }
 
-export const reportTelemetryError = (error: unknown): void => {
+const reportTelemetryError = (error: unknown): void => {
   warn('install', 'telemetry failed', String(error))
 }

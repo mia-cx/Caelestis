@@ -22,7 +22,6 @@ import { toast } from '../ui/toast.js'
 import type { TreeTarget } from '../ui/tree.js'
 import { importTemplatesToServer } from './import-to-server.js'
 import { openTemplateStudio } from './template-studio.js'
-import { refreshEditedSurface } from './tree-server.js'
 import { hiddenNotice } from './tree-target.js'
 
 /** Save `file` as `filename` through the browser's own download. */
@@ -146,17 +145,13 @@ const importTemplateData = async (
     return false
   }
   if (target.server !== null) {
-    return await importTemplatesToServer(
-      imported,
-      target.server,
-      target.nodeId ?? null,
+    return await importTemplatesToServer(imported, target.server, target.nodeId ?? null, {
       reservation,
       rerender,
-      (server, render) => refreshEditedSurface(server, surface, render),
       surface,
-      signal,
+      ...(signal === undefined ? {} : { signal }),
       placed,
-    )
+    })
   }
   // Straight into whichever Local folder was clicked. Importing from a folder's own button
   // and then finding the result at the top level would make the button a lie.

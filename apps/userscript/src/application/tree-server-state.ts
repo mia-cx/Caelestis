@@ -33,16 +33,6 @@ import {
   serverUrlOfScopeKey,
 } from '../tree-keys.js'
 
-/** @internal Arithmetic seam for the aggregate cost of all connected manifest rows. */
-const manifestAggregateWithinBudget = (
-  retainedTemplates: number,
-  retainedChunks: number,
-  nextTemplates: number,
-  nextChunks: number,
-): boolean =>
-  retainedTemplates + nextTemplates <= MAX_MANIFEST_TEMPLATES &&
-  retainedChunks + nextChunks <= MAX_MANIFEST_CHUNKS
-
 /**
  * Nodes per server, fetched once and refreshed on demand.
  *
@@ -236,31 +226,7 @@ export const isSameServerPlacement = (
   return sourceUrl !== undefined && sourceUrl === serverUrlForTreeParent(parentKey, surface)
 }
 
-/** What a server publishes directly inside one folder. */
-export const templatesOfNode = (
-  serverUrl: string,
-  nodeId: string,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): ReadonlyArray<{ id: string; name: string; version: string }> => {
-  return templatesForServer(serverUrl, surface).filter((template) => template.nodeId === nodeId)
-}
-
-/**
- * Re-read what a server publishes: its folders and the templates under them.
- *
- * **Not gated on admin.** The tree is what a read token is for — seeing what the alliance is
- * building. Only *changing* it is privileged, and that boundary is drawn per row by `canEdit`.
- * Refusing to fetch here left every member looking at a connected server with nothing under it.
- *
- * Both in one call, from the manifest, which is also the only way they can agree: a template row is
- * drawn under its folder, so fetching one without the other puts templates under folders that are
- * not there, or leaves a folder claiming to be empty a moment after something landed in it.
- *
- * One at a time per server. The render pass calls this for any connected server it has nothing for,
- * and a render pass is cheap to provoke — so a server that is slow, unreachable, or refusing the
- * token got a fresh manifest request on *every* re-render, because a failure leaves the map empty
- * and the next pass sees the same gap. Sharing the in-flight promise makes that one request.
- */
+/** Whether a fetched manifest became the tree and canvas authority, and why not. */
 export type ServerSnapshotResult =
   | { readonly status: 'admitted'; readonly changed: boolean }
   | { readonly status: 'refused' | 'failed' | 'superseded'; readonly message: string }
@@ -295,6 +261,22 @@ export const serverSnapshotError = (server: ServerConnection): string | undefine
 export const isServerRefreshing = (server: ServerConnection): boolean => refreshing.has(server)
 const refreshGeneration = new Map<string, number>()
 
+/**
+ * Re-read what a server publishes: its folders and the templates under them.
+ *
+ * **Not gated on admin.** The tree is what a read token is for — seeing what the alliance is
+ * building. Only *changing* it is privileged, and that boundary is drawn per row by `canEdit`.
+ * Refusing to fetch here left every member looking at a connected server with nothing under it.
+ *
+ * Both in one call, from the manifest, which is also the only way they can agree: a template row is
+ * drawn under its folder, so fetching one without the other puts templates under folders that are
+ * not there, or leaves a folder claiming to be empty a moment after something landed in it.
+ *
+ * One at a time per server. The render pass calls this for any connected server it has nothing for,
+ * and a render pass is cheap to provoke — so a server that is slow, unreachable, or refusing the
+ * token got a fresh manifest request on *every* re-render, because a failure leaves the map empty
+ * and the next pass sees the same gap. Sharing the in-flight promise makes that one request.
+ */
 export const refreshServerSnapshot = async (
   server: ServerConnection,
   rerender: () => void,
@@ -422,7 +404,8 @@ const rememberServerContents = (
   }
   const nextChunks = templates.reduce((total, template) => total + template.chunks.length, 0)
   if (
-    !manifestAggregateWithinBudget(retainedTemplates, retainedChunks, templates.length, nextChunks)
+    retainedTemplates + templates.length > MAX_MANIFEST_TEMPLATES ||
+    retainedChunks + nextChunks > MAX_MANIFEST_CHUNKS
   ) {
     return {
       ok: false,
@@ -548,7 +531,7 @@ const forgetServerRows = (serverUrl: string): readonly string[] => {
  * Refused snapshots never displace the last admitted rows. If admission becomes stale after row
  * publication, the previous snapshot is restored before its canvas reconciliation is queued.
  */
-export const acceptServerSnapshot = (
+const acceptServerSnapshot = (
   server: ServerConnection,
   contents: ServerContents,
 ): ServerSnapshotResult => {
