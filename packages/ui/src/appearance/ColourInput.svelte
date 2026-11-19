@@ -4,7 +4,7 @@
   const clamp = (value: number, min: number, max: number): number =>
     Math.min(max, Math.max(min, value))
 
-  export const hexToHsv = (hex: string): Hsv => {
+  const hexToHsv =(hex: string): Hsv => {
     const match = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
     if (match?.[1] === undefined) return { h: 0, s: 0, v: 0 }
     const value = Number.parseInt(match[1], 16)
@@ -23,7 +23,7 @@
     return { h, s: max === 0 ? 0 : span / max, v: max }
   }
 
-  export const hsvToHex = ({ h, s, v }: Hsv): string => {
+  const hsvToHex =({ h, s, v }: Hsv): string => {
     const channel = (offset: number): number => {
       const k = (offset + h / 60) % 6
       return v - v * s * Math.max(0, Math.min(k, 4 - k, 1))

@@ -11,7 +11,6 @@
     step: number
     format: (value: number) => string
     compact?: boolean
-    locked?: boolean
     disabled?: boolean
     control?: string
     depth?: number
@@ -30,7 +29,6 @@
     step,
     format,
     compact = false,
-    locked = false,
     disabled = false,
     control,
     depth,
@@ -46,19 +44,19 @@
   $effect(() => { local = value })
 
   const input = (): void => {
-    if (locked || disabled) return
+    if (disabled) return
     dirty = true
     onInput?.(local)
   }
 
   const commit = (): void => {
-    if (!dirty || locked || disabled) return
+    if (!dirty || disabled) return
     dirty = false
     onCommit?.(local)
   }
 
   const reset = (): void => {
-    if (locked || disabled || Object.is(local, defaultValue)) return
+    if (disabled || Object.is(local, defaultValue)) return
     local = defaultValue
     onReset?.(defaultValue)
   }
@@ -75,15 +73,15 @@
       {step}
       {disabled}
       aria-label={label}
-      aria-disabled={locked || disabled}
+      aria-disabled={disabled}
       data-caelestis-control={control}
       style:--fill={`${max === min ? 0 : ((local - min) / (max - min)) * 100}%`}
       bind:value={local}
       oninput={input}
       onchange={() => { if (!keyHeld) commit() }}
-      onpointerdown={(event) => { if (locked || disabled) event.preventDefault() }}
+      onpointerdown={(event) => { if (disabled) event.preventDefault() }}
       onkeydown={(event) => {
-        if (locked || disabled) event.preventDefault()
+        if (disabled) event.preventDefault()
         else if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) keyHeld = true
       }}
       onkeyup={(event) => {
@@ -98,7 +96,7 @@
       type="button"
       hidden={Object.is(local, defaultValue)}
       disabled={disabled}
-      aria-disabled={locked || disabled}
+      aria-disabled={disabled}
       aria-label={`Reset ${label.toLowerCase()}`}
       title={`Reset ${label.toLowerCase()}`}
       onclick={reset}

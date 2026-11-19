@@ -74,7 +74,7 @@
       {#snippet children()}
         <div class="presets" role="group" aria-label="Pixel style">
           {#each model.pixelPresets as preset (preset.id)}
-            <button class="pixel-preset caelestis-bevel" type="button" data-caelestis-pixel-preset={preset.id} class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} aria-label={preset.label} title={preset.label} onclick={() => emit({ type: 'pixel-preset', id: preset.id })}>
+            <button class="pixel-preset caelestis-bevel" type="button" class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} aria-label={preset.label} title={preset.label} onclick={() => emit({ type: 'pixel-preset', id: preset.id })}>
               <span class={`preset-icon ${preset.id}`} aria-hidden="true"></span>
             </button>
           {/each}
@@ -189,7 +189,7 @@
     <div class="colour-toolbar">
       <div class="presets" role="group" aria-label="Colour presets">
         {#each model.colourPresets as preset (preset.id)}
-          <button class="choice caelestis-bevel" type="button" data-caelestis-preset={preset.id} class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} onclick={() => emit({ type: 'colour-preset', id: preset.id })}>{preset.label}</button>
+          <button class="choice caelestis-bevel" type="button" class:active={preset.active} disabled={preset.disabled} aria-pressed={preset.active} onclick={() => emit({ type: 'colour-preset', id: preset.id })}>{preset.label}</button>
         {/each}
       </div>
       {#if model.showOnlySelectedColour !== false}

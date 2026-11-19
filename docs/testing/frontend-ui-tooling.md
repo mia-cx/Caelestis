@@ -192,9 +192,6 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `packages/ui/src/elements/RailControl.element.svelte` | Integration | Custom element model properties and composed intent events through the real mounted element. |
 | `packages/ui/src/elements/ShortcutHelp.element.svelte` | Integration | Custom element model properties and composed intent events through the real mounted element. |
 | `packages/ui/src/elements/TagManager.element.svelte` | Integration | Custom element model properties and composed intent events through the real mounted element. |
-| `packages/ui/src/elements/TemplateAdmin.element.svelte` | Integration | Custom element model properties and composed intent events through the real mounted element. |
-| `packages/ui/src/elements/TemplateState.element.svelte` | Integration | Custom element model properties and composed intent events through the real mounted element. |
-| `packages/ui/src/elements/Work.element.svelte` | Integration | Custom element model properties and composed intent events through the real mounted element. |
 | `packages/ui/src/elements/index.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
 | `packages/ui/src/foundations/Button.svelte` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
 | `packages/ui/src/foundations/Checkbox.svelte` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
@@ -217,7 +214,6 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `packages/ui/src/shortcut-help/ShortcutHelp.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/shortcut-help/actions.ts` | Integration | Labels and control semantics exercised through composed UI interactions; icons/styles require no standalone assertions. |
 | `packages/ui/src/tags/TagManager.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
-| `packages/ui/src/template-admin/TemplateAdmin.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/template-state/TemplateLifecycle.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/template-state/TemplateState.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/theme.ts` | Integration | Theme application exposes the selected mode and updates host styling. |
@@ -230,9 +226,7 @@ separate [Chromium boundary checks](browser-evidence.md); there are no CSS-class
 | `packages/ui/src/tree/TemplateTree.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/tree/preview-pixels.ts` | Unit | Bounded preview preserves palette colours, transparency and nearest source pixels. |
 | `packages/ui/src/types.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
-| `packages/ui/src/work/WorkBoard.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
 | `packages/ui/src/work/WorkSummary.svelte` | Integration | Mounted component emits public intents and exposes accessible controls for its model; pending/refusal and cleanup where applicable. |
-| `packages/ui/src/work/model.ts` | Declarative | Type declarations and export wiring; package check/build resolves consumers. No standalone execution assertions. |
 | `scripts/benchmark-social-gifs.mjs` | Integration (extended) | Explicit development/deployment/benchmark command; verified with isolated runtime/stack acceptance when relevant. No source-text assertions or live infrastructure in default suite. |
 | `scripts/benchmark-wplace-collaboration.mjs` | Integration (extended) | Explicit development/deployment/benchmark command; verified with isolated runtime/stack acceptance when relevant. No source-text assertions or live infrastructure in default suite. |
 | `scripts/dev-tunnel.mjs` | Integration (extended) | Explicit development/deployment/benchmark command; verified with isolated runtime/stack acceptance when relevant. No source-text assertions or live infrastructure in default suite. |

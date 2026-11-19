@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
-  import Icon, { type IconName } from './Icon.svelte'
+  import Icon from './Icon.svelte'
+  import type { IconName } from './icons.svelte.js'
 
   let {
     title,
@@ -19,12 +20,12 @@
 
 <div class:compact={onToggle !== undefined} class="section">
   {#if onToggle !== undefined}
-    <button class="section-toggle" type="button" aria-expanded={expanded} onclick={onToggle}><span class:open={expanded} class="caret"><Icon name="caret" size="0.75rem" /></span><h2 data-caelestis-section-title>{title}</h2></button>
+    <button class="section-toggle" type="button" aria-expanded={expanded} onclick={onToggle}><span class:open={expanded} class="caret"><Icon name="caret" size="0.75rem" /></span><h2>{title}</h2></button>
   {:else}
-    <span class="chip" data-caelestis-section-icon={icon} aria-hidden="true">
+    <span class="chip" aria-hidden="true">
       {#if icon !== undefined}<Icon name={icon} />{/if}
     </span>
-    <h2 data-caelestis-section-title>{title}</h2>
+    <h2>{title}</h2>
   {/if}
   {#if actions !== undefined}<div class="actions">{@render actions()}</div>{/if}
 </div>

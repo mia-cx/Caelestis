@@ -1274,7 +1274,7 @@ const refreshTreeProgress = (): void => {
 const currentPanelWidth = (panel: CaelestisPanel): number =>
   panelWidthAfterMount(panel.getBoundingClientRect().width, panel.model.width)
 
-/** Wplace adapter around the shared panel shell. View contents migrate in the following slices. */
+/** Wplace adapter around the shared panel shell. */
 const buildSveltePanel = (): CaelestisPanel => {
   const panel = (panelHost?.ownerDocument ?? document).createElement('caelestis-panel')
   const alliance = panelSessions.scope() === 'alliance'

@@ -7,9 +7,9 @@
   import TemplateTree from '../tree/TemplateTree.svelte'
   import WorkSummary from '../work/WorkSummary.svelte'
   import SettingsPanel from '../settings/SettingsPanel.svelte'
-  import type { PanelIntent, PanelProps, PanelView, TemplateTreeIntent } from '../types.js'
+  import type { PanelIntent, PanelModel, PanelView, TemplateTreeIntent } from '../types.js'
 
-  let { model, children, onIntent }: PanelProps = $props()
+  let { model, onIntent }: { model: PanelModel; onIntent?: (intent: PanelIntent) => void } = $props()
   let width = $state(0)
   let held = false
   let resizing = $state(false)
@@ -203,8 +203,6 @@
           <AppearanceEditor model={model.appearance} onIntent={(intent) => emit({ type: 'appearance', intent })} />
         {:else if view === 'settings' && model.settings !== undefined}
           <SettingsPanel model={model.settings} onIntent={(intent) => emit({ type: 'settings', intent })} />
-        {:else if children !== undefined}
-          {@render children()}
         {/if}
       </div>
     {/each}

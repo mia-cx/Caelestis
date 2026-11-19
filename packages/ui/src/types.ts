@@ -1,39 +1,5 @@
-import type { AlarmKind, Template } from '@caelestis/shared'
+import type { AlarmKind } from '@caelestis/shared'
 import type { IconName } from './foundations/icons.svelte.js'
-
-export type TemplateLifecycleState = Pick<
-  Template,
-  'finished' | 'finishedAt' | 'timelapseFrozen'
-> & {
-  readonly griefed: boolean
-  readonly alarmKind?: AlarmKind | undefined
-  readonly pixelsLost?: number | undefined
-}
-
-export interface TemplateLifecycleChangeDetail {
-  readonly value: boolean
-}
-
-export interface TemplateStateProps {
-  finished?: boolean
-  frozen?: boolean
-  griefed?: boolean
-  /** The most severe active alarm among a container's descendants. */
-  descendantAlarmKind?: AlarmKind
-  alarmKind?: AlarmKind | undefined
-  pixelsLost?: number | undefined
-  compact?: boolean
-  /** Hide the lifecycle indicator when the host overlays it on its template icon. */
-  showLifecycle?: boolean
-}
-
-export interface TemplateAdminProps {
-  finished?: boolean
-  frozen?: boolean
-  busy?: boolean
-  onFinishedChange?: (detail: TemplateLifecycleChangeDetail) => void
-  onFrozenChange?: (detail: TemplateLifecycleChangeDetail) => void
-}
 
 export type ToastKind = 'info' | 'warning' | 'error'
 
@@ -264,12 +230,6 @@ export type PanelIntent =
   | { readonly type: 'tree'; readonly intent: TemplateTreeIntent }
   | { readonly type: 'appearance'; readonly intent: AppearanceEditorIntent }
   | { readonly type: 'settings'; readonly intent: SettingsIntent }
-
-export interface PanelProps {
-  model: PanelModel
-  children?: import('svelte').Snippet
-  onIntent?: (intent: PanelIntent) => void
-}
 
 export type SettingsBooleanKey =
   | 'reportPaints'

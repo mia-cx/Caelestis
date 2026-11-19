@@ -121,7 +121,7 @@
 
 {#snippet toastItem(toast: ToastModel, behind: number)}
   {@const dismissLabel = toast.kind === 'error' ? 'Dismiss error' : 'Dismiss notification'}
-  <div class="toast caelestis-surface {toast.kind}" data-caelestis-toast={toast.kind} out:toastOut>
+  <div class="toast caelestis-surface {toast.kind}" out:toastOut>
     <Icon name={KIND_ICON[toast.kind]} class="kind" />
     <span class="message">{toast.message}</span>
     <span class="controls">

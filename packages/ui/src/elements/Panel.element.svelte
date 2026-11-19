@@ -19,8 +19,7 @@
   }
 </script>
 
-{#snippet content()}<svelte:element this={'slot'} />{/snippet}
-<div class="pane"><Panel {model} onIntent={emit} children={content} /></div>
+<div class="pane"><Panel {model} onIntent={emit} /></div>
 
 <PixelStyles />
 

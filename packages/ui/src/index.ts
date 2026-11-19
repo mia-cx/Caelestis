@@ -1,8 +1,8 @@
 export { default as AppearanceEditor } from './appearance/AppearanceEditor.svelte'
 export { default as ColourInput } from './appearance/ColourInput.svelte'
 export { default as Button } from './foundations/Button.svelte'
-export { default as Icon, type IconName } from './foundations/Icon.svelte'
-export { type IconSet, useIconSet } from './foundations/icons.svelte.js'
+export { default as Icon } from './foundations/Icon.svelte'
+export { type IconName, type IconSet, useIconSet } from './foundations/icons.svelte.js'
 export { default as MenuStyles } from './foundations/MenuStyles.svelte'
 export { default as SectionHeader } from './foundations/SectionHeader.svelte'
 export { default as SettingRow } from './foundations/SettingRow.svelte'
@@ -25,7 +25,6 @@ export {
 } from './shortcut-help/actions.js'
 export { default as ShortcutHelp } from './shortcut-help/ShortcutHelp.svelte'
 export { default as TagManager } from './tags/TagManager.svelte'
-export { default as TemplateAdmin } from './template-admin/TemplateAdmin.svelte'
 export { default as TemplateState } from './template-state/TemplateState.svelte'
 export { default as TemplateTree } from './tree/TemplateTree.svelte'
 export type {
@@ -52,7 +51,6 @@ export type {
   PaletteProgressModel,
   PanelIntent,
   PanelModel,
-  PanelProps,
   PanelView,
   RailControlId,
   RailControlIntent,
@@ -73,10 +71,6 @@ export type {
   ShortcutSettingsModel,
   TagManagerIntent,
   TagManagerModel,
-  TemplateAdminProps,
-  TemplateLifecycleChangeDetail,
-  TemplateLifecycleState,
-  TemplateStateProps,
   TemplateTreeIntent,
   TemplateTreeModel,
   ToastActionModel,
@@ -94,5 +88,3 @@ export type {
   TreeRowModel,
   TreeSortModel,
 } from './types.js'
-export type { WorkModel } from './work/model.js'
-export { default as WorkBoard } from './work/WorkBoard.svelte'

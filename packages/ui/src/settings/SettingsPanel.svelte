@@ -133,7 +133,7 @@
   {/if}
   <SectionHeader title="Servers" icon="server" />
   <div class="connect">
-    <input class="caelestis-field" data-caelestis-draft="add-server" type="url" bind:value={addServer} placeholder="https://templates.example.org" aria-label="Server address" onkeydown={(event) => { if (event.key === 'Enter') submitServer() }} />
+    <input class="caelestis-field" type="url" bind:value={addServer} placeholder="https://templates.example.org" aria-label="Server address" onkeydown={(event) => { if (event.key === 'Enter') submitServer() }} />
     <Button label="Add" kind="primary" size="small" disabled={model.addServerPending === true} onclick={submitServer} />
   </div>
   {#if model.addServerMessage !== undefined}<p class="message" role="status">{model.addServerMessage}</p>{/if}
@@ -152,7 +152,7 @@
         {#if server.expanded}
           <div class="server-body">
             <div class="token-row">
-              <input class="caelestis-field" data-caelestis-draft={`token:${server.url}`} type="password" autocomplete="off" value={tokenDrafts[server.url] ?? ''} oninput={(event) => tokenDrafts[server.url] = event.currentTarget.value} placeholder={server.tokenSaved ? '••••••••' : 'Access token'} aria-label="Your access token for this server" onkeydown={(event) => { if (event.key === 'Enter') submitToken(server) }} />
+              <input class="caelestis-field" type="password" autocomplete="off" value={tokenDrafts[server.url] ?? ''} oninput={(event) => tokenDrafts[server.url] = event.currentTarget.value} placeholder={server.tokenSaved ? '••••••••' : 'Access token'} aria-label="Your access token for this server" onkeydown={(event) => { if (event.key === 'Enter') submitToken(server) }} />
               <Button label={server.status === 'connected' ? 'Update' : 'Connect'} kind="primary" size="small" disabled={server.pending === true} onclick={() => submitToken(server)} />
             </div>
             <p class:error={server.message !== undefined} class="subtle" role="status">{tokenStatus(server)}</p>
@@ -178,7 +178,7 @@
                 {#if server.accessTokens.hasMore}<Button label="Load more" kind="ghost" size="compact" disabled={server.accessTokens.loadingMore === true} onclick={() => emit({ type: 'load-more-access-tokens', url: server.url })} />{/if}
                 <div class="new-token">
                   <div class="new-token-row">
-                    <input class="caelestis-field" data-caelestis-draft={`token-label:${server.url}`} type="text" maxlength="128" value={accessLabelDrafts[server.url] ?? ''} oninput={(event) => accessLabelDrafts[server.url] = event.currentTarget.value} placeholder="Who is it for?" aria-label="New token label" onkeydown={(event) => { if (event.key === 'Enter') submitAccessToken(server) }} />
+                    <input class="caelestis-field" type="text" maxlength="128" value={accessLabelDrafts[server.url] ?? ''} oninput={(event) => accessLabelDrafts[server.url] = event.currentTarget.value} placeholder="Who is it for?" aria-label="New token label" onkeydown={(event) => { if (event.key === 'Enter') submitAccessToken(server) }} />
                     <select class="caelestis-select" aria-label="New token scope" value={accessScopeDrafts[server.url] ?? 'report'} onchange={(event) => accessScopeDrafts[server.url] = event.currentTarget.value as AccessTokenScope}><option value="read">Read</option><option value="report">Report</option><option value="admin">Admin</option></select>
                     <Button label="Create" kind="primary" size="small" disabled={server.accessTokens.creating === true} onclick={() => submitAccessToken(server)} />
                   </div>

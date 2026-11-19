@@ -12,7 +12,6 @@ import type {
   ShortcutHelpModel,
   TagManagerModel,
 } from '../types.js'
-import type { WorkModel } from '../work/model.js'
 import ClaimModeElement from './ClaimMode.element.svelte'
 import ExtensionSettingsElement from './ExtensionSettings.element.svelte'
 import NotificationsElement from './Notifications.element.svelte'
@@ -23,10 +22,7 @@ import RailControlElement from './RailControl.element.svelte'
 import ServerDetailsElement from './ServerDetails.element.svelte'
 import ShortcutHelpElement from './ShortcutHelp.element.svelte'
 import TagManagerElement from './TagManager.element.svelte'
-import TemplateAdminElement from './TemplateAdmin.element.svelte'
-import TemplateStateElement from './TemplateState.element.svelte'
 import TemplateStudioElement from './TemplateStudio.element.svelte'
-import WorkElement from './Work.element.svelte'
 
 // The userscript bundles this entry as a separate module instance, so it needs its own export.
 export { type IconSet, useIconSet } from '../foundations/icons.svelte.js'
@@ -37,17 +33,13 @@ export type * from '../studio/options.js'
 export { ALPHA_MODES, COLOR_SPACES, DITHER_ALGORITHMS, RESIZE_MODES } from '../studio/options.js'
 export type { Samples, ScopeStage } from '../studio/scopes/scopes.js'
 export type * from '../types.js'
-export type { WorkModel } from '../work/model.js'
 export const TEMPLATE_STUDIO_TAG = 'caelestis-template-studio'
 export type CaelestisTemplateStudio = HTMLElement & {
   model: TemplateStudioModel
   /** Where the draft, or the crop being drawn, sits on screen, in CSS pixels. */
   mapBox: Box | null
 }
-export type CaelestisWork = HTMLElement & { model: WorkModel }
 
-export const TEMPLATE_ADMIN_TAG = 'caelestis-template-admin'
-export const TEMPLATE_STATE_TAG = 'caelestis-template-state'
 export const NOTIFICATIONS_TAG = 'caelestis-notifications'
 export const OVERLAY_CONTROLS_TAG = 'caelestis-overlay-controls'
 export const PANEL_TAG = 'caelestis-panel'
@@ -62,21 +54,6 @@ export const CLAIM_MODE_TAG = 'caelestis-claim-mode'
 export const EXTENSION_SETTINGS_TAG = 'caelestis-extension-settings'
 export type CaelestisExtensionSettings = HTMLElement & { model: ExtensionSettingsModel }
 export type CaelestisClaimMode = HTMLElement & { model: ClaimModeModel }
-
-export type CaelestisTemplateAdmin = HTMLElement & {
-  finished: boolean
-  frozen: boolean
-  busy: boolean
-}
-
-export type CaelestisTemplateState = HTMLElement & {
-  finished: boolean
-  frozen: boolean
-  griefed: boolean
-  alarmKind: import('@caelestis/shared').AlarmKind | undefined
-  pixelsLost: number | undefined
-  compact: boolean
-}
 
 export type CaelestisNotifications = HTMLElement & {
   model: NotificationsModel
@@ -94,11 +71,6 @@ type ElementConstructor<T extends HTMLElement> = {
   readonly prototype: T
 }
 
-export const CaelestisTemplateAdmin =
-  TemplateAdminElement.element as ElementConstructor<CaelestisTemplateAdmin>
-export const CaelestisWork = WorkElement.element as ElementConstructor<CaelestisWork>
-export const CaelestisTemplateState =
-  TemplateStateElement.element as ElementConstructor<CaelestisTemplateState>
 export const CaelestisNotifications =
   NotificationsElement.element as ElementConstructor<CaelestisNotifications>
 export const CaelestisOverlayControls =
@@ -128,8 +100,6 @@ export const registerCaelestisUi = (): void => {
       BACKFILL_TAG,
       BackfillElement.element as ElementConstructor<CaelestisBackfill>,
     )
-  if (customElements.get('caelestis-work') === undefined)
-    customElements.define('caelestis-work', CaelestisWork)
   if (customElements.get(TAG_MANAGER_TAG) === undefined)
     customElements.define(TAG_MANAGER_TAG, CaelestisTagManager)
   if (customElements.get(CLAIM_MODE_TAG) === undefined)
@@ -140,12 +110,6 @@ export const registerCaelestisUi = (): void => {
     customElements.define(SERVER_DETAILS_TAG, CaelestisServerDetails)
   if (customElements.get(TEMPLATE_STUDIO_TAG) === undefined)
     customElements.define(TEMPLATE_STUDIO_TAG, CaelestisTemplateStudio)
-  if (customElements.get(TEMPLATE_STATE_TAG) === undefined) {
-    customElements.define(TEMPLATE_STATE_TAG, CaelestisTemplateState)
-  }
-  if (customElements.get(TEMPLATE_ADMIN_TAG) === undefined) {
-    customElements.define(TEMPLATE_ADMIN_TAG, CaelestisTemplateAdmin)
-  }
   if (customElements.get(NOTIFICATIONS_TAG) === undefined) {
     customElements.define(NOTIFICATIONS_TAG, CaelestisNotifications)
   }
@@ -173,8 +137,6 @@ declare global {
     'caelestis-claim-mode': CaelestisClaimMode
     'caelestis-extension-settings': CaelestisExtensionSettings
     'caelestis-server-details': CaelestisServerDetails
-    'caelestis-template-admin': CaelestisTemplateAdmin
-    'caelestis-template-state': CaelestisTemplateState
     'caelestis-notifications': CaelestisNotifications
     'caelestis-overlay-controls': CaelestisOverlayControls
     'caelestis-panel': CaelestisPanel

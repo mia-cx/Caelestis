@@ -30,7 +30,7 @@
   </header>
 
   {#each model.failures as failure (failure.id)}
-    <div class="failure" data-caelestis-error role={failure.announce ? 'alert' : undefined}>{failure.message}</div>
+    <div class="failure" role={failure.announce ? 'alert' : undefined}>{failure.message}</div>
   {/each}
 
   <AppearanceEditor model={model.appearance} onIntent={onAppearance} />
