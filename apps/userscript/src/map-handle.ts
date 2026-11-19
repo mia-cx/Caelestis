@@ -154,10 +154,7 @@ const watchDetach = (map: MapLike): void => {
 const announceWhenReady = (map: MapLike): void => {
   const announce = (): void => {
     if (captured !== map) return
-    if (attached !== map) {
-      attached = map
-      watchDetach(map)
-    }
+    attached = map
     notifyListeners(attachListeners, 'map attach listener failed', map)
   }
   map.on('style.load', announce)
@@ -203,8 +200,14 @@ export const installMapCapture = (realm: Window & typeof globalThis = pageWindow
               captured = this
               log(`captured the map via ${property}`)
               removeTraps()
-              // The Map is mid-construction; listen once its constructor has returned.
+              // The Map is mid-construction; listen once its constructor has returned. A map Wplace
+              // removes before its style ever loads must still give way to its replacement.
               queueMicrotask(() => {
+                try {
+                  watchDetach(this)
+                } catch (error) {
+                  warn('could not watch the map for its removal', String(error))
+                }
                 try {
                   announceWhenReady(this)
                 } catch (error) {
