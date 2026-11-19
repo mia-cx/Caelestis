@@ -1,7 +1,7 @@
 <script lang="ts">
   import { afterNavigate } from '$app/navigation'
   import { mount, onDestroy, unmount } from 'svelte'
-  import FontToggle, { FONT_SCRIPT } from '$lib/FontToggle.svelte'
+  import FontToggle, { FONT_SCRIPT } from '#lib/FontToggle.svelte'
   import '../caelestis.css'
 
   let { children } = $props()
