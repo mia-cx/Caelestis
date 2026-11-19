@@ -81,7 +81,7 @@ export interface TileFrameCandidate {
  * The tie rules are the contract: the hash with the most distinct reporters wins, and an even
  * split goes to the lexically smaller hash — `<`, not `localeCompare`, so the order matches SQLite's
  * BINARY collation and is total. A timelapse must not flicker between competing hashes depending on
- * map iteration order.
+ * map iteration order. `bucketWinners` in `relational.ts` casts the same vote in SQL.
  */
 export const foldTileFrames = (
   candidates: readonly TileFrameCandidate[],

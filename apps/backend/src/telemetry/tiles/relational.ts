@@ -50,6 +50,34 @@ import {
   type TileStore,
 } from './store.js'
 
+/** History rows on the tiles of the template version bound as `?1`, in its template's season. */
+const VERSION_TILE_HISTORY = `
+  FROM version_tiles AS chunk
+  INNER JOIN template_versions AS version ON version.id = chunk.version_id
+  INNER JOIN templates AS template ON template.id = version.template_id
+  INNER JOIN tile_history AS history ON history.season = template.season
+    AND history.tile_x = chunk.tile_x AND history.tile_y = chunk.tile_y
+  WHERE chunk.version_id = ?1`
+
+/**
+ * The `winners` CTE: each history bucket's winning hash among the version's rows that also match
+ * `filter`. The vote is `foldTileFrames`'s: most distinct reporters, then the smaller hash.
+ */
+const bucketWinners = (filter: string) => `
+  votes AS (
+    SELECT history.tile_x, history.tile_y, history.resolution_s, history.bucket_start_s,
+      history.sha256, COUNT(DISTINCT history.reported_by_user_id) AS reporters
+    ${VERSION_TILE_HISTORY} ${filter}
+    GROUP BY history.tile_x, history.tile_y, history.resolution_s, history.bucket_start_s, history.sha256
+  ), ranked AS (
+    SELECT *, ROW_NUMBER() OVER (
+      PARTITION BY tile_x, tile_y, resolution_s, bucket_start_s
+      ORDER BY reporters DESC, sha256 ASC
+    ) AS vote_rank FROM votes
+  ), winners AS (
+    SELECT * FROM ranked WHERE vote_rank = 1
+  )`
+
 export class RelationalTileStore extends RelationalStore implements TileStore {
   commitTileObservation(
     commit: TileObservationCommitRequest,
@@ -142,13 +170,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
   async readFirstTemplateObservation(versionId: string): Promise<Seconds | null> {
     const row = await this.client
       .prepare(`
-      SELECT MIN(history.bucket_start_s) AS at
-      FROM version_tiles AS chunk
-      INNER JOIN template_versions AS version ON version.id = chunk.version_id
-      INNER JOIN templates AS template ON template.id = version.template_id
-      INNER JOIN tile_history AS history ON history.season = template.season
-        AND history.tile_x = chunk.tile_x AND history.tile_y = chunk.tile_y
-      WHERE chunk.version_id = ?
+      SELECT MIN(history.bucket_start_s) AS at ${VERSION_TILE_HISTORY}
     `)
       .bind(versionId)
       .first<{ at: number | null }>()
@@ -164,29 +186,13 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
   ): Promise<readonly MeasuredTileFrame[]> {
     const result = await this.client
       .prepare(`
-      WITH votes AS (
-        SELECT history.tile_x, history.tile_y, history.resolution_s, history.bucket_start_s,
-          history.sha256, COUNT(DISTINCT history.reported_by_user_id) AS reporters
-        FROM version_tiles AS chunk
-        INNER JOIN template_versions AS version ON version.id = chunk.version_id
-        INNER JOIN templates AS template ON template.id = version.template_id
-        INNER JOIN tile_history AS history ON history.season = template.season
-          AND history.tile_x = chunk.tile_x AND history.tile_y = chunk.tile_y
-        WHERE chunk.version_id = ?1 AND history.resolution_s <= ?4
-          AND history.bucket_start_s >= ?2 AND history.bucket_start_s < ?3
-          AND history.bucket_start_s >= ?5
-            AND history.bucket_start_s < ?6
-            AND history.bucket_start_s + history.resolution_s <= ?6
-        GROUP BY history.tile_x, history.tile_y, history.resolution_s, history.bucket_start_s, history.sha256
-      ), ranked AS (
-        SELECT *, ROW_NUMBER() OVER (
-          PARTITION BY tile_x, tile_y, resolution_s, bucket_start_s
-          ORDER BY reporters DESC, sha256 ASC
-        ) AS vote_rank FROM votes
-      ), frames AS (
+      WITH ${bucketWinners(`AND history.resolution_s <= ?4
+        AND history.bucket_start_s >= ?2 AND history.bucket_start_s < ?3
+        AND history.bucket_start_s >= ?5 AND history.bucket_start_s < ?6
+        AND history.bucket_start_s + history.resolution_s <= ?6`)}, frames AS (
         SELECT *, CASE WHEN ?4 = 0 THEN bucket_start_s
           ELSE CAST(bucket_start_s / ?4 AS BIGINT) * ?4 END AS target_start
-        FROM ranked WHERE vote_rank = 1
+        FROM winners
       ), selected AS (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY tile_x, tile_y, target_start
@@ -218,26 +224,11 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
   ): Promise<readonly MeasuredTileFrame[]> {
     const result = await this.client
       .prepare(`
-      WITH votes AS (
-        SELECT history.tile_x, history.tile_y, history.resolution_s, history.bucket_start_s,
-          history.sha256, COUNT(DISTINCT history.reported_by_user_id) AS reporters
-        FROM version_tiles AS chunk
-        INNER JOIN template_versions AS version ON version.id = chunk.version_id
-        INNER JOIN templates AS template ON template.id = version.template_id
-        INNER JOIN tile_history AS history ON history.season = template.season
-          AND history.tile_x = chunk.tile_x AND history.tile_y = chunk.tile_y
-        WHERE chunk.version_id = ?1 AND history.bucket_start_s < ?2
-          AND history.bucket_start_s + history.resolution_s <= ?2
-        GROUP BY history.tile_x, history.tile_y, history.resolution_s, history.bucket_start_s, history.sha256
-      ), winners AS (
-        SELECT *, ROW_NUMBER() OVER (
-          PARTITION BY tile_x, tile_y, resolution_s, bucket_start_s
-          ORDER BY reporters DESC, sha256 ASC
-        ) AS vote_rank FROM votes
-      ), latest AS (
+      WITH ${bucketWinners(`AND history.bucket_start_s < ?2
+        AND history.bucket_start_s + history.resolution_s <= ?2`)}, latest AS (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY tile_x, tile_y ORDER BY bucket_start_s DESC, resolution_s ASC
-        ) AS frame_rank FROM winners WHERE vote_rank = 1
+        ) AS frame_rank FROM winners
       )
       SELECT frame.tile_x AS "tileX", frame.tile_y AS "tileY", frame.bucket_start_s AS "bucketStart",
         frame.sha256 AS hash, measurement.correct, measurement.wrong
