@@ -24,7 +24,6 @@ import {
 } from './live-socket.js'
 import { type AcceptedPaint, onAcceptedPaint } from './paint-requests.js'
 import { onServerContents, type ServerContents } from './server-api.js'
-import type { ServerTemplate } from './server-cache.js'
 import {
   type ConnectedServer,
   connectedServerAt,
@@ -34,6 +33,7 @@ import {
   onServerRemoved,
   serverConnectionIdentity,
 } from './server-connections.js'
+import type { ServerTemplate } from './server-manifest.js'
 import { invalidateServerMismatches, invalidateServerMismatchTiles } from './server-mismatch.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
 import { type ServerRequestOptions, serverRequest } from './server-request.js'

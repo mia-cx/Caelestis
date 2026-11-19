@@ -7,9 +7,8 @@ import {
   patchTemplate,
   uploadTemplate,
 } from '../server-api.js'
-import type { ServerTemplate } from '../server-cache.js'
 import { isCurrentServerConnection, serverLabel } from '../server-connections.js'
-import type { TreeNode } from '../server-manifest.js'
+import type { ServerTemplate, TreeNode } from '../server-manifest.js'
 import type { ServerConnection } from '../settings.js'
 import { newTemplateId } from '../templates/import.js'
 import {

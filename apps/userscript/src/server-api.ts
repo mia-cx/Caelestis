@@ -10,7 +10,6 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { warn } from './debug.js'
-import type { ServerTemplate } from './server-cache.js'
 import {
   isCurrentServerConnection,
   noteAuthFailure,
@@ -20,6 +19,7 @@ import {
   takeProbedManifest,
   upsertServer,
 } from './server-connections.js'
+import type { ServerTemplate } from './server-manifest.js'
 import {
   parseServerInfo,
   parseServerManifest,

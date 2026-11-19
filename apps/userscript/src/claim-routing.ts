@@ -28,8 +28,8 @@ import {
   presenceServers,
 } from './presence-client.js'
 import { claimRegion, type RegionWriteResult, releaseRegion } from './region-api.js'
-import type { ServerTemplate } from './server-cache.js'
 import { serverConnectionIdentity } from './server-connections.js'
+import type { ServerTemplate } from './server-manifest.js'
 import { onStateChange, type ServerConnection } from './settings.js'
 import { storedValue, storeValue, syncStoredValues } from './stored-values.js'
 import { accountIdentity } from './wplace-account.js'

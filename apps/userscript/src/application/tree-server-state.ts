@@ -9,12 +9,13 @@ import {
   onServerContents,
   type ServerContents,
 } from '../server-api.js'
-import { cacheServer, forgetServer, loadServerCache, type ServerTemplate } from '../server-cache.js'
+import { cacheServer, forgetServer, loadServerCache } from '../server-cache.js'
 import { isCurrentServerConnection, onServerRemoved } from '../server-connections.js'
 import {
   MAX_MANIFEST_CHUNKS,
   MAX_MANIFEST_TEMPLATES,
   MAX_TREE_NODES,
+  type ServerTemplate,
   type TreeNode,
 } from '../server-manifest.js'
 import { getState, type ServerConnection } from '../settings.js'

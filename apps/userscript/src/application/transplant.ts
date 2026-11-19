@@ -13,8 +13,7 @@ import {
   patchTemplate,
   uploadTemplate,
 } from '../server-api.js'
-import type { ServerTemplate } from '../server-cache.js'
-import type { TreeNode } from '../server-manifest.js'
+import type { ServerTemplate, TreeNode } from '../server-manifest.js'
 import {
   getState,
   type LocalFolder,

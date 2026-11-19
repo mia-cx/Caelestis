@@ -43,7 +43,7 @@ import {
   renameNode as renameNodeOnServer,
   renameServer as renameServerOnServer,
 } from '../server-api.js'
-import type { ServerTemplate } from '../server-cache.js'
+import type { ServerTemplate } from '../server-manifest.js'
 import {
   getState,
   isScopeVisible,

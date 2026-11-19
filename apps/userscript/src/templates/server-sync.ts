@@ -21,7 +21,6 @@ import {
   listServerContents,
   type ServerContents,
 } from '../server-api.js'
-import type { ServerTemplate } from '../server-cache.js'
 import {
   type ConnectedServer,
   connectedServers,
@@ -29,6 +28,7 @@ import {
   isCurrentServerConnection,
   onServerRemoved,
 } from '../server-connections.js'
+import type { ServerTemplate } from '../server-manifest.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
 import { serverRequest } from '../server-request.js'

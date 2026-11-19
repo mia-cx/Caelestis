@@ -8,8 +8,8 @@ import {
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { runWhileBusy } from '../concurrency.js'
 import { listServerNodes, patchTemplate, uploadTemplateVersion } from '../server-api.js'
-import type { ServerTemplate } from '../server-cache.js'
 import { isCurrentServerConnection, serverByUrl, serverLabel } from '../server-connections.js'
+import type { ServerTemplate } from '../server-manifest.js'
 import {
   isCurrentTemplate,
   localTemplates,

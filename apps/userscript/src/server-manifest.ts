@@ -15,7 +15,6 @@ import {
   WORLD_TEMPLATE_SURFACE,
   WORLD_TILES,
 } from '@caelestis/shared'
-import type { ServerTemplate } from './server-cache.js'
 
 export type ServerAuthMode = 'none' | 'access_token'
 
@@ -82,6 +81,32 @@ const parseServerPresentation = (
     ...(logoImage === null ? {} : { logoImage }),
     ...(previewImage === null ? {} : { previewImage }),
   }
+}
+
+/** One template a server publishes, as its manifest lists it. */
+export interface ServerTemplate {
+  readonly tags?: readonly TemplateTag[]
+  readonly id: string
+  readonly nodeId: string | null
+  readonly name: string
+  readonly version: string
+  /** Added to manifests with progress bars; absent only in an older persisted cache entry. */
+  readonly totalPixels?: number
+  readonly published: boolean
+  /** Absent only in a cache written before template lifecycle state shipped. */
+  readonly finished?: boolean
+  readonly finishedAt?: number | null
+  readonly timelapseFrozen?: boolean
+  readonly updatedAt: number
+  readonly bbox: {
+    readonly minX: number
+    readonly minY: number
+    readonly maxX: number
+    readonly maxY: number
+  }
+  readonly chunks: readonly { readonly tile: string; readonly hash: string }[]
+  /** Absent only in legacy world cache entries and test fixtures. */
+  readonly surface?: TemplateSurface
 }
 
 export interface TreeNode {

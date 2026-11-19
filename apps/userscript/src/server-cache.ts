@@ -1,16 +1,11 @@
-import {
-  parseTemplateTags,
-  type TemplateSurface,
-  type TemplateTag,
-  templateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { parseTemplateTags, templateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { warn } from './debug.js'
 import {
   MAX_MANIFEST_CHUNKS,
   MAX_MANIFEST_TEMPLATES,
   MAX_TREE_NODES,
   parseTreeNodes,
+  type ServerTemplate,
   type TreeNode,
 } from './server-manifest.js'
 import { openCaelestisDb, SERVER_CACHE_STORE as STORE } from './templates/caelestis-db.js'
@@ -37,31 +32,6 @@ export interface CachedServer {
   /** ETag from the manifest, so a refetch can be a 304. */
   readonly etag?: string
   readonly templates?: readonly ServerTemplate[]
-}
-
-export interface ServerTemplate {
-  readonly tags?: readonly TemplateTag[]
-  readonly id: string
-  readonly nodeId: string | null
-  readonly name: string
-  readonly version: string
-  /** Added to manifests with progress bars; absent only in an older persisted cache entry. */
-  readonly totalPixels?: number
-  readonly published: boolean
-  /** Absent only in a cache written before template lifecycle state shipped. */
-  readonly finished?: boolean
-  readonly finishedAt?: number | null
-  readonly timelapseFrozen?: boolean
-  readonly updatedAt: number
-  readonly bbox: {
-    readonly minX: number
-    readonly minY: number
-    readonly maxX: number
-    readonly maxY: number
-  }
-  readonly chunks: readonly { readonly tile: string; readonly hash: string }[]
-  /** Absent only in legacy world cache entries and test fixtures. */
-  readonly surface?: TemplateSurface
 }
 
 const cachedTemplatesFrom = (value: unknown): readonly ServerTemplate[] | undefined => {

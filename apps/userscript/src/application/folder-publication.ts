@@ -1,5 +1,5 @@
 import { claimBusy, mapLimit } from '../concurrency.js'
-import type { ServerTemplate } from '../server-cache.js'
+import type { ServerTemplate } from '../server-manifest.js'
 
 const PATCH_CONCURRENCY = 4
 
