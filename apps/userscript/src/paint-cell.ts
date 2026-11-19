@@ -1,4 +1,5 @@
 import {
+  latLngToCanvasPixel,
   type TemplateSurface,
   TILE_SIZE,
   TRANSPARENT_INDEX,
@@ -7,7 +8,8 @@ import {
 import { readActiveArtboard } from './active-artboard.js'
 import { alliancePointAt } from './alliance-coordinates.js'
 import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
-import { mapPointAt } from './map-pointer.js'
+import { getMap } from './map-handle.js'
+import { canvasPixelAt } from './map-view.js'
 import { nativePixelAt } from './native-pixels.js'
 import { claimedHiddenFor } from './templates/colour-filter.js'
 import {
@@ -82,7 +84,13 @@ export const pickerPointAt = (
     return point === null ? null : { surface: alliance.surface, ...point, alliance }
   }
   if (target.closest(MAP_SURFACE) === null) return null
-  const point = mapPointAt(clientX, clientY)
+  // Rendered tile bounds can be rounded by half a screen pixel. Use the same projection as
+  // Wplace's paint listener so a boundary never picks the next row or column prematurely.
+  const map = getMap()
+  const point =
+    map === null
+      ? canvasPixelAt(clientX, clientY)
+      : latLngToCanvasPixel(map.unproject([clientX, clientY]))
   return point === null ? null : { surface: WORLD_TEMPLATE_SURFACE, ...point, alliance: null }
 }
 
