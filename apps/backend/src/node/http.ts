@@ -126,7 +126,6 @@ export const createBackendHttp = (runtime: NodeRuntime, config: NodeConfig) => {
         return { refusal: new Response('WebSocket upgrade rejected', { status: 400 }) }
       return { accept: context.accept, headers: response.headers }
     },
-    listening: () => runtime.scheduler.start(),
     close: async (listener: Listener): Promise<void> => {
       if (stopping) return
       stopping = true

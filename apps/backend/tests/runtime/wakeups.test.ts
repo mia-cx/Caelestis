@@ -7,6 +7,7 @@ import { coordinatorDatabase } from '../../src/adapters/node/coordinator-databas
 import { SqlCoordinatorStorage } from '../../src/adapters/node/coordinator-storage.js'
 import { readNodeConfig } from '../../src/node/config.js'
 import { openNodeRuntime } from '../../src/node/runtime.js'
+import { listenNodeServer } from '../../src/node/server.js'
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -32,4 +33,29 @@ it('drops a stored wakeup that no actor handles instead of retrying it forever',
   await runtime.scheduler.tick()
 
   for (const orphan of orphans) expect(await orphan.getAlarm()).toBeNull()
+})
+
+it('renders share images through the port the listener bound, not the configured 0', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'caelestis-wakeups-'))
+  cleanups.push(() => rm(directory, { recursive: true, force: true }))
+  const config = readNodeConfig({ DATA_DIRECTORY: directory, PORT: '0', HOST: '127.0.0.1' })
+  let rendered: (api: string) => void = () => {}
+  const api = new Promise<string>((resolve) => {
+    rendered = resolve
+  })
+  const runtime = await openNodeRuntime(
+    config,
+    new FilesystemObjectStorage(join(directory, 'objects')),
+    { onOwnershipLost() {}, refreshSocial: async (url) => rendered(url) },
+  )
+  cleanups.push(() => runtime.close())
+  // Overdue before the listener starts, so the first scheduler poll runs it.
+  await new SqlCoordinatorStorage(coordinatorDatabase(runtime.connection), 'social').setAlarm(
+    Date.now() - 1,
+  )
+
+  const server = await listenNodeServer(runtime, config)
+  cleanups.push(() => server.close())
+
+  expect(await api).toBe(`http://127.0.0.1:${server.port}/backend/v1/`)
 })

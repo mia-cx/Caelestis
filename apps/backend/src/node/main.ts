@@ -40,16 +40,15 @@ const hold = async (stop: () => Promise<void>) => {
   throw ownershipFailure
 }
 try {
-  let listeningPort = config.port
   const runtime = await openNodeRuntime(config, objects, {
     onOwnershipLost: (error) => {
       ownershipFailure = error
       void shutdown(error)
     },
-    refreshSocial: (readToken) =>
+    refreshSocial: (api, readToken) =>
       new Promise<void>((resolveJob, rejectJob) => {
         const worker = new Worker(new URL('./social-worker.js', import.meta.url), {
-          workerData: { api: `http://127.0.0.1:${listeningPort}${config.basePath}/v1/`, readToken },
+          workerData: { api, readToken },
         })
         worker.once('error', rejectJob)
         worker.once('exit', (code) =>
@@ -72,7 +71,6 @@ try {
       ? await bun.listenBunServer(runtime, config)
       : await listenNodeServer(runtime, config, module?.handler)
     await hold(() => server.close())
-    listeningPort = server.port
     process.once('SIGTERM', () => {
       void shutdown()
     })
