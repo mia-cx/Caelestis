@@ -1,6 +1,6 @@
 import { TILE_SIZE, type TileCoord } from '@caelestis/shared'
 import { count } from './debug.js'
-import { notifyEach } from './page-hooks.js'
+import { notifyEach } from './listeners.js'
 
 /** Where a change of a world tile's captured pixels came from. */
 export type PixelChangeSource = 'draft' | 'server' | 'accepted' | 'observed'

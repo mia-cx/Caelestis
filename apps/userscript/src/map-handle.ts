@@ -1,5 +1,5 @@
 import { log, warn } from './debug.js'
-import { notifyEach } from './page-hooks.js'
+import { notifyEach } from './listeners.js'
 import { pageWindow } from './page-world.js'
 
 /**

@@ -1,5 +1,3 @@
-import { count } from './debug.js'
-
 /**
  * The toolkit for instrumenting the page's own objects.
  *
@@ -89,22 +87,4 @@ export const sideEffectFreeUnsignedLong = (value: unknown): number | undefined =
   const integer = Math.trunc(numeric)
   const range = 2 ** 32
   return ((integer % range) + range) % range
-}
-
-/**
- * Call every listener, counting rather than propagating a failure: these run inside page code,
- * where one consumer's bug must neither reach Wplace nor stop the consumers after it.
- */
-export const notifyEach = <Listener>(
-  listeners: Iterable<Listener>,
-  call: (listener: Listener) => void,
-  failure: string,
-): void => {
-  for (const listener of listeners) {
-    try {
-      call(listener)
-    } catch {
-      count(failure)
-    }
-  }
 }

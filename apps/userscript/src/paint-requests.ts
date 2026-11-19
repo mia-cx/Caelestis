@@ -1,7 +1,7 @@
 import { isRecord } from '@caelestis/shared'
 import { count } from './debug.js'
 import { flushDraftWrites } from './draft-pixels.js'
-import { notifyEach } from './page-hooks.js'
+import { notifyEach } from './listeners.js'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { isPageInstance } from './page-world.js'
 import { nextPixelObservation } from './pixel-observation.js'

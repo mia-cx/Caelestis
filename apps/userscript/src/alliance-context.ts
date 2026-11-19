@@ -5,6 +5,7 @@ import {
   type TemplateSurface,
   templateSurfaceBounds,
 } from '@caelestis/shared'
+import { notifyEach } from './listeners.js'
 import type { RequestObservation, RequestRoute } from './page-requests.js'
 import { BACKEND_ORIGIN } from './wplace-raster.js'
 
@@ -234,13 +235,11 @@ export const createAllianceContext = (changed: () => void): AllianceContext => {
         eventHwm !== null &&
         eventHwm !== previous.eventHwm
       ) {
-        for (const listener of revisionListeners) {
-          try {
-            listener(nextAllianceId)
-          } catch {
-            // Metadata observation must remain transparent when one refresh consumer fails.
-          }
-        }
+        notifyEach(
+          revisionListeners,
+          (listener) => listener(nextAllianceId),
+          'alliance:revision listener failed',
+        )
       }
     })
   }

@@ -1,8 +1,8 @@
 import type { TileCoord } from '@caelestis/shared'
 import type { TileFrame, TileQuad } from './coordinates.js'
 import { count, isEnabled, logRender } from './debug.js'
+import { notifyEach } from './listeners.js'
 import { getMap } from './map-handle.js'
-import { notifyEach } from './page-hooks.js'
 import { PIXEL_ART_LAYER } from './wplace-raster.js'
 
 /**

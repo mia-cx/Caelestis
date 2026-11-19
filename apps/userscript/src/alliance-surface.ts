@@ -12,6 +12,7 @@ import {
 } from './alliance-context.js'
 import { type AllianceEditorElements, locateAllianceEditors } from './alliance-editor-dom.js'
 import { frameQueue } from './frame-queue.js'
+import { notifyEach } from './listeners.js'
 import { observePageRequests } from './page-requests.js'
 import { pageWindow } from './page-world.js'
 import { isWplaceMutation } from './wplace-dom.js'
@@ -41,13 +42,7 @@ const sameActive = (left: ActiveAllianceSurface | null, right: ActiveAllianceSur
 const publish = (next: ActiveAllianceSurface | null): void => {
   if (sameActive(active, next)) return
   active = next
-  for (const listener of listeners) {
-    try {
-      listener(next)
-    } catch {
-      // Page lifecycle observation must never break Wplace because one consumer failed.
-    }
-  }
+  notifyEach(listeners, (listener) => listener(next), 'alliance:surface listener failed')
 }
 
 const reconcile = (): void => {

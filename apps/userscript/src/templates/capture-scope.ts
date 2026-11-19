@@ -5,7 +5,7 @@ import {
   tileKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { notifyEach } from '../page-hooks.js'
+import { notifyEach } from '../listeners.js'
 import { getState, type State } from '../settings.js'
 import {
   displayTemplates,

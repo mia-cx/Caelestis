@@ -1,6 +1,7 @@
 import { TILE_SIZE, type TileCoord } from '@caelestis/shared'
 import { count, logRender, warn } from './debug.js'
-import { type InstalledValueHook, installValueHook, notifyEach } from './page-hooks.js'
+import { notifyEach } from './listeners.js'
+import { type InstalledValueHook, installValueHook } from './page-hooks.js'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { isPageInstance } from './page-world.js'
 import { normalizeMissingTileResponse, tileFromUrl } from './wplace-raster.js'
