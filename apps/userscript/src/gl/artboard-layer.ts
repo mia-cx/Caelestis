@@ -180,7 +180,7 @@ const artboardVisibleRects = (
 }
 
 /** Project one shared GPU chunk, including only the outer outline halo, into an artboard. */
-const artboardGpuTilePlacement = (
+export const artboardGpuTilePlacement = (
   template: Placement,
   source: Omit<TemplateGpuTile, 'texture'>,
   geometry: Placement,
