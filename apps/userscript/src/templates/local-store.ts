@@ -1074,23 +1074,13 @@ const noteSnapshot = (
   return result
 }
 
+/** Save a new entry. A new record has nothing stored yet, so its pixels must be in memory. */
 const persist = async (placed: PlacedTemplate): Promise<SaveResult> => {
-  if (isServerTemplate(placed)) {
-    return setServerTemplatePreference(placed.id, placed.appearance, placed.owns)
-      ? { status: 'saved', revision: placed.revision }
-      : { status: 'limit' }
+  if (isServerTemplate(placed)) return await savePlaced(placed)
+  if (placed.artwork.pixels === null) {
+    throw new RangeError('a new template has no pixels in memory')
   }
-  const { tiles, artwork, ...rest } = placed
-  // A new record has nothing stored yet, so its pixels are always the ones just imported.
-  const pixels = artwork.pixels
-  if (pixels === null) throw new RangeError('a new template has no pixels in memory')
-  return await writeInOrder(placed.id, async () =>
-    noteSnapshot(
-      artwork,
-      await saveTemplate({ ...rest, tileKeys: [...tiles], pixels }, null),
-      true,
-    ),
-  )
+  return await writeInOrder(placed.id, () => savePlaced(placed, null))
 }
 
 const savePlaced = async (
@@ -1925,45 +1915,35 @@ const drainMoves = async (id: string, queue: MoveQueue): Promise<void> => {
         resolveMove(target, false)
         continue
       }
-      const saved = await writeInOrder(id, async () => {
-        const latest = templates.get(id)
-        if (latest === undefined || deleting.has(id)) return false
-        validatePlacement(latest, target.originX, target.originY)
-        const sourceChanged =
-          latest.artwork !== existing.artwork ||
-          latest.width !== existing.width ||
-          latest.height !== existing.height
-        if (sourceChanged) {
-          tiles = await paintedTileKeys(
-            { ...latest, originX: target.originX, originY: target.originY },
-            await templateChunks(latest),
-          )
-        }
-        const next = {
-          ...latest,
-          updatedAt: Date.now(),
-          originX: target.originX,
-          originY: target.originY,
-          everPlaced: latest.everPlaced || target.everPlaced,
-          tiles,
-        }
-        let revision = latest.revision
-        if (!isPendingImage(latest) || target.everPlaced) {
-          const result = await savePlaced(next, isPendingImage(latest) ? null : latest.revision)
-          const committed = committedRevision(result)
-          if (committed === null) {
-            if (result.status === 'conflict') {
-              await reconcileConflict(id)
-            }
-            return false
+      const saved = await commitEdit(
+        id,
+        null,
+        async (latest) => {
+          validatePlacement(latest, target.originX, target.originY)
+          const sourceChanged =
+            latest.artwork !== existing.artwork ||
+            latest.width !== existing.width ||
+            latest.height !== existing.height
+          if (sourceChanged) {
+            tiles = await paintedTileKeys(
+              { ...latest, originX: target.originX, originY: target.originY },
+              await templateChunks(latest),
+            )
           }
-          revision = committed
-        }
-        previewOrigins.delete(id)
-        templates.set(id, { ...next, revision })
-        notify()
-        return true
-      })
+          return {
+            ...latest,
+            updatedAt: Date.now(),
+            originX: target.originX,
+            originY: target.originY,
+            everPlaced: latest.everPlaced || target.everPlaced,
+            tiles,
+          }
+        },
+        () => {
+          previewOrigins.delete(id)
+          return true
+        },
+      )
       if (!saved) {
         warn('install', `move for ${current.name} was not saved`)
       }
@@ -1996,23 +1976,58 @@ const enqueueMove = async (
   })
 }
 
-export const markPlaced = async (id: string): Promise<boolean> => {
-  return await writeInOrder(id, async () => {
+/** What an edit makes of the current entry: the next one, `'unchanged'`, or null to refuse. */
+type Edit = (
+  current: PlacedTemplate,
+) => PlacedTemplate | 'unchanged' | null | Promise<PlacedTemplate | 'unchanged' | null>
+
+/**
+ * Apply one edit to a template in its write order: build the next entry from the current one, save
+ * it, reconcile a lost compare-and-swap, and publish the result.
+ *
+ * A pending image lives only in memory until an edit places it, which saves it as a new record.
+ * `label` names the edit in the warning a failed save logs; null logs nothing. `beforePublish`
+ * runs once the save committed and may still refuse.
+ */
+const commitEdit = (
+  id: string,
+  label: string | null,
+  edit: Edit,
+  beforePublish?: (next: PlacedTemplate) => boolean,
+): Promise<boolean> =>
+  writeInOrder(id, async () => {
     const existing = templates.get(id)
     if (existing === undefined || deleting.has(id)) return false
-    const next = { ...existing, everPlaced: true, updatedAt: Date.now() }
-    const result = await savePlaced(next, isPendingImage(existing) ? null : existing.revision)
-    const revision = committedRevision(result)
-    if (revision === null) {
-      if (result.status === 'conflict') await reconcileConflict(id)
-      warn('install', `placement for ${next.name} was not saved`)
+    const next = await edit(existing)
+    if (next === null) return false
+    if (next === 'unchanged') return true
+    let revision = existing.revision
+    const pending = isPendingImage(existing)
+    if (!pending || !isPendingImage(next)) {
+      const result = await savePlaced(next, pending ? null : existing.revision)
+      const committed = committedRevision(result)
+      if (committed === null) {
+        if (result.status === 'conflict') await reconcileConflict(id)
+        if (label !== null) warn('install', `${label} for ${next.name} was not saved`)
+        return false
+      }
+      revision = committed
+    }
+    if (beforePublish !== undefined && !beforePublish(next)) {
+      if (label !== null) warn('install', `${label} for ${next.name} was not saved`)
       return false
     }
     templates.set(id, { ...next, revision })
     notify()
     return true
   })
-}
+
+export const markPlaced = async (id: string): Promise<boolean> =>
+  await commitEdit(id, 'placement', (existing) => ({
+    ...existing,
+    everPlaced: true,
+    updatedAt: Date.now(),
+  }))
 
 /** Keep a staged template that did not upload as an ordinary Local one. */
 export const unstageLocalTemplate = async (id: string): Promise<void> =>
@@ -2047,9 +2062,7 @@ export const setTemplateFolder = async (id: string, folderId: string | null): Pr
   const releaseFolder = folderId === null ? null : leaseLocalFolder(folderId)
   if (folderId !== null && releaseFolder === null) return false
   try {
-    return await writeInOrder(id, async () => {
-      const existing = templates.get(id)
-      if (existing === undefined || deleting.has(id)) return false
+    return await commitEdit(id, 'folder change', (existing) => {
       if (folderId !== null) {
         const folder = getState().localFolders.find((candidate) => candidate.id === folderId)
         if (
@@ -2059,25 +2072,11 @@ export const setTemplateFolder = async (id: string, folderId: string | null): Pr
             folder.surface ?? WORLD_TEMPLATE_SURFACE,
           )
         ) {
-          return false
+          return null
         }
       }
-      if (existing.folderId === folderId) return true
-      const next = { ...existing, folderId, updatedAt: Date.now() }
-      let revision = existing.revision
-      if (!isPendingImage(existing)) {
-        const result = await savePlaced(next)
-        const committed = committedRevision(result)
-        if (committed === null) {
-          if (result.status === 'conflict') await reconcileConflict(id)
-          warn('install', `folder change for ${next.name} was not saved`)
-          return false
-        }
-        revision = committed
-      }
-      templates.set(id, { ...next, revision })
-      notify()
-      return true
+      if (existing.folderId === folderId) return 'unchanged'
+      return { ...existing, folderId, updatedAt: Date.now() }
     })
   } finally {
     releaseFolder?.()
@@ -2212,26 +2211,9 @@ export const replaceLocalArtwork = async (
 export const renameLocalTemplate = async (id: string, name: string): Promise<boolean> => {
   const trimmed = name.trim()
   if (trimmed === '' || trimmed.length > MAX_TEMPLATE_NAME_LENGTH) return false
-  return await writeInOrder(id, async () => {
-    const existing = templates.get(id)
-    if (existing === undefined || deleting.has(id)) return false
-    if (trimmed === existing.name) return true
-    const next = { ...existing, name: trimmed, updatedAt: Date.now() }
-    let revision = existing.revision
-    if (!isPendingImage(existing)) {
-      const result = await savePlaced(next)
-      const committed = committedRevision(result)
-      if (committed === null) {
-        if (result.status === 'conflict') await reconcileConflict(id)
-        warn('install', `rename for ${next.name} was not saved`)
-        return false
-      }
-      revision = committed
-    }
-    templates.set(id, { ...next, revision })
-    notify()
-    return true
-  })
+  return await commitEdit(id, 'rename', (existing) =>
+    trimmed === existing.name ? 'unchanged' : { ...existing, name: trimmed, updatedAt: Date.now() },
+  )
 }
 
 /**
@@ -2309,33 +2291,14 @@ export const removeLocalTemplate = async (id: string): Promise<boolean> => {
   }
 }
 
-export const setLocalVisible = async (id: string, visible: boolean): Promise<boolean> => {
-  return await writeInOrder(id, async () => {
-    const existing = templates.get(id)
-    if (existing === undefined || deleting.has(id)) return false
-    if (existing.visible === visible) return true
-    const next = { ...existing, visible }
-    if (deleting.has(id)) return false
-    let revision = existing.revision
-    if (!isPendingImage(existing)) {
-      const result = await savePlaced(next, existing.revision, visible)
-      const committed = committedRevision(result)
-      if (committed === null) {
-        if (result.status === 'conflict') await reconcileConflict(id)
-        warn('install', `visibility for ${next.name} was not saved`)
-        return false
-      }
-      revision = committed
-    }
-    if (isServerTemplate(existing) && !setScopeVisible(id, visible)) {
-      warn('install', `visibility for ${next.name} was not saved`)
-      return false
-    }
-    templates.set(id, { ...next, revision })
-    notify()
-    return true
-  })
-}
+export const setLocalVisible = async (id: string, visible: boolean): Promise<boolean> =>
+  await commitEdit(
+    id,
+    'visibility',
+    (existing) => (existing.visible === visible ? 'unchanged' : { ...existing, visible }),
+    // A server row's visibility is a scope switch, not part of its stored preference.
+    (next) => !isServerTemplate(next) || setScopeVisible(id, visible),
+  )
 
 /** World tiles worth scanning for navigation and mismatch work. */
 export const templateTileKeys = (template: PlacedTemplate): Iterable<string> =>
@@ -2345,26 +2308,10 @@ const mutateAppearance = async (
   id: string,
   mutate: (current: Appearance) => Appearance | null,
 ): Promise<boolean> =>
-  await writeInOrder(id, async () => {
-    const existing = templates.get(id)
-    if (existing === undefined || deleting.has(id)) return false
+  await commitEdit(id, 'appearance', (existing) => {
     const ownedAppearance = mutate(appearanceOf(existing))
-    if (ownedAppearance !== null && !isValidAppearance(ownedAppearance)) return false
-    const next = { ...existing, appearance: ownedAppearance }
-    let revision = existing.revision
-    if (!isPendingImage(existing)) {
-      const result = await savePlaced(next)
-      const committed = committedRevision(result)
-      if (committed === null) {
-        if (result.status === 'conflict') await reconcileConflict(id)
-        warn('install', `appearance for ${next.name} was not saved`)
-        return false
-      }
-      revision = committed
-    }
-    templates.set(id, { ...next, revision })
-    notify()
-    return true
+    if (ownedAppearance !== null && !isValidAppearance(ownedAppearance)) return null
+    return { ...existing, appearance: ownedAppearance }
   })
 
 /** Change how one overlay draws. Appearance never affects its painted tile keys. */
@@ -2408,30 +2355,15 @@ export const setOwnsGroup = async (
   group: AppearanceGroup,
   owns: boolean,
 ): Promise<boolean> =>
-  await writeInOrder(id, async () => {
-    const existing = templates.get(id)
-    if (existing === undefined || deleting.has(id)) return false
-    if (existing.owns.includes(group) === owns) return true
-    const next: PlacedTemplate = {
-      ...existing,
-      appearance: owns ? appearanceOf(existing) : existing.appearance,
-      owns: owns ? [...existing.owns, group] : existing.owns.filter((one) => one !== group),
-    }
-    let revision = existing.revision
-    if (!isPendingImage(existing)) {
-      const result = await savePlaced(next)
-      const committed = committedRevision(result)
-      if (committed === null) {
-        if (result.status === 'conflict') await reconcileConflict(id)
-        warn('install', `appearance ownership for ${next.name} was not saved`)
-        return false
-      }
-      revision = committed
-    }
-    templates.set(id, { ...next, revision })
-    notify()
-    return true
-  })
+  await commitEdit(id, 'appearance ownership', (existing) =>
+    existing.owns.includes(group) === owns
+      ? 'unchanged'
+      : {
+          ...existing,
+          appearance: owns ? appearanceOf(existing) : existing.appearance,
+          owns: owns ? [...existing.owns, group] : existing.owns.filter((one) => one !== group),
+        },
+  )
 
 /**
  * A template as an indexed PNG, ready to upload.
