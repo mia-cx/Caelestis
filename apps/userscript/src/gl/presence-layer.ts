@@ -29,7 +29,12 @@ import {
 import { currentQuads, isDrawingTiles } from '../tile-frame.js'
 import { ramps } from './fade.js'
 import { LAYER_IDS } from './layer-stack.js'
-import { linkTemplateProgram, writeClipCorner } from './renderer-core.js'
+import {
+  createQuadVertexArray,
+  linkTemplateProgram,
+  QUAD_FLOATS,
+  writeClipCorner,
+} from './renderer-core.js'
 
 /**
  * Other painters, drawn over the artwork as see-through coloured shapes.
@@ -289,7 +294,7 @@ class PresenceLayer {
   /** How far each of your own claims has stepped aside under the pointer, 0 to 1. */
   private readonly hovers = ramps()
   private readonly motions = new Map<SceneItemId, Motion>()
-  private readonly corners = new Float32Array(4 * 6)
+  private readonly corners = new Float32Array(QUAD_FLOATS)
 
   constructor() {
     registerProfileMemorySource('Presence GPU masks', () =>
@@ -468,18 +473,9 @@ class PresenceLayer {
     this.owner = gl
     this.program = linkTemplateProgram(gl, FRAGMENT_SOURCE)
     if (this.program === null) return
-    this.quad = gl.createBuffer()
-    this.vao = gl.createVertexArray()
-    gl.bindVertexArray(this.vao)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quad)
-    gl.bufferData(gl.ARRAY_BUFFER, this.corners.byteLength, gl.DYNAMIC_DRAW)
-    const clip = gl.getAttribLocation(this.program, 'a_clip')
-    const uv = gl.getAttribLocation(this.program, 'a_uv')
-    gl.enableVertexAttribArray(clip)
-    gl.vertexAttribPointer(clip, 4, gl.FLOAT, false, 24, 0)
-    gl.enableVertexAttribArray(uv)
-    gl.vertexAttribPointer(uv, 2, gl.FLOAT, false, 24, 16)
-    gl.bindVertexArray(null)
+    const quad = createQuadVertexArray(gl, this.program)
+    this.quad = quad?.buffer ?? null
+    this.vao = quad?.vao ?? null
     log('install', 'presence layer added over the artwork')
   }
 
