@@ -1,5 +1,6 @@
 import type {
   ArchiveHistory,
+  ArchiveSnapshot,
   BackfillJob,
   BackfillPreview,
   FolderBackfillJob,
@@ -7,7 +8,73 @@ import type {
   TileCoord,
 } from '@caelestis/shared'
 import { type D1Usage, measureD1Usage } from '../metrics/request-metrics.js'
-import { BackfillError, type TemplateBackfill } from './import.js'
+
+/** A user-correctable import refusal, distinct from an upstream or storage failure. */
+export class BackfillError extends Error {
+  constructor(
+    message: string,
+    readonly status: 400 | 404 | 409 = 400,
+  ) {
+    super(message)
+  }
+}
+
+/** Durable storage needed by the import, independent of the Cloudflare adapter. */
+export interface BackfillStorage {
+  get<T>(key: string): Promise<T | undefined>
+  put<T>(key: string, value: T): Promise<void>
+  list<T>(options: { prefix: string; startAfter?: string; limit?: number }): Promise<Map<string, T>>
+  delete(keys: string[]): Promise<number>
+  setAlarm(at: number): Promise<void>
+  deleteAlarm(): Promise<void>
+}
+
+/**
+ * One bounded page of an import's durable keys. Values are JSON, as every coordinator storage
+ * adapter requires. Wakeups stay out: a paused job keeps re-arming while an archive is read.
+ */
+export type BackfillStatePage = readonly (readonly [string, unknown])[]
+
+/**
+ * One template's backfill state, where its basis, tile observations and samples live and its
+ * history is read from. A template job writes its own; a folder job reaches each template's.
+ */
+export interface BackfillSink {
+  get<T>(key: string): Promise<T | undefined>
+  put(entries: BackfillStatePage): Promise<void>
+}
+
+/**
+ * A canvas archive. Snapshot ids are hours since 2025-01-01, and the archive stores each tile's
+ * snapshots one week to a file, so reading a week's snapshots in a row costs one download.
+ */
+export interface ArchiveSource {
+  snapshots(): Promise<readonly ArchiveSnapshot[]>
+  tile(snapshotId: number, tile: TileCoord): Promise<Uint8Array | null>
+}
+
+const HOURS_PER_ARCHIVE_WEEK = 168
+
+/** The archive week, and so the archive file, a snapshot belongs to. */
+export const archiveWeek = (snapshotId: number): number =>
+  Math.floor(snapshotId / HOURS_PER_ARCHIVE_WEEK)
+
+/** The import commands a backfill client forwards. */
+export interface BackfillImporter {
+  preview(templateId: string): Promise<BackfillPreview>
+  start(templateId: string, versionId: string, snapshotId: number): Promise<BackfillJob>
+  job(): Promise<BackfillJob | null>
+  cancel(): Promise<BackfillJob | null>
+  history(versionId: string, tile?: TileCoord): Promise<ArchiveHistory>
+  previewFolder(nodeId: string): Promise<FolderBackfillPreview>
+  startFolder(
+    nodeId: string,
+    versionIds: readonly string[],
+    snapshotId: number,
+  ): Promise<FolderBackfillJob>
+  folderJob(): Promise<FolderBackfillJob | null>
+  cancelFolder(): Promise<FolderBackfillJob | null>
+}
 
 export type BackfillReply<T> = (
   | { readonly ok: true; readonly value: T }
@@ -58,7 +125,7 @@ export const folderBackfillName = (nodeId: string): string => `folder:${nodeId}`
 
 /** A client over an importer in this process; `exclusive` serializes its commands. */
 export const localBackfillClient = (
-  importer: TemplateBackfill,
+  importer: BackfillImporter,
   exclusive: <T>(operation: () => Promise<T>) => Promise<T> = (operation) => operation(),
 ): BackfillClient => ({
   preview: (template) => backfillReply(() => importer.preview(template)),

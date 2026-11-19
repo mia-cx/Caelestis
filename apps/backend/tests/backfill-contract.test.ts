@@ -13,11 +13,8 @@ import { describe, expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
 import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
 import { EralyonArchive, parseSnapshots } from '../src/backfill/eralyon.js'
-import {
-  type ArchiveSource,
-  type BackfillStorage,
-  TemplateBackfill,
-} from '../src/backfill/import.js'
+import { TemplateBackfill } from '../src/backfill/import.js'
+import type { ArchiveSource, BackfillStorage } from '../src/backfill/port.js'
 import { archiveWeek } from './support/eralyon.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
