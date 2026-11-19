@@ -14,6 +14,7 @@ import {
 import { Semaphore } from '../concurrency.js'
 import { count, warn } from '../debug.js'
 import {
+  admittedServerContentsFor,
   adoptProbedServerContents,
   applyLiveServerManifest,
   isLatestServerContents,
@@ -45,7 +46,6 @@ import {
   setServerPixelSource,
   updateServerTemplateMetadata,
 } from './local-store.js'
-import { rememberNodes } from './server-nodes.js'
 import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
 
 /**
@@ -440,9 +440,6 @@ const syncServerTemplatesOnce = async (
       // replace this blind result rather than being reconciled after it.
       if (pendingServerSyncs.get(serverSyncKey(server.url, surface))?.known !== undefined) return
     }
-    // The folders as well as the templates, because a template's visibility answers to the folders
-    // above it and this is the only place that learns of them changing between polls.
-    if (contents !== null) rememberNodes(server.url, contents.nodes)
     available = contents?.templates ?? null
   }
   // Could not ask, so nothing is known and nothing changes. Treating this as an empty server took
@@ -695,11 +692,14 @@ export const installServerSync = (): void => {
     },
     applyLiveEvent: async (server, event) => {
       if (event.type !== 'manifest-snapshot' || event.scope !== 'world') return false
+      // Publishing hands the manifest to the tree authority, which admits it (folders included)
+      // or refuses it; only an admitted manifest reaches the canvas.
       const contents = applyLiveServerManifest(server, event.manifest)
       if (contents === null) return false
-      rememberNodes(server.url, contents.nodes)
-      await syncServerTemplates(server, contents.templates, () =>
-        isLatestServerContents(server.url, contents),
+      await syncServerTemplates(
+        server,
+        contents.templates,
+        () => admittedServerContentsFor(server) === contents,
       )
       return isLatestServerContents(server.url, contents)
     },
