@@ -13,7 +13,7 @@ import { storedSwitches } from './stored-switches.js'
  * Each patch has its own switch, so a patch that turns out to break something can be turned off
  * without a new release. `wplace-patches.ts` says what each one does.
  */
-export const WPLACE_PATCHES = {
+const WPLACE_PATCHES = {
   'hover-canvas': {
     label: 'Stop idle redraws',
     hint: 'Wplace redraws the whole map every frame for its hover crosshair, even when nothing moves. The crosshair still follows the pointer.',

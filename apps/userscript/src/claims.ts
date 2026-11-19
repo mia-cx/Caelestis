@@ -68,7 +68,7 @@ export const claimAvailability = (): ClaimAvailability => {
 }
 
 /** A claim on the world surface for a season a connected server holds: one the map can show. */
-export const isShownClaim = (region: RegionClaim): boolean =>
+const isShownClaim = (region: RegionClaim): boolean =>
   sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE) &&
   claimServers().some((server) => server.season === region.season)
 

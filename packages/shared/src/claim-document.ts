@@ -112,7 +112,7 @@ const shapeCoverage = (shape: RegionShape): Coverage =>
     : regionShapeRaster(shape)
 
 /** Whether two shapes' pixels touch, by the claim adjacency rule. */
-export const regionShapesTouch = (a: RegionShape, b: RegionShape): boolean =>
+const regionShapesTouch = (a: RegionShape, b: RegionShape): boolean =>
   coverageTouches(shapeCoverage(a), shapeCoverage(b))
 
 /** Whether two rasters touch, by the claim adjacency rule, within a shared work budget. */

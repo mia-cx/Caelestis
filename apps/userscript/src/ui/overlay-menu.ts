@@ -714,7 +714,7 @@ const dropMenu = (): void => {
  * Remove the shared floating controls while their current rendering host is unavailable, without
  * forgetting anything about the templates. `openFor` survives, so the menu comes back with the map.
  */
-export const detachOverlayControls = (): void => {
+const detachOverlayControls = (): void => {
   dropMenu()
   for (const [, button] of buttons) button.remove()
   buttons.clear()

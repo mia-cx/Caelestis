@@ -10,7 +10,6 @@ import {
   type RegionShape,
   regionDocumentContainsPixel,
   regionDocumentPixels,
-  regionShapesTouch,
 } from '../index.js'
 
 const rectangle = (x: number, y: number, w: number, h: number): RegionShape => ({
@@ -41,7 +40,6 @@ describe('claimDocuments', () => {
   ])('connects pixels offset by (%i, %i): %s', (x, y, connected) => {
     const a = rectangle(0, 0, 1, 1)
     const b = rectangle(x, y, 1, 1)
-    expect(regionShapesTouch(a, b)).toBe(connected)
     expect(claimDocuments({ items: [item('a', a), item('b', b)] })).toHaveLength(connected ? 1 : 2)
   })
 
@@ -82,8 +80,12 @@ describe('claimDocuments', () => {
         mask: packBits(new Uint8Array([1])),
       }
       for (const shape of [square, pixel]) {
-        expect(regionShapesTouch(sparse, shape)).toBe(connected)
-        expect(regionShapesTouch(shape, sparse)).toBe(connected)
+        for (const items of [
+          [item('sparse', sparse), item('shape', shape)],
+          [item('shape', shape), item('sparse', sparse)],
+        ]) {
+          expect(claimDocuments({ items })).toHaveLength(connected ? 1 : 2)
+        }
       }
     }
   })
@@ -180,7 +182,6 @@ describe('claimDocuments', () => {
     // Two ellipses whose boxes overlap at a corner but whose pixels never meet.
     const ellipse = (x: number, y: number): RegionShape => ({ kind: 'ellipse', x, y, w: 20, h: 20 })
     const apart = { items: [item('a', ellipse(0, 0)), item('b', ellipse(18, 18))] }
-    expect(regionShapesTouch(ellipse(0, 0), ellipse(18, 18))).toBe(false)
     expect(claimDocuments(apart)).toHaveLength(2)
 
     const touching = { items: [item('a', ellipse(0, 0)), item('b', ellipse(20, 0))] }
