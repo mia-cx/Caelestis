@@ -5,7 +5,7 @@ import {
   templateSurfaceKey,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { warn } from './debug.js'
+import { notifyListeners } from './listeners.js'
 import { withManifestReadSlot } from './manifest-order.js'
 import { PerServerMap } from './per-server-map.js'
 import { cacheServer, forgetCachedServer, loadServerCache } from './server-cache.js'
@@ -112,15 +112,8 @@ let nodesRevision = 0
 
 const keyOf = templateSurfaceKey
 
-const emit = (server: ServerConnection, surface: TemplateSurface, change: ManifestChange): void => {
-  for (const listener of listeners) {
-    try {
-      listener(server, surface, change)
-    } catch (error) {
-      warn('manifest observer failed', String(error))
-    }
-  }
-}
+const emit = (server: ServerConnection, surface: TemplateSurface, change: ManifestChange): void =>
+  notifyListeners(listeners, 'manifest observer failed', server, surface, change)
 
 /** Observe every admission, refusal and forgotten surface, whichever read or event caused it. */
 export const onManifestChange = (listener: ChangeListener): (() => void) => {
