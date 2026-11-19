@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { CurvesEffect, FitLook, PaletteFitEffect, PaletteFitSpace } from 'ditherette'
+  import type { CurvesEffect, FitLook, PaletteFitEffect, PaletteFitSpace } from '../ditherette.js'
   import Button from '../../foundations/Button.svelte'
   import { selectFace } from '../../foundations/select-face.js'
   import { FIT_SPACES } from './catalog.js'

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { EffectChannel, LevelsEffect } from 'ditherette'
+  import type { EffectChannel, LevelsEffect } from '../ditherette.js'
   import RangeField from '../RangeField.svelte'
   import Segmented from './Segmented.svelte'
 

@@ -1,4 +1,4 @@
-import type { ColourChannel, CurvePoints, Effect, OneInputCurve } from 'ditherette'
+import type { ColourChannel, CurvePoints, Effect, OneInputCurve } from '../ditherette.js'
 
 export type EffectKind = Effect['effect']
 export type EffectOf<K extends EffectKind> = Extract<Effect, { effect: K }>
@@ -76,9 +76,6 @@ export const channelLabel = (channel: ColourChannel): string =>
   channelKey(channel)
 export const sameChannel = (left: ColourChannel, right: ColourChannel) =>
   channelKey(left) === channelKey(right)
-
-/** The most curves one curves step holds. */
-export const MAX_CURVES = 16
 
 export const STRAIGHT: CurvePoints = [
   [0, 0],
@@ -180,6 +177,3 @@ export const FIT_SPACES = [
   { id: 'oklab', label: 'OKLab' },
   { id: 'cielab', label: 'CIELab' },
 ] as const
-
-/** The package accepts at most 64 steps. */
-export const MAX_EFFECT_LAYERS = 64

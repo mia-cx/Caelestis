@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ColourChannel, Curve, CurvesEffect } from 'ditherette'
+  import { type ColourChannel, type Curve, type CurvesEffect, MAX_CURVES } from '../ditherette.js'
   import Button from '../../foundations/Button.svelte'
   import { selectFace } from '../../foundations/select-face.js'
   import Icon from '../../foundations/Icon.svelte'
@@ -8,7 +8,6 @@
     channelKey,
     channelLabel,
     FLAT,
-    MAX_CURVES,
     neutralCurve,
     STRAIGHT,
     sameChannel,

@@ -1,5 +1,5 @@
 <script lang="ts" generics="C extends GridCurve">
-  import type { ColourChannel } from 'ditherette'
+  import type { ColourChannel } from '../ditherette.js'
   import Button from '../../foundations/Button.svelte'
   import { channelLabel } from './catalog.js'
   import { canRemoveColumn, type GridCurve, insertColumn, removeColumn, setGridValue, wraps } from './grid.js'

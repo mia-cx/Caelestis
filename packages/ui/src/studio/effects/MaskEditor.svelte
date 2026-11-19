@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ColourChannel, MaskCurve } from 'ditherette'
+  import { type ColourChannel, MAX_MASK_CURVES, type MaskCurve } from '../ditherette.js'
   import Button from '../../foundations/Button.svelte'
   import { selectFace } from '../../foundations/select-face.js'
   import Icon from '../../foundations/Icon.svelte'
@@ -8,7 +8,7 @@
   import CurveGraph from './CurveGraph.svelte'
   import CurveGridGraph from './CurveGridGraph.svelte'
   import { neutralGrid } from './grid.js'
-  import { fullMaskCurve, MASK_PRESETS, MAX_MASK_CURVES, presetIndex, presetValues, setPreset } from './mask.js'
+  import { fullMaskCurve, MASK_PRESETS, presetIndex, presetValues, setPreset } from './mask.js'
   import Segmented from './Segmented.svelte'
   import { hueAxis } from './tone.js'
 

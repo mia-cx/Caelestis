@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Effect } from 'ditherette'
+  import type { Effect } from '../ditherette.js'
   import CurvesEditor from './CurvesEditor.svelte'
   import { NUMBER_FIELDS } from './fields.js'
   import LevelsEditor from './LevelsEditor.svelte'

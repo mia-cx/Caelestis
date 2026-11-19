@@ -28,17 +28,10 @@ export const RESIZE_MODES = [
   { id: 'area', label: 'Area / Box' },
 ] as const satisfies readonly { id: ResizeId; label: string }[]
 
+import type { ResizeAnchor } from './ditherette.js'
+
 /** Which part of the source stays pinned when the output's proportions differ; Area ignores it. */
-export type ResizeAnchor =
-  | 'top-left'
-  | 'top'
-  | 'top-right'
-  | 'left'
-  | 'center'
-  | 'right'
-  | 'bottom-left'
-  | 'bottom'
-  | 'bottom-right'
+export type { ResizeAnchor }
 
 /** Row-major, so arrow keys move by one across and three down. */
 export const ANCHORS = [

@@ -42,6 +42,7 @@
     "@iconify-icons/simple-icons": "^2.0.9"
   },
   "peerDependencies": {
+    "ditherette": "1.0.3",
     "svelte": "^5.57.3"
   },
   "devDependencies": {

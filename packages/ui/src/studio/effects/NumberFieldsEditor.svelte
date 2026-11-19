@@ -1,5 +1,5 @@
 <script lang="ts" generics="S extends Effect">
-  import type { Effect } from 'ditherette'
+  import type { Effect } from '../ditherette.js'
   import RangeField from '../RangeField.svelte'
   import type { NumberField } from './fields.js'
 

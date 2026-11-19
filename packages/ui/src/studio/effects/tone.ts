@@ -3,7 +3,7 @@ import type {
   ExposureEffect,
   HueSaturationEffect,
   LevelsEffect,
-} from 'ditherette'
+} from '../ditherette.js'
 
 /** Maps one encoded sRGB channel value from 0 through 1, as an effect's spec defines it. */
 export type ToneMap = (value: number) => number

@@ -1,5 +1,11 @@
-import type { ColourChannel, CurvePoints, MaskCurve, OneInputMaskCurve } from 'ditherette'
 import { channelValue, type Rgb } from '../colour.js'
+import {
+  type ColourChannel,
+  type CurvePoints,
+  MAX_MASK_CURVES,
+  type MaskCurve,
+  type OneInputMaskCurve,
+} from '../ditherette.js'
 import { sameChannel } from './catalog.js'
 import { evaluateCurve, evaluatePeriodicCurve } from './spline.js'
 
@@ -7,9 +13,6 @@ import { evaluateCurve, evaluatePeriodicCurve } from './spline.js'
  * Ditherette web's effect masks: curves that read the colour entering a step and say how much of
  * the step applies there, with slider presets for tones, colours, and saturation.
  */
-
-/** The most curves one step's mask holds. */
-export const MAX_MASK_CURVES = 4
 
 /** A full-strength mask curve: it holds nothing back. */
 export const FULL: CurvePoints = [

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { CurvePoints } from 'ditherette'
+  import { type CurvePoints, MAX_CURVE_POINTS, MIN_CURVE_GAP } from '../ditherette.js'
   import { tick } from 'svelte'
   import Button from '../../foundations/Button.svelte'
-  import { type CurvePoint, evaluateCurve, evaluatePeriodicCurve, MAX_CURVE_POINTS, MIN_CURVE_POINT_GAP } from './spline.js'
+  import { type CurvePoint, evaluateCurve, evaluatePeriodicCurve } from './spline.js'
   import { type Neutral, tonePath } from './tone.js'
 
   /**
@@ -91,7 +91,7 @@
     // Analysed knots sit off the byte grid, closer than a byte apart. A moved point lands on the
     // grid twice the package's gap from its neighbours, a margin its float32 rounding cannot close;
     // one asked to keep its byte, or that has no such byte, keeps its exact x.
-    const margin = 2 * MIN_CURVE_POINT_GAP
+    const margin = 2 * MIN_CURVE_GAP
     const min = index > 0 ? Math.ceil((xAt(index - 1) + margin) * BYTE) : 0
     const max = index < points.length - 1 ? Math.floor((xAt(index + 1) - margin) * BYTE) : BYTE
     const requested = Math.round(xByte)

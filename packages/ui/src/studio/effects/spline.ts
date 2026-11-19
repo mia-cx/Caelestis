@@ -1,10 +1,6 @@
 /** A curve control point: `[input, output]`, each from 0 through 1. */
 export type CurvePoint = readonly [number, number]
 
-/** The smallest x step between control points the package accepts. */
-export const MIN_CURVE_POINT_GAP = 0.001
-export const MAX_CURVE_POINTS = 16
-
 /** A value from a list the caller has already bounded; the fallback is never reached. */
 const read = (list: readonly number[], index: number): number => list[index] ?? 0
 
