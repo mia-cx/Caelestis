@@ -1,8 +1,8 @@
 import { TRANSPARENT_INDEX as T } from '@caelestis/shared'
 import { expect, it } from 'vitest'
 import { UNPAINTED } from '../native-pixels.js'
-import { cutPixels } from '../templates/sparse-pixels.js'
-import { artboardColourProgress } from './artboard-markers.js'
+import { artboardColourProgress, artboardCounts } from './artboard-accounting.js'
+import { cutPixels } from './sparse-pixels.js'
 
 const colour = (index: number, counts: Record<string, number>) => ({
   index,
@@ -33,7 +33,7 @@ it('reuses alliance progress until the native pixels or the template placement c
     ],
     revision: 1,
   }
-  const template = { originX: 10, originY: 0, width: 6, height: 1, pixels }
+  const template = { originX: 10, originY: 0, width: 6, height: 1, pixels, artwork: { pixels } }
 
   expect(artboardColourProgress(template, native)).toEqual([
     colour(1, { completed: 1, known: 1, total: 2 }),
@@ -42,12 +42,13 @@ it('reuses alliance progress until the native pixels or the template placement c
 
   // Wplace patches its retained pixels in place, then the read reports a new revision.
   committed[2] = 2
-  const repainted = artboardColourProgress(template, { ...native, revision: 2 })
-  expect(repainted).toEqual([
+  expect(artboardColourProgress(template, { ...native, revision: 2 })).toEqual([
     colour(1, { completed: 1, known: 1, total: 2 }),
     colour(2, { completed: 2, unpainted: 1, known: 3, total: 3 }),
   ])
-  expect(artboardColourProgress(template, { ...native, revision: 2 })).toBe(repainted)
+  expect(artboardCounts(template, { ...native, revision: 2 })).toBe(
+    artboardCounts(template, { ...native, revision: 2 }),
+  )
 
   expect(artboardColourProgress({ ...template, originX: 11 }, { ...native, revision: 2 })).toEqual([
     colour(1, { mismatched: 1, known: 1, total: 2 }),

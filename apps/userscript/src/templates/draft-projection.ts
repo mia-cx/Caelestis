@@ -1,3 +1,4 @@
+import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { onAcceptedPaint, onPaintSubmission, type PaintSubmission } from '../paint-requests.js'
 import { onTilePixels } from '../pixel-changes.js'
 import { serverConnectionIdentity } from '../server-connections.js'
@@ -246,7 +247,10 @@ const progressWithDrafts = (
   return result
 }
 
-/** A world template's per-colour progress, with this browser's native draft projected onto it. */
+/**
+ * A template's per-colour progress. A server's report gets this browser's native draft projected
+ * onto it; anything measured here, including every alliance template, reads the accounting as is.
+ */
 export const projectedColourProgress = (
   template: PlacedTemplate | null,
   servers: ReadonlyMap<string, ServerConnection> = connectedServers(),
@@ -255,6 +259,7 @@ export const projectedColourProgress = (
   const accounting = pixelAccounting.read(template)
   if (
     measuresLocally(template) ||
+    (template.surface ?? WORLD_TEMPLATE_SURFACE).kind !== 'world' ||
     template.serverUrl === undefined ||
     template.serverTemplateId === undefined
   )

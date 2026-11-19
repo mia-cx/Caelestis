@@ -29,7 +29,6 @@ import {
   rowsForSurface,
   serverSnapshotError,
 } from '../application/tree-server-state.js'
-import { artboardColourProgress, artboardTemplateProgress } from '../gl/artboard-markers.js'
 import { NO_ARTBOARD_PIXELS, readArtboardPixels } from '../gl/artboard-pixels.js'
 import {
   localFolderChainVisible,
@@ -57,6 +56,10 @@ import {
   serverColourProgressFor,
   serverProgressFor,
 } from '../telemetry.js'
+import {
+  artboardColourProgress,
+  artboardTemplateProgress,
+} from '../templates/artboard-accounting.js'
 import {
   isServerTemplate,
   isTemplateVisible,

@@ -1,11 +1,11 @@
-import { TRANSPARENT_INDEX } from '@caelestis/shared'
+import { BLANK, MATCH, type MismatchClass, TRANSPARENT_INDEX, WRONG } from '@caelestis/shared'
 import { intersectRects, type PixelRect } from '../geometry.js'
 import { type NativePixelSnapshot, nativePixelWindow } from '../native-pixels.js'
 import type { Appearance } from '../templates/appearance.js'
-import type { PlacedPixels, PlacedTemplate } from '../templates/local-store.js'
+import type { PlacedPixels } from '../templates/local-store.js'
 import { packMismatchMark } from '../templates/mismatch-marks.js'
-import { forEachPixel, pixelRect, type SparsePixels } from '../templates/sparse-pixels.js'
-import type { ArtboardPixels } from './artboard-pixels.js'
+import { classifyPixel, countsUnpainted } from '../templates/pixel-tally.js'
+import { pixelRect, type SparsePixels } from '../templates/sparse-pixels.js'
 
 const MARKER_CHUNK_SIZE = 1_024
 
@@ -29,154 +29,6 @@ interface MutableBatch {
   readonly x: number
   readonly y: number
   readonly marks: Set<number>
-}
-
-const artboardActualPixels = (
-  template: Pick<PlacedTemplate, 'originX' | 'originY' | 'width' | 'height'>,
-  pixels: NativePixelSnapshot,
-) =>
-  nativePixelWindow(pixels, {
-    x: template.originX,
-    y: template.originY,
-    width: template.width,
-    height: template.height,
-  })
-
-export interface ArtboardColourProgress {
-  readonly index: number
-  readonly completed: number
-  readonly mismatched: number
-  readonly unpainted: number
-  readonly known: number
-  readonly total: number
-}
-
-export interface ArtboardColourTarget {
-  readonly x: number
-  readonly y: number
-  readonly kind: 'mismatched' | 'unpainted'
-}
-
-/** Known native artboard pixels that still need one palette colour. */
-export const artboardColourTargets = (
-  template: PlacedPixels,
-  pixels: NativePixelSnapshot,
-  index: number,
-): readonly ArtboardColourTarget[] => {
-  const actual = artboardActualPixels(template, pixels)
-  const targets: ArtboardColourTarget[] = []
-  forEachPixel(template.pixels, (wanted, at) => {
-    if (wanted !== index || actual.known[at] !== 1 || actual.indices[at] === index) return
-    targets.push({
-      x: template.originX + (at % template.width),
-      y: template.originY + Math.floor(at / template.width),
-      kind: actual.indices[at] === TRANSPARENT_INDEX ? 'unpainted' : 'mismatched',
-    })
-  })
-  return targets
-}
-
-/** One counter per possible palette index, since template pixels are bytes. */
-const INDEX_SLOTS = 256
-
-const countColourProgress = (
-  template: PlacedPixels,
-  pixels: NativePixelSnapshot,
-): readonly ArtboardColourProgress[] => {
-  const { known: knownAt, indices: placedAt } = artboardActualPixels(template, pixels)
-  const total = new Uint32Array(INDEX_SLOTS)
-  const known = new Uint32Array(INDEX_SLOTS)
-  const completed = new Uint32Array(INDEX_SLOTS)
-  const unpainted = new Uint32Array(INDEX_SLOTS)
-  forEachPixel(template.pixels, (wanted, at) => {
-    if (wanted === TRANSPARENT_INDEX) return
-    total[wanted] = (total[wanted] as number) + 1
-    if (knownAt[at] !== 1) return
-    known[wanted] = (known[wanted] as number) + 1
-    const placed = placedAt[at]
-    if (placed === wanted) completed[wanted] = (completed[wanted] as number) + 1
-    else if (placed === TRANSPARENT_INDEX) unpainted[wanted] = (unpainted[wanted] as number) + 1
-  })
-  const progress: ArtboardColourProgress[] = []
-  for (let index = 0; index < INDEX_SLOTS; index++) {
-    if (total[index] === 0) continue
-    const colourKnown = known[index] as number
-    const colourCompleted = completed[index] as number
-    const colourUnpainted = unpainted[index] as number
-    progress.push({
-      index,
-      completed: colourCompleted,
-      mismatched: colourKnown - colourCompleted - colourUnpainted,
-      unpainted: colourUnpainted,
-      known: colourKnown,
-      total: total[index] as number,
-    })
-  }
-  return progress
-}
-
-interface CountedProgress {
-  readonly originX: number
-  readonly originY: number
-  readonly revision: number
-  readonly colours: readonly ArtboardColourProgress[]
-}
-
-/** The last count per template pixels, shared by the panel tree and the Paint palette. */
-const countedProgress = new WeakMap<SparsePixels, CountedProgress>()
-
-/**
- * Per-colour progress from the native artboard pixels Wplace has loaded, in palette order.
- * Reuses the last count while the template's pixels, its origin and the read's revision hold.
- */
-export const artboardColourProgress = (
-  template: PlacedPixels,
-  pixels: ArtboardPixels,
-): readonly ArtboardColourProgress[] => {
-  const held = countedProgress.get(template.pixels)
-  if (
-    held !== undefined &&
-    held.revision === pixels.revision &&
-    held.originX === template.originX &&
-    held.originY === template.originY
-  )
-    return held.colours
-  const colours = countColourProgress(template, pixels)
-  countedProgress.set(template.pixels, {
-    originX: template.originX,
-    originY: template.originY,
-    revision: pixels.revision,
-    colours,
-  })
-  return colours
-}
-
-/** Overall progress for one artboard template, summed from its per-colour counts. */
-export const artboardTemplateProgress = (colours: readonly ArtboardColourProgress[]) =>
-  colours.reduce(
-    (total, colour) => ({
-      completed: total.completed + colour.completed,
-      mismatched: total.mismatched + colour.mismatched,
-      unpainted: total.unpainted + colour.unpainted,
-      known: total.known + colour.known,
-      total: total.total + colour.total,
-    }),
-    { completed: 0, mismatched: 0, unpainted: 0, known: 0, total: 0 },
-  )
-
-/** Palette colours with at least one artboard pixel that still differs from the template. */
-export const artboardRemainingColours = (
-  template: PlacedPixels,
-  pixels: NativePixelSnapshot,
-): ReadonlySet<number> => {
-  const actual = artboardActualPixels(template, pixels)
-  const remaining = new Set<number>()
-  forEachPixel(template.pixels, (wanted, at) => {
-    if (wanted === TRANSPARENT_INDEX || actual.known[at] !== 1 || wanted === actual.indices[at])
-      return
-    remaining.add(wanted)
-  })
-  return remaining
 }
 
 const appendMark = (
@@ -220,8 +72,6 @@ const freezeBatches = (batches: Map<string, MutableBatch>): ArtboardMarkerBatch[
     ),
   }))
 
-type MarkerClassification = 0 | 1 | 2
-
 interface MarkerIndexEntry {
   readonly source: SparsePixels
   readonly originX: number
@@ -255,13 +105,13 @@ const selectedBatches = (entry: MarkerIndexEntry, wanted: number) => {
 
 const removeClassification = (
   entry: MarkerIndexEntry,
-  classification: MarkerClassification,
+  classification: MismatchClass,
   x: number,
   y: number,
   wanted: number,
 ): void => {
-  if (classification === 1) deleteMark(entry.wrong, x, y, wanted)
-  if (classification !== 2) return
+  if (classification === WRONG) deleteMark(entry.wrong, x, y, wanted)
+  if (classification !== BLANK) return
   deleteMark(entry.unpainted, x, y, wanted)
   const selected = entry.selected.get(wanted)
   if (selected === undefined) return
@@ -271,18 +121,21 @@ const removeClassification = (
 
 const addClassification = (
   entry: MarkerIndexEntry,
-  classification: MarkerClassification,
+  classification: MismatchClass,
   x: number,
   y: number,
   wanted: number,
 ): void => {
-  if (classification === 1) appendMark(entry.wrong, x, y, wanted)
-  if (classification !== 2) return
+  if (classification === WRONG) appendMark(entry.wrong, x, y, wanted)
+  if (classification !== BLANK) return
   appendMark(entry.unpainted, x, y, wanted)
   appendMark(selectedBatches(entry, wanted), x, y, wanted)
 }
 
-/** Retain alliance marker classifications and patch only native pixels Wplace changed. */
+/**
+ * Retain alliance marker classifications and patch only native pixels Wplace changed. Pixels classify
+ * and the unpainted threshold applies by the same rules as world tiles (`pixel-tally.ts`).
+ */
 export class ArtboardMarkerIndex {
   private entry: MarkerIndexEntry | null = null
   private compared = 0
@@ -326,10 +179,11 @@ export class ArtboardMarkerIndex {
 
   isCurrent(template: PlacedPixels, appearance: Appearance): boolean {
     if (this.entry === null || !this.matchesPixels(this.entry, template, appearance)) return false
-    const includeUnpainted =
-      appearance.markUnpainted &&
-      this.entry.asserted > 0 &&
-      this.entry.unpaintedCount / this.entry.asserted <= appearance.unpaintedLimit
+    const includeUnpainted = countsUnpainted(
+      appearance,
+      this.entry.asserted,
+      this.entry.unpaintedCount,
+    )
     return this.entry.cached !== null && this.entry.cachedIncludeUnpainted === includeUnpainted
   }
 
@@ -369,21 +223,22 @@ export class ArtboardMarkerIndex {
         const wanted = wantedHere[actualAt] as number
         const asserted = wanted !== TRANSPARENT_INDEX && !entry.hidden.has(wanted)
         const nextKnown = asserted && actual.known[actualAt] === 1 ? 1 : 0
-        const placed = actual.indices[actualAt]
-        const nextClassification: MarkerClassification =
-          nextKnown === 0 || placed === wanted ? 0 : placed === TRANSPARENT_INDEX ? 2 : 1
+        const nextClassification =
+          nextKnown === 0
+            ? MATCH
+            : classifyPixel(wanted, actual.indices[actualAt] as number, TRANSPARENT_INDEX)
         const previousKnown = entry.known[at] ?? 0
-        const previousClassification = (entry.classification[at] ?? 0) as MarkerClassification
+        const previousClassification = (entry.classification[at] ?? MATCH) as MismatchClass
         if (previousKnown === nextKnown && previousClassification === nextClassification) continue
         const worldX = template.originX + localX
         const worldY = template.originY + localY
         if (previousKnown === 1) entry.asserted--
-        if (previousClassification === 2) entry.unpaintedCount--
+        if (previousClassification === BLANK) entry.unpaintedCount--
         removeClassification(entry, previousClassification, worldX, worldY, wanted)
         entry.known[at] = nextKnown
         entry.classification[at] = nextClassification
         if (nextKnown === 1) entry.asserted++
-        if (nextClassification === 2) entry.unpaintedCount++
+        if (nextClassification === BLANK) entry.unpaintedCount++
         addClassification(entry, nextClassification, worldX, worldY, wanted)
         entry.cached = null
       }
@@ -417,10 +272,7 @@ export class ArtboardMarkerIndex {
     }
 
     const entry = this.entry
-    const includeUnpainted =
-      appearance.markUnpainted &&
-      entry.asserted > 0 &&
-      entry.unpaintedCount / entry.asserted <= appearance.unpaintedLimit
+    const includeUnpainted = countsUnpainted(appearance, entry.asserted, entry.unpaintedCount)
     if (entry.cached !== null && entry.cachedIncludeUnpainted === includeUnpainted)
       return entry.cached
     const mismatch = new Map(entry.wrong)
@@ -451,13 +303,4 @@ export class ArtboardMarkerIndex {
   comparedPixels(): number {
     return this.compared
   }
-}
-
-/** Compare one alliance template with Wplace's native art, using the world marker semantics. */
-export const artboardMarkerWork = (
-  template: PlacedPixels,
-  pixels: NativePixelSnapshot,
-  appearance: Appearance,
-): ArtboardMarkerWork => {
-  return new ArtboardMarkerIndex().update(template, pixels, appearance, null)
 }

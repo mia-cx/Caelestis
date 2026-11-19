@@ -9,9 +9,9 @@ import { alliancePointAt } from './alliance-coordinates.js'
 import { navigateAllianceArtboardTo } from './alliance-navigation.js'
 import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
 import { warn } from './debug.js'
-import { artboardColourProgress, artboardColourTargets } from './gl/artboard-markers.js'
 import { getMap } from './map-handle.js'
 import { getState } from './settings.js'
+import { artboardColourTargets } from './templates/artboard-accounting.js'
 import { projectedColourProgress } from './templates/draft-projection.js'
 import { type PlacedTemplate, templateChunks } from './templates/local-store.js'
 import { pixelAccounting } from './templates/mismatch.js'
@@ -42,17 +42,8 @@ const editorShowing = (surface: TemplateSurface): ActiveAllianceSurface | null =
 }
 
 /** The colour counts decorating Wplace's palette belong only to the focused active surface. */
-export const paintPaletteProgress = (): readonly TemplateColourProgress[] => {
-  const template = focusedTemplate()
-  if (template === null) return []
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
-  if (surface.kind === 'world') return projectedColourProgress(template)
-  const active = editorShowing(surface)
-  const artboard = active === null ? null : readActiveArtboard(active)
-  const pixels = template.artwork.pixels
-  if (artboard === null || pixels === null) return []
-  return artboardColourProgress({ ...template, pixels }, artboard)
-}
+export const paintPaletteProgress = (): readonly TemplateColourProgress[] =>
+  projectedColourProgress(focusedTemplate())
 
 /** The kinds of unfinished pixel a jump visits, in the painter's chosen order. */
 export const colourKindOrder = (): readonly ColourTargetKind[] =>

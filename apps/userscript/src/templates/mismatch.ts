@@ -10,6 +10,7 @@ import {
   type TileCoord,
   TRANSPARENT_INDEX,
   WORLD_PIXELS,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { count } from '../debug.js'
 import {
@@ -34,6 +35,7 @@ import {
   onTilePixelsEvicted,
   tilePixels,
 } from '../tile-pixels.js'
+import { artboardProgressCounts } from './artboard-accounting.js'
 import {
   announceCaptureScope,
   captureScopeTiles,
@@ -703,6 +705,15 @@ const worldCounts = (template: PlacedTemplate): ProgressCounts | undefined => {
   queueIncompleteLocalProgress(template)
   return progressTally.current(template.id, template.artwork, progressSignature(template))
 }
+
+/**
+ * Counts from the template's pixel source. World tiles and the alliance artboard differ only here:
+ * a world template sums its scanned tiles, an alliance template counts the open editor's native art.
+ */
+const countsFor = (template: PlacedTemplate): ProgressCounts | undefined =>
+  (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
+    ? worldCounts(template)
+    : artboardProgressCounts(template)
 
 /** What an answer is read from: a server's classification mask, or the tile's canvas pixels. */
 interface TileSource {
@@ -1522,10 +1533,10 @@ const draftPixelDeltasFor = (template: PlacedTemplate): TemplateDraftPixelDelta[
 export const pixelAccounting = Object.freeze({
   read: (template: PlacedTemplate): TemplatePixelAccounting => ({
     get progress() {
-      return progressFrom(worldCounts(template), template.opaque)
+      return progressFrom(countsFor(template), template.opaque)
     },
     get colours() {
-      return colourProgressFrom(template.artwork, worldCounts(template))
+      return colourProgressFrom(template.artwork, countsFor(template))
     },
     get draftPixelDeltas() {
       return draftPixelDeltasFor(template)
