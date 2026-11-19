@@ -161,5 +161,5 @@ it('answers a second invite busy while one is in flight, without probing it', as
 
   expect(second).toEqual({ kind: 'busy', url: 'https://other.test', disconnecting: false })
   expect((await first)?.kind).toBe('connected')
-  expect(fetch.mock.calls.every(([input]) => String(input).startsWith(origin))).toBe(true)
+  expect(fetch.mock.calls.every(([input]) => new URL(String(input)).origin === origin)).toBe(true)
 })
