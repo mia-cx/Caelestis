@@ -155,7 +155,10 @@ export const pollClaims = (server: ServerConnection): void => {
   })
 }
 
-/** Every presence server whose claims are held, reconnecting ones included. */
+/**
+ * Every connected server supporting presence, reconnecting ones included: presence-client tracks
+ * claims for exactly the servers it holds a connection for.
+ */
 export const claimServers = (): readonly ServerConnection[] =>
   [...tracked.values()].map((entry) => entry.server)
 

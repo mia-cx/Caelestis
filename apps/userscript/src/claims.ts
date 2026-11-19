@@ -23,9 +23,10 @@ import {
   syncClaimEditorFrame,
 } from './claim-editor.js'
 import { claimRouter, installClaimRouting } from './claim-routing.js'
+import { claimServers } from './claim-store.js'
 import { registerDebugEntry } from './console-api.js'
 import { onMapFrame, requestMapFrame } from './map-view.js'
-import { presenceServers, presenceView } from './presence-client.js'
+import { presenceView } from './presence-client.js'
 import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
 import { activeServerToken } from './server-connections.js'
 import { localTemplates, type PlacedTemplate } from './templates/catalog.js'
@@ -52,7 +53,7 @@ export const claimAvailability = (): ClaimAvailability => {
   if (currentSurface().kind !== 'world')
     return unavailable('Claims live on the world canvas. Leave the alliance artboard to claim.')
   if (view.me === null) return unavailable('Sign in to Wplace to claim regions.')
-  const servers = presenceServers()
+  const servers = claimServers()
   const signedIn = servers.filter((server) => activeServerToken(server) !== null)
   const server = signedIn[0] ?? servers[0]
   if (!view.connected || server === undefined)
@@ -69,7 +70,7 @@ export const claimAvailability = (): ClaimAvailability => {
 /** A claim on the world surface for a season a connected server holds: one the map can show. */
 export const isShownClaim = (region: RegionClaim): boolean =>
   sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE) &&
-  presenceServers().some((server) => server.season === region.season)
+  claimServers().some((server) => server.season === region.season)
 
 /** "rectangle" for one shape, "3 shapes" for several. */
 export const shapesName = (document: RegionDocument): string =>

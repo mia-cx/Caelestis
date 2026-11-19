@@ -5,9 +5,10 @@ import {
   TILE_SIZE,
   type TileCoord,
 } from '@caelestis/shared'
+import { claimServers } from './claim-store.js'
 import { type TileFrame, viewportRectIn } from './coordinates.js'
 import { draftedPixelOffsets, draftedTiles } from './draft-pixels.js'
-import { presenceServers, setPresenceDraft, setPresenceViewport } from './presence-client.js'
+import { setPresenceDraft, setPresenceViewport } from './presence-client.js'
 import { measureProfileDetail, recordProfileWorkload } from './profile.js'
 
 /**
@@ -81,7 +82,7 @@ const scheduleTrailingDraftCheck = (at: number): void => {
   trailingDraftCheck = setTimeout(
     () => {
       trailingDraftCheck = null
-      if (presenceServers().length > 0) scanDraft(Date.now())
+      if (claimServers().length > 0) scanDraft(Date.now())
     },
     Math.max(0, draftCheckedAt + PRESENCE_DRAFT_MIN_MS - at),
   )
@@ -89,7 +90,7 @@ const scheduleTrailingDraftCheck = (at: number): void => {
 
 /** Feed one tile frame. Cheap on every frame; the draft scan runs at most once a second. */
 export const observePresenceFrame = (frame: TileFrame): void => {
-  if (presenceServers().length === 0) return
+  if (claimServers().length === 0) return
   setPresenceViewport(viewportRectIn(frame))
   const at = Date.now()
   if (at - draftCheckedAt >= PRESENCE_DRAFT_MIN_MS) scanDraft(at)

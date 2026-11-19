@@ -553,10 +553,6 @@ export const presenceView = (): PresenceView => {
   }
 }
 
-/** Every connected server supporting presence, including sockets currently reconnecting. */
-export const presenceServers = (): readonly ServerConnection[] =>
-  [...connections.values()].map((connection) => connection.server)
-
 /** Publish this tab's viewport. */
 export const setPresenceViewport = (viewport: PresenceRect | null): void => {
   if (sameRect(viewport, local.viewport)) return
