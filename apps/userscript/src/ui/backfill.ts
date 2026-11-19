@@ -13,6 +13,10 @@ import type { TreeTarget } from './tree-context.js'
 
 let closeBackfill: (() => void) | undefined
 
+/** Whether a row can offer Backfill history: it is on the world, on a season-0 server. */
+export const canBackfill = (target: TreeTarget): boolean =>
+  target.surface.kind === 'world' && target.server?.season === 0
+
 /**
  * Open an admin form whose background import outlives this userscript tab, for one server
  * template or every template below a server folder.
@@ -25,13 +29,7 @@ export const openBackfill = (target: TreeTarget): void => {
       : nodeId !== null
         ? `/admin/backfill/folders/${nodeId}`
         : null
-  if (
-    server === null ||
-    path === null ||
-    !hasServerAdminToken(server) ||
-    server.season !== 0 ||
-    (target.surface?.kind ?? 'world') !== 'world'
-  )
+  if (server === null || path === null || !hasServerAdminToken(server) || !canBackfill(target))
     return
   closeBackfill?.()
   const element = document.createElement(BACKFILL_TAG)

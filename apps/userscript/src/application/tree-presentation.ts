@@ -15,12 +15,10 @@ import type {
 export type MenuEntry = {
   readonly icon: TreeIcon
   readonly label: string
-  readonly run: () => void
   readonly returnToCanvas?: true
   readonly danger?: true
   readonly checked?: boolean
-  readonly children?: readonly MenuEntry[]
-}
+} & ({ readonly run: () => void } | { readonly children: readonly MenuEntry[] })
 
 /**
  * The one group order every row's menu follows, so the eye learns where a verb lives. A group
@@ -85,7 +83,7 @@ export const showContextMenu = (
   let itemCount = 0
   const toItem = (entry: MenuEntry, group: MenuGroup): TreeContextMenuItemModel => {
     const itemId = `${id}-${itemCount++}`
-    if (entry.children === undefined) actions.push({ id: itemId, run: entry.run })
+    if ('run' in entry) actions.push({ id: itemId, run: entry.run })
     return {
       id: itemId,
       label: entry.label,
@@ -94,9 +92,9 @@ export const showContextMenu = (
       ...(entry.returnToCanvas === true ? { returnToCanvas: true } : {}),
       ...(entry.danger === true ? { danger: true } : {}),
       ...(entry.checked === undefined ? {} : { checked: entry.checked }),
-      ...(entry.children === undefined
-        ? {}
-        : { children: entry.children.map((child) => toItem(child, group)) }),
+      ...('children' in entry
+        ? { children: entry.children.map((child) => toItem(child, group)) }
+        : {}),
     }
   }
   contextMenu = {

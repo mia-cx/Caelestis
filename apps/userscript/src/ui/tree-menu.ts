@@ -15,7 +15,7 @@ import { beginMove } from '../templates/move.js'
 import { templateAsPng } from '../templates/residency.js'
 import { exportFilename, templateAsWplace } from '../templates/wplace-export.js'
 import { localTemplateIdOf, serverTemplateKey } from '../tree-keys.js'
-import { openBackfill } from './backfill.js'
+import { canBackfill, openBackfill } from './backfill.js'
 import { showToast } from './notification-host.js'
 import {
   requestTemplateAreaUpdate,
@@ -187,7 +187,7 @@ export const openContextMenu = (
             run: () => void setServerFolderPublished(target, true, rerender),
           }
   const folderBackfill: MenuEntry | null =
-    folderTemplates !== null && surface.kind === 'world' && target.server?.season === 0
+    folderTemplates !== null && canBackfill(target)
       ? { icon: 'download', label: 'Backfill history', run: () => openBackfill(target) }
       : null
   const finished = lifecycle?.finished === true
@@ -195,7 +195,6 @@ export const openContextMenu = (
   const markAs: MenuEntry = {
     icon: 'taskAlt',
     label: 'Mark as…',
-    run: () => {},
     children: [
       {
         icon: 'flag',
@@ -255,7 +254,7 @@ export const openContextMenu = (
               },
               { icon: 'reset', label: 'Use canvas artwork', run: updateArtwork },
               updateArea,
-              surface.kind === 'world' && target.server.season === 0
+              canBackfill(target)
                 ? {
                     icon: 'download',
                     label: 'Backfill history',
