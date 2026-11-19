@@ -13,7 +13,7 @@
     AppearanceGroupKey,
     AppearanceNumberKey,
     AppearanceSliderModel,
-  } from '../types.js'
+  } from './model.js'
 
   let { model, onIntent }: { model: AppearanceEditorModel; onIntent?: (intent: AppearanceEditorIntent) => void } = $props()
   const emit = (intent: AppearanceEditorIntent): void => onIntent?.(intent)

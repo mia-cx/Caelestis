@@ -13,7 +13,7 @@
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
-  import type { ServerDetailsFields, ServerDetailsIntent, ServerDetailsModel } from '../types.js'
+  import type { ServerDetailsFields, ServerDetailsIntent, ServerDetailsModel } from './model.js'
 
   let {
     model,

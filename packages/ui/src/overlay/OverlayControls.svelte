@@ -3,7 +3,8 @@
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import TemplateState from '../template-state/TemplateState.svelte'
-  import type { AppearanceEditorIntent, OverlayControlsIntent, OverlayControlsModel } from '../types.js'
+  import type { AppearanceEditorIntent } from '../appearance/model.js'
+  import type { OverlayControlsIntent, OverlayControlsModel } from './model.js'
 
   let { model, onIntent }: { model: OverlayControlsModel; onIntent?: (intent: OverlayControlsIntent) => void } = $props()
   const emit = (intent: OverlayControlsIntent): void => onIntent?.(intent)

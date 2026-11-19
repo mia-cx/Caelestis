@@ -4,7 +4,7 @@
   import { resolveShortcutBindings } from '@caelestis/shared'
   import PixelStyles from '../foundations/PixelStyles.svelte'
   import ShortcutHelp from '../shortcut-help/ShortcutHelp.svelte'
-  import type { ShortcutHelpIntent, ShortcutHelpModel } from '../types.js'
+  import type { ShortcutHelpIntent, ShortcutHelpModel } from '../shortcut-help/model.js'
 
   const DEFAULT_MODEL: ShortcutHelpModel = { platform: 'windows-linux', bindings: resolveShortcutBindings(), simulatedInput: {} }
   let { model = DEFAULT_MODEL }: { model?: ShortcutHelpModel } = $props()

@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from '../foundations/Icon.svelte'
   import type { IconName } from '../foundations/icons.svelte.js'
-  import type { RailControlIntent, RailControlModel } from '../types.js'
+  import type { RailControlIntent, RailControlModel } from './model.js'
 
   let { model, onIntent }: { model: RailControlModel; onIntent?: (intent: RailControlIntent) => void } = $props()
 

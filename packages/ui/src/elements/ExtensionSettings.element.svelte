@@ -4,7 +4,7 @@
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
   import GlobalSettings from '../settings/GlobalSettings.svelte'
-  import type { ExtensionSettingsModel, GlobalSettingsIntent } from '../types.js'
+  import type { ExtensionSettingsModel, GlobalSettingsIntent } from '../settings/model.js'
 
   /** The extension's toolbar popup: the settings that apply to every Wplace tab. */
   let { model }: { model?: ExtensionSettingsModel } = $props()

@@ -2,7 +2,7 @@
 <script lang="ts">
   import ClaimMode from '../claim/ClaimMode.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { ClaimModeIntent, ClaimModeModel } from '../types.js'
+  import type { ClaimModeIntent, ClaimModeModel } from '../claim/model.js'
   let { model }: { model: ClaimModeModel } = $props()
   const element: HTMLElement = $host()
   const emit = (detail: ClaimModeIntent): void => { element.dispatchEvent(new CustomEvent('caelestis-claim-mode-intent', { detail, bubbles: true, composed: true })) }

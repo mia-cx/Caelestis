@@ -1,7 +1,7 @@
 import { mount, tick, unmount } from 'svelte'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import type { TemplateTreeIntent, TemplateTreeModel } from '../src/tree/model.js'
 import TemplateTree from '../src/tree/TemplateTree.svelte'
-import type { TemplateTreeIntent, TemplateTreeModel } from '../src/types.js'
 
 const mounted: object[] = []
 // Happy DOM has no top layer; real positioning and popover behavior are browser contracts.

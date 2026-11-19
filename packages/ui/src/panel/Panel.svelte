@@ -7,7 +7,8 @@
   import TemplateTree from '../tree/TemplateTree.svelte'
   import WorkSummary from '../work/WorkSummary.svelte'
   import SettingsPanel from '../settings/SettingsPanel.svelte'
-  import type { PanelIntent, PanelModel, PanelView, TemplateTreeIntent } from '../types.js'
+  import type { TemplateTreeIntent } from '../tree/model.js'
+  import type { PanelIntent, PanelModel, PanelView } from './model.js'
 
   let { model, onIntent }: { model: PanelModel; onIntent?: (intent: PanelIntent) => void } = $props()
   let width = $state(0)

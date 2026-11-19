@@ -2,7 +2,7 @@
   import { keyBindingCodes, type ShortcutBindings, type ShortcutId, type SimulatedInputSwitches, shortcutLabel } from '@caelestis/shared'
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
-  import type { ShortcutHelpIntent, ShortcutHelpModel, ShortcutHelpPlatform } from '../types.js'
+  import type { ShortcutHelpIntent, ShortcutHelpModel, ShortcutHelpPlatform } from './model.js'
   import { type ShortcutCategory, shortcutActionLabel, simulatedShortcutNote } from './actions.js'
 
   interface ShortcutRow {

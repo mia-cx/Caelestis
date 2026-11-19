@@ -4,7 +4,7 @@
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import Checkbox from '../foundations/Checkbox.svelte'
-  import type { TagManagerIntent, TagManagerModel } from '../types.js'
+  import type { TagManagerIntent, TagManagerModel } from './model.js'
 
   let { model, onIntent }: { model: TagManagerModel; onIntent?: (intent: TagManagerIntent) => void } = $props()
   let dialog: HTMLDialogElement

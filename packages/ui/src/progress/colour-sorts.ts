@@ -1,7 +1,5 @@
-import type { ColourProgressSort } from '../types.js'
-
 /** The orderings the colour progress list offers, in menu order, for any host that renders the picker. */
-export const COLOUR_PROGRESS_SORTS: ReadonlyArray<{ key: ColourProgressSort; label: string }> = [
+export const COLOUR_PROGRESS_SORTS = [
   { key: 'index', label: 'palette index' },
   { key: 'progress', label: 'highest %' },
   { key: 'progress-asc', label: 'lowest %' },
@@ -10,4 +8,6 @@ export const COLOUR_PROGRESS_SORTS: ReadonlyArray<{ key: ColourProgressSort; lab
   { key: 'total', label: 'biggest' },
   { key: 'free', label: 'free first' },
   { key: 'premium', label: 'premium first' },
-]
+] as const
+
+export type ColourProgressSort = (typeof COLOUR_PROGRESS_SORTS)[number]['key']

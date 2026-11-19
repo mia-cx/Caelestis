@@ -3,7 +3,7 @@
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import Toggle from '../foundations/Toggle.svelte'
-  import type { ClaimModeIntent, ClaimModeModel, ClaimToolEntry, ClaimToolGroup, ClaimToolGroupId } from '../types.js'
+  import type { ClaimModeIntent, ClaimModeModel, ClaimToolEntry, ClaimToolGroup, ClaimToolGroupId } from './model.js'
 
   let { model, onIntent }: { model: ClaimModeModel; onIntent: (intent: ClaimModeIntent) => void } =
     $props()

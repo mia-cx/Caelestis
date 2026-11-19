@@ -4,12 +4,12 @@
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import type { IconName } from '../foundations/icons.svelte.js'
-  import type { ConfirmDialogModel, NotificationsIntent, NotificationsProps, OneTimeSecretDialogModel, ToastKind, ToastModel } from '../types.js'
+  import type { ConfirmDialogModel, NotificationsIntent, NotificationsModel, OneTimeSecretDialogModel, ToastKind, ToastModel } from './model.js'
 
   const EMPTY_MODEL = { toasts: [], confirm: null } as const
   const KIND_ICON: Record<ToastKind, IconName> = { info: 'info', warning: 'warning', error: 'error' }
 
-  let { model = EMPTY_MODEL, onIntent }: NotificationsProps = $props()
+  let { model = EMPTY_MODEL, onIntent }: { model?: NotificationsModel; onIntent?: (intent: NotificationsIntent) => void } = $props()
   let dialog = $state<HTMLDialogElement>()
   let cancel = $state<HTMLButtonElement>()
   let secretDialog = $state<HTMLDialogElement>()

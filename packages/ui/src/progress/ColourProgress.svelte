@@ -2,8 +2,7 @@
   import MenuStyles from '../foundations/MenuStyles.svelte'
   import { formatCount, formatExactCount, formatPixels, type TemplateColourStatus, WPLACE_PALETTE } from '@caelestis/shared'
   import type { Snippet } from 'svelte'
-  import type { ColourProgressSort } from '../types.js'
-  import { COLOUR_PROGRESS_SORTS as sorts } from './colour-sorts.js'
+  import { type ColourProgressSort, COLOUR_PROGRESS_SORTS as sorts } from './colour-sorts.js'
 
   let { colours, sort = 'index', onSortChange, sortControl }: {
     colours: readonly TemplateColourStatus[]

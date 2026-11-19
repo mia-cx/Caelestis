@@ -2,7 +2,7 @@
   import SectionHeader from '../foundations/SectionHeader.svelte'
   import SettingRow from '../foundations/SettingRow.svelte'
   import Toggle from '../foundations/Toggle.svelte'
-  import type { GlobalSettingsIntent, GlobalSettingsModel, SettingsBooleanKey } from '../types.js'
+  import type { GlobalSettingsIntent, GlobalSettingsModel, SettingsBooleanKey } from './model.js'
 
   /**
    * One section of the settings that apply to every Wplace tab. The panel's Settings view places

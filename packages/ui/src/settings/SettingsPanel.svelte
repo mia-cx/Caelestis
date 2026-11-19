@@ -9,7 +9,7 @@
   import { keyBindingFromStroke, keyBindingLabel, SIMULATED_INPUT_FLAGS, type ShortcutId, shortcutLabel } from '@caelestis/shared'
   import { SHORTCUT_ACTIONS, type ShortcutCategory, shortcutActionLabel } from '../shortcut-help/actions.js'
   import { SIMULATED_INPUT } from '../simulated-input.js'
-  import type { AccessTokenScope, GlobalSettingsIntent, SettingsIntent, SettingsModel, SettingsServerModel } from '../types.js'
+  import type { AccessTokenScope, GlobalSettingsIntent, SettingsIntent, SettingsModel, SettingsServerModel } from './model.js'
 
   let { model, onIntent }: { model: SettingsModel; onIntent?: (intent: SettingsIntent) => void } = $props()
   const SHORTCUT_CATEGORIES: readonly ShortcutCategory[] = ['Painting', 'Overlay']

@@ -8,13 +8,13 @@ import {
   WPLACE_PALETTE,
 } from '@caelestis/shared'
 import type {
+  ProgressModel,
   TemplateClaimsModel,
   TemplateTreeIntent,
   TemplateTreeModel,
   TreeActionModel,
   TreeColourProgressModel,
   TreeEntryModel,
-  TreeProgressModel,
   TreeRowModel,
 } from '@caelestis/ui/elements'
 import { allianceBounds } from '../alliance-coordinates.js'
@@ -1495,7 +1495,7 @@ export interface TemplateTreeAdapter {
   readonly refreshProgress: () => boolean
 }
 
-const sameCounts = (a: TreeProgressModel | undefined, b: TreeProgressModel | undefined): boolean =>
+const sameCounts = (a: ProgressModel | undefined, b: ProgressModel | undefined): boolean =>
   a === b ||
   (a !== undefined &&
     b !== undefined &&

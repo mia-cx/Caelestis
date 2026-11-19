@@ -3,7 +3,7 @@
 <script lang="ts">
   import RailControl from '../rail/RailControl.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { RailControlIntent, RailControlModel } from '../types.js'
+  import type { RailControlIntent, RailControlModel } from '../rail/model.js'
 
   const DEFAULT_MODEL: RailControlModel = { id: 'panel', label: 'Caelestis', pressed: false }
   let { model = DEFAULT_MODEL }: { model?: RailControlModel } = $props()

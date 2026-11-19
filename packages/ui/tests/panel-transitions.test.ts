@@ -2,7 +2,8 @@ import { resolveShortcutBindings } from '@caelestis/shared'
 import { tick } from 'svelte'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { type CaelestisPanel, registerCaelestisUi } from '../src/elements/index.js'
-import type { SettingsModel, TemplateTreeModel, TreeRowModel } from '../src/types.js'
+import type { SettingsModel } from '../src/settings/model.js'
+import type { TemplateTreeModel, TreeRowModel } from '../src/tree/model.js'
 
 // Happy DOM has no top layer; real popover placement is a browser contract.
 const showPopover = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'showPopover')

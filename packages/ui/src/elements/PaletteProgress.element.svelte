@@ -3,7 +3,7 @@
 <script lang="ts">
   import PaletteProgress from '../progress/PaletteProgress.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { PaletteProgressModel } from '../types.js'
+  import type { PaletteProgressModel } from '../progress/model.js'
 
   let { model = { value: '' } }: { model?: PaletteProgressModel } = $props()
 </script>

@@ -1,17 +1,15 @@
+import type { ClaimModeModel } from '../claim/model.js'
+import type { NotificationsModel } from '../notifications/model.js'
+import type { OverlayControlsModel } from '../overlay/model.js'
+import type { PanelModel } from '../panel/model.js'
+import type { PaletteProgressModel } from '../progress/model.js'
+import type { RailControlModel } from '../rail/model.js'
+import type { ServerDetailsModel } from '../server-details/model.js'
+import type { ExtensionSettingsModel } from '../settings/model.js'
+import type { ShortcutHelpModel } from '../shortcut-help/model.js'
 import type { Box } from '../studio/layout.js'
 import type { TemplateStudioModel } from '../studio/model.js'
-import type {
-  ClaimModeModel,
-  ExtensionSettingsModel,
-  NotificationsModel,
-  OverlayControlsModel,
-  PaletteProgressModel,
-  PanelModel,
-  RailControlModel,
-  ServerDetailsModel,
-  ShortcutHelpModel,
-  TagManagerModel,
-} from '../types.js'
+import type { TagManagerModel } from '../tags/model.js'
 import ClaimModeElement from './ClaimMode.element.svelte'
 import ExtensionSettingsElement from './ExtensionSettings.element.svelte'
 import NotificationsElement from './Notifications.element.svelte'
@@ -24,15 +22,26 @@ import ShortcutHelpElement from './ShortcutHelp.element.svelte'
 import TagManagerElement from './TagManager.element.svelte'
 import TemplateStudioElement from './TemplateStudio.element.svelte'
 
+export type * from '../appearance/model.js'
+export type * from '../claim/model.js'
 // The userscript bundles this entry as a separate module instance, so it needs its own export.
 export { type IconSet, useIconSet } from '../foundations/icons.svelte.js'
+export type * from '../notifications/model.js'
+export type * from '../overlay/model.js'
+export type * from '../panel/model.js'
+export type * from '../progress/model.js'
+export type * from '../rail/model.js'
+export type * from '../server-details/model.js'
+export type * from '../settings/model.js'
+export type * from '../shortcut-help/model.js'
 export type { EffectLayer } from '../studio/effects/layers.js'
 export { DEFAULT_STUDIO_LAYOUT, parseStudioLayout } from '../studio/layout.js'
 export type * from '../studio/model.js'
 export type * from '../studio/options.js'
 export { ALPHA_MODES, COLOR_SPACES, DITHER_ALGORITHMS, RESIZE_MODES } from '../studio/options.js'
 export type { Samples, ScopeStage } from '../studio/scopes/scopes.js'
-export type * from '../types.js'
+export type * from '../tags/model.js'
+export type * from '../tree/model.js'
 export const TEMPLATE_STUDIO_TAG = 'caelestis-template-studio'
 export type CaelestisTemplateStudio = HTMLElement & {
   model: TemplateStudioModel

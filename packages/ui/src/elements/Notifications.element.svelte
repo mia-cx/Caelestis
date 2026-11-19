@@ -8,7 +8,7 @@
 <script lang="ts">
   import Notifications from '../notifications/Notifications.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { NotificationsIntent, NotificationsModel } from '../types.js'
+  import type { NotificationsIntent, NotificationsModel } from '../notifications/model.js'
 
   const EMPTY_MODEL = { toasts: [], confirm: null } as const
   let { model = EMPTY_MODEL }: { model?: NotificationsModel } = $props()

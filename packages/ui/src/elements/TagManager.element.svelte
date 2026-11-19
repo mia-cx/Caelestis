@@ -2,7 +2,7 @@
 <script lang="ts">
   import TagManager from '../tags/TagManager.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { TagManagerIntent, TagManagerModel } from '../types.js'
+  import type { TagManagerIntent, TagManagerModel } from '../tags/model.js'
   let { model }: { model: TagManagerModel } = $props()
   const element: HTMLElement = $host()
   const emit = (detail: TagManagerIntent): void => { element.dispatchEvent(new CustomEvent('caelestis-tag-manager-intent', { detail, bubbles: true, composed: true })) }

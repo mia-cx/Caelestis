@@ -4,7 +4,8 @@
   import Icon from '../foundations/Icon.svelte'
   import SettingRow from '../foundations/SettingRow.svelte'
   import TemplateTree from '../tree/TemplateTree.svelte'
-  import type { ClaimRowModel, PanelModel, TemplateTreeIntent } from '../types.js'
+  import type { ClaimRowModel, PanelModel } from '../panel/model.js'
+  import type { TemplateTreeIntent } from '../tree/model.js'
   let {
     model,
     onIntent,

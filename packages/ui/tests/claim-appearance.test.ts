@@ -1,13 +1,9 @@
 import { mount, tick, unmount } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import AppearanceEditor from '../src/appearance/AppearanceEditor.svelte'
+import type { AppearanceEditorIntent, AppearanceEditorModel } from '../src/appearance/model.js'
 import ClaimMode from '../src/claim/ClaimMode.svelte'
-import type {
-  AppearanceEditorIntent,
-  AppearanceEditorModel,
-  ClaimModeIntent,
-  ClaimModeModel,
-} from '../src/types.js'
+import type { ClaimModeIntent, ClaimModeModel } from '../src/claim/model.js'
 
 const mounted: object[] = []
 afterEach(async () => {

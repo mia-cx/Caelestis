@@ -3,7 +3,7 @@
 <script lang="ts">
   import OverlayControls from '../overlay/OverlayControls.svelte'
   import PixelStyles from '../foundations/PixelStyles.svelte'
-  import type { OverlayControlsIntent, OverlayControlsModel } from '../types.js'
+  import type { OverlayControlsIntent, OverlayControlsModel } from '../overlay/model.js'
 
   const DEFAULT_MODEL: OverlayControlsModel = {
     name: 'Template',

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { TreeProgressModel } from '../types.js'
+  import type { ProgressModel } from './model.js'
 
   let { progress, size = 'md', griefWatch = false, completedColour }: {
-    progress: TreeProgressModel
+    progress: ProgressModel
     size?: 'sm' | 'md'
     griefWatch?: boolean
     completedColour?: string

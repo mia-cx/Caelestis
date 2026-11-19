@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PaletteProgressModel } from '../types.js'
+  import type { PaletteProgressModel } from './model.js'
 
   let { model }: { model: PaletteProgressModel } = $props()
 </script>

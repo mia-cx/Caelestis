@@ -1,8 +1,9 @@
 import { mount, tick, unmount } from 'svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { NotificationsIntent } from '../src/notifications/model.js'
 import Notifications from '../src/notifications/Notifications.svelte'
+import type { PanelIntent } from '../src/panel/model.js'
 import Panel from '../src/panel/Panel.svelte'
-import type { NotificationsIntent, PanelIntent } from '../src/types.js'
 
 const mounted: object[] = []
 afterEach(async () => {
