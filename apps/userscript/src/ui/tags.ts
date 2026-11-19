@@ -5,6 +5,7 @@ import {
 } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { refreshServerSnapshot } from '../application/tree-server-state.js'
+import { errorText } from '../error-text.js'
 import { listServerTags, mutateServerTag } from '../server-api.js'
 import { isCurrentServerConnection } from '../server-connections.js'
 import { onManifestChange } from '../server-manifests.js'
@@ -78,7 +79,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
   const failure = (error: unknown): string => {
     if (server !== null && navigator.onLine === false)
       return 'You are offline. Reconnect and reload tags.'
-    const message = error instanceof Error ? error.message : String(error)
+    const message = errorText(error)
     return /failed to fetch|network|timed out/i.test(message)
       ? 'Could not reach the server. Check your connection and reload tags.'
       : message

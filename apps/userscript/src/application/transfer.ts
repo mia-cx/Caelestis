@@ -1,4 +1,5 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { errorText } from '../error-text.js'
 import {
   deleteTemplate as deleteTemplateOnServer,
   listServerNodes,
@@ -83,9 +84,6 @@ export const refused = (
   message: string,
   tone: TransferResult['tone'] = 'error',
 ): TransferResult => ({ ok: false, tone, message })
-
-export const errorText = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
 
 /**
  * Copy to the destination, verify, then remove from the source.

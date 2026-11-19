@@ -7,6 +7,7 @@ import {
 } from '@caelestis/shared'
 import { allianceSurfaceCentre, currentSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
+import { errorText } from '../error-text.js'
 import { viewportCentre } from '../map-view.js'
 import type { ServerConnection } from '../settings.js'
 import { captureSelectedArtwork } from '../templates/current-artwork.js'
@@ -121,7 +122,7 @@ const importTemplateFile = async (
     }
     return await importTemplateData(imported, target, rerender, surface, null)
   } catch (error) {
-    const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')
+    const reason = errorText(error).replace(/\.$/, '')
     showToast(`Could not import “${file.name}”: ${reason}.`, 'error')
     return false
   }

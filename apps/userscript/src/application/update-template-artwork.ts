@@ -2,6 +2,7 @@ import { encodeIndexedPng, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { currentSurface } from '../alliance-surface.js'
 import { startCaptureMode } from '../claim-editor.js'
+import { errorText } from '../error-text.js'
 import { uploadTemplateVersion } from '../server-api.js'
 import {
   hasServerAdminToken,
@@ -122,9 +123,7 @@ export const requestTemplateArtworkUpdate = (id: string, rerender: () => void): 
     await update
     showToast('Saved a new template version from the committed artwork.')
   })()
-    .catch((error: unknown) =>
-      showToast(error instanceof Error ? error.message : String(error), 'error'),
-    )
+    .catch((error: unknown) => showToast(errorText(error), 'error'))
     .finally(() => {
       confirming.delete(id)
       rerender()

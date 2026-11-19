@@ -1,4 +1,5 @@
 import { MAX_TEMPLATE_SOURCE_BYTES, parseTemplateRecipe, sha256Hex } from '@caelestis/shared'
+import { errorText } from '../error-text.js'
 import { serverRequest } from '../server-request.js'
 import type { ServerRead } from '../server-transport.js'
 import { getState, type ServerConnection } from '../settings.js'
@@ -68,7 +69,7 @@ export const transferAuthoring = async (
     return { authoring: await authoringOf(template) }
   } catch (error) {
     return {
-      message: `Could not read the source image of “${template.name}”: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Could not read the source image of “${template.name}”: ${errorText(error)}`,
     }
   }
 }

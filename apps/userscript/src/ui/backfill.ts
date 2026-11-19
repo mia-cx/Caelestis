@@ -1,5 +1,6 @@
 import type { BackfillPreview, BackfillProgress, FolderBackfillPreview } from '@caelestis/shared'
 import { BACKFILL_TAG, type BackfillIntent, type BackfillModel } from '@caelestis/ui/elements'
+import { errorText } from '../error-text.js'
 import { hasServerAdminToken, isCurrentServerConnection } from '../server-connections.js'
 import { serverRequest } from '../server-request.js'
 import { templateById } from '../templates/catalog.js'
@@ -87,8 +88,6 @@ export const openBackfill = (target: TreeTarget): void => {
       throw new Error('Server connection changed. Close and reopen backfill.')
     return value as T
   }
-  const errorText = (error: unknown): string =>
-    error instanceof Error ? error.message : String(error)
   const poll = (): void => {
     clearTimeout(timer)
     if (closed || model.job?.status !== 'running') return

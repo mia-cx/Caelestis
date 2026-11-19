@@ -35,6 +35,7 @@ import {
 } from './claim-editor-state.js'
 import { CLAIM_OVERLAY_ID, handleOf, overlayMarks, renderOverlay } from './claim-overlay.js'
 import type { ClaimSaveResult } from './claim-routing.js'
+import { errorText } from './error-text.js'
 import { notifyListeners } from './listeners.js'
 import { getMap } from './map-handle.js'
 import { isMapPress, mapPointAt, swallowNextClick } from './map-pointer.js'
@@ -383,7 +384,7 @@ const capture = async (action: CaptureAction): Promise<void> => {
   try {
     failure = await target.capture(selection, action, controller.signal)
   } catch (thrown) {
-    failure = thrown instanceof Error ? thrown.message : String(thrown)
+    failure = errorText(thrown)
   }
   if (captureController === controller) captureController = null
   if (session !== mine || controller.signal.aborted) return

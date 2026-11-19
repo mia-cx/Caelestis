@@ -1,6 +1,7 @@
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
 import type { Samples } from '@caelestis/ui/elements'
 import type { Curve, Progress, Rgba8Image } from 'ditherette'
+import { errorText } from '../error-text.js'
 import {
   analysePaletteFit,
   applyRecipeEffects,
@@ -85,9 +86,6 @@ let held: { readonly key: string; readonly image: Rgba8Image } | null = null
 /** Every job not yet finished, so a cancel that arrives while it waits still stops it. */
 const running = new Map<number, AbortController>()
 let queue: Promise<void> = Promise.resolve()
-
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
 
 /** The source a request names, from the request itself or kept from an earlier one. */
 const sourceFor = (request: { sourceKey: string; source?: Rgba8Image }): Rgba8Image => {
@@ -174,7 +172,7 @@ const enqueue = (id: number, job: () => Promise<void>): void => {
     scope.postMessage({
       type: 'error',
       id,
-      message: messageOf(error),
+      message: errorText(error),
       aborted: error instanceof DOMException && error.name === 'AbortError',
     }),
   )

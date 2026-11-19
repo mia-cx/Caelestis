@@ -5,6 +5,7 @@ import {
   type ServerDetailsIntent,
   type ServerDetailsModel,
 } from '@caelestis/ui/elements'
+import { errorText } from '../error-text.js'
 import {
   deleteServerAsset,
   type ServerDetailsPatch,
@@ -99,7 +100,7 @@ export const openServerDetails = (server: ServerConnection, rerender: () => void
   }
   closeEditor = close
   const failure = (error: unknown): string => {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = errorText(error)
     return navigator.onLine === false
       ? 'You are offline. Reconnect and try again.'
       : /failed to fetch|network|timed out/i.test(message)

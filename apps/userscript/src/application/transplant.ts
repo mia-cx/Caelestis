@@ -1,4 +1,5 @@
 import { type TemplateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { errorText } from '../error-text.js'
 import {
   addLocalFolders,
   leaseLocalFolder,
@@ -42,7 +43,6 @@ import { templateBusy } from './template-busy.js'
 import {
   type DestinationAdmission,
   destinationIsAdmitted,
-  errorText,
   refuse,
   refused,
   type TransferResult,

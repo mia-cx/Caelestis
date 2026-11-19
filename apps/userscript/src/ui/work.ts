@@ -10,6 +10,7 @@ import {
   workClaimants,
 } from '@caelestis/shared'
 import type { TemplateClaimsModel, TemplateTreeModel } from '@caelestis/ui/elements'
+import { errorText } from '../error-text.js'
 import { isCurrentServerConnection, serverConnectionSignal } from '../server-connections.js'
 import { admittedManifest, manifestRows } from '../server-manifests.js'
 import { serverRequest } from '../server-request.js'
@@ -110,7 +111,7 @@ export const workSectionModel = (surface: TemplateSurface, changed: () => void) 
           },
           (error: unknown) => {
             if (signal.aborted || held.request !== request) return
-            held.error = error instanceof Error ? error.message : String(error)
+            held.error = errorText(error)
             changed()
           },
         )
@@ -282,7 +283,7 @@ export const claimTemplate = async (
     }
     changed()
   } catch (error) {
-    if (!signal.aborted) showToast(error instanceof Error ? error.message : String(error), 'error')
+    if (!signal.aborted) showToast(errorText(error), 'error')
   }
 }
 

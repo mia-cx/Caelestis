@@ -29,6 +29,7 @@ import type { Curve, Effect, PaletteFitEffect } from 'ditherette'
 import { activeAllianceEditorStage } from '../alliance-editor-dom.js'
 import { allianceSurfaceCentre, onActiveAllianceSurfaceChange } from '../alliance-surface.js'
 import { warn } from '../debug.js'
+import { errorText } from '../error-text.js'
 import { getMap } from '../map-handle.js'
 import { viewportCentre } from '../map-view.js'
 import { getState, setState } from '../settings.js'
@@ -397,8 +398,7 @@ const showDraft = (result: Processed): void => {
   syncDraftPlacement()
 }
 
-const reason = (error: unknown): string =>
-  (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')
+const reason = (error: unknown): string => errorText(error).replace(/\.$/, '')
 
 const process = async (): Promise<void> => {
   const loaded = source
