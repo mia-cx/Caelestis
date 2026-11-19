@@ -1,4 +1,10 @@
-import { MAX_TEMPLATE_PIXELS, PALETTE_SIZE, sha256Hex, TILE_SIZE } from '@caelestis/shared'
+import {
+  MAX_TEMPLATE_PIXELS,
+  PALETTE_SIZE,
+  sha256Hex,
+  TILE_SIZE,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import { isStoredBlob, isUint8Array, type StoredBlob } from '../cross-realm.js'
 import { warn } from '../debug.js'
 import { storedAuthoring } from './authoring.js'
@@ -443,10 +449,18 @@ const candidateIndexPixels = (value: unknown): number => {
 const boundedPixelSum = (total: number, pixels: number): number =>
   pixels > Number.MAX_SAFE_INTEGER - total ? Number.MAX_SAFE_INTEGER : total + pixels
 
-/** A loaded template: the record's fields with its artwork bytes swapped for its pixels. */
+/**
+ * A loaded template: the record's fields with its artwork bytes swapped for its pixels. Records
+ * written before alliance surfaces existed are world templates.
+ */
 const hydrated = (record: Record<string, unknown>, pixels: SparsePixels | null) => {
   const { indices: _indices, chunks: _chunks, ...metadata } = record
-  return { ...metadata, revision: record.revision ?? 0, pixels }
+  return {
+    ...metadata,
+    surface: record.surface ?? WORLD_TEMPLATE_SURFACE,
+    revision: record.revision ?? 0,
+    pixels,
+  }
 }
 
 /** A record with its artwork written the current way: packed painted chunks. */

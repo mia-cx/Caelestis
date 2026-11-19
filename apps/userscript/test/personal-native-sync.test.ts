@@ -160,6 +160,32 @@ it('renders Wplace artwork that changed while the new copy was being linked', as
   expect(await storedPixels('local-edited')).toEqual(reversed)
 })
 
+it('mirrors a template stored before templates had a surface', async () => {
+  const native = wplace()
+  const record = {
+    id: 'local-before-surfaces',
+    name: 'Old',
+    source: 'image',
+    originX: 1000,
+    originY: 2000,
+    width: 4,
+    height: 2,
+    pixels: cutPixels(4, 2, indices),
+    moved: 0,
+    opaque: 8,
+    visible: true,
+    everPlaced: true,
+    revision: 0,
+  }
+  // Written straight to disk, the way a version without alliance surfaces stored it.
+  expect((await disk.saveTemplate(record as disk.TemplateSave, null)).status).toBe('saved')
+
+  connectPersonalStore(native.api)
+  await synchronizePersonalTemplates()
+
+  expect(native.records.map(({ name }) => name)).toContain('Old')
+})
+
 it('renders again when Wplace changes how the template is coloured', async () => {
   const native = wplace()
   connectPersonalStore(native.api)
