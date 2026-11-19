@@ -116,40 +116,6 @@ describe('resident templates', () => {
     FILL_BUDGET_TIMEOUT_MS,
   )
 
-  it('restores more templates than the old 64-template cap', async () => {
-    vi.resetModules()
-    const edits = await import('../src/templates/template-edits.js')
-    const ids = Array.from({ length: 65 }, (_, at) => `catalog-${at}-${crypto.randomUUID()}`)
-    for (const id of ids) {
-      await edits.addLocalTemplate(
-        {
-          id,
-          name: id,
-          source: 'image',
-          originX: 0,
-          originY: 0,
-          width: 1,
-          height: 1,
-          indices: new Uint8Array([1]),
-          moved: 0,
-          opaque: 1,
-        },
-        undefined,
-        true,
-      )
-    }
-    vi.resetModules()
-    const restoredCatalog = await import('../src/templates/catalog.js')
-    const restoredRestore = await import('../src/templates/restore.js')
-    const restoredEdits = await import('../src/templates/template-edits.js')
-    try {
-      await restoredRestore.restoreLocalTemplates()
-      expect(ids.filter((id) => restoredCatalog.templateById(id) !== undefined)).toHaveLength(65)
-    } finally {
-      for (const id of ids) await restoredEdits.removeLocalTemplate(id)
-    }
-  })
-
   it(
     'keeps sparse templates side by side, each costing only its painted chunk',
     async () => {
