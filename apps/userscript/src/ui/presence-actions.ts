@@ -2,7 +2,7 @@ import type { PresencePeer, PresenceRect, RegionClaim } from '@caelestis/shared'
 import type { ClaimRowModel, PainterRowModel, PresenceSummaryModel } from '@caelestis/ui/elements'
 import { isClaimModeActive } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
-import { claimAvailability, isShownClaim, shapesName } from '../claims.js'
+import { claimAvailability, shapesName } from '../claims.js'
 import {
   type PresenceView,
   presenceCanWriteClaims,
@@ -60,10 +60,10 @@ const painterRows = (view: PresenceView): PainterRowModel[] =>
 const knownClaims = (view: PresenceView): { mine: RegionClaim[]; others: RegionClaim[] } => {
   const me = view.me?.wplaceUserId
   const mine = view.regions
-    .filter((region) => isShownClaim(region) && region.claimant.wplaceUserId === me)
+    .filter((region) => region.claimant.wplaceUserId === me)
     .sort((left, right) => right.createdAt - left.createdAt)
   const others = view.regions
-    .filter((region) => isShownClaim(region) && region.claimant.wplaceUserId !== me)
+    .filter((region) => region.claimant.wplaceUserId !== me)
     .sort(
       (left, right) =>
         left.claimant.displayName.localeCompare(right.claimant.displayName) ||
