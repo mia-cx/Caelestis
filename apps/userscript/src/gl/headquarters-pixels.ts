@@ -2,6 +2,7 @@ import { TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
 import type { Placement } from '../geometry.js'
 import type { NativePixelRegion } from '../native-pixels.js'
 import { pageWindow } from '../page-world.js'
+import { BACKEND_ORIGIN } from '../wplace-raster.js'
 
 const SNAPSHOT_HEADER_BYTES = 19
 const CHANGED_TILE_HEADER_BYTES = 12
@@ -186,7 +187,7 @@ export const refreshHeadquartersPixels = async (
       let snapshot: DecodedSnapshot | null = null
       try {
         const response = await pageWindow().fetch(
-          `https://backend.wplace.live/alliances/${allianceId}/headquarters/snapshot`,
+          `${BACKEND_ORIGIN}/alliances/${allianceId}/headquarters/snapshot`,
           {
             method: 'POST',
             credentials: 'include',

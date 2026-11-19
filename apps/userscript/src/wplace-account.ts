@@ -2,6 +2,7 @@ import { type PainterIdentity, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caeles
 import { log, warn } from './debug.js'
 import { discardResponseBody } from './response.js'
 import { forgetCharges, observeCharges } from './wplace-charges.js'
+import { BACKEND_ORIGIN } from './wplace-raster.js'
 
 /**
  * What wplace knows about the signed-in user.
@@ -94,7 +95,7 @@ const fetchAccount = async (): Promise<void> => {
     ACCOUNT_TIMEOUT_MS,
   )
   try {
-    const response = await fetch('https://backend.wplace.live/me', {
+    const response = await fetch(`${BACKEND_ORIGIN}/me`, {
       credentials: 'include',
       signal: controller.signal,
     })
