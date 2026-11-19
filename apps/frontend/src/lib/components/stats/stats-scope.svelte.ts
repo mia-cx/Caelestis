@@ -50,6 +50,10 @@ export class StatsScope {
   )
   /** Some template is still painted, so the range ends now and moves with the clock. */
   readonly live = $derived(this.templates.some((template) => template.finishedAt === null))
+  /** Names the history the server holds for the scope: a loader starts over when it changes. */
+  readonly key = $derived(
+    `${this.templates.map((template) => `${template.id}:${template.version}`).join(' ')}@${this.from}`,
+  )
   readonly to = $derived(
     this.live
       ? this.clock.now + 1

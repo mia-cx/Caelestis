@@ -63,9 +63,8 @@ export class Community {
       if (templateIds.length === 0) return
       this.contributions = null
       this.leaderboard = null
-      const key = templateIds.join('\0')
-      if (loadedScope !== key) {
-        loadedScope = key
+      if (loadedScope !== scope.key) {
+        loadedScope = scope.key
         this.painter = null
       }
       if (app.live) {

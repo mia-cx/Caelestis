@@ -38,9 +38,8 @@ export class ActivityReads {
     $effect(() => {
       const ids = scope.templateIds
       if (ids.length === 0) return
-      const { from, to } = scope
+      const { from, to, key } = scope
       let cancelled = false
-      const key = `${ids.join('\0')}:${from}`
       if (loadedScope !== key) {
         loadedScope = key
         this.buckets = null
@@ -67,10 +66,9 @@ export class ActivityReads {
     $effect(() => {
       const ids = scope.templateIds
       if (ids.length === 0) return
-      const { from } = scope
+      const { from, key } = scope
       void paintersTick
       let cancelled = false
-      const key = `${ids.join('\0')}:${from}`
       if (painterScope !== key) {
         painterScope = key
         this.painters = []
@@ -104,7 +102,7 @@ export class ActivityReads {
       }
       const { from, to } = scope
       let cancelled = false
-      const key = `${ids.join('\0')}:${chosen.join(',')}:${from}`
+      const key = `${scope.key}:${chosen.join(',')}`
       Promise.all(
         PACE_WINDOWS.filter((window) => selection.windows.has(window.key)).map(
           async (window): Promise<PainterHistorySource | null> => {

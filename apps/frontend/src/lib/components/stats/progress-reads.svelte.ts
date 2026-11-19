@@ -53,9 +53,8 @@ export class ProgressReads {
       const templates = scope.templates.map(({ id, version }) => ({ id, version }))
       const start = scope.from
       const end = to
-      const key = JSON.stringify([templates, start])
-      if (loadedScope !== key) {
-        loadedScope = key
+      if (loadedScope !== scope.key) {
+        loadedScope = scope.key
         this.samples = null
         this.error = null
       }
