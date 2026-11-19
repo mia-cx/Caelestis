@@ -1,4 +1,5 @@
 import type { TemplateSurface } from '@caelestis/shared'
+import { allianceFullscreenActionGroup, allianceFullscreenHeader } from '../wplace-dom.js'
 
 export type PanelScope = 'world' | 'alliance'
 
@@ -64,23 +65,6 @@ export const panelTitle = (surface: TemplateSurface): string => {
     case 'world':
       return 'Caelestis'
   }
-}
-
-const allianceFullscreenHeader = (stage: HTMLElement): HTMLElement | null =>
-  (Array.from(stage.parentElement?.children ?? []).find(
-    (element) =>
-      element.tagName === 'HEADER' && element.querySelector('button[aria-pressed="true"]') !== null,
-  ) as HTMLElement | undefined) ?? null
-
-const allianceFullscreenActionGroup = (stage: HTMLElement): HTMLElement | null => {
-  const header = allianceFullscreenHeader(stage)
-  const activeButton = header?.querySelector<HTMLElement>('button[aria-pressed="true"]')
-  if (header === null || activeButton === null || activeButton === undefined) return null
-  return (
-    (Array.from(header.children).find((child) => child.contains(activeButton)) as
-      | HTMLElement
-      | undefined) ?? null
-  )
 }
 
 /** Keep artboard controls below Wplace's visible fullscreen actions without counting header padding. */

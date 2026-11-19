@@ -28,6 +28,27 @@ export const MAP_SURFACE = '.maplibregl-canvas-container, canvas.maplibregl-canv
 /** An open Wplace modal: an alliance editor, or its settings. */
 export const OPEN_DIALOG = 'dialog[open]'
 
+/** The pressed toggle in an alliance editor's fullscreen header: the view it is showing. */
+const PRESSED_BUTTON = 'button[aria-pressed="true"]'
+
+/** The fullscreen header Wplace puts beside an alliance editor's stage, or null when not shown. */
+export const allianceFullscreenHeader = (stage: HTMLElement): HTMLElement | null =>
+  (Array.from(stage.parentElement?.children ?? []).find(
+    (element) => element.tagName === 'HEADER' && element.querySelector(PRESSED_BUTTON) !== null,
+  ) as HTMLElement | undefined) ?? null
+
+/** The group of that header's actions holding its pressed toggle, or null when not shown. */
+export const allianceFullscreenActionGroup = (stage: HTMLElement): HTMLElement | null => {
+  const header = allianceFullscreenHeader(stage)
+  const activeButton = header?.querySelector<HTMLElement>(PRESSED_BUTTON)
+  if (header === null || activeButton === null || activeButton === undefined) return null
+  return (
+    (Array.from(header.children).find((child) => child.contains(activeButton)) as
+      | HTMLElement
+      | undefined) ?? null
+  )
+}
+
 /** World swatches carry `color-N`, where N is Wplace's palette index (ours plus one). */
 const WORLD_SWATCH = '[id^="color-"]'
 /** Alliance swatches carry no id; their label is the translated colour name. */
