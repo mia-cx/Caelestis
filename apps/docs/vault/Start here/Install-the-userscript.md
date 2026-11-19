@@ -17,8 +17,6 @@ On Chromium browsers, open the manager's details in the browser's Extensions pag
 
 ![Allow user scripts enabled in the extension's browser settings.](images/install/allow-user-scripts.png)
 
-Greasy Fork is a script directory, not a userscript manager. Caelestis releases are on GitHub.
-
 ## 2. Open the latest release
 
 Open [the latest Caelestis release](https://github.com/mia-cx/Caelestis/releases/latest). Look for the userscript release marked **Latest**.
