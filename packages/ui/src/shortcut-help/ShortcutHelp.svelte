@@ -1,9 +1,19 @@
 <script lang="ts">
-  import { keyBindingCodes, type ShortcutBindings, type ShortcutId, type SimulatedInputSwitches, shortcutLabel } from '@caelestis/shared'
+  import {
+    DANGEROUS_SETTINGS,
+    keyBindingCodes,
+    SHORTCUT_IDS,
+    SHORTCUTS,
+    type ShortcutBindings,
+    type ShortcutCategory,
+    type ShortcutId,
+    type SimulatedInputSwitches,
+    shortcutLabel,
+    simulatedShortcutNote,
+  } from '@caelestis/shared'
   import { onMount } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import type { ShortcutHelpIntent, ShortcutHelpModel, ShortcutHelpPlatform } from '../types.js'
-  import { type ShortcutCategory, shortcutActionLabel, simulatedShortcutNote } from './actions.js'
 
   interface ShortcutRow {
     readonly key: string
@@ -128,24 +138,20 @@
     }
   })
 
-  const OPACITY_SHORTCUTS: readonly ShortcutId[] = [
-    'set-opacity-20', 'set-opacity-40', 'set-opacity-60', 'set-opacity-80', 'set-opacity-100',
-  ]
-  const OPACITY_PERCENT: Readonly<Partial<Record<ShortcutId, string>>> = {
-    'set-opacity-20': '20%', 'set-opacity-40': '40%', 'set-opacity-60': '60%',
-    'set-opacity-80': '80%', 'set-opacity-100': '100%',
-  }
+  const OPACITY_SHORTCUTS = SHORTCUT_IDS.filter((id) => SHORTCUTS[id].opacity !== undefined)
+  const opacityPercent = (id: ShortcutId): string => `${Math.round((SHORTCUTS[id].opacity ?? 0) * 100)}%`
 
   function setDefinitions(simulatedInput: SimulatedInputSwitches): readonly SetDefinition[] {
+    const switchedOff = (id: ShortcutId): boolean => simulatedShortcutNote(id, simulatedInput) !== undefined
     return [
       {
         id: 'colour-cycle', category: 'Painting', title: 'Cycle unfinished colours',
         shortcuts: ['cycle-colour-previous', 'cycle-colour-next'],
         sentence: (key, id) => {
           const which = id === 'cycle-colour-previous' ? 'previous' : 'next'
-          return simulatedShortcutNote(id, simulatedInput) === undefined
-            ? `${key} selects the ${which} unfinished colour.`
-            : `${key} selects the ${which} unfinished colour, once switched on under Settings › Dangerous settings.`
+          return switchedOff(id)
+            ? `${key} selects the ${which} unfinished colour, once switched on under ${DANGEROUS_SETTINGS}.`
+            : `${key} selects the ${which} unfinished colour.`
         },
       },
       {
@@ -154,9 +160,9 @@
         sentence: (key, id) =>
           id !== 'paint-action'
             ? `${key} cancels and discards the open draft.`
-            : simulatedInput['paint-commit']
-              ? `${key} opens Wplace’s paint drawer, then commits its draft.`
-              : `${key} opens Wplace’s paint drawer. Committing its draft with ${key} is off under Settings › Dangerous settings.`,
+            : switchedOff(id)
+              ? `${key} opens Wplace’s paint drawer. Committing its draft with ${key} is off under ${DANGEROUS_SETTINGS}.`
+              : `${key} opens Wplace’s paint drawer, then commits its draft.`,
       },
       {
         id: 'fly', category: 'Painting', title: 'Jump to the selected colour',
@@ -229,7 +235,7 @@
       {
         id: 'opacity', category: 'Overlay', title: 'Set overlay opacity',
         shortcuts: OPACITY_SHORTCUTS,
-        sentence: (key, id) => `${key} sets the focused overlay to ${OPACITY_PERCENT[id]} opacity.`,
+        sentence: (key, id) => `${key} sets the focused overlay to ${opacityPercent(id)} opacity.`,
       },
       {
         id: 'help', category: 'Overlay', title: 'Open keyboard shortcuts',
@@ -287,7 +293,7 @@
       const label = labelOf(id)
       return {
         key: label === '' ? NO_KEY : label,
-        label: shortcutActionLabel(id),
+        label: SHORTCUTS[id].label,
         note: simulatedShortcutNote(id, simulatedInput),
       }
     })

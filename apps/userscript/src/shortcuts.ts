@@ -2,16 +2,16 @@ import {
   KEY_CAPTURE_ATTRIBUTE,
   keyBindingFromStroke,
   keyBindingMatches,
-  REPEATING_SHORTCUTS,
   resolveShortcutBindings,
   SHORTCUT_IDS,
+  SHORTCUTS,
   type ShortcutBindings,
   type ShortcutId,
+  type ShortcutOverrides,
   type ShortcutPlatform,
+  shortcutLabel,
 } from '@caelestis/shared'
-
-export type Shortcut = ShortcutId
-export type { ShortcutPlatform }
+import { getState } from './settings.js'
 
 interface ShortcutPlatformSource {
   readonly platform?: string
@@ -19,21 +19,42 @@ interface ShortcutPlatformSource {
   readonly userAgentData?: { readonly platform?: string }
 }
 
-/** Resolve the keyboard convention once without relying on the character produced by a key. */
-export const shortcutPlatformFor = (source: ShortcutPlatformSource): ShortcutPlatform => {
+/** Resolve the keyboard convention without relying on the character produced by a key. */
+export const currentShortcutPlatform = (): ShortcutPlatform => {
+  if (typeof navigator === 'undefined') return 'windows-linux'
+  const source: ShortcutPlatformSource = navigator
   const platform = source.userAgentData?.platform || source.platform || source.userAgent || ''
   return /mac|iphone|ipad|ipod/i.test(platform) ? 'mac' : 'windows-linux'
 }
 
-export const currentShortcutPlatform = (): ShortcutPlatform =>
-  typeof navigator === 'undefined'
-    ? 'windows-linux'
-    : shortcutPlatformFor(navigator as Navigator & ShortcutPlatformSource)
+let resolvedFor: ShortcutOverrides | undefined
+let resolved: ShortcutBindings = resolveShortcutBindings()
 
-export { KEY_CAPTURE_ATTRIBUTE }
+/** The chords in force right now: the user's overrides over the defaults. */
+export const activeShortcutBindings = (): ShortcutBindings => {
+  const overrides = getState().shortcutOverrides
+  if (overrides !== resolvedFor) {
+    resolvedFor = overrides
+    resolved = resolveShortcutBindings(overrides)
+  }
+  return resolved
+}
 
 /**
- * Whether a keystroke belongs to something else on the page.
+ * The key hint a tooltip appends to an action's name: ` (C)`, or nothing once the action has no
+ * key, so a rebound control never advertises a chord that does nothing.
+ */
+export const shortcutHint = (
+  id: ShortcutId,
+  platform: ShortcutPlatform = currentShortcutPlatform(),
+): string => {
+  const label = shortcutLabel(activeShortcutBindings()[id], platform)
+  return label === '' ? '' : ` (${label})`
+}
+
+/**
+ * Whether a keystroke belongs to something else on the page: a text field, or the settings
+ * control recording a new chord.
  *
  * Kept DOM-shape based so the shortcut matcher stays testable without constructing a browser
  * document. Real keyboard event targets expose exactly these properties.
@@ -64,8 +85,6 @@ const isTypingEvent = (
   isTypingTarget(event.target) ||
   event.composedPath?.().some((target) => isTypingTarget(target)) === true
 
-const DEFAULT_BINDINGS = resolveShortcutBindings()
-
 /**
  * Resolve a non-typing keydown to one of Caelestis's deliberately few shortcuts.
  *
@@ -75,12 +94,12 @@ const DEFAULT_BINDINGS = resolveShortcutBindings()
 export const shortcutFor = (
   event: Pick<KeyboardEvent, 'altKey' | 'code' | 'ctrlKey' | 'key' | 'metaKey' | 'target'> &
     Partial<Pick<KeyboardEvent, 'composedPath' | 'repeat' | 'shiftKey'>>,
-  platform = currentShortcutPlatform(),
-  bindings: ShortcutBindings = DEFAULT_BINDINGS,
-): Shortcut | null => {
+  platform: ShortcutPlatform,
+): ShortcutId | null => {
   if (isTypingEvent(event)) return null
   const pressed = keyBindingFromStroke(event, platform)
   if (pressed === null) return null
+  const bindings = activeShortcutBindings()
   // A recorded physical key outranks a default character: after a layout change the same physical
   // key can start reporting a default's character, and the user's own choice must keep winning.
   for (const physical of [true, false]) {
@@ -91,7 +110,7 @@ export const shortcutFor = (
       if (!matched) continue
       // Repeats are intentional for undo and redo: holding the chord walks Wplace's per-pixel
       // history. Every other shortcut remains single-shot.
-      if (event.repeat === true && !REPEATING_SHORTCUTS.has(id)) return null
+      if (event.repeat === true && SHORTCUTS[id].repeats !== true) return null
       return id
     }
   }

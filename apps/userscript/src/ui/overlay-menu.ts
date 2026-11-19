@@ -45,7 +45,7 @@ import {
   getSurfaceAppearance,
   removeTreeStateKeys,
 } from '../settings.js'
-import { shortcutHint } from '../shortcut-bindings.js'
+import { shortcutHint } from '../shortcuts.js'
 import {
   APPEARANCE_CONTROLS,
   type Appearance,

@@ -4,7 +4,7 @@ import { isCaptureModeActive, isClaimModeActive, stopClaimMode } from '../claim-
 import { redraw } from '../map-view.js'
 import { presenceView } from '../presence-client.js'
 import { getState, onStateChange, setState } from '../settings.js'
-import { shortcutHint } from '../shortcut-bindings.js'
+import { shortcutHint } from '../shortcuts.js'
 import { openClaimTool } from './presence-actions.js'
 import { applyWplaceTheme } from './theme.js'
 

@@ -1,11 +1,11 @@
+import type { ShortcutPlatform } from '@caelestis/shared'
 import {
   type CaelestisShortcutHelp,
   SHORTCUT_HELP_TAG,
   type ShortcutHelpIntent,
 } from '@caelestis/ui/elements'
 import { getState } from '../settings.js'
-import { activeShortcutBindings } from '../shortcut-bindings.js'
-import { currentShortcutPlatform, type ShortcutPlatform } from '../shortcuts.js'
+import { activeShortcutBindings, currentShortcutPlatform } from '../shortcuts.js'
 import { closeDialogHost } from './dialog.js'
 import { applyWplaceTheme } from './theme.js'
 

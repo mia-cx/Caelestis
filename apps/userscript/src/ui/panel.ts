@@ -111,8 +111,7 @@ import {
   setState,
   setSurfaceAppearance,
 } from '../settings.js'
-import { activeShortcutBindings, shortcutHint } from '../shortcut-bindings.js'
-import { currentShortcutPlatform } from '../shortcuts.js'
+import { activeShortcutBindings, currentShortcutPlatform, shortcutHint } from '../shortcuts.js'
 import { onStoredValueChange } from '../stored-values.js'
 import { onServerAlarmChange, onServerStatusChange } from '../telemetry.js'
 import {

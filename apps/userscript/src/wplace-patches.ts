@@ -17,7 +17,7 @@ import { patchTileRefresh } from './wplace-tile-refresh.js'
  * Painting input is handled elsewhere. Wplace flags untrusted events reaching its paint handlers
  * on the account, so by default Caelestis only filters the painter's real events (shift-paint,
  * the paint-target guard). Simulating input on Wplace's controls is opt-in, one switch per feature,
- * each naming the flags it trips (`SIMULATED_INPUT_FLAGS` in the shared package).
+ * each naming the flags it trips (`SIMULATED_INPUT` in the shared package).
  */
 export const WPLACE_PATCHES = {
   'hover-canvas': {
