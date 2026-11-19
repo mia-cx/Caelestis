@@ -1,8 +1,9 @@
 import {
   DANGEROUS_SETTINGS,
-  type SimulatedInput,
   type SimulatedInputSwitches,
+  type SimulatedShortcutPart,
   simulatedInputOn,
+  simulatedPartOf,
 } from './simulated-input.js'
 
 /**
@@ -48,8 +49,7 @@ const physical = (
 
 export type ShortcutCategory = 'Painting' | 'Overlay'
 
-/** Generic over the switch ids it names so the table below can be checked before they exist. */
-export interface ShortcutDefinition<Switch extends string = SimulatedInput> {
+interface ShortcutRow {
   readonly category: ShortcutCategory
   /** How the action is named wherever its key is shown: the reference and the settings. */
   readonly label: string
@@ -58,16 +58,14 @@ export interface ShortcutDefinition<Switch extends string = SimulatedInput> {
   readonly repeats?: true
   /** The focused overlay's opacity the action sets. */
   readonly opacity?: number
-  /** The part of the action that simulates clicks on Wplace's controls, behind its own switch. */
-  readonly simulated?:
-    | {
-        readonly id: Switch /** The action does nothing at all while the switch is off. */
-        readonly inert: true
-      }
-    | {
-        readonly id: Switch /** What stops while the switch is off: "Committing". */
-        readonly part: string
-      }
+}
+
+export interface ShortcutDefinition extends ShortcutRow {
+  /**
+   * The part of the action that simulates input on Wplace's controls, behind its own switch.
+   * Declared by the switch's entry in `SIMULATED_INPUT`.
+   */
+  readonly simulated?: SimulatedShortcutPart
 }
 
 const opacityShortcut = (opacity: number, key: string) =>
@@ -84,19 +82,16 @@ const SHORTCUT_TABLE = {
     category: 'Painting',
     label: 'Previous unfinished colour',
     defaults: [chord('a')],
-    simulated: { id: 'cycle-colour', inert: true },
   },
   'cycle-colour-next': {
     category: 'Painting',
     label: 'Next unfinished colour',
     defaults: [chord('d')],
-    simulated: { id: 'cycle-colour', inert: true },
   },
   'paint-action': {
     category: 'Painting',
     label: 'Open or commit paint draft',
     defaults: [chord('b')],
-    simulated: { id: 'paint-commit', part: 'Committing' },
   },
   'cancel-paint': {
     category: 'Painting',
@@ -163,13 +158,18 @@ const SHORTCUT_TABLE = {
     // codes still identify the requested keys exactly.
     defaults: [physical('Backquote'), physical('Slash', { shift: true })],
   },
-} as const satisfies Record<string, ShortcutDefinition<string>>
+} as const satisfies Record<string, ShortcutRow>
 
 export type ShortcutId = keyof typeof SHORTCUT_TABLE
 
-export const SHORTCUTS: Readonly<Record<ShortcutId, ShortcutDefinition>> = SHORTCUT_TABLE
+export const SHORTCUT_IDS = Object.keys(SHORTCUT_TABLE) as readonly ShortcutId[]
 
-export const SHORTCUT_IDS = Object.keys(SHORTCUTS) as readonly ShortcutId[]
+export const SHORTCUTS: Readonly<Record<ShortcutId, ShortcutDefinition>> = Object.fromEntries(
+  SHORTCUT_IDS.map((id): [ShortcutId, ShortcutDefinition] => {
+    const simulated = simulatedPartOf(id)
+    return [id, simulated === undefined ? SHORTCUT_TABLE[id] : { ...SHORTCUT_TABLE[id], simulated }]
+  }),
+) as Record<ShortcutId, ShortcutDefinition>
 
 /** Every chord that triggers an action. Empty means the action has no key. */
 export type ShortcutBindings = Readonly<Record<ShortcutId, readonly KeyBinding[]>>

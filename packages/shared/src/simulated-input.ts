@@ -17,22 +17,30 @@ export type WplaceInputFlag =
  * Hint text interleaved with the keys it names: a Caelestis shortcut shows as currently bound, a
  * fixed Wplace key as written.
  */
-export type HintPart<Key extends string = ShortcutId> =
-  | string
-  | { readonly key: Key }
-  | { readonly fixed: string }
+export type HintPart = string | { readonly key: ShortcutId } | { readonly fixed: string }
 
-/** Generic over the ids it names so the table below can be checked before those ids exist. */
-export interface SimulatedInputDefinition<
-  Key extends string = ShortcutId,
-  Id extends string = SimulatedInput,
-> {
+/** What a shortcut loses while the feature's switch is off. */
+type ShortcutPart =
+  /** The action does nothing at all. */
+  | { readonly inert: true }
+  /** Only this part stops: "Committing". */
+  | { readonly part: string }
+
+/** Generic over its own ids so the table below can name them before they exist. */
+export interface SimulatedInputDefinition<Id extends string = SimulatedInput> {
   readonly label: string
   /** What the feature does, naming the keys it rides on. */
-  readonly hint: readonly HintPart<Key>[]
+  readonly hint: readonly HintPart[]
   readonly flags: readonly WplaceInputFlag[]
   /** The feature this one extends, which must be on for it to apply. */
   readonly extends?: Id
+  /** Shortcuts that simulate input through this feature, and what each loses while it is off. */
+  readonly shortcuts?: Readonly<Partial<Record<ShortcutId, ShortcutPart>>>
+  /**
+   * It dispatches to `document`, where the world paint panel's listeners also hear it while that
+   * panel is mounted, even under an alliance editor.
+   */
+  readonly dispatchesToDocument?: true
 }
 
 /** In the order Dangerous settings lists them. */
@@ -77,6 +85,7 @@ const SIMULATED_INPUT_TABLE = {
       ' keeps painting beyond pixels it skips by simulating Space presses and moves.',
     ],
     flags: ['UntrustedPaintHold', 'UntrustedPointer'],
+    dispatchesToDocument: true,
   },
   'cycle-colour': {
     label: 'Cycle unfinished colours',
@@ -87,6 +96,7 @@ const SIMULATED_INPUT_TABLE = {
       ' select the previous and next unfinished colour by clicking the palette.',
     ],
     flags: ['UntrustedPalette'],
+    shortcuts: { 'cycle-colour-previous': { inert: true }, 'cycle-colour-next': { inert: true } },
   },
   'paint-commit': {
     label: 'Paint key commits drafts',
@@ -95,8 +105,9 @@ const SIMULATED_INPUT_TABLE = {
       " commits an open paint draft by clicking Wplace's Paint button.",
     ],
     flags: ['UntrustedPaintSubmit'],
+    shortcuts: { 'paint-action': { part: 'Committing' } },
   },
-} as const satisfies Record<string, SimulatedInputDefinition<string, string>>
+} as const satisfies Record<string, SimulatedInputDefinition<string>>
 
 export type SimulatedInput = keyof typeof SIMULATED_INPUT_TABLE
 
@@ -122,6 +133,18 @@ export const normaliseSimulatedInput = (value: unknown): SimulatedInputSwitches 
       .filter(([id, on]) => isSimulatedInput(id) && on === true)
       .map(([id]) => [id, true]),
   )
+}
+
+/** The switch behind a shortcut's simulated part, and what the shortcut loses while it is off. */
+export type SimulatedShortcutPart = ShortcutPart & { readonly id: SimulatedInput }
+
+/** The feature a shortcut simulates input through, if any. */
+export const simulatedPartOf = (shortcut: ShortcutId): SimulatedShortcutPart | undefined => {
+  for (const id of SIMULATED_INPUT_IDS) {
+    const part = SIMULATED_INPUT[id].shortcuts?.[shortcut]
+    if (part !== undefined) return { id, ...part }
+  }
+  return undefined
 }
 
 /** A switch applies only while the feature it extends is on as well. */
