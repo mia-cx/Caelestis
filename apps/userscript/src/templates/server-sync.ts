@@ -694,18 +694,7 @@ export const installServerSync = (): void => {
         : { status: 'unchanged', revision: contents.revision }
     },
     applyLiveEvent: async (server, event) => {
-      if (
-        typeof event !== 'object' ||
-        event === null ||
-        !('type' in event) ||
-        event.type !== 'manifest-snapshot' ||
-        !('resource' in event) ||
-        event.resource !== 'world-manifest' ||
-        !('scope' in event) ||
-        event.scope !== 'world' ||
-        !('manifest' in event)
-      )
-        return false
+      if (event.type !== 'manifest-snapshot' || event.scope !== 'world') return false
       const contents = applyLiveServerManifest(server, event.manifest)
       if (contents === null) return false
       rememberNodes(server.url, contents.nodes)

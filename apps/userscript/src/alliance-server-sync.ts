@@ -259,17 +259,9 @@ export const installAllianceServerSync = (): void => {
       const surface = selected
       if (
         surface === null ||
-        server.info === null ||
         readyGeneration !== generation ||
-        typeof event !== 'object' ||
-        event === null ||
-        !('type' in event) ||
         event.type !== 'manifest-snapshot' ||
-        !('resource' in event) ||
-        event.resource !== ALLIANCE_MANIFEST_RESOURCE ||
-        !('scope' in event) ||
-        event.scope !== templateSurfaceKey(surface) ||
-        !('manifest' in event)
+        event.scope !== templateSurfaceKey(surface)
       )
         return false
       const manifest = parseServerManifest(event.manifest, server.info, surface)

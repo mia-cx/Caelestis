@@ -70,7 +70,10 @@ it('resumes live sync without accepting retired frames and reconciles a divergen
   vi.stubGlobal('WebSocket', FakeWebSocket)
 
   const state = await importStateModules()
-  const sync = await import('../src/server-sync-coordinator.js')
+  const sync = {
+    ...(await import('../src/server-sync-coordinator.js')),
+    ...(await import('../src/live-socket.js')),
+  }
   const server = {
     url: 'https://live.test',
     info: {

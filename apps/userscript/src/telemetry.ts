@@ -18,6 +18,14 @@ import {
   uuidV7,
 } from '@caelestis/shared'
 import { count, warn } from './debug.js'
+import {
+  requestLivePaint,
+  requestLiveTileOffer,
+  requestLiveTileOfferCache,
+  requestLiveTileUpload,
+  serverLiveSyncHealthy,
+  serverLiveSyncVersion,
+} from './live-socket.js'
 import { type AcceptedPaint, onAcceptedPaint } from './paint-requests.js'
 import { onServerContents, type ServerContents } from './server-api.js'
 import type { ServerTemplate } from './server-cache.js'
@@ -38,14 +46,8 @@ import {
   applyServerSyncRevision,
   applyServerSyncSnapshot,
   registerServerSyncResource,
-  requestLivePaint,
-  requestLiveTileOffer,
-  requestLiveTileOfferCache,
-  requestLiveTileUpload,
   requestServerSync,
   type ServerSyncResult,
-  serverLiveSyncHealthy,
-  serverLiveSyncVersion,
   serverSyncRevision,
 } from './server-sync-coordinator.js'
 import { withRetries } from './server-transport.js'
@@ -1593,15 +1595,8 @@ export const installTelemetry = (): void => {
     scope: () => 'world',
     refresh: refreshStatus,
     applyLiveEvent: (server, event) => {
-      if (
-        typeof event === 'object' &&
-        event !== null &&
-        'type' in event &&
-        event.type === 'status-snapshot' &&
-        'status' in event
-      )
-        return applyLiveStatusSnapshot(server, event.status)
-      const delta = statusDeltaFrom(event)
+      if (event.type === 'status-snapshot') return applyLiveStatusSnapshot(server, event.status)
+      const delta = event.type === 'status-delta' ? statusDeltaFrom(event.delta) : null
       if (delta === null) return false
       applyStatusDelta(server, delta)
       return true
@@ -1613,13 +1608,7 @@ export const installTelemetry = (): void => {
     scope: (server) => (coverageFor(server) !== null ? 'world' : null),
     refresh: refreshAlarms,
     applyLiveEvent: (server, event) =>
-      typeof event === 'object' &&
-      event !== null &&
-      'type' in event &&
-      event.type === 'alarms-snapshot' &&
-      'alarms' in event
-        ? applyLiveAlarmsSnapshot(server, event.alarms)
-        : false,
+      event.type === 'alarms-snapshot' && applyLiveAlarmsSnapshot(server, event.alarms),
   })
 }
 

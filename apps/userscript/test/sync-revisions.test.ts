@@ -24,7 +24,7 @@ it('keeps a newer delta when an older snapshot arrives and rejects a retired con
     sync.applyServerSyncSnapshot(
       server,
       'world',
-      'catalog',
+      'telemetry-status',
       undefined,
       { status: 'changed', revision: '1' },
       () => {
@@ -33,7 +33,7 @@ it('keeps a newer delta when an older snapshot arrives and rejects a retired con
     ),
   ).toBe('applied')
   expect(
-    sync.applyServerSyncDelta(server, 'world', 'catalog', '1', '2', () => {
+    sync.applyServerSyncDelta(server, 'world', 'telemetry-status', '1', '2', () => {
       rows = ['delta']
     }),
   ).toBe('applied')
@@ -41,7 +41,7 @@ it('keeps a newer delta when an older snapshot arrives and rejects a retired con
     sync.applyServerSyncSnapshot(
       server,
       'world',
-      'catalog',
+      'telemetry-status',
       '1',
       { status: 'changed', revision: '1' },
       () => {
@@ -50,12 +50,12 @@ it('keeps a newer delta when an older snapshot arrives and rejects a retired con
     ),
   ).toBe('stale')
   expect(
-    sync.applyServerSyncDelta(server, 'world', 'catalog', '1', '2', () => {
+    sync.applyServerSyncDelta(server, 'world', 'telemetry-status', '1', '2', () => {
       rows = ['duplicate']
     }),
   ).toBe('duplicate')
   expect(
-    sync.applyServerSyncDelta(server, 'world', 'catalog', '3', '4', () => {
+    sync.applyServerSyncDelta(server, 'world', 'telemetry-status', '3', '4', () => {
       rows = ['gap']
     }),
   ).toBe('reconcile')
@@ -63,7 +63,7 @@ it('keeps a newer delta when an older snapshot arrives and rejects a retired con
   state.removeServer(server.url)
   state.upsertServer({ ...server, token: 'replacement' })
   expect(
-    sync.applyServerSyncDelta(server, 'world', 'catalog', '2', '3', () => {
+    sync.applyServerSyncDelta(server, 'world', 'telemetry-status', '2', '3', () => {
       rows = ['retired']
     }),
   ).toBe('stale-connection')

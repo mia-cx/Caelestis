@@ -902,10 +902,11 @@ describe('server data reuse', () => {
     const coordinator = await import('../src/server-sync-coordinator.js')
     serverSync.installServerSync()
     coordinator.installServerSyncCoordinator()
-    // Registered after the manifest, so its refresh means the sweep has passed the manifest.
+    // Registered after the manifest, so its refresh means the sweep has passed the manifest. Any
+    // resource id telemetry would otherwise own serves as the witness here.
     const swept: string[] = []
     coordinator.registerServerSyncResource({
-      id: 'sweep-witness',
+      id: 'telemetry-status',
       scope: () => 'world',
       refresh: async (server) => {
         swept.push(server.url)

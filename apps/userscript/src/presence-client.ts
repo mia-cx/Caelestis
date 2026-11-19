@@ -20,6 +20,7 @@ import {
 } from '@caelestis/shared'
 import { userscriptVersion } from './client-metrics.js'
 import { log, warn } from './debug.js'
+import { liveClientId, liveCredentialProtocol } from './live-identity.js'
 import {
   isProfileEnabled,
   measureProfile,
@@ -35,7 +36,6 @@ import {
   serverConnectionIdentity,
 } from './server-connections.js'
 import { serverEndpoint } from './server-request.js'
-import { liveClientId, liveCredentialProtocol } from './server-sync-coordinator.js'
 import { getState, onStateChange, type ServerConnection } from './settings.js'
 import { accountIdentity, loadAccount } from './wplace-account.js'
 
