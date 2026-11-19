@@ -26,11 +26,11 @@ const relativeDay = (day: number): string => {
   </div>
 {:else}
   <div class="overflow-x-auto">
-  <table class="table text-sm whitespace-nowrap [&_td]:p-2 [&_th]:h-10 [&_th]:px-2 [&_th]:font-medium [&_th]:text-base-content">
+  <table class="w-full text-sm whitespace-nowrap [&_td]:p-2 [&_td]:align-middle [&_th]:h-10 [&_th]:px-2 [&_th]:align-middle [&_th]:font-medium [&_tr]:border-b [&_tr]:transition-colors">
     <thead>
       <tr>
-        <th class="w-10">#</th>
-        <th>Painter</th>
+        <th class="w-10 text-left">#</th>
+        <th class="text-left">Painter</th>
         <th class="text-right">Correct</th>
         <th class="text-right">Placed</th>
         <th class="text-right">Repairs</th>
@@ -38,7 +38,7 @@ const relativeDay = (day: number): string => {
         <th class="text-right max-sm:hidden">Last seen</th>
       </tr>
     </thead>
-    <tbody>
+    <tbody class="[&_tr:last-child]:border-0 [&_tr]:hover:bg-base-200/50">
       {#each entries as entry, index (entry.wplaceUserId)}
         {@const rank = index + 1}
         <tr>
