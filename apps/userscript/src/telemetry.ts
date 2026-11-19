@@ -1,17 +1,13 @@
 import {
   type Alarm,
-  type AlarmsResponse,
   MAX_TILE_OFFERS,
-  PALETTE_SIZE,
   type PaintEvent,
   parseTileKey,
   type ReconciliationReason,
   type StatusDelta,
-  type StatusResponse,
   type SyncTransport,
   seconds,
   sha256Hex,
-  type TemplateStatus,
   type TileCoord,
   type TileOffer,
   tileKey,
@@ -37,7 +33,6 @@ import {
   isCurrentServerConnection,
   serverConnectionIdentity,
 } from './server-connections.js'
-import { MAX_MANIFEST_TEMPLATES } from './server-manifest.js'
 import { invalidateServerMismatches, invalidateServerMismatchTiles } from './server-mismatch.js'
 import { coalesceServerRead } from './server-read-coalescer.js'
 import { type ServerRequestOptions, serverRequest } from './server-request.js'
@@ -53,14 +48,22 @@ import {
 import { withRetries } from './server-transport.js'
 import { getState, onStateChange, type ServerConnection } from './settings.js'
 import { ClientStatusProjection } from './status-client-projection.js'
+import {
+  alarmsSnapshotFrom,
+  type StatusSnapshot,
+  statusDeltaFrom,
+  statusSnapshotFrom,
+} from './telemetry-wire.js'
 import type { TemplateColourProgress, TemplateProgress } from './templates/progress-types.js'
+import { nodeScopeKey } from './templates/server-nodes.js'
 import { onFetchedTile } from './tile-attribution.js'
 import { TileOfferAcknowledgements } from './tile-offer-acknowledgements.js'
+import { serverScopeKey, serverTemplateKey } from './tree-keys.js'
 import { accountIdentity, accountIdentityKnownUnavailable, loadAccount } from './wplace-account.js'
 
 const OFFER_DELAY_MS = 250
-const OFFER_RETRY_MIN_MS = 60_000
-const OFFER_RETRY_MAX_MS = 60_000
+/** A failed offer waits this long before it is offered again. */
+const OFFER_RETRY_MS = 60_000
 const TELEMETRY_MUTATION_JSON_BYTES = 64 * 1024
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -73,7 +76,6 @@ const MAX_RECENT_PAINTS = 64
 const MAX_DEDUPE_VALUES = 4_096
 const TILE_OFFER_ACKNOWLEDGEMENT_TTL_MS = 5 * 60_000
 const MAX_TILE_OFFER_SERVERS = 32
-const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 interface OfferedTile extends TileOffer {
   readonly deliveryId: string
@@ -125,7 +127,8 @@ const activeOfferFlushes = new Set<string>()
 const unsettledOffers = new Map<string, UnsettledServerOffers>()
 const retainedTileBlobs = new Map<string, RetainedTileBlob>()
 const attemptedTileOffers = new Set<string>()
-const offerRetryDelays = new Map<string, number>()
+/** Servers whose next offer flush is a retry after a failure. */
+const retryingOffers = new Set<string>()
 const statuses = new ClientStatusProjection<ConnectedServer>()
 const alarms = new Map<
   string,
@@ -189,7 +192,7 @@ const clearServerTileOfferDelivery = (serverUrl: string): void => {
   delayedFlushes.delete(serverUrl)
   queued.delete(serverUrl)
   clearUnsettledServer(serverUrl)
-  offerRetryDelays.delete(serverUrl)
+  retryingOffers.delete(serverUrl)
 }
 
 const attemptedOfferForEviction = (
@@ -280,7 +283,7 @@ const clearTileOfferDelivery = (): void => {
     ...flushTimers.keys(),
     ...queued.keys(),
     ...unsettledOffers.keys(),
-    ...offerRetryDelays.keys(),
+    ...retryingOffers,
   ])
   for (const serverUrl of serverUrls) clearServerTileOfferDelivery(serverUrl)
 }
@@ -761,14 +764,10 @@ const flushOffers = async (serverUrl: string): Promise<void> => {
       }
     }
     if (queued.get(serverUrl)?.entries.size) {
-      const delay =
-        retryNeeded && !retryImmediately
-          ? (offerRetryDelays.get(serverUrl) ?? OFFER_RETRY_MIN_MS)
-          : OFFER_DELAY_MS
-      if (retryNeeded && !retryImmediately)
-        offerRetryDelays.set(serverUrl, Math.min(delay * 2, OFFER_RETRY_MAX_MS))
-      else offerRetryDelays.delete(serverUrl)
-      scheduleFlush(serverUrl, delay)
+      const retrying = retryNeeded && !retryImmediately
+      if (retrying) retryingOffers.add(serverUrl)
+      else retryingOffers.delete(serverUrl)
+      scheduleFlush(serverUrl, retrying ? OFFER_RETRY_MS : OFFER_DELAY_MS)
     }
   }
 }
@@ -813,11 +812,12 @@ const shareObservedTile = (entry: OfferedTile): void => {
         : { server, entries: new Map<string, OfferedTile>() }
     serverQueue.entries.set(retained.deliveryId, retained)
     queued.set(server.url, serverQueue)
-    const identityRetryDelay =
-      accountIdentity() === null && !accountIdentityKnownUnavailable()
-        ? offerRetryDelays.get(server.url)
-        : undefined
-    scheduleFlush(server.url, identityRetryDelay ?? OFFER_DELAY_MS)
+    // Waiting for the Wplace account to load keeps a retry's pace rather than hammering.
+    const awaitingIdentity = accountIdentity() === null && !accountIdentityKnownUnavailable()
+    scheduleFlush(
+      server.url,
+      awaitingIdentity && retryingOffers.has(server.url) ? OFFER_RETRY_MS : OFFER_DELAY_MS,
+    )
   }
 }
 
@@ -1047,129 +1047,6 @@ const rememberContents = (server: ServerConnection, contents: ServerContents): v
   replayRecent(server, !seasonChanged)
 }
 
-const alarmFrom = (value: unknown): Alarm | null => {
-  if (typeof value !== 'object' || value === null) return null
-  const candidate = value as Partial<Alarm>
-  if (
-    typeof candidate.id !== 'string' ||
-    !UUID_V7.test(candidate.id) ||
-    typeof candidate.templateId !== 'string' ||
-    !UUID_V7.test(candidate.templateId) ||
-    (candidate.kind !== 'regression' && candidate.kind !== 'sustained-griefing') ||
-    ![candidate.pixelsLost, candidate.firstSeen, candidate.lastSeen].every(
-      (number) => Number.isSafeInteger(number) && Number(number) >= 0,
-    ) ||
-    Number(candidate.pixelsLost) === 0 ||
-    Number(candidate.firstSeen) > Number(candidate.lastSeen)
-  )
-    return null
-  return candidate as Alarm
-}
-
-const templateStatusFrom = (value: unknown): TemplateStatus | null => {
-  if (typeof value !== 'object' || value === null) return null
-  const candidate = value as Partial<TemplateStatus>
-  if (
-    typeof candidate.templateId !== 'string' ||
-    !UUID_V7.test(candidate.templateId) ||
-    ![
-      candidate.correct,
-      candidate.wrong,
-      candidate.blank,
-      candidate.total,
-      candidate.observedAt,
-    ].every((number) => Number.isSafeInteger(number) && Number(number) >= 0) ||
-    Number(candidate.correct) + Number(candidate.wrong) + Number(candidate.blank) >
-      Number(candidate.total)
-  )
-    return null
-  if (candidate.colours !== undefined) {
-    if (!Array.isArray(candidate.colours) || candidate.colours.length > PALETTE_SIZE) return null
-    const indices = new Set<number>()
-    let correct = 0
-    let wrong = 0
-    let blank = 0
-    let total = 0
-    for (const raw of candidate.colours) {
-      if (typeof raw !== 'object' || raw === null) return null
-      const colour = raw as Partial<NonNullable<TemplateStatus['colours']>[number]>
-      if (
-        ![colour.index, colour.correct, colour.wrong, colour.blank, colour.total].every(
-          (number) => Number.isSafeInteger(number) && Number(number) >= 0,
-        ) ||
-        Number(colour.index) >= PALETTE_SIZE - 1 ||
-        indices.has(Number(colour.index)) ||
-        Number(colour.total) === 0 ||
-        Number(colour.correct) + Number(colour.wrong) + Number(colour.blank) > Number(colour.total)
-      )
-        return null
-      indices.add(Number(colour.index))
-      correct += Number(colour.correct)
-      wrong += Number(colour.wrong)
-      blank += Number(colour.blank)
-      total += Number(colour.total)
-    }
-    if (
-      correct !== candidate.correct ||
-      wrong !== candidate.wrong ||
-      blank !== candidate.blank ||
-      total !== candidate.total
-    )
-      return null
-  }
-  return candidate as TemplateStatus
-}
-
-const statusDeltaFrom = (value: unknown): StatusDelta | null => {
-  if (typeof value !== 'object' || value === null) return null
-  const candidate = value as Partial<StatusDelta>
-  if (
-    !Number.isSafeInteger(candidate.baseRevision) ||
-    Number(candidate.baseRevision) < 0 ||
-    !Number.isSafeInteger(candidate.revision) ||
-    Number(candidate.revision) < Number(candidate.baseRevision) ||
-    !Array.isArray(candidate.templates) ||
-    candidate.templates.length > MAX_MANIFEST_TEMPLATES ||
-    !Array.isArray(candidate.removedTemplateIds) ||
-    candidate.removedTemplateIds.length > MAX_MANIFEST_TEMPLATES ||
-    (candidate.invalidateAllTiles !== undefined && candidate.invalidateAllTiles !== true) ||
-    (candidate.invalidateAllTiles === true && candidate.invalidatedTiles !== undefined) ||
-    (candidate.invalidatedTiles !== undefined &&
-      (!Array.isArray(candidate.invalidatedTiles) ||
-        candidate.invalidatedTiles.some((tile) => parseTileKey(tile) === null)))
-  )
-    return null
-  const templates: TemplateStatus[] = []
-  const templateIds = new Set<string>()
-  for (const raw of candidate.templates) {
-    const status = templateStatusFrom(raw)
-    if (status === null || templateIds.has(status.templateId)) return null
-    templateIds.add(status.templateId)
-    templates.push(status)
-  }
-  const removedTemplateIds = new Set<string>()
-  for (const templateId of candidate.removedTemplateIds) {
-    if (
-      typeof templateId !== 'string' ||
-      !UUID_V7.test(templateId) ||
-      templateIds.has(templateId) ||
-      removedTemplateIds.has(templateId)
-    )
-      return null
-    removedTemplateIds.add(templateId)
-  }
-  return {
-    baseRevision: Number(candidate.baseRevision),
-    revision: Number(candidate.revision),
-    templates,
-    removedTemplateIds: [...removedTemplateIds],
-    ...(candidate.invalidateAllTiles === true ? { invalidateAllTiles: true as const } : {}),
-    ...(candidate.invalidatedTiles === undefined
-      ? {}
-      : { invalidatedTiles: candidate.invalidatedTiles }),
-  }
-}
-
 const notifyStatusListeners = (): void => {
   for (const listener of statusListeners) {
     try {
@@ -1203,37 +1080,41 @@ const applyStatusDelta = (
     },
   )
 
-const applyLiveStatusSnapshot = (server: ConnectedServer, value: unknown): boolean => {
-  if (typeof value !== 'object' || value === null) return false
-  const body = value as Partial<StatusResponse>
-  if (
-    !Number.isSafeInteger(body.revision) ||
-    Number(body.revision) < 0 ||
-    !Array.isArray(body.templates) ||
-    body.templates.length > MAX_MANIFEST_TEMPLATES
+/**
+ * Replace one server's statuses with a full read, from a poll or a live snapshot, unless a delta
+ * advanced them while it was in flight. A revision other than the one held means masks drawn from
+ * the old one may be stale.
+ */
+const applyStatusSnapshot = (
+  server: ConnectedServer,
+  startedRevision: string | undefined,
+  snapshot: StatusSnapshot,
+): ReturnType<typeof applyServerSyncSnapshot> => {
+  const changed = statuses.differs(server.url, snapshot.templates)
+  const revision = snapshot.revision === undefined ? undefined : String(snapshot.revision)
+  return applyServerSyncSnapshot(
+    server,
+    'world',
+    'telemetry-status',
+    startedRevision,
+    { status: changed ? 'changed' : 'unchanged', ...(revision === undefined ? {} : { revision }) },
+    () => {
+      if (startedRevision !== undefined && revision !== undefined && revision !== startedRevision)
+        invalidateServerMismatches(server.url)
+      statuses.replace(server, snapshot.templates)
+      if (changed) notifyStatusListeners()
+    },
   )
-    return false
-  const next: TemplateStatus[] = []
-  for (const raw of body.templates) {
-    const status = templateStatusFrom(raw)
-    if (status === null) return false
-    next.push(status)
-  }
-  const startedRevision = serverSyncRevision(server, 'world', 'telemetry-status')
-  const changed = statuses.differs(server.url, next)
+}
+
+const applyLiveStatusSnapshot = (server: ConnectedServer, value: unknown): boolean => {
+  const snapshot = statusSnapshotFrom(value, true)
   return (
-    applyServerSyncSnapshot(
+    snapshot !== null &&
+    applyStatusSnapshot(
       server,
-      'world',
-      'telemetry-status',
-      startedRevision,
-      { status: changed ? 'changed' : 'unchanged', revision: String(body.revision) },
-      () => {
-        if (startedRevision !== undefined && startedRevision !== String(body.revision))
-          invalidateServerMismatches(server.url)
-        statuses.replace(server, next)
-        if (changed) notifyStatusListeners()
-      },
+      serverSyncRevision(server, 'world', 'telemetry-status'),
+      snapshot,
     ) === 'applied'
   )
 }
@@ -1255,35 +1136,10 @@ const refreshStatus = async (
       })
       if (answer === null || !answer.response.ok || !isCurrentServerConnection(server))
         return { status: 'failed' }
-      const body = isRecord(answer.body) ? (answer.body as Partial<StatusResponse>) : null
-      if (
-        body === null ||
-        !Array.isArray(body.templates) ||
-        body.templates.length > MAX_MANIFEST_TEMPLATES ||
-        (body.revision !== undefined && (!Number.isSafeInteger(body.revision) || body.revision < 0))
-      )
-        return { status: 'failed' }
-      const next: TemplateStatus[] = []
-      for (const raw of body.templates) {
-        const status = templateStatusFrom(raw)
-        if (status === null) return { status: 'failed' }
-        next.push(status)
-      }
-      const changed = statuses.differs(server.url, next)
-      const result: ServerSyncResult = {
-        status: changed ? 'changed' : 'unchanged',
-        ...(body.revision === undefined ? {} : { revision: String(body.revision) }),
-      }
-      applyServerSyncSnapshot(server, 'world', 'telemetry-status', startedRevision, result, () => {
-        if (
-          startedRevision !== undefined &&
-          result.revision !== undefined &&
-          result.revision !== startedRevision
-        )
-          invalidateServerMismatches(server.url)
-        statuses.replace(server, next)
-        if (changed) notifyStatusListeners()
-      })
+      const snapshot = statusSnapshotFrom(answer.body, false)
+      if (snapshot === null) return { status: 'failed' }
+      // The snapshot records its own result with the scheduler, unless a delta overtook it.
+      applyStatusSnapshot(server, startedRevision, snapshot)
       return { status: 'skipped' }
     },
   )
@@ -1315,87 +1171,32 @@ const refreshAlarms = async (
         coverage.get(server.url) !== snapshot
       )
         return { status: 'failed' }
-      const body = isRecord(answer.body) ? (answer.body as Partial<AlarmsResponse>) : null
-      if (
-        body === null ||
-        !Array.isArray(body.alarms) ||
-        body.alarms.length > MAX_MANIFEST_TEMPLATES ||
-        (body.version !== undefined && !/^[0-9a-f]{64}$/.test(body.version))
-      )
+      const read = alarmsSnapshotFrom(answer.body, false)
+      if (read === null) return { status: 'failed' }
+      if (!isCurrentServerConnection(server) || coverage.get(server.url) !== snapshot)
         return { status: 'failed' }
-      const parsed: Alarm[] = []
-      const templateIds = new Set<string>()
-      for (const raw of body.alarms) {
-        const alarm = alarmFrom(raw)
-        if (alarm === null || templateIds.has(alarm.templateId)) return { status: 'failed' }
-        templateIds.add(alarm.templateId)
-        parsed.push(alarm)
-      }
-      if (!isCurrentServerConnection(server) || coverage.get(server.url) !== snapshot) {
-        return { status: 'failed' }
-      }
-      let changed = !snapshot.alarmsKnown
-      snapshot.alarmsKnown = true
-      const present = new Set<string>()
-      for (const alarm of parsed) {
-        const key = statusKey(server.url, alarm.templateId)
-        present.add(key)
-        const held = alarms.get(key)
-        if (
-          held?.contents !== snapshot.contents ||
-          JSON.stringify(held.value) !== JSON.stringify(alarm)
-        ) {
-          alarms.set(key, {
-            server,
-            contents: snapshot.contents,
-            value: alarm,
-          })
-          changed = true
-        }
-      }
-      for (const key of [...alarms.keys()]) {
-        if (!key.startsWith(`${server.url}\u0000`) || present.has(key)) continue
-        alarms.delete(key)
-        changed = true
-      }
-      if (changed) notifyAlarmListeners()
+      const changed = applyAlarmsSnapshot(server, snapshot, read.alarms)
       return {
         status: changed ? 'changed' : 'unchanged',
-        ...(body.version === undefined ? {} : { revision: body.version }),
+        ...(read.version === undefined ? {} : { revision: read.version }),
       }
     },
   )
 }
 
-const applyLiveAlarmsSnapshot = (server: ConnectedServer, value: unknown): boolean => {
-  const snapshot = coverage.get(server.url)
-  if (
-    snapshot === undefined ||
-    !isCurrentServerConnection(snapshot.server) ||
-    typeof value !== 'object' ||
-    value === null
-  )
-    return false
-  const body = value as Partial<AlarmsResponse>
-  if (
-    !Array.isArray(body.alarms) ||
-    body.alarms.length > MAX_MANIFEST_TEMPLATES ||
-    typeof body.version !== 'string' ||
-    !/^[0-9a-f]{64}$/.test(body.version)
-  )
-    return false
-  const parsed: Alarm[] = []
-  const templateIds = new Set<string>()
-  for (const raw of body.alarms) {
-    const alarm = alarmFrom(raw)
-    if (alarm === null || templateIds.has(alarm.templateId)) return false
-    templateIds.add(alarm.templateId)
-    parsed.push(alarm)
-  }
+/**
+ * Hold exactly these alarms for one server, tied to the manifest they were read against so a
+ * changed manifest hides them until they are read again. Whether anything changed.
+ */
+const applyAlarmsSnapshot = (
+  server: ConnectedServer,
+  snapshot: ServerCoverage,
+  next: readonly Alarm[],
+): boolean => {
   let changed = !snapshot.alarmsKnown
   snapshot.alarmsKnown = true
   const present = new Set<string>()
-  for (const alarm of parsed) {
+  for (const alarm of next) {
     const key = statusKey(server.url, alarm.templateId)
     present.add(key)
     const held = alarms.get(key)
@@ -1413,7 +1214,20 @@ const applyLiveAlarmsSnapshot = (server: ConnectedServer, value: unknown): boole
     changed = true
   }
   if (changed) notifyAlarmListeners()
-  applyServerSyncRevision(server, 'world', 'telemetry-alarms', body.version)
+  return changed
+}
+
+const applyLiveAlarmsSnapshot = (server: ConnectedServer, value: unknown): boolean => {
+  const snapshot = coverage.get(server.url)
+  const read = alarmsSnapshotFrom(value, true)
+  if (
+    snapshot === undefined ||
+    !isCurrentServerConnection(snapshot.server) ||
+    read?.version === undefined
+  )
+    return false
+  applyAlarmsSnapshot(server, snapshot, read.alarms)
+  applyServerSyncRevision(server, 'world', 'telemetry-alarms', read.version)
   return true
 }
 
@@ -1436,15 +1250,15 @@ const notifyAlarmListeners = (): void => {
 const alarmEnabled = (server: ConnectedServer, template: ServerTemplate): boolean => {
   const hidden = new Set(getState().hiddenScopes)
   if (
-    hidden.has(`server:${server.url}`) ||
-    hidden.has(`srv:${encodeURIComponent(server.url)}:${template.id}`)
+    hidden.has(serverScopeKey(server.url)) ||
+    hidden.has(serverTemplateKey(server.url, template.id))
   )
     return false
   const contents = coverage.get(server.url)?.contents
   const parents = new Map(contents?.nodes.map((node) => [node.id, node.parentId]) ?? [])
   let nodeId = template.nodeId
   for (let depth = 0; nodeId !== null && depth <= parents.size; depth++) {
-    if (hidden.has(`node:${encodeURIComponent(server.url)}:${nodeId}`)) return false
+    if (hidden.has(nodeScopeKey(server.url, nodeId))) return false
     nodeId = parents.get(nodeId) ?? null
   }
   return true
@@ -1582,7 +1396,7 @@ export const installTelemetry = (): void => {
         ...flushTimers.keys(),
         ...queued.keys(),
         ...unsettledOffers.keys(),
-        ...offerRetryDelays.keys(),
+        ...retryingOffers,
       ])
       for (const serverUrl of retainedServerUrls)
         if (!currentServerUrls.has(serverUrl)) clearServerTileOfferDelivery(serverUrl)
