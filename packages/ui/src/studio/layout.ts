@@ -103,6 +103,15 @@ export const panelsAcross = (node: StudioNode): number => {
 export const isOpen = (layout: StudioLayout, id: StudioWindowId): boolean =>
   layout.frames.some((frame) => panelsIn(frame.root).includes(id))
 
+const showsIn = (node: StudioNode, id: StudioWindowId): boolean =>
+  node.kind === 'tabs'
+    ? node.active === id && !node.collapsed
+    : node.children.some((child) => showsIn(child, id))
+
+/** Whether `id` is on screen: in front of its tabs, which are not folded away. */
+export const isShown = (layout: StudioLayout, id: StudioWindowId): boolean =>
+  layout.frames.some((frame) => showsIn(frame.root, id))
+
 /** A window at `box`, measured from its nearer edge so it keeps its place when the screen resizes. */
 export const floatPlace = (
   box: Box,

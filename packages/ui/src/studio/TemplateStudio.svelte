@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import MenuStyles from '../foundations/MenuStyles.svelte'
@@ -9,6 +10,7 @@
     DEFAULT_STUDIO_LAYOUT,
     floatPlace,
     isOpen,
+    isShown,
     moveFrame,
     movePanel,
     panelsAcross,
@@ -176,6 +178,16 @@
   const uid = $props.id()
   let sheet = $state<StudioWindowId | null>('dimensions')
   const pickSheet = (id: StudioWindowId): void => { sheet = sheet === id ? null : id }
+
+  /* The host samples the image for the scopes only while they are on screen. Cropping folds the
+     phone sheet away. */
+  const scopesShown = $derived(phone ? sheet === 'scopes' && model.cropping === null : isShown(layout, 'scopes'))
+  $effect(() => {
+    if (!scopesShown) return
+    const send = untrack(() => onIntent)
+    send({ type: 'scopes-shown', shown: true })
+    return () => send({ type: 'scopes-shown', shown: false })
+  })
   /** The bar's height as it wraps, so what sits below it stays clear of every row. */
   let barHeight = $state(0)
 

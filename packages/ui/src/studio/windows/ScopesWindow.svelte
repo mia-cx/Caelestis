@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from 'svelte'
   import MenuStyles from '../../foundations/MenuStyles.svelte'
   import { selectFace } from '../../foundations/select-face.js'
   import { SCOPE_MODELS, type ScopeModel, vectorPlane } from '../colour.js'
@@ -29,12 +28,6 @@
   let { model, onIntent }: { model: TemplateStudioModel; onIntent: (intent: TemplateStudioIntent) => void } = $props()
 
   const id = $props.id()
-  // The studio samples only while this window is on screen, whichever layout shows it.
-  $effect(() => {
-    const send = untrack(() => onIntent)
-    send({ type: 'scopes-shown', shown: true })
-    return () => send({ type: 'scopes-shown', shown: false })
-  })
   let scopeId = $state<ScopeKind>('histogram')
   let modelId = $state<ScopeModel>('srgb')
   let zoom = $state(1)
