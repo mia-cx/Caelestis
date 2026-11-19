@@ -88,6 +88,7 @@ import {
 import {
   handleSettingsIntent,
   onSettingsViewChange,
+  openServersAskingForToken,
   setSettingsVisible,
   settingsModel,
 } from './settings-controller.js'
@@ -323,7 +324,7 @@ const showView = (view: PanelView): void => {
   const panel = currentPanel()
   if (panel === null) return
 
-  if (view === 'settings') settingsModel()
+  if (view === 'settings') openServersAskingForToken()
   if (view === 'tree') {
     buildTreeView()
   } else {

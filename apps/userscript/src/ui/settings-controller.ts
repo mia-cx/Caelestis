@@ -39,12 +39,7 @@ import { treeActionUsesServer } from './tree-copy.js'
 /** Which servers' rows are open. Kept across re-renders, which rebuild the whole pane. */
 const expandedServers = new Set<string>()
 
-/**
- * Servers whose row has already been opened for them, so it is done once and not fought over.
- *
- * A server asking for a token is opened without being asked, because the one thing it needs is
- * inside. Doing that on every render would mean it could never be closed again.
- */
+/** Servers whose row has already been opened for them, so it is done once and not fought over. */
 const autoExpanded = new Set<string>()
 
 onServerRemoved((url) => {
@@ -75,15 +70,22 @@ const formatBytes = (value: number | null): string => {
 
 const formatMilliseconds = (value: number): string => `${value.toFixed(value >= 10 ? 1 : 2)} ms`
 
-/** The settings view's model, opening any server row that needs a token the first time. */
-export const settingsModel = (): SettingsModel => {
-  const state = getState()
-  for (const server of state.servers) {
+/**
+ * Open the row of each server asking for a token, the first time the settings view is shown with
+ * it asking: the one thing it needs is inside. Only the first time, or it could never be closed.
+ */
+export const openServersAskingForToken = (): void => {
+  for (const server of getState().servers) {
     if (server.status === 'needs-token' && !autoExpanded.has(server.url)) {
       autoExpanded.add(server.url)
       expandedServers.add(server.url)
     }
   }
+}
+
+/** The settings view's model. */
+export const settingsModel = (): SettingsModel => {
+  const state = getState()
   const snapshot = isProfileEnabled() ? profileSnapshot() : null
   const extension = runningBuild() === 'extension'
   return {
