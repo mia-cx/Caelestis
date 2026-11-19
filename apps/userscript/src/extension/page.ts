@@ -17,7 +17,7 @@ import { connectStorageBridge } from '../storage-bridge/connect.js'
  */
 const other = meetOtherBuild()
 
-const claimed = connectStorageBridge('extension', () => {
+const claimed = connectStorageBridge('extension', (claimed) => {
   if (!claimed) {
     if (other !== null) serveOtherBuild(other, 'extension')
     return

@@ -68,7 +68,7 @@ const runInPage = (pageWorld: PageWorld): void => {
   void application().then(({ installPageHooks, installUserscriptFeatures }) => {
     const claimed = connectStorageBridge(
       'userscript',
-      () => {
+      (claimed) => {
         if (!claimed) {
           if (other !== null) serveOtherBuild(other, 'userscript')
           return
