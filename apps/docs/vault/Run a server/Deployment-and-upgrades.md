@@ -12,13 +12,13 @@ Stop application writes and take a matching database-and-object backup. Save the
 
 ## Docker from source
 
-From the checkout, with the same Compose files you normally use:
+In the checkout, stop the applications. Add the `-f` files your stack uses, such as a database or S3 overlay, to every `docker compose` command below. Without them, the applications restart with the default stores.
 
 ~~~sh
 docker compose stop backend frontend
 ~~~
 
-Take the backup, then update to the source version you intend to run. Build and start both applications:
+Take the backup, then update to the source version you intend to run. Build and start both applications from that version.
 
 ~~~sh
 docker compose up --build -d --wait
@@ -30,7 +30,7 @@ Do not change database or object-storage adapters as part of a normal version up
 
 ## Docker with release images
 
-After the backup, put the new matching image references in `.env`. Then run:
+After the backup, put the target release's image references in `.env`. Pull that pair and start the stack.
 
 ~~~sh
 docker compose pull
@@ -44,7 +44,7 @@ The backend acquires ownership and applies migrations before accepting traffic.
 
 ## Helm
 
-Update `my-values.yaml` with the new image pair. For a separate migration phase using the chart checkout:
+Update `my-values.yaml` with the target image pair. Run the migration Job first, then start the backend with the same chart values.
 
 ~~~sh
 helm upgrade caelestis deploy/helm/caelestis \
@@ -62,7 +62,7 @@ Use the same chart version, namespace, values, storage, and Secrets in both comm
 
 ## Cloudflare
 
-Keep your self-hosted configuration and secrets. Build the new source, apply backend D1 migrations, and deploy the backend before the frontend:
+Keep your self-hosted configuration and secrets. Build the target release, apply backend D1 migrations, and deploy the backend before the frontend.
 
 ~~~sh
 pnpm install --frozen-lockfile
@@ -76,9 +76,9 @@ Review release-specific migration instructions before running these commands. A 
 
 ## Check the result
 
-Open the dashboard and a known template. Confirm its artwork and progress load. Connect the userscript and check that shared updates arrive.
+Open the dashboard and a known template. Confirm its artwork and progress load. Open the connected server in the Wplace panel and check that shared updates arrive.
 
-For Docker, also check readiness:
+On Docker, check the readiness endpoint.
 
 ~~~sh
 curl --fail http://localhost:3000/health/ready
@@ -88,6 +88,6 @@ Use your configured port if it differs.
 
 ## Rollback
 
-Database migrations do not have an automatic reverse operation. Starting an old image against a migrated database can fail.
+Restore the matching backup if a migration prevents the previous version from starting.
 
 Stop the application, restore the pre-update database and matching objects, then start the previous version. A Helm rollback alone does not restore the database.

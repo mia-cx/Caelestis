@@ -3,9 +3,7 @@ title: Connect to a server
 order: 3
 ---
 
-Connect to use a group's shared templates, progress, and collaboration tools. Ask the server owner for its address and an access token.
-
-Your local templates stay in this browser and remain separate from the server.
+Open your group's private invite link in a browser with Caelestis installed. The link opens Wplace and connects using the included token. Share it only with its intended recipient. If the owner gives you the address and token separately, enter them below.
 
 ## 1. Open Settings
 
@@ -15,7 +13,7 @@ Open the Caelestis panel in Wplace. Click the gear in its header.
 
 ## 2. Add the address
 
-Enter the server address and click **Add**. Use the address your server owner gave you; the screenshot shows an example.
+Enter the server address and click **Add**. Use the address your server owner gave you.
 
 For a normal site address, Caelestis adds `/backend` automatically. If the owner gave you a complete endpoint, enter that instead.
 
@@ -23,7 +21,7 @@ For a normal site address, Caelestis adds `/backend` automatically. If the owner
 
 ## 3. Open the server entry
 
-The new server appears below the address field. If its controls are hidden, click the name to expand them.
+The server appears below the address field. If its controls are hidden, click the name to expand them.
 
 A **token** badge means the server needs an access token.
 
@@ -37,11 +35,13 @@ Paste the token into **Access token** and click **Connect**. If the server permi
 
 Use **Report** for painting reports, presence, and claims. **Read** lets you view shared work. Ask the owner for another token if yours lacks the access you need.
 
-After connecting, use the back arrow beside **Settings** to return to the template panel. The server's templates appear under its name.
+After connecting, click **Back to templates** in the header. The server's templates appear under its name.
+
+![Connected servers listed under the address field, each with its backend version.](images/settings/server-connection.png)
 
 ## Change or remove a connection
 
-To replace a token, expand the connected server, paste the new value, and click **Update**.
+To replace a token, expand the connected server, paste its replacement, and click **Update**.
 
 **Disconnect** removes the connection from this browser. It does not remove the server's templates or other people's access.
 

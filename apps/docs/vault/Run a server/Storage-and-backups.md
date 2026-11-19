@@ -2,9 +2,31 @@
 title: Storage and backups
 ---
 
-This page covers the Docker and Kubernetes runtimes. A complete portable backup has two parts: the database and application objects. The database alone cannot restore template images or tile history.
+Back up the database and application objects together on Docker or Kubernetes. The database stores progress and token records. The object store holds artwork and tile history.
 
 On Cloudflare, state is split across D1, R2, and Durable Objects. A D1 export plus an R2 copy is not a complete equivalent of the portable backup below.
+
+## Move between deployments
+
+Use a server archive to move between Cloudflare, Docker and Kubernetes, including across database and object-storage types.
+
+1. Prepare an empty destination database and object store. Configure the destination's server settings and credentials.
+2. Build the archive client with `pnpm --filter @caelestis/backend build`. Set `ADMIN_TOKEN` in your shell to the source server's administrator token.
+3. Export the archive during downtime. The source pauses writes and most reads, and stays paused after the file finishes. Replace the example address with the source API root.
+
+   ~~~sh
+   node apps/backend/dist/archive/cli.js export https://source.example.com/backend/v1 server.ndjson
+   ~~~
+
+4. For a backup, run `finish-export` against the same API root to reopen the source. For a move, keep the source paused. Set `ADMIN_TOKEN` to the destination's administrator token and import into the empty destination.
+
+   ~~~sh
+   node apps/backend/dist/archive/cli.js import https://destination.example.com/backend/v1 server.ndjson
+   ~~~
+
+5. Check a template and its history, then issue destination tokens and reconnect clients. Archives include artwork, history and progress. Access tokens and deployment secrets stay with the installation that owns them.
+
+See the [server archive reference](https://github.com/mia-cx/Caelestis/blob/main/docs/server-archives.md) for status, interrupted transfers and restore requirements.
 
 ## What to keep
 
@@ -14,13 +36,13 @@ On Cloudflare, state is split across D1, R2, and Durable Objects. A D1 export pl
 | Application objects | Artwork, retained tile blobs, and social images. |
 | Deployment configuration | Version references, environment settings, and securely stored credentials. |
 
-For default Docker, the database is in `data` and objects are in `objects`. PostgreSQL and MariaDB stacks use their own database volume. MinIO uses the `s3` volume.
+For default Docker, the database is in `data` and objects are in `objects`. PostgreSQL and MariaDB stacks use their own database volume. The local RustFS service stores bucket data in the `rustfs` volume.
 
 Docker prefixes volume names with the Compose project name. Check the actual names before backing up or restoring them.
 
 ## Take a consistent backup
 
-Stop the backend and frontend so objects and database records stop changing:
+Stop both applications to pause writes to the database and object store.
 
 ~~~sh
 docker compose stop backend frontend
@@ -36,11 +58,11 @@ Back up the database with the tool for that adapter. Copy the matching object di
 | PostgreSQL | Use a consistent database backup including all Caelestis tables. |
 | MariaDB | Use a consistent database backup including all Caelestis tables. |
 | Filesystem objects | Copy the complete object directory. |
-| S3 or MinIO | Capture the complete application bucket, including object metadata. |
+| S3 or RustFS | Capture the complete application bucket, including object metadata. |
 
 Record the app version beside the backup. Store credentials securely, separate from copies shared for debugging.
 
-Restart the unchanged stack afterward:
+Restart the applications after both stores are backed up.
 
 ~~~sh
 docker compose start backend frontend
@@ -50,21 +72,22 @@ For CNPG, database backups do not include the Caelestis object bucket. Back up t
 
 ## Default Docker backup
 
-For the default SQLite/filesystem stack, run from the checkout while both application containers are stopped:
+For SQLite and filesystem storage, export both volumes from the checkout while the application containers are stopped.
 
 ~~~sh
 umask 077
 backup_dir="backups/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$backup_dir"
 docker compose run --rm --no-deps -T --entrypoint tar backend \
-  -C /data -cf - . > "$backup_dir/data.tar"
+  -C /data -cf - . > "$backup_dir/data.tar" &&
 docker compose run --rm --no-deps -T --entrypoint tar backend \
-  -C /objects -cf - . > "$backup_dir/objects.tar"
-git rev-parse HEAD > "$backup_dir/source-commit.txt"
-docker compose images > "$backup_dir/images.txt"
+  -C /objects -cf - . > "$backup_dir/objects.tar" &&
+git rev-parse HEAD > "$backup_dir/source-commit.txt" &&
+docker compose images > "$backup_dir/images.txt" &&
+echo "Backup complete: $backup_dir"
 ~~~
 
-Check that both archive commands succeeded. Inspect their contents before restarting:
+Continue only if **Backup complete** printed. Otherwise an archive failed and may be partial. Inspect both tar archives before restarting the applications.
 
 ~~~sh
 tar -tf "$backup_dir/data.tar"
@@ -76,7 +99,7 @@ Copy the backup off the Docker host. Keep the matching private `.env` securely w
 
 ## PostgreSQL and MariaDB
 
-Leave the database container running while the application containers are stopped. With the usual Compose files selected, create a new backup directory:
+Leave the database container running while the application containers are stopped. With the usual Compose files selected, create a dated backup directory.
 
 ~~~sh
 umask 077
@@ -84,20 +107,20 @@ backup_dir="backups/$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$backup_dir"
 ~~~
 
-Then export PostgreSQL:
+For PostgreSQL, write a custom-format dump.
 
 ~~~sh
 docker compose exec -T postgres pg_dump -U caelestis -d caelestis -Fc > "$backup_dir/postgres.dump"
 ~~~
 
-Or MariaDB:
+For MariaDB, write a consistent SQL dump.
 
 ~~~sh
 docker compose exec -T mariadb sh -c \
   'MYSQL_PWD="$MARIADB_PASSWORD" mariadb-dump --user=caelestis --single-transaction caelestis' > "$backup_dir/mariadb.sql"
 ~~~
 
-These files contain private server data. `umask 077` makes the new directory and dump readable only by you. Back up the matching object store before restarting the applications.
+These files contain private server data. `umask 077` makes the directory and dump readable only by you. Back up the matching object store before restarting the applications.
 
 Use [PostgreSQL's restore procedure](https://www.postgresql.org/docs/current/app-pgrestore.html) or [MariaDB's dump and restore procedure](https://mariadb.com/kb/en/mariadb-dump/) for the database. For CNPG, use your operator's backup and recovery process.
 
@@ -107,7 +130,7 @@ Stop the application. Restore the database and objects from the same backup wind
 
 First test the restore in an isolated environment. Do not point a test backend at the live database or bucket.
 
-For SQLite/filesystem, use an isolated checkout with the same application version and **empty destination volumes**. Restore before starting the applications:
+For SQLite/filesystem, use an isolated checkout with the same application version and **empty destination volumes**. Extract both archives before starting the applications.
 
 ~~~sh
 docker compose run --rm --no-deps -T --entrypoint tar backend \
@@ -117,15 +140,15 @@ docker compose run --rm --no-deps -T --entrypoint tar backend \
 docker compose up -d --no-build --wait
 ~~~
 
-Use the backed-up configuration and image references. Do not extract over a running server or nonempty volumes; leftover files may not belong to the backup.
+Use the backed-up configuration and image references. Do not extract over a running server or nonempty volumes. Leftover files may not belong to the backup.
 
-Open a known template and confirm that its artwork, progress, and history load before allowing new writes.
+Open a known template and confirm that its artwork, progress, and history load before reopening writes.
 
 ## Storage constraints
 
 SQLite requires a filesystem with working POSIX locks. Use local or block-backed storage, not a network filesystem.
 
-Keep each Caelestis database paired with its own object directory or bucket. The object files belong to the storage adapter; do not edit individual files by hand.
+Keep each Caelestis database paired with its own object directory or bucket. Let the storage adapter manage its object files.
 
 Changing `DB_ADAPTER` or `OBJECT_STORAGE` selects a different store. It is not a migration command.
 

@@ -2,9 +2,7 @@
 title: Kubernetes with Helm
 ---
 
-The chart runs the backend and frontend in one Pod. It creates a Service, an optional Ingress, and an optional persistent volume claim.
-
-You supply the database, object bucket, credentials, and TLS configuration.
+Deploy the backend and frontend in one Pod. The chart creates a Service and can also create an Ingress and a persistent volume claim. Use the default volume for SQLite and artwork, or supply your database and bucket.
 
 ## Get the chart
 
@@ -28,7 +26,7 @@ Skip namespace creation if it already exists. Keep Secrets and the Helm release 
 
 Copy the appropriate file to `my-values.yaml`. Replace its example hostnames, bucket, Secret names, and public origin.
 
-For the default SQLite/filesystem stack:
+For SQLite and filesystem storage, copy the default values.
 
 ~~~sh
 cp deploy/helm/caelestis/values.yaml my-values.yaml
@@ -38,7 +36,7 @@ For CNPG, use the writable-primary service. For SQLite, use local or block-backe
 
 ## Create the Secrets
 
-Create these in the same namespace as Caelestis, using your usual secret-management process:
+Create the Secrets in the Caelestis namespace with your usual secret manager.
 
 | Secret referenced by | Keys |
 | --- | --- |
@@ -51,7 +49,7 @@ Database and S3 Secrets apply only to those storage choices. The database user n
 
 Keep secret values out of the values file.
 
-For a new default stack, create the server Secret from a private file:
+For the default stack, create the server Secret from a private file.
 
 ~~~sh
 umask 077
@@ -60,7 +58,7 @@ printf 'ADMIN_TOKEN=%s\nCAELESTIS_READ_TOKEN=%s\n' \
 kubectl -n caelestis create secret generic caelestis-server --from-env-file=server-secrets.env
 ~~~
 
-Store that file securely and exclude it from Git. It contains the administrator credential you need to connect the userscript.
+Store that file securely and exclude it from Git. It contains the administrator credential you need to connect Caelestis on Wplace.
 
 ## Configure the chart
 
@@ -82,7 +80,7 @@ For PostgreSQL or MariaDB with S3, you can disable the application PVC.
 
 Set `image` and `frontend.image` in your values file to a matching [release pair](Container-images). For a local build, publish both images to a registry your cluster can reach.
 
-For a digest reference such as `miacx/caelestis-backend@sha256:...`, put the part before `@` in `repository` and the rest in `digest`:
+For a digest reference such as `miacx/caelestis-backend@sha256:...`, put the part before `@` in `repository` and the rest in `digest`.
 
 ~~~yaml
 image:
@@ -96,7 +94,7 @@ frontend:
 
 Replace both placeholders with values from the same release. For tagged images, set `tag` instead of `digest`.
 
-Then run:
+Start the stack and inspect its status and logs.
 
 ~~~sh
 helm lint deploy/helm/caelestis -f my-values.yaml
@@ -106,7 +104,7 @@ helm upgrade --install caelestis deploy/helm/caelestis \
 kubectl -n caelestis get pods,services
 ~~~
 
-Ingress is disabled by default. For a local check, forward the Service:
+Ingress is disabled by default. Forward the Service to test it locally.
 
 ~~~sh
 kubectl -n caelestis port-forward service/caelestis-caelestis 3000:80
@@ -116,12 +114,14 @@ Open `http://localhost:3000` while that command runs. For public access, set `in
 
 Before adding artwork, the dashboard shows an empty library.
 
-![A new dashboard with no templates.](images/dashboard/empty-server.png)
+![A dashboard with no templates.](images/dashboard/empty-server.png)
 
 ## Operation
 
 Keep `replicaCount: 1`. The chart uses `Recreate` updates so the old backend releases database ownership before its replacement starts.
 
-An ingress must forward WebSocket upgrades and permit long-lived connections. The frontend is available to visitors who can reach it; add access control if it should be private.
+An ingress must forward WebSocket upgrades and permit long-lived connections. Restrict access at the ingress for a private dashboard.
+
+To collect per-pod capacity metrics with Prometheus Operator, set `metrics.podMonitor.enabled: true`. The monitor scrapes `/metrics` on the backend port. See the [capacity metrics reference](https://github.com/mia-cx/Caelestis/blob/main/docs/capacity-metrics.md).
 
 For upgrades and rollback, follow [Deployment and upgrades](Deployment-and-upgrades). A Helm rollback does not reverse database migrations.

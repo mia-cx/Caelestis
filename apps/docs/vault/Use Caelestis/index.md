@@ -3,10 +3,12 @@ title: Use Caelestis
 order: 2
 ---
 
-The [Userscript guide](Userscript) tours the panel on Wplace. The other pages go deeper:
+Open the [Wplace panel](Wplace-panel) to manage artwork on the map, or choose a task below.
 
 | I want to… | Read |
 | --- | --- |
+| Crop, scale and dither an image | [Template studio](Template-studio) |
+| Place art on an HQ, avatar or banner | [Alliance canvases](Alliance-canvases) |
 | Import, move, or organise artwork | [Templates](Templates) |
 | Change pixel styles, outlines, or markers | [Overlay and painting](Overlay-and-painting) |
 | Track progress or paint with others | [Progress and collaboration](Progress-and-collaboration) |
