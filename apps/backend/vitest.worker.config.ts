@@ -1,3 +1,5 @@
 import { defineConfig } from 'vitest/config'
 
-export default defineConfig({ test: { include: ['tests/worker/host-config.test.ts'] } })
+export default defineConfig({
+  test: { include: ['tests/worker/host-config.test.ts', 'tests/worker/worker.test.ts'] },
+})

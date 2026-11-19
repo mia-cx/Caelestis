@@ -1,6 +1,8 @@
-import { Context, Effect, Layer } from 'effect'
+import { Context, Effect } from 'effect'
+import { type BackfillClients, noBackfill } from '../backfill/port.js'
+import { type LiveSyncPort, noLiveSync } from '../live/port.js'
 import type { BlobStore, CounterStore, SqlStore } from '../ports/index.js'
-import type { PresencePort } from '../presence/port.js'
+import { noPresence, type PresencePort } from '../presence/port.js'
 import { DirectStatusReadModel, type StatusReadModelPort } from '../status-read-model/port.js'
 
 export class BlobStoreService extends Context.Service<BlobStoreService, BlobStore>()(
@@ -20,42 +22,50 @@ export class StatusReadModelService extends Context.Service<
   StatusReadModelPort
 >()('@caelestis/backend/StatusReadModel') {}
 
-export type BackendServices =
-  | PresenceService
-  | BlobStoreService
-  | SqlStoreService
-  | CounterStoreService
-  | StatusReadModelService
-export type BackendContext = Context.Context<BackendServices>
-
 export class PresenceService extends Context.Service<PresenceService, PresencePort>()(
   '@caelestis/backend/Presence',
 ) {}
 
-const noPresence: PresencePort = { publishRegions: async () => {} }
+export class LiveSyncService extends Context.Service<LiveSyncService, LiveSyncPort>()(
+  '@caelestis/backend/LiveSync',
+) {}
+
+export class BackfillService extends Context.Service<BackfillService, BackfillClients>()(
+  '@caelestis/backend/Backfill',
+) {}
+
+export type BackendServices =
+  | BlobStoreService
+  | SqlStoreService
+  | CounterStoreService
+  | StatusReadModelService
+  | PresenceService
+  | LiveSyncService
+  | BackfillService
+export type BackendContext = Context.Context<BackendServices>
+
+/** What a host with live sockets and import workers adds; hosts without them leave it out. */
+export interface HostPorts {
+  readonly presence?: PresencePort
+  readonly liveSync?: LiveSyncPort
+  readonly backfill?: BackfillClients
+}
 
 export const makeBackendContext = (
   blobs: BlobStore,
   sql: SqlStore,
   counters: CounterStore,
   statusReadModel: StatusReadModelPort = new DirectStatusReadModel(sql),
-  presence: PresencePort = noPresence,
+  host: HostPorts = {},
 ): BackendContext =>
   Context.make(BlobStoreService, blobs).pipe(
     Context.add(SqlStoreService, sql),
     Context.add(CounterStoreService, counters),
     Context.add(StatusReadModelService, statusReadModel),
-    Context.add(PresenceService, presence),
+    Context.add(PresenceService, host.presence ?? noPresence),
+    Context.add(LiveSyncService, host.liveSync ?? noLiveSync),
+    Context.add(BackfillService, host.backfill ?? noBackfill),
   )
-
-export const makeBackendLayer = (
-  blobs: BlobStore,
-  sql: SqlStore,
-  counters: CounterStore,
-  statusReadModel: StatusReadModelPort = new DirectStatusReadModel(sql),
-  presence: PresencePort = noPresence,
-): Layer.Layer<BackendServices> =>
-  Layer.succeedContext(makeBackendContext(blobs, sql, counters, statusReadModel, presence))
 
 export interface BackendRuntime {
   readonly context: BackendContext

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { parseClientMetricsAccept } from '@caelestis/shared'
+import { buildId, bundledRelease } from '../server/release.js'
 
 export type CacheOutcome = 'none' | 'hit' | 'miss' | 'stale'
 export type TileOfferBatchOutcome =
@@ -66,10 +67,7 @@ const d1UsageStorage = new AsyncLocalStorage<{
   measuredQueries: number
   unmeasuredQueries: number
 }>()
-export const deploymentVersion =
-  typeof __CAELESTIS_DEPLOYMENT_VERSION__ === 'string'
-    ? __CAELESTIS_DEPLOYMENT_VERSION__.slice(0, 12)
-    : 'development'
+const deploymentVersion = buildId(bundledRelease.build)
 const userscriptVersions = new Set(
   typeof __CAELESTIS_USERSCRIPT_VERSIONS__ === 'object'
     ? __CAELESTIS_USERSCRIPT_VERSIONS__

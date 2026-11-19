@@ -1,79 +1,63 @@
 import { DurableObject } from 'cloudflare:workers'
-import type { TileCoord } from '@caelestis/shared'
-import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
-import { RelationalSqlStore } from './adapters/relational-sql-store.js'
-import { EralyonArchive } from './backfill/eralyon.js'
-import { TemplateBackfill } from './backfill/import.js'
-import { backfillReply } from './backfill/port.js'
-import { instrumentD1 } from './metrics/request-metrics.js'
+import { cloudflareStores } from './adapters/cloudflare/bindings.js'
+import { type BackfillHandle, openBackfill } from './server/backfill.js'
 
 /**
  * One template's serialized import commands and durable alarm-driven history. Named by a folder
  * instead, it runs that folder's import and writes each template's results to its own object.
+ * DO RPC exposes only prototype methods, so each one delegates.
  */
 export class TemplateBackfillObject extends DurableObject<Env> {
-  private readonly importer: TemplateBackfill
+  private readonly backfill: BackfillHandle
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    this.importer = new TemplateBackfill(
+    this.backfill = openBackfill(
       ctx.storage,
-      new RelationalSqlStore(instrumentD1(env.DB)),
-      new R2BlobStore(env.BLOBS),
-      new EralyonArchive(),
-      Date.now,
-      (templateId) => {
-        const template = env.TEMPLATE_BACKFILL.getByName(templateId)
-        return {
-          get: async <T>(key: string) => (await template.readState(key)) as T | undefined,
-          put: (entries) => template.importState(entries),
-        }
-      },
+      cloudflareStores(env),
+      (operation) => ctx.blockConcurrencyWhile(operation),
+      (name) => env.TEMPLATE_BACKFILL.getByName(name),
     )
   }
-  async preview(templateId: string) {
-    return backfillReply(() => this.importer.preview(templateId))
+  preview(...args: Parameters<BackfillHandle['preview']>) {
+    return this.backfill.preview(...args)
   }
-  async job() {
-    return backfillReply(() => this.importer.job())
+  job() {
+    return this.backfill.job()
   }
-  async history(versionId: string, tile?: TileCoord) {
-    return backfillReply(() => this.importer.history(versionId, tile))
+  history(...args: Parameters<BackfillHandle['history']>) {
+    return this.backfill.history(...args)
   }
-  async start(templateId: string, versionId: string, snapshotId: number) {
-    return this.ctx.blockConcurrencyWhile(() =>
-      backfillReply(() => this.importer.start(templateId, versionId, snapshotId)),
-    )
+  start(...args: Parameters<BackfillHandle['start']>) {
+    return this.backfill.start(...args)
   }
-  async previewFolder(nodeId: string) {
-    return backfillReply(() => this.importer.previewFolder(nodeId))
+  cancel() {
+    return this.backfill.cancel()
   }
-  async folderJob() {
-    return backfillReply(() => this.importer.folderJob())
+  previewFolder(...args: Parameters<BackfillHandle['previewFolder']>) {
+    return this.backfill.previewFolder(...args)
   }
-  async startFolder(nodeId: string, versionIds: readonly string[], snapshotId: number) {
-    return this.ctx.blockConcurrencyWhile(() =>
-      backfillReply(() => this.importer.startFolder(nodeId, versionIds, snapshotId)),
-    )
+  folderJob() {
+    return this.backfill.folderJob()
   }
-  async cancelFolder() {
-    return this.ctx.blockConcurrencyWhile(() => backfillReply(() => this.importer.cancelFolder()))
+  startFolder(...args: Parameters<BackfillHandle['startFolder']>) {
+    return this.backfill.startFolder(...args)
   }
-  exportState(...args: Parameters<TemplateBackfill['exportState']>) {
-    return this.importer.exportState(...args)
+  cancelFolder() {
+    return this.backfill.cancelFolder()
   }
   readState(key: string) {
-    return this.importer.readState(key)
+    return this.backfill.readState(key)
   }
-  importState(...args: Parameters<TemplateBackfill['importState']>) {
-    return this.ctx.blockConcurrencyWhile(() => this.importer.importState(...args))
+  exportState(...args: Parameters<BackfillHandle['exportState']>) {
+    return this.backfill.exportState(...args)
   }
-  discardState(...args: Parameters<TemplateBackfill['discardState']>) {
-    return this.ctx.blockConcurrencyWhile(() => this.importer.discardState(...args))
+  importState(...args: Parameters<BackfillHandle['importState']>) {
+    return this.backfill.importState(...args)
   }
-  async cancel() {
-    return this.ctx.blockConcurrencyWhile(() => backfillReply(() => this.importer.cancel()))
+  discardState(...args: Parameters<BackfillHandle['discardState']>) {
+    return this.backfill.discardState(...args)
   }
-  override async alarm(): Promise<void> {
-    await this.ctx.blockConcurrencyWhile(() => this.importer.step())
+  override alarm(): Promise<void> {
+    return this.backfill.step()
   }
 }

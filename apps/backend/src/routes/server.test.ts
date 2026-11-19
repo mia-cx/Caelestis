@@ -15,14 +15,19 @@ import { DirectStatusReadModel } from '../status-read-model/port.js'
 const token = 'bootstrap-operator-token'
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const gif = new TextEncoder().encode('GIF89a')
-const harness = async (openAccess = true, options: Parameters<typeof createApp>[1] = {}) => {
+const harness = async (openAccess = true, release: { version?: string; build?: string } = {}) => {
   const { sql, blobs, counters } = await openMemoryStores()
   const readModel = new DirectStatusReadModel(sql)
   const notify = vi.spyOn(readModel, 'notifyManifestChange')
   const app = createApp(makeBackendContext(blobs, sql, counters, readModel), {
+    server: {
+      id: '00000000-0000-7000-8000-000000000000',
+      name: 'Template Server',
+      auth: openAccess ? 'none' : 'access_token',
+      ...release,
+    },
+    currentSeason: 0,
     bootstrapAdminToken: token,
-    openAccess,
-    ...options,
   })
   const patch = (body: unknown, credential = token) =>
     app.request('/v1/admin/server', {

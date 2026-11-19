@@ -1,16 +1,13 @@
-import type { PainterIdentity, Scope, TemplateSurface } from '@caelestis/shared'
-import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
-
-/** Runtime delivery of persisted region changes. */
-export interface PresencePort {
-  publishRegions(season: number, surface: TemplateSurface): Promise<void>
-  /** Reach a room's own timing collector when it lives in another isolate. */
-  readIngestTimings?(
-    season: number,
-    surface: TemplateSurface,
-    reset: boolean,
-  ): Promise<IngestTimingSnapshot>
-}
+import {
+  type PainterIdentity,
+  parseTemplateSurfaceKey,
+  parseWholeNumber,
+  type Scope,
+  type TemplateSurface,
+  templateSurfaceKey,
+} from '@caelestis/shared'
+import { NotFoundError } from '../runtime/errors.js'
+import { type IngestTimingSnapshot, IngestTimings } from '../telemetry/ingest-timing.js'
 
 /** Authenticated metadata passed from the HTTP boundary to a presence transport. */
 export interface PresenceConnection {
@@ -27,10 +24,55 @@ export interface PresenceConnection {
   readonly metricClientVersion: string
 }
 
-export type ConnectPresence = (
-  request: Request,
-  connection: PresenceConnection,
-) => Promise<Response>
+/** The presence rooms, one per season and drawing surface, as the app reaches them. */
+export interface PresencePort {
+  /** Deliver persisted region changes to the room's sockets. */
+  publishRegions(season: number, surface: TemplateSurface): Promise<void>
+  /**
+   * The room's own timing collector. Every host gives each room its own, as a Durable Object's
+   * isolate does, so the admin endpoint reads the same room on every host.
+   */
+  readIngestTimings(
+    season: number,
+    surface: TemplateSurface,
+    reset: boolean,
+  ): Promise<IngestTimingSnapshot>
+  /** Count open room sockets without starting presence delivery. */
+  online(season: number, surface: TemplateSurface): Promise<number>
+  connect(request: Request, connection: PresenceConnection): Promise<Response>
+}
 
-/** Count open room sockets without starting presence delivery. */
-export type PresenceOnline = (season: number, surface: TemplateSurface) => Promise<number>
+/** One room, in process or behind a Durable Object stub. */
+export interface PresenceRoom {
+  publishRegions(season: number, surface: TemplateSurface): Promise<void>
+  readIngestTimings(reset: boolean): IngestTimingSnapshot | Promise<IngestTimingSnapshot>
+  online(): Promise<number>
+  closeCredential(tokenHash: string): Promise<void>
+  connect(request: Request, connection: PresenceConnection): Promise<Response>
+}
+
+export type PresenceRooms = (season: number, surface: TemplateSurface) => PresenceRoom
+
+const notServed = (): Promise<never> => Promise.reject(new NotFoundError({ message: 'not found' }))
+
+/** A host without live sockets, such as tests and scripts: nothing to deliver, nothing to join. */
+export const noPresence: PresencePort = {
+  publishRegions: async () => {},
+  readIngestTimings: async () => new IngestTimings().snapshot(),
+  online: notServed,
+  connect: notServed,
+}
+
+/** A room's durable name: its season and surface. Node also keys its state by it. */
+export const presenceRoomName = (season: number, surface: TemplateSurface): string =>
+  `${season}:${templateSurfaceKey(surface)}`
+
+/** The season and surface a room name was built from, or null when it names no room. */
+export const parsePresenceRoomName = (
+  name: string,
+): { readonly season: number; readonly surface: TemplateSurface } | null => {
+  const separator = name.indexOf(':')
+  const season = parseWholeNumber(name.slice(0, separator))
+  const surface = parseTemplateSurfaceKey(name.slice(separator + 1))
+  return season !== null && surface !== null ? { season, surface } : null
+}

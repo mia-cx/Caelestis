@@ -1,9 +1,13 @@
 import { isSha256Hex, isUuidV7, parseTileKey } from '@caelestis/shared'
 import { Effect, Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
-import { type BackfillClients, type BackfillReply, folderBackfillName } from '../backfill/port.js'
+import { type BackfillReply, folderBackfillName } from '../backfill/port.js'
 import { mergeD1Usage } from '../metrics/request-metrics.js'
-import { type BackendRuntime, BlobStoreService } from '../runtime/backend-runtime.js'
+import {
+  type BackendRuntime,
+  BackfillService,
+  BlobStoreService,
+} from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { readVisibleVersion } from '../templates/use-cases.js'
 
@@ -13,17 +17,12 @@ const respond = <T>(c: Context, result: BackfillReply<T>): Response => {
 }
 
 /** Admin-only preview/start/status/cancel for one server template, or every one below a folder. */
-export const createBackfillAdminRoutes = (clients: BackfillClients | undefined) => {
+export const createBackfillAdminRoutes = (runtime: BackendRuntime) => {
   const routes = new Hono()
-  const clientFor = (id: string) => {
-    if (clients === undefined) throw new Error('Backfill is unavailable')
-    return clients(id)
-  }
+  const clientFor = Services.get(runtime.context, BackfillService)
   // Registered before the template routes, whose `:templateId` would otherwise claim `folders`.
   routes.use('/folders/:nodeId/*', async (c, next) => {
     if (!isUuidV7(c.req.param('nodeId'))) return c.json({ error: 'Invalid folder ID.' }, 400)
-    if (clients === undefined)
-      return c.json({ error: 'This server does not support backfill yet.' }, 503)
     await next()
   })
   const folderClient = (c: Context) => clientFor(folderBackfillName(c.req.param('nodeId') ?? ''))
@@ -55,8 +54,6 @@ export const createBackfillAdminRoutes = (clients: BackfillClients | undefined) 
   )
   routes.use('/:templateId/*', async (c, next) => {
     if (!isUuidV7(c.req.param('templateId'))) return c.json({ error: 'Invalid template ID.' }, 400)
-    if (clients === undefined)
-      return c.json({ error: 'This server does not support backfill yet.' }, 503)
     await next()
   })
   routes.get('/:templateId/preview', async (c) =>
@@ -98,12 +95,10 @@ export const createBackfillAdminRoutes = (clients: BackfillClients | undefined) 
  * Backfilled canvas history, read through templates. Sparse reads share template visibility rules;
  * PNGs remain outside live tile GC.
  */
-export const createCanvasHistoryRoutes = (
-  runtime: BackendRuntime,
-  clients: BackfillClients | undefined,
-) => {
+export const createCanvasHistoryRoutes = (runtime: BackendRuntime) => {
   const routes = new Hono()
   const blobs = Services.get(runtime.context, BlobStoreService)
+  const clients = Services.get(runtime.context, BackfillService)
   routes.get('/templates/:templateId', async (c) => {
     const id = c.req.param('templateId')
     if (!isUuidV7(id)) return c.json({ error: 'Invalid template ID.' }, 400)
@@ -113,16 +108,9 @@ export const createCanvasHistoryRoutes = (
     if (tile === null) return c.json({ error: 'Invalid tile coordinates.' }, 400)
     const history = Effect.flatMap(
       readVisibleVersion(id, c.req.query('version'), c.get('caller').canSeeDrafts),
-      (version) =>
-        Effect.promise(async () =>
-          clients === undefined ? null : clients(id).history(version, tile),
-        ),
+      (version) => Effect.promise(() => clients(id).history(version, tile)),
     )
-    return runBackendHttp(c, runtime, history, (reply) =>
-      reply === null
-        ? c.json({ source: 'eralyon', basis: null, samples: [], frames: [] })
-        : respond(c, reply),
-    )
+    return runBackendHttp(c, runtime, history, (reply) => respond(c, reply))
   })
   routes.get('/tiles/:hash', async (c) => {
     const hash = c.req.param('hash')

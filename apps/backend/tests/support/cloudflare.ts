@@ -30,11 +30,13 @@ export const bundleWorker = async (): Promise<string> => {
 
 /**
  * The production Worker with real local D1, R2, and Durable Objects. `outbound` answers the
- * Worker's own requests to other origins, such as the Eralyon archive.
+ * Worker's own requests to other origins, such as the Eralyon archive. `vars`, when given,
+ * replaces the test deployment's variables.
  */
 export const openCloudflare = async (
   worker: string,
   outbound?: (request: Request) => Response | Promise<Response>,
+  vars?: Readonly<Record<string, string>>,
 ) => {
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
@@ -51,7 +53,7 @@ export const openCloudflare = async (
         TEMPLATE_BACKFILL: { className: 'TemplateBackfillObject', useSQLite: true },
         PRESENCE: { className: 'PresenceObject', useSQLite: true },
       },
-      bindings: {
+      bindings: vars ?? {
         SHARD_STRATEGY: 'single',
         SERVER_ID: '01890f3e-7b2c-7abc-8def-0000000000aa',
         SERVER_NAME: 'Caelestis',

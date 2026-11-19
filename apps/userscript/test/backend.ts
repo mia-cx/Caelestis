@@ -62,11 +62,13 @@ export const createTestBackend = async ({
   })
   return {
     app: createApp(makeBackendContext(blobs, sql, counters), {
-      serverId: '00000000-0000-7000-8000-000000000000',
-      serverName: 'Userscript contract server',
+      server: {
+        id: '00000000-0000-7000-8000-000000000000',
+        name: 'Userscript contract server',
+        auth: openAccess ? 'none' : 'access_token',
+        ...release,
+      },
       currentSeason: 3,
-      openAccess,
-      ...release,
     }),
   }
 }

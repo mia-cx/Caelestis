@@ -185,6 +185,8 @@ describe('archive snapshot boundary', () => {
     await counters.initialize()
     const admin = 'race-admin'
     const app = createApp(makeBackendContext(new MemoryBlobStore(), store, counters), {
+      server: { id: '00000000-0000-7000-8000-000000000000', name: 'Race', auth: 'access_token' },
+      currentSeason: 0,
       bootstrapAdminToken: admin,
     })
     // This isolate read the gate open just before another one began an export.

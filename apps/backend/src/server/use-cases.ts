@@ -102,11 +102,11 @@ export const readIngestTimings = (season: number, reset: boolean) =>
     const statusReadModel = yield* StatusReadModelService
     const snapshot = yield* Effect.promise(() => statusReadModel.readIngestTimings(season, reset))
     const presence = yield* PresenceService
-    const readRoom = presence.readIngestTimings?.bind(presence)
-    if (readRoom === undefined) return snapshot
-    // A presence Durable Object has its own isolate and clock. The admin endpoint covers the
-    // current season's world room explicitly, rather than returning another isolate's zeros.
-    const room = yield* Effect.promise(() => readRoom(season, WORLD_TEMPLATE_SURFACE, reset))
+    // Each presence room keeps its own collector, as a Durable Object's isolate does. The admin
+    // endpoint covers the current season's world room explicitly.
+    const room = yield* Effect.promise(() =>
+      presence.readIngestTimings(season, WORLD_TEMPLATE_SURFACE, reset),
+    )
     return {
       ...snapshot,
       commands: {

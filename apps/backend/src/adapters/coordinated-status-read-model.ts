@@ -16,6 +16,9 @@ import type {
 } from '../status-read-model/tile-generation-cache.js'
 import type { IngestTimingSnapshot } from '../telemetry/ingest-timing.js'
 
+/** A season coordinator's durable name. Node also keys its state by it. */
+export const statusShardName = (season: number): string => `season:${season}`
+
 /** One season's coordinator, in process or behind a Durable Object stub. */
 export type StatusShard = Pick<
   StatusCoordinator<unknown>,

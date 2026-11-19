@@ -280,7 +280,6 @@ export class CounterFlusher {
     )
   }
 
-
   private async reconcileAlarm(nowMilliseconds: Millis): Promise<void> {
     const flushBatchPending =
       (await this.database.all('SELECT 1 FROM flush_batch LIMIT 1')).length > 0

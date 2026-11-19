@@ -1,69 +1,51 @@
-import { type Millis, millis, seconds } from '@caelestis/shared'
-import { Effect } from 'effect'
-import {
-  type BackendRuntime,
-  BlobStoreService,
-  CounterStoreService,
-  SqlStoreService,
-  StatusReadModelService,
-} from './runtime/backend-runtime.js'
+import { type Millis, seconds } from '@caelestis/shared'
+import type { SqlStore } from './ports/index.js'
 import { ALARM_FOLLOW_UP_RETRY_MILLISECONDS } from './telemetry/alarm-policy.js'
 import { type FetcherStores, fetchAlarmFollowUps } from './telemetry/fetcher.js'
 
 export const ALARM_BATCH_DELAY_MILLISECONDS = 1_000
 
-interface AlarmStorage {
-  setAlarm(scheduledTime: number | Date): Promise<void>
+/** The alarm wakeup: a Durable Object's own alarm, or Node's durable `alarms` actor. */
+interface AlarmWakeup {
+  setAlarm(scheduledTime: number): Promise<void>
 }
 
-type FollowUpRunner = (
-  stores: FetcherStores,
-  probes: Parameters<typeof fetchAlarmFollowUps>[1],
-  options: Parameters<typeof fetchAlarmFollowUps>[2],
-) => ReturnType<typeof fetchAlarmFollowUps>
+/** Reconcile the wakeup with the earliest durable probe stored in SQL. */
+export const scheduleAlarmWakeup = async (sql: SqlStore, wakeup: AlarmWakeup): Promise<void> => {
+  const dueAt = await sql.nextAlarmProbeAt()
+  // Do not delete when empty: a concurrent schedule may have installed a wakeup after this read.
+  // A stale alarm can safely wake once and reconcile an empty queue.
+  if (dueAt !== null) await wakeup.setAlarm(dueAt)
+}
 
 /** Run one bounded durable probe cycle and retain ownership of all retries. */
 export const runAlarmWatcherCycle = async (
-  runtime: BackendRuntime,
-  storage: AlarmStorage,
+  stores: FetcherStores,
+  wakeup: AlarmWakeup,
   now: Millis,
-  runFollowUps: FollowUpRunner = fetchAlarmFollowUps,
-  clock: () => Millis = () => millis(Date.now()),
 ): Promise<void> => {
-  await runtime.run(
-    Effect.gen(function* () {
-      const blobs = yield* BlobStoreService
-      const counters = yield* CounterStoreService
-      const sql = yield* SqlStoreService
-      const statusReadModel = yield* StatusReadModelService
-      yield* Effect.promise(async () => {
-        try {
-          const probes = await sql.listDueAlarmProbes(now)
-          const report = await runFollowUps({ blobs, counters, sql, statusReadModel }, probes, {
-            now: seconds(Math.floor(now / 1_000)),
-          })
-          const decidedAt = clock()
-          if (report.failed > 0) {
-            await storage.setAlarm(decidedAt + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
-            return
-          }
-          const dueAt = await sql.nextAlarmProbeAt()
-          if (dueAt === null) {
-            // A concurrent schedule may have installed a replacement wakeup after this D1 read. The
-            // currently firing alarm is already consumed, so leaving storage untouched is race-safe.
-            return
-          }
-          await storage.setAlarm(
-            report.pending > 0
-              ? Math.max(dueAt, decidedAt + ALARM_BATCH_DELAY_MILLISECONDS)
-              : dueAt,
-          )
-        } catch {
-          // Cloudflare gives a throwing alarm only a bounded retry series. Keep the durable D1 probe
-          // and own an indefinite, paced retry instead of stranding it until the next six-hour cron.
-          await storage.setAlarm(clock() + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
-        }
-      })
-    }),
-  )
+  try {
+    const probes = await stores.sql.listDueAlarmProbes(now)
+    const report = await fetchAlarmFollowUps(stores, probes, {
+      now: seconds(Math.floor(now / 1_000)),
+    })
+    const decidedAt = Date.now()
+    if (report.failed > 0) {
+      await wakeup.setAlarm(decidedAt + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
+      return
+    }
+    const dueAt = await stores.sql.nextAlarmProbeAt()
+    if (dueAt === null) {
+      // A concurrent schedule may have installed a replacement wakeup after this D1 read. The
+      // currently firing alarm is already consumed, so leaving storage untouched is race-safe.
+      return
+    }
+    await wakeup.setAlarm(
+      report.pending > 0 ? Math.max(dueAt, decidedAt + ALARM_BATCH_DELAY_MILLISECONDS) : dueAt,
+    )
+  } catch {
+    // Cloudflare gives a throwing alarm only a bounded retry series. Keep the durable D1 probe
+    // and own an indefinite, paced retry instead of stranding it until the next six-hour cron.
+    await wakeup.setAlarm(Date.now() + ALARM_FOLLOW_UP_RETRY_MILLISECONDS)
+  }
 }

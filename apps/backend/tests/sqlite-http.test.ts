@@ -29,8 +29,11 @@ describe('SQLite HTTP persistence flow', () => {
       createdAt: millis(1),
     })
     const app = createApp(makeBackendContext(store.blobs, store.sql, store.counters), {
-      serverId: '00000000-0000-7000-8000-000000000000',
-      serverName: 'SQLite HTTP server',
+      server: {
+        id: '00000000-0000-7000-8000-000000000000',
+        name: 'SQLite HTTP server',
+        auth: 'access_token',
+      },
       currentSeason: 1,
     })
     const form = new FormData()

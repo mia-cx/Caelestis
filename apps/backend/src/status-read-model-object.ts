@@ -1,51 +1,39 @@
 import { DurableObject } from 'cloudflare:workers'
-import { templateSurfaceKey } from '@caelestis/shared'
-import { DurableObjectCounterStore } from './adapters/cloudflare/do-counter-store.js'
+import {
+  alarmWatcher,
+  cloudflareConfig,
+  cloudflareStores,
+  durablePresenceRooms,
+} from './adapters/cloudflare/bindings.js'
 import { receiveStatusLive } from './adapters/cloudflare/live-connect.js'
-import { R2BlobStore } from './adapters/cloudflare/r2-blob-store.js'
-import { RelationalSqlStore } from './adapters/relational-sql-store.js'
-import { instrumentD1, measureD1Usage } from './metrics/request-metrics.js'
+import { durableLiveHost } from './adapters/cloudflare/live-host.js'
+import { measureD1Usage } from './metrics/request-metrics.js'
+import { serverInfo } from './server-info.js'
 import { StatusCoordinator } from './status-coordinator.js'
 
 type Coordinator = StatusCoordinator<WebSocket>
 
 /**
- * Cloudflare lifecycle and socket binding for one season's coordinator. The four reads a Worker
- * request waits on return the D1 work they did, so the Worker's request metric can count it.
+ * One season's status coordinator. The four reads a Worker request waits on return the D1 work
+ * they did, so the Worker's request metric can count it.
  */
 export class StatusReadModelObject extends DurableObject<Env> {
   private readonly coordinator: Coordinator
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'))
+    const config = cloudflareConfig(env)
+    const { sql, blobs, counters } = cloudflareStores(env)
+    const rooms = durablePresenceRooms(env)
     this.coordinator = new StatusCoordinator(
-      {
-        storage: ctx.storage,
-        getWebSockets: (tag) => ctx.getWebSockets(tag),
-        connect: (attachment) => {
-          const pair = new WebSocketPair()
-          pair[1].serializeAttachment(attachment)
-          ctx.acceptWebSocket(pair[1], ['status'])
-          return { client: pair[0], server: pair[1] }
-        },
-        upgradeResponse: (client, headers) =>
-          new Response(null, { status: 101, headers, webSocket: client }),
-      },
-      new RelationalSqlStore(instrumentD1(env.DB)),
-      new R2BlobStore(env.BLOBS),
-      () => new DurableObjectCounterStore(env.TELEMETRY),
-      {
-        id: env.SERVER_ID,
-        name: env.SERVER_NAME,
-        auth: env.OPEN_ACCESS === 'true' ? 'none' : 'access_token',
-        ...(env.SERVER_DESCRIPTION === undefined ? {} : { description: env.SERVER_DESCRIPTION }),
-      },
-      () => env.ALARM_WATCHER.getByName('global').schedule(),
-      (season, tokenHash, surface) =>
-        env.PRESENCE.getByName(`${season}:${templateSurfaceKey(surface)}`).closeCredential(
-          tokenHash,
-        ),
+      durableLiveHost(ctx, 'status'),
+      sql,
+      blobs,
+      () => counters,
+      serverInfo(config, config.serverId),
+      () => alarmWatcher(env).schedule(),
+      (season, tokenHash, surface) => rooms(season, surface).closeCredential(tokenHash),
       env.REQUEST_METRICS,
+      { liveSubscribers: config.liveSubscriberLimit },
     )
   }
   applyCommittedChange(...args: Parameters<Coordinator['applyCommittedChange']>) {
