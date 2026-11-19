@@ -2,11 +2,11 @@ import { expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { DurableScheduler } from '../src/coordination/scheduler.js'
-import { openRelationalStore } from './support/relational.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { schedulerContract } from './support/scheduler-contract.js'
 
 it('fences concurrent schedulers and preserves replacement alarms in SQLite', async () => {
-  const opened = await openRelationalStore()
+  const opened = openMemoryDatabase()
   try {
     await schedulerContract(coordinatorDatabase(opened.connection))
   } finally {
@@ -15,7 +15,7 @@ it('fences concurrent schedulers and preserves replacement alarms in SQLite', as
 })
 
 it('upgrades persisted v1 jobs and retries a failed handler without losing its alarm', async () => {
-  const opened = await openRelationalStore()
+  const opened = openMemoryDatabase()
   const database = coordinatorDatabase(opened.connection)
   const error = vi.spyOn(console, 'error').mockImplementation(() => {})
   const now = vi.spyOn(Date, 'now').mockReturnValue(100)

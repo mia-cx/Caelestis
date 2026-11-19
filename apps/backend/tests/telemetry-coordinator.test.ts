@@ -4,8 +4,8 @@ import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.j
 import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import type { AlarmStorage } from '../src/coordination/database.js'
 import { TelemetryCoordinator } from '../src/coordination/telemetry.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { EXPIRES_AFTER_SECONDS, FLUSHABLE_AFTER_SECONDS } from '../src/ports/index.js'
-import { openRelationalStore } from './support/relational.js'
 
 class FailOnceSqlStore extends RelationalSqlStore {
   private failed = false
@@ -26,7 +26,7 @@ describe('durable telemetry coordinator', () => {
   })
 
   it('deduplicates delivery, retains a failed flush, and retries it without double credit', async () => {
-    const opened = await openRelationalStore()
+    const opened = openMemoryDatabase()
     closes.push(opened.close)
     let now = millis(100_000)
     const alarms: AlarmStorage & { last: number | null } = {
@@ -97,7 +97,7 @@ describe('durable telemetry coordinator', () => {
   })
 
   it('keeps flushed counters until they expire, then the next record reclaims them', async () => {
-    const opened = await openRelationalStore()
+    const opened = openMemoryDatabase()
     closes.push(opened.close)
     let now = millis(100_000)
     let alarm: number | null = null

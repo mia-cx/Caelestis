@@ -4,12 +4,12 @@ import { expect, it } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { liveRequestContext, NodeLiveHost } from '../src/node/live.js'
+import { openMemoryDatabase } from '../src/node/memory-stores.js'
 import { presenceRequest } from '../src/presence/port.js'
 import { PresenceCoordinator } from '../src/presence-coordinator.js'
-import { openRelationalStore } from './support/relational.js'
 
 it('keeps a fully populated maximum-claim attachment below 2,048 bytes', async () => {
-  const store = await openRelationalStore()
+  const store = openMemoryDatabase()
   const database = coordinatorDatabase(store.connection)
   await SqlCoordinatorStorage.initialize(database)
   const host = new NodeLiveHost(new SqlCoordinatorStorage(database, 'presence'), () => coordinator)

@@ -1,26 +1,26 @@
 import { millis } from '@caelestis/shared'
-import { MemoryBlobStore } from '../../src/adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../../src/adapters/memory/memory-counter-store.js'
-import { MemorySqlStore } from '../../src/adapters/memory/memory-sql-store.js'
+import type { SqliteConnection } from '../../src/adapters/node/sqlite-connection.js'
+import type { RelationalSqlStore } from '../../src/adapters/relational-sql-store.js'
 import { createApp } from '../../src/app.js'
 import { hashToken } from '../../src/auth/tokens.js'
+import { openMemoryStores } from '../../src/node/memory-stores.js'
 import type { SqlStore } from '../../src/ports/sql-store.js'
 import { makeBackendContext } from '../../src/runtime/backend-runtime.js'
 import type { StatusReadModelPort } from '../../src/status-read-model/port.js'
 
 export const adminToken = 'ADMIN-TEST-TOKEN'
 
+/** The app over the production stores on a private in-memory database. */
 export const createTestBackend = async (
   options: {
     openAccess?: boolean
-    sql?: SqlStore
     bootstrapAdminToken?: string
     statusReadModel?: (sql: SqlStore) => StatusReadModelPort
+    sql?: (connection: SqliteConnection) => RelationalSqlStore
   } = {},
 ) => {
-  const sql = options.sql ?? new MemorySqlStore()
-  const blobs = new MemoryBlobStore()
-  const counters = new MemoryCounterStore(sql)
+  const stores = await openMemoryStores({ sql: options.sql })
+  const { sql, blobs, counters } = stores
   const tokenHash = await hashToken(adminToken)
   await sql.insertAccessToken({
     tokenHash,
@@ -36,7 +36,7 @@ export const createTestBackend = async (
     openAccess: options.openAccess,
     bootstrapAdminToken: options.bootstrapAdminToken,
   })
-  return { app, sql, blobs, counters }
+  return { ...stores, app }
 }
 
 export const authorized = (path: string, init: RequestInit = {}): Request =>

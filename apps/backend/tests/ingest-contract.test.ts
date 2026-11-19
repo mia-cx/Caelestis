@@ -335,8 +335,10 @@ it('counts a tile whose refresh fails only as failed', async () => {
     preconnect: fetch.preconnect,
   })
   let now = Math.floor(Date.now() / 1000)
-  const scan = () =>
-    fetchCanvasTiles({ blobs, sql, counters }, { season: 3, now: seconds((now += 60)), fetchImpl })
+  const scan = () => {
+    now += 60
+    return fetchCanvasTiles({ blobs, sql, counters }, { season: 3, now: seconds(now), fetchImpl })
+  }
   const first = await scan()
   expect(first.fetched).toBeGreaterThan(0)
   // The latest observation still names these bytes, but the object holding them is gone, so the

@@ -6,7 +6,7 @@ import {
   type TemplateRecipe,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import type { SqlStore } from '../../src/ports/sql-store.js'
+import type { ContributionDelta, SqlStore } from '../../src/ports/sql-store.js'
 
 const ids = {
   root: '01890f3e-7b2c-7abc-8def-012345678901',
@@ -180,7 +180,7 @@ export const leaderboardContractExpected = {
   season: [
     {
       wplaceUserId: 20,
-      displayName: '20',
+      displayName: 'Twenty',
       placed: 9,
       correct: 6,
       repairs: 0,
@@ -201,7 +201,7 @@ export const leaderboardContractExpected = {
   draftsFromSecondDay: [
     {
       wplaceUserId: 20,
-      displayName: '20',
+      displayName: 'Twenty',
       placed: 50,
       correct: 50,
       repairs: 0,
@@ -236,7 +236,6 @@ export const runLeaderboardContract = async (sql: SqlStore) => {
     if (templateId !== leaderboardIds.draft)
       await sql.updateTemplate(templateId, { publishedAt: millis(1_500) }, millis(1_500))
   }
-  await sql.rememberPainter(10, 'Ten', millis(1_000))
   const contribution = (
     templateId: string,
     wplaceUserId: number,
@@ -253,12 +252,26 @@ export const runLeaderboardContract = async (sql: SqlStore) => {
     correct,
     repairs,
   })
-  await sql.addContributions([
+  const paint = (
+    eventId: string,
+    wplaceUserId: number,
+    displayName: string,
+    contributions: readonly ContributionDelta[],
+  ) =>
+    sql.applyPaintEvent(eventId, wplaceUserId, displayName, millis(1_000), {
+      counters: [],
+      contributions,
+    })
+  await paint('paint-10', 10, 'Ten', [
     contribution(leaderboardIds.published, 10, firstDay, 10, [5, 4, 1]),
     contribution(leaderboardIds.published, 10, firstDay, 11, [3, 3, 2]),
     contribution(leaderboardIds.other, 10, secondDay, 10, [2, 2, 0]),
+  ])
+  await paint('paint-20', 20, 'Twenty', [
     contribution(leaderboardIds.published, 20, firstDay, 20, [9, 6, 0]),
     contribution(leaderboardIds.draft, 20, secondDay, 20, [50, 50, 0]),
+  ])
+  await paint('paint-30', 30, 'Thirty', [
     contribution(leaderboardIds.other, 30, firstDay, 30, [1, 1, 0]),
   ])
   return {

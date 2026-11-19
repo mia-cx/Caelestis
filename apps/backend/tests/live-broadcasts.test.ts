@@ -1,12 +1,9 @@
 import { encodeIndexedPng, uuidV7, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import { afterEach, expect, it, vi } from 'vitest'
-import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../src/adapters/memory/memory-counter-store.js'
+import { expect, it, vi } from 'vitest'
 import { coordinatorDatabase } from '../src/adapters/node/coordinator-database.js'
 import { SqlCoordinatorStorage } from '../src/adapters/node/coordinator-storage.js'
 import { type LiveHost, type LiveSocket, StatusCoordinator } from '../src/status-coordinator.js'
 import { authorized, createTestBackend } from './support/backend.js'
-import { openRelationalStore } from './support/relational.js'
 
 const SEASON = 3
 
@@ -31,15 +28,9 @@ class RecordingSocket implements LiveSocket {
   }
 }
 
-const opened: (() => Promise<void>)[] = []
-afterEach(async () => {
-  for (const close of opened.splice(0)) await close()
-})
-
 const liveCoordinator = async () => {
-  const store = await openRelationalStore()
-  opened.push(store.close)
-  const { app } = await createTestBackend({ sql: store.sql })
+  const store = await createTestBackend()
+  const { app } = store
   const form = new FormData()
   form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
   form.set('name', 'Broadcast')
@@ -50,7 +41,6 @@ const liveCoordinator = async () => {
   const { templateId } = (await created.json()) as { templateId: string }
 
   const database = coordinatorDatabase(store.connection)
-  await SqlCoordinatorStorage.initialize(database)
   const sockets: RecordingSocket[] = []
   const host: LiveHost<LiveSocket> = {
     storage: new SqlCoordinatorStorage(database, `season:${SEASON}`),
@@ -65,8 +55,8 @@ const liveCoordinator = async () => {
   const coordinator = new StatusCoordinator(
     host,
     store.sql,
-    new MemoryBlobStore(),
-    () => new MemoryCounterStore(store.sql),
+    store.blobs,
+    () => store.counters,
     { id: '00000000-0000-7000-8000-000000000000', name: 'Test server', auth: 'access_token' },
     async () => {},
     async () => {},

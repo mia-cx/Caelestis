@@ -9,11 +9,10 @@ import {
 } from '@caelestis/shared'
 import { expect, it } from 'vitest'
 import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../src/adapters/memory/memory-counter-store.js'
 import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
+import { openMemoryStores } from '../src/node/memory-stores.js'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
 import { offerTiles, type TileMetadata, uploadTile } from '../src/telemetry/ingest.js'
-import { openRelationalStore } from './support/relational.js'
 
 const seed = async (sql: RelationalSqlStore, blobs: MemoryBlobStore) => {
   const at = Math.floor(Date.now() / 1000) - 10
@@ -62,7 +61,6 @@ const seed = async (sql: RelationalSqlStore, blobs: MemoryBlobStore) => {
 it.each(['before-put', 'before-commit'])(
   'shares uploaded bytes between reporters overlapping %s',
   async (phase) => {
-    const opened = await openRelationalStore()
     const gate = Promise.withResolvers<void>()
     const entered = Promise.withResolvers<void>()
     const reserved = Promise.withResolvers<void>()
@@ -100,14 +98,13 @@ it.each(['before-put', 'before-commit'])(
         return super.put(...args)
       }
     }
+    const opened = await openMemoryStores({ sql: (connection) => new DelayedStore(connection) })
     const pending: Promise<unknown>[] = []
     try {
-      const sql = new DelayedStore(opened.connection)
+      const { sql, counters } = opened
       const blobs = new CountingObjects()
       const { bytes, metadata, history } = await seed(sql, blobs)
-      const runtime = createBackendRuntime(
-        makeBackendContext(blobs, sql, new MemoryCounterStore(sql)),
-      )
+      const runtime = createBackendRuntime(makeBackendContext(blobs, sql, counters))
       pending.push(runtime.run(uploadTile(metadata(1), bytes)))
       await entered.promise
       pending.push(runtime.run(uploadTile(metadata(2), bytes)))
@@ -126,7 +123,6 @@ it.each(['before-put', 'before-commit'])(
 )
 
 it('settles started offers before reporting batch failure and never starts queued offers', async () => {
-  const opened = await openRelationalStore()
   const gate = Promise.withResolvers<void>()
   const entered = Promise.withResolvers<void>()
   const started = new Set<number>()
@@ -145,14 +141,12 @@ it('settles started offers before reporting batch failure and never starts queue
       return super.listTelemetryTargets(...args)
     }
   }
+  const opened = await openMemoryStores({ sql: (connection) => new FailingTargets(connection) })
   let batch: Promise<unknown> | undefined
   try {
-    const sql = new FailingTargets(opened.connection)
-    const blobs = new MemoryBlobStore()
+    const { sql, blobs, counters } = opened
     const { bytes, metadata, history } = await seed(sql, blobs)
-    const runtime = createBackendRuntime(
-      makeBackendContext(blobs, sql, new MemoryCounterStore(sql)),
-    )
+    const runtime = createBackendRuntime(makeBackendContext(blobs, sql, counters))
     await runtime.run(uploadTile(metadata(1), bytes))
     // Keep the offered hash stored but no longer current, so tile 0 must enter ingestion.
     const newerPixels = new Uint8Array(1_000_000).fill(TRANSPARENT_INDEX)

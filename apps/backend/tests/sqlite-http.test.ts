@@ -1,11 +1,9 @@
 import { millis } from '@caelestis/shared'
 import { afterEach, describe, expect, it } from 'vitest'
-import { MemoryBlobStore } from '../src/adapters/memory/memory-blob-store.js'
-import { MemoryCounterStore } from '../src/adapters/memory/memory-counter-store.js'
 import { createApp } from '../src/app.js'
 import { hashToken } from '../src/auth/tokens.js'
+import { openMemoryStores } from '../src/node/memory-stores.js'
 import { makeBackendContext } from '../src/runtime/backend-runtime.js'
-import { openRelationalStore } from './support/relational.js'
 
 const adminToken = 'SQLITE-HTTP-ADMIN'
 const png = Uint8Array.from(
@@ -14,13 +12,13 @@ const png = Uint8Array.from(
   ),
   (byte) => byte.charCodeAt(0),
 )
-const stores: Awaited<ReturnType<typeof openRelationalStore>>[] = []
+const stores: Awaited<ReturnType<typeof openMemoryStores>>[] = []
 
 afterEach(() => Promise.all(stores.splice(0).map((store) => store.close())))
 
 describe('SQLite HTTP persistence flow', () => {
   it('uploads a template, publishes it, and serves the persisted manifest with a reusable ETag', async () => {
-    const store = await openRelationalStore()
+    const store = await openMemoryStores()
     stores.push(store)
     const tokenHash = await hashToken(adminToken)
     await store.sql.insertAccessToken({
@@ -30,8 +28,7 @@ describe('SQLite HTTP persistence flow', () => {
       createdWithToken: tokenHash,
       createdAt: millis(1),
     })
-    const blobs = new MemoryBlobStore()
-    const app = createApp(makeBackendContext(blobs, store.sql, new MemoryCounterStore(store.sql)), {
+    const app = createApp(makeBackendContext(store.blobs, store.sql, store.counters), {
       serverId: '00000000-0000-7000-8000-000000000000',
       serverName: 'SQLite HTTP server',
       currentSeason: 1,

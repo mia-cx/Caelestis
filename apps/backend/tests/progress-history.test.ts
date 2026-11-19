@@ -8,21 +8,17 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MemorySqlStore } from '../src/adapters/memory/memory-sql-store.js'
+import { seedTileObservation } from '../src/node/memory-stores.js'
 import type { SqlStore, TemplateVersionRecord } from '../src/ports/sql-store.js'
 import { authorized, createTestBackend } from './support/backend.js'
-import { openRelationalStore } from './support/relational.js'
 
 const templateId = '01890f3e-7b2c-7abc-8def-012345678901'
 const originalId = '01890f3e-7b2c-7abc-8def-012345678902'
 const updatedId = '01890f3e-7b2c-7abc-8def-012345678903'
 const start = 1_780_000_000
 const tokenHash = 'a'.repeat(64)
-const closers: Array<() => Promise<void>> = []
-
-afterEach(async () => {
+afterEach(() => {
   vi.restoreAllMocks()
-  await Promise.all(closers.splice(0).map((close) => close()))
 })
 
 const version = (
@@ -59,33 +55,25 @@ const observe = async (
   wrong: number,
 ) => {
   const hash = at.toString(16).padStart(62, '0') + tileX.toString(16).padStart(2, '0')
-  await sql.recordTileObservation(
-    {
-      season: 3,
-      tile: { x: tileX, y: 0 },
-      hash,
-      observedAt: millis(at * 1_000),
-      reportedAt: seconds(at),
-      reportedWithToken: tokenHash,
-      reportedByUserId: 42,
-    },
-    [],
-  )
+  await seedTileObservation(sql, {
+    season: 3,
+    tile: { x: tileX, y: 0 },
+    hash,
+    observedAt: millis(at * 1_000),
+    reportedAt: seconds(at),
+    reportedWithToken: tokenHash,
+    reportedByUserId: 42,
+  })
   await sql.writeTileMeasurements(versionId, { x: tileX, y: 0 }, [
     { hash, correct, wrong, blank: 0 },
   ])
   return hash
 }
 
-describe.each(['memory', 'sqlite'] as const)('template lifetime progress through %s', (adapter) => {
+describe('template lifetime progress', () => {
   const fixture = async () => {
     vi.spyOn(Date, 'now').mockReturnValue((start + 600) * 1_000)
-    const store = adapter === 'sqlite' ? await openRelationalStore() : null
-    if (store !== null) closers.push(store.close)
-    const backend = await createTestBackend({
-      sql: store?.sql ?? new MemorySqlStore(),
-      openAccess: true,
-    })
+    const backend = await createTestBackend({ openAccess: true })
     await backend.sql.insertTemplateVersion(version(originalId, start, 10, [0, 1]))
     await observe(backend.sql, originalId, 0, start + 30, 3, 2)
     const firstHash = await observe(backend.sql, originalId, 1, start + 30, 4, 1)
@@ -146,9 +134,7 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
 
   it('keeps known tile coverage when an artwork update reuses previously observed canvas tiles', async () => {
     vi.spyOn(Date, 'now').mockReturnValue((start + 600) * 1_000)
-    const store = adapter === 'sqlite' ? await openRelationalStore() : null
-    if (store !== null) closers.push(store.close)
-    const backend = await createTestBackend({ sql: store?.sql ?? new MemorySqlStore() })
+    const backend = await createTestBackend()
     await backend.sql.insertTemplateVersion(version(originalId, start, 10, [0, 1]))
     const left = await observe(backend.sql, originalId, 0, start + 30, 3, 2)
     const right = await observe(backend.sql, originalId, 1, start + 30, 4, 1)
@@ -187,9 +173,7 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
     'classifies uncached history only when its tile image is retained (%s)',
     async (retained) => {
       vi.spyOn(Date, 'now').mockReturnValue((start + 600) * 1_000)
-      const store = adapter === 'sqlite' ? await openRelationalStore() : null
-      if (store !== null) closers.push(store.close)
-      const backend = await createTestBackend({ sql: store?.sql ?? new MemorySqlStore() })
+      const backend = await createTestBackend()
       const canvas = await encodeIndexedPng(
         TILE_SIZE,
         TILE_SIZE,
@@ -201,18 +185,15 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
       if (retained) await backend.blobs.put('tiles', canvasHash, canvas)
       await backend.blobs.put('chunks', chunkHash, chunk)
       await backend.sql.insertTemplateVersion(version(originalId, start, 1, [0]))
-      await backend.sql.recordTileObservation(
-        {
-          season: 3,
-          tile: { x: 0, y: 0 },
-          hash: canvasHash,
-          observedAt: millis((start + 30) * 1_000),
-          reportedAt: seconds(start + 30),
-          reportedWithToken: tokenHash,
-          reportedByUserId: 42,
-        },
-        [],
-      )
+      await seedTileObservation(backend.sql, {
+        season: 3,
+        tile: { x: 0, y: 0 },
+        hash: canvasHash,
+        observedAt: millis((start + 30) * 1_000),
+        reportedAt: seconds(start + 30),
+        reportedWithToken: tokenHash,
+        reportedByUserId: 42,
+      })
       await backend.sql.writeTileMeasurements(originalId, { x: 0, y: 0 }, [
         { hash: canvasHash, correct: 1, wrong: 0, blank: 0 },
       ])
@@ -233,9 +214,16 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
         revision: updatedId,
         boundary: true,
       })
-      expect(
-        await backend.sql.readTileMeasurements(updatedId, { x: 0, y: 0 }, [canvasHash]),
-      ).toEqual(retained ? [{ hash: canvasHash, correct: 0, wrong: 1, blank: 0 }] : [])
+      const measured = await backend.connection
+        .prepare(
+          `SELECT sha256 AS hash, correct, wrong, blank FROM template_tile_measurements
+           WHERE version_id = ? AND tile_x = 0 AND tile_y = 0 AND sha256 = ?`,
+        )
+        .bind(updatedId, canvasHash)
+        .all()
+      expect(measured.results).toEqual(
+        retained ? [{ hash: canvasHash, correct: 0, wrong: 1, blank: 0 }] : [],
+      )
       expect(await backend.sql.readLatestTile(3, { x: 0, y: 0 })).toEqual(latest)
     },
   )
@@ -244,9 +232,7 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
     const day = Math.floor(start / 86_400) * 86_400
     const now = day + 40 * 86_400
     vi.spyOn(Date, 'now').mockReturnValue(now * 1_000)
-    const store = adapter === 'sqlite' ? await openRelationalStore() : null
-    if (store !== null) closers.push(store.close)
-    const backend = await createTestBackend({ sql: store?.sql ?? new MemorySqlStore() })
+    const backend = await createTestBackend()
     await backend.sql.insertTemplateVersion(version(originalId, day, 10, [0]))
     const hash = await observe(backend.sql, originalId, 0, day + 600, 5, 5)
     await backend.sql.insertTemplateVersion(version(updatedId, day + 1800, 10, [0]))
@@ -293,9 +279,9 @@ describe.each(['memory', 'sqlite'] as const)('template lifetime progress through
       ),
     )
     expect(response.status).toBe(404)
-    await backend.sql.setTemplatePublishedAt(
+    await backend.sql.updateTemplate(
       templateId,
-      millis(start * 1_000),
+      { publishedAt: millis(start * 1_000) },
       millis(start * 1_000),
     )
     const published = await backend.app.fetch(

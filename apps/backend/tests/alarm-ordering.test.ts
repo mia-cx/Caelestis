@@ -2,12 +2,10 @@ import { encodeIndexedPng, millis, sha256Hex, TRANSPARENT_INDEX } from '@caelest
 import { expect, it } from 'vitest'
 import { RelationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import { authorized, createTestBackend } from './support/backend.js'
-import { openRelationalStore } from './support/relational.js'
 
 it.each(['loss-first', 'recovery-first'])(
   'keeps recovered alarms closed after %s completion',
   async (order) => {
-    const opened = await openRelationalStore()
     const gates = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
     const entered = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
     let delayed = false
@@ -26,8 +24,9 @@ it.each(['loss-first', 'recovery-first'])(
     }
     const pending: Promise<Response>[] = []
     try {
-      const sql = new DelayedAlarms(opened.connection)
-      const { app } = await createTestBackend({ sql })
+      const { app, sql } = await createTestBackend({
+        sql: (connection) => new DelayedAlarms(connection),
+      })
       const form = new FormData()
       form.set('png', new File([await encodeIndexedPng(1, 1, new Uint8Array([1]))], 'art.png'))
       for (const [key, value] of Object.entries({
@@ -85,7 +84,6 @@ it.each(['loss-first', 'recovery-first'])(
     } finally {
       for (const gate of gates) gate.resolve()
       await Promise.allSettled(pending)
-      await opened.close()
     }
   },
 )

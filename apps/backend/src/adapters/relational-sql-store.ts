@@ -74,7 +74,6 @@ import {
   assertValidTemplateVersion,
   assertValidTileHistoryQuery,
   type BucketQuery,
-  type ContributionDelta,
   type ContributionQuery,
   compareBuckets,
   compareContributionDays,
@@ -256,8 +255,7 @@ const chunkRows = <T>(rows: readonly T[], size: number): T[][] => {
  * Drizzle wraps every failure in a `DrizzleQueryError` whose own message is `Failed query: insert
  * into "nodes" ...` — the driver's text, including `UNIQUE constraint failed`, is on `cause`. So a
  * check against `error.message` never matched, a duplicate group name escaped as an unhandled error,
- * and an ordinary admin action answered 500 where the route means 400. The memory store threw the
- * right error, so every test agreed with the route and only production disagreed.
+ * and an ordinary admin action answered 500 where the route means 400.
  *
  * Walks the chain rather than reading `cause` once: D1 adds its own `D1_ERROR:` wrapper on top of
  * drizzle's, and neither depth is something to hard-code. Bounded anyway, because `cause` is an
@@ -536,9 +534,8 @@ export class RelationalSqlStore implements SqlStore {
     // a prefix its parent no longer has — a hierarchy the wire refuses, written by two requests that
     // both succeeded. Only the last segment is the caller's to choose. Same rule as `renameNode`.
     const segment = node.path.slice(node.path.lastIndexOf('/') + 1)
-    // Bounded here as well as by the CHECK, because the memory store bounds it here and the two are
-    // meant to answer alike. The CHECK stays the backstop for the window between this read and the
-    // write, in which a rename can lengthen the prefix underneath us.
+    // Bounded here for a typed error; the CHECK stays the backstop for the window between this read
+    // and the write, in which a rename can lengthen the prefix underneath us.
     if (`${parentPath}/${segment}`.length > MAX_NODE_PATH_LENGTH) {
       throw new NodePathTooLongError(`node path is longer than ${MAX_NODE_PATH_LENGTH}`)
     }
@@ -562,8 +559,8 @@ export class RelationalSqlStore implements SqlStore {
       })
     } catch (error) {
       // The named index, not the bare string: `nodes` has two unique constraints, and reporting a
-      // primary-key collision as a path conflict sends the caller after the wrong recovery — and
-      // gave a different answer than the memory store, which leaves an id collision untyped.
+      // primary-key collision as a path conflict sends the caller after the wrong recovery, so an id
+      // collision stays untyped.
       if (mentionsNodePathConflict(error)) {
         throw new NodePathConflictError(`node path is already taken in season ${node.season}`)
       }
@@ -1238,14 +1235,6 @@ export class RelationalSqlStore implements SqlStore {
     }
   }
 
-  async setTemplatePublishedAt(
-    templateId: string,
-    publishedAt: Millis | null,
-    updatedAt: Millis,
-  ): Promise<boolean> {
-    return await this.updateTemplate(templateId, { publishedAt }, updatedAt)
-  }
-
   async updateTemplate(
     templateId: string,
     patch: TemplatePatch,
@@ -1548,31 +1537,6 @@ export class RelationalSqlStore implements SqlStore {
         }
   }
 
-  async readTileMeasurements(versionId: string, tile: TileCoord, hashes: readonly string[]) {
-    const rows: { hash: string; correct: number; wrong: number; blank: number }[] = []
-    for (const group of chunkRows([...new Set(hashes)], 90)) {
-      rows.push(
-        ...(await this.database
-          .select({
-            hash: templateTileMeasurements.hash,
-            correct: templateTileMeasurements.correct,
-            wrong: templateTileMeasurements.wrong,
-            blank: templateTileMeasurements.blank,
-          })
-          .from(templateTileMeasurements)
-          .where(
-            and(
-              eq(templateTileMeasurements.versionId, versionId),
-              eq(templateTileMeasurements.tileX, tile.x),
-              eq(templateTileMeasurements.tileY, tile.y),
-              inArray(templateTileMeasurements.hash, group),
-            ),
-          )),
-      )
-    }
-    return rows
-  }
-
   async readFirstTemplateObservation(versionId: string): Promise<Seconds | null> {
     const row = await this.client
       .prepare(`
@@ -1697,152 +1661,6 @@ export class RelationalSqlStore implements SqlStore {
           group.map((measurement) => ({ versionId, tileX: tile.x, tileY: tile.y, ...measurement })),
         )
         .onConflictDoNothing()
-    }
-  }
-
-  async recordTileObservation(
-    observation: TileObservation,
-    statuses: readonly TemplateTileStatusRecord[],
-    recordHistory = true,
-    forceCurrent = false,
-  ): Promise<void> {
-    const history = this.database
-      .insert(tileHistory)
-      .values({
-        season: observation.season,
-        tileX: observation.tile.x,
-        tileY: observation.tile.y,
-        resolutionS: seconds(0),
-        bucketStartS: observation.reportedAt,
-        sha256: observation.hash,
-        reportedWithToken: observation.reportedWithToken,
-        reportedByUserId: observation.reportedByUserId,
-      })
-      .onConflictDoNothing()
-    const current = this.database
-      .insert(canvasTiles)
-      .values({
-        season: observation.season,
-        tileX: observation.tile.x,
-        tileY: observation.tile.y,
-        sha256: observation.hash,
-        observedAtMs: observation.observedAt,
-        serverOwned: forceCurrent,
-        commitOrder: 1,
-      })
-      .onConflictDoUpdate({
-        target: [canvasTiles.season, canvasTiles.tileX, canvasTiles.tileY].map(
-          (column) => sql`${sql.identifier(column.name)}`,
-        ),
-        set: {
-          sha256: observation.hash,
-          observedAtMs: observation.observedAt,
-          serverOwned: forceCurrent,
-          commitOrder: sql`${canvasTiles.commitOrder} + 1`,
-        },
-        ...(forceCurrent
-          ? {
-              setWhere: sql`${canvasTiles.serverOwned} = 0
-                OR ${canvasTiles.observedAtMs} <= ${observation.observedAt}`,
-            }
-          : { setWhere: lte(canvasTiles.observedAtMs, observation.observedAt) }),
-      })
-    if (recordHistory) await this.database.batch([history, current])
-    else await current
-    await this.writeTileStatuses(statuses, forceCurrent)
-    for (const status of statuses)
-      await this.writeTileMeasurements(status.versionId, status.tile, [
-        {
-          hash: observation.hash,
-          correct: status.correct,
-          wrong: status.wrong,
-          blank: status.blank,
-        },
-      ])
-  }
-
-  private async writeTileStatuses(
-    statuses: readonly TemplateTileStatusRecord[],
-    forceCurrent = false,
-  ): Promise<void> {
-    for (const group of chunkRows(statuses, 50)) {
-      const statements = group.map((status) =>
-        this.database
-          .insert(templateTileStatuses)
-          .values({
-            templateId: status.templateId,
-            versionId: status.versionId,
-            tileX: status.tile.x,
-            tileY: status.tile.y,
-            correct: status.correct,
-            wrong: status.wrong,
-            blank: status.blank,
-            coloursJson: JSON.stringify(status.colours ?? []),
-            observedAtMs: status.observedAt,
-            serverOwned: forceCurrent,
-          })
-          .onConflictDoUpdate({
-            target: [
-              templateTileStatuses.templateId,
-              templateTileStatuses.versionId,
-              templateTileStatuses.tileX,
-              templateTileStatuses.tileY,
-            ].map((column) => sql`${sql.identifier(column.name)}`),
-            set: {
-              correct: status.correct,
-              wrong: status.wrong,
-              blank: status.blank,
-              coloursJson: JSON.stringify(status.colours ?? []),
-              observedAtMs: status.observedAt,
-              serverOwned: forceCurrent,
-            },
-            ...(forceCurrent
-              ? {
-                  setWhere: sql`${templateTileStatuses.serverOwned} = 0
-                    OR ${templateTileStatuses.observedAtMs} <= ${status.observedAt}`,
-                }
-              : { setWhere: lte(templateTileStatuses.observedAtMs, status.observedAt) }),
-          }),
-      )
-      if (statements.length > 0) {
-        const authoritativeStatements = forceCurrent
-          ? group.map((status) =>
-              this.database
-                .insert(templateAlarmTileStatuses)
-                .values({
-                  templateId: status.templateId,
-                  versionId: status.versionId,
-                  tileX: status.tile.x,
-                  tileY: status.tile.y,
-                  correct: status.correct,
-                  wrong: status.wrong,
-                  blank: status.blank,
-                  coloursJson: JSON.stringify(status.colours ?? []),
-                  observedAtMs: status.observedAt,
-                })
-                .onConflictDoUpdate({
-                  target: [
-                    templateAlarmTileStatuses.templateId,
-                    templateAlarmTileStatuses.versionId,
-                    templateAlarmTileStatuses.tileX,
-                    templateAlarmTileStatuses.tileY,
-                  ].map((column) => sql`${sql.identifier(column.name)}`),
-                  set: {
-                    correct: status.correct,
-                    wrong: status.wrong,
-                    blank: status.blank,
-                    coloursJson: JSON.stringify(status.colours ?? []),
-                    observedAtMs: status.observedAt,
-                  },
-                  setWhere: lte(templateAlarmTileStatuses.observedAtMs, status.observedAt),
-                }),
-            )
-          : []
-        const writes = [...statements, ...authoritativeStatements]
-        await this.database.batch(
-          writes as [(typeof writes)[number], ...Array<(typeof writes)[number]>],
-        )
-      }
     }
   }
 
@@ -2694,7 +2512,7 @@ export class RelationalSqlStore implements SqlStore {
       if (rows.length === 0) continue
       const folded = foldTileReporterRows(rows, edge.target)
       const statements: SqlStatement[] = []
-      for (const group of chunkRows(folded.rows, 10)) {
+      for (const group of chunkRows(folded, 10)) {
         const values = group.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(', ')
         statements.push(
           this.client
@@ -3282,44 +3100,6 @@ export class RelationalSqlStore implements SqlStore {
         set: { displayName, seenAtMs: seenAt },
         setWhere: lte(painters.seenAtMs, seenAt),
       })
-  }
-
-  async addContributions(deltas: readonly ContributionDelta[]): Promise<void> {
-    for (const group of chunkRows(deltas, 40)) {
-      const statements = group.map((delta) =>
-        this.database
-          .insert(contributions)
-          .values({
-            wplaceUserId: delta.wplaceUserId,
-            templateId: delta.templateId,
-            dayS: delta.day,
-            reportedWithToken: delta.reportedWithToken,
-            reportedByUserId: delta.reportedByUserId,
-            placed: delta.placed,
-            correct: delta.correct,
-            repairs: delta.repairs,
-          })
-          .onConflictDoUpdate({
-            target: [
-              contributions.wplaceUserId,
-              contributions.templateId,
-              contributions.dayS,
-              contributions.reportedByUserId,
-            ].map((column) => sql`${sql.identifier(column.name)}`),
-            set: {
-              reportedWithToken: delta.reportedWithToken,
-              placed: sql`${contributions.placed} + excluded.placed`,
-              correct: sql`${contributions.correct} + excluded.correct`,
-              repairs: sql`${contributions.repairs} + excluded.repairs`,
-            },
-          }),
-      )
-      if (statements.length > 0) {
-        await this.database.batch(
-          statements as [(typeof statements)[number], ...Array<(typeof statements)[number]>],
-        )
-      }
-    }
   }
 
   async appendBuckets(buckets: readonly TelemetryBucket[]): Promise<void> {
