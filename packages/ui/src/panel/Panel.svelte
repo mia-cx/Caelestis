@@ -75,7 +75,7 @@
   const returnsToCanvas = (intent: PanelIntent): boolean => {
     switch (intent.type) {
       case 'tree':
-      case 'work-tree':
+      case 'favourites-tree':
         return 'returnToCanvas' in intent.intent && intent.intent.returnToCanvas
       case 'region-claim':
       case 'presence-fly':
@@ -208,8 +208,8 @@
       <div class="page" in:page|global={{ distance: '--caelestis-distance-large', dx: pageDir, blur: '--caelestis-blur-small' }} out:page|global={{ distance: '--caelestis-distance-large', dx: -pageDir, blur: '--caelestis-blur-small' }}>
         {#if view === 'tree' && tree !== undefined}
           <TemplateTree model={tree} onIntent={(intent) => forward({ type: 'tree', intent })} />
-          {#if model.work !== undefined}
-            <PanelDrawers model={model.work} showOtherClaims={model.showOtherClaims ?? false} onIntent={forward} />
+          {#if model.drawers !== undefined}
+            <PanelDrawers model={model.drawers} onIntent={forward} />
           {/if}
         {:else if view === 'appearance' && model.appearance !== undefined}
           <AppearanceEditor model={model.appearance} onIntent={(intent) => emit({ type: 'appearance', intent })} />
