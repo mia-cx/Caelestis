@@ -11,7 +11,7 @@ import {
 } from '@caelestis/shared'
 import { CLAIM_OVERLAY_ID } from './claim-overlay.js'
 import type { ScreenProjection, TileFrame } from './coordinates.js'
-import { type DeviceBox, framePixelAt, MAP_CANVAS_SELECTOR, rectOnScreen } from './map-pointer.js'
+import { type DeviceBox, framePixelAt, rectOnScreen } from './map-pointer.js'
 import { presenceCss } from './presence-colour.js'
 import {
   displayedRect,
@@ -28,6 +28,7 @@ import {
 } from './profile.js'
 import { getState } from './settings.js'
 import { isDrawingTiles } from './tile-transform.js'
+import { MAP_CANVAS } from './wplace-dom.js'
 
 /**
  * Name tags for what the presence layer draws, shown only for what the pointer is over.
@@ -102,7 +103,7 @@ const piecesFor = (id: string, pixels: RegionShapePixels): ClaimPieces => {
 
 const overMap = (target: EventTarget | null): boolean =>
   target instanceof Element &&
-  (target.matches(MAP_CANVAS_SELECTOR) || target.closest(`#${CLAIM_OVERLAY_ID}`) !== null)
+  (target.matches(MAP_CANVAS) || target.closest(`#${CLAIM_OVERLAY_ID}`) !== null)
 
 const watchPointer = (window: Window): void => {
   if (pointerWatched) return

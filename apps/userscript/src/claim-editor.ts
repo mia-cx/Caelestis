@@ -37,9 +37,10 @@ import { CLAIM_OVERLAY_ID, handleOf, overlayMarks, renderOverlay } from './claim
 import type { ClaimSaveResult } from './claim-routing.js'
 import { warn } from './debug.js'
 import { getMap } from './map-handle.js'
-import { isMapPress, MAP_CANVAS_SELECTOR, mapPointAt, swallowNextClick } from './map-pointer.js'
+import { isMapPress, mapPointAt, swallowNextClick } from './map-pointer.js'
 import { isMapInteractionTarget, screenProjection } from './map-view.js'
 import { applyWplaceTheme } from './ui/theme.js'
+import { MAP_CANVAS, OPEN_DIALOG, typingInTextField } from './wplace-dom.js'
 import { dismissWplacePixelCard } from './wplace-pixel-card.js'
 
 /**
@@ -159,7 +160,7 @@ const applyCursor = (): void => {
   const value = editor?.cursor ?? ''
   if (value === appliedCursor) return
   appliedCursor = value
-  const canvas = document.querySelector<HTMLElement>(MAP_CANVAS_SELECTOR)
+  const canvas = document.querySelector<HTMLElement>(MAP_CANVAS)
   if (canvas !== null) canvas.style.cursor = value
 }
 
@@ -269,23 +270,16 @@ const onPointerCancel = (event: PointerEvent): void => {
   notify()
 }
 
-/** A focused text field, reached through open shadow roots, keeps its keys. */
-const isTyping = (target: EventTarget | null): boolean => {
-  let node = target as (Element & { shadowRoot?: ShadowRoot | null }) | null
-  while (node?.shadowRoot?.activeElement) node = node.shadowRoot.activeElement as typeof node
-  const tag = node?.tagName?.toUpperCase()
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-}
-
 /** Keys inside an open dialog, such as an update's confirmation, belong to that dialog. */
 const inDialog = (event: Event): boolean =>
-  event.composedPath().some((node) => node instanceof HTMLDialogElement && node.open)
+  event.composedPath().some((node) => node instanceof Element && node.matches(OPEN_DIALOG))
 
 const onKeydown = (event: KeyboardEvent): void => {
   const s = editor
   if (
     s === null ||
-    isTyping(event.target) ||
+    // A text field, ours in the toolbar or the page's, keeps its keys.
+    typingInTextField(event) ||
     inDialog(event) ||
     event.metaKey ||
     event.ctrlKey ||
