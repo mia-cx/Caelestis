@@ -10,7 +10,6 @@ The Wplace team does not write or review these docs. Endpoints change without no
 
 | I want to… | Read |
 | --- | --- |
-| Call Wplace's backend from an app or script | [API reference](API-reference) |
 | Know which endpoints reveal who painted what | [Painter attribution](Painter-attribution) |
 | Know what the anti-cheat collects, and keep my mod from flagging its users | [Anti-cheat](Anti-cheat) |
 
