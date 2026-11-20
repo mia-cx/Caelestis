@@ -1,10 +1,11 @@
 import { TILE_SIZE, TRANSPARENT_INDEX, WORLD_PIXELS } from '@caelestis/shared'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { UNPAINTED } from '../src/native-pixels.js'
 import { captureSelectedArtwork, captureTemplateArea } from '../src/templates/current-artwork.js'
-import { loadCommittedTilePixels, UNPAINTED } from '../src/tile-transform.js'
+import { loadCommittedTilePixels } from '../src/tile-pixels.js'
 
-vi.mock('../src/tile-transform.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../src/tile-transform.js')>()),
+vi.mock('../src/tile-pixels.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/tile-pixels.js')>()),
   loadCommittedTilePixels: vi.fn(),
 }))
 

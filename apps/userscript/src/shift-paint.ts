@@ -1,12 +1,19 @@
 import { WORLD_PIXELS } from '@caelestis/shared'
-import { activeAllianceSurface } from './alliance-surface.js'
+import { activeAllianceSurface, currentSurface } from './alliance-surface.js'
 import { getMap } from './map-handle.js'
-import { forwardPaintKey, forwardPaintMove, isForwardedPaintKey } from './paint-cursor.js'
-import { simulatedInputAllowed, worldPaintMounted } from './simulated-input.js'
+import { overlayIndexAt, paintIndexAt, pickerPointAt } from './paint-cell.js'
+import {
+  forwardPaintKey,
+  forwardPaintMove,
+  heldKeys,
+  installHeldKeyTracker,
+  isForwardedEvent,
+  moveSamples,
+  simulatedInputAllowed,
+} from './simulated-input.js'
 import { isMoving } from './templates/move.js'
-import { hasWplaceLabel } from './wplace-messages.js'
-import { isPaintOpen, paintPaletteIndexOf, paintPaletteSwatches } from './wplace-paint.js'
-import { overlayIndexAt, paintIndexAt, pickerPointAt } from './wplace-picker.js'
+import { activeNativeTool, readSelectedColour, typingInTextField } from './wplace-dom.js'
+import { currentPaintSwatches, isPaintOpen } from './wplace-paint.js'
 
 /**
  * Shift-paint: while Shift and Space are held, Wplace's brush paints only template cells that
@@ -20,13 +27,14 @@ import { overlayIndexAt, paintIndexAt, pickerPointAt } from './wplace-picker.js'
  * blocked while that cell is skipped. The world map starts on the next auto-repeat; HQ needs a
  * fresh press.
  *
- * The `shift-paint` simulated-input switch opts into lifting the brush over skipped cells with synthetic keys and moves.
+ * The `shift-paint` simulated-input switch opts into lifting the brush over skipped cells with
+ * synthetic keys and moves.
  */
 
 type Position = { readonly clientX: number; readonly clientY: number }
 /** One logical paint cell, or a fractional point inside one. */
 type Cell = NonNullable<ReturnType<typeof pickerPointAt>>
-type Keys = { shift: boolean; space: boolean }
+type Keys = ReturnType<typeof heldKeys>
 
 /** How one shift-paint mode answers the painter's input. */
 interface Mode {
@@ -38,22 +46,14 @@ interface Mode {
   readonly reset: () => void
 }
 
+/** Read the swatch synchronously: continuous picking can change it twice within one frame. */
+const selectedNow = (): number | null => readSelectedColour(currentPaintSwatches())
+
 const brushActive = (): boolean =>
   isPaintOpen() &&
   !isMoving() &&
-  ![...document.querySelectorAll('button[aria-pressed="true"], button.btn-primary')].some(
-    (button) => hasWplaceLabel(button, 'eraser') || hasWplaceLabel(button, 'color_picker'),
-  )
-
-/** Read the swatch synchronously: continuous picking can change it twice within one frame. */
-const selectedIndex = (): number | null => {
-  const swatch = paintPaletteSwatches().find(
-    (candidate) =>
-      candidate.classList.contains('ring-primary') ||
-      candidate.getAttribute('aria-pressed') === 'true',
-  )
-  return swatch === undefined ? null : paintPaletteIndexOf(swatch)
-}
+  activeNativeTool('eraser') === null &&
+  activeNativeTool('color_picker') === null
 
 /** Whether painting the selected colour here moves a visible template towards done. */
 const needsPaint = (cell: Cell, selected: number | null): boolean => {
@@ -65,22 +65,13 @@ const needsPaint = (cell: Cell, selected: number | null): boolean => {
 
 const shouldPaint = (target: Element, position: Position): boolean => {
   const point = pickerPointAt(target, position.clientX, position.clientY)
-  return point !== null && needsPaint(point, selectedIndex())
+  return point !== null && needsPaint(point, selectedNow())
 }
 
 const claim = (event: Event): void => {
   event.preventDefault()
   event.stopImmediatePropagation()
 }
-
-const typing = (event: Event): boolean =>
-  event
-    .composedPath()
-    .some(
-      (target) =>
-        target instanceof HTMLElement &&
-        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)),
-    )
 
 const cellOf = (point: Cell): Cell => ({ ...point, x: Math.floor(point.x), y: Math.floor(point.y) })
 /** A cell painted in one colour. Retracing it is harmless only in that same colour. */
@@ -160,13 +151,13 @@ const filterInput = (keys: Keys): Mode => {
   return {
     keydown: (event) => {
       if (event.code !== 'Space' || holding) return
-      if (keys.shift && brushActive() && hover !== null && !needsPaint(hover, selectedIndex())) {
+      if (keys.shift && brushActive() && hover !== null && !needsPaint(hover, selectedNow())) {
         claim(event)
         return
       }
-      if (event.repeat && activeAllianceSurface() !== null) return
+      if (event.repeat && currentSurface().kind !== 'world') return
       holding = true
-      stroke = new Set(hover === null ? [] : [strokeKey(hover, selectedIndex())])
+      stroke = new Set(hover === null ? [] : [strokeKey(hover, selectedNow())])
       from = hover
     },
     keyup: (event) => {
@@ -182,7 +173,7 @@ const filterInput = (keys: Keys): Mode => {
       if (holding && brushActive()) {
         // The start is included: after a swatch change, Wplace repaints it in the new colour.
         const line = from === null ? [cell] : paintLine(from, cell)
-        const selected = selectedIndex()
+        const selected = selectedNow()
         const harmless = (next: Cell): boolean =>
           stroke.has(strokeKey(next, selected)) || needsPaint(next, selected)
         if (keys.shift && !line.every(harmless)) {
@@ -258,20 +249,9 @@ const simulateInput = (keys: Keys): Mode => {
       forwardPaintKey('keyup')
       const start =
         previous === null ? null : pickerPointAt(target, previous.clientX, previous.clientY)
-      const dx = start === null ? 0 : Math.abs(point.x - start.x)
-      const width = Math.min(dx, WORLD_PIXELS - dx)
-      const steps =
-        start === null ? 1 : Math.max(1, Math.ceil(Math.max(width, Math.abs(point.y - start.y))))
       forwarding = true
       try {
-        for (let step = 1; step <= steps; step++) {
-          const position =
-            previous === null
-              ? cursor
-              : {
-                  clientX: previous.clientX + ((event.clientX - previous.clientX) * step) / steps,
-                  clientY: previous.clientY + ((event.clientY - previous.clientY) * step) / steps,
-                }
+        for (const position of moveSamples(previous ?? cursor, cursor, start, point)) {
           // The world map paints from mouse movement, HQ's artboard from pointer movement.
           forwardPaintMove(
             target,
@@ -297,15 +277,12 @@ const simulateInput = (keys: Keys): Mode => {
 
 /** Paint only unfinished template cells needing the selected colour while Shift is held. */
 export const installShiftPaint = (): void => {
-  const keys: Keys = { shift: false, space: false }
-  const filter = filterInput(keys)
-  const simulate = simulateInput(keys)
+  installHeldKeyTracker()
+  const filter = filterInput(heldKeys())
+  const simulate = simulateInput(heldKeys())
   let current = filter
   const mode = (): Mode => {
-    // Simulated Space goes to `document`, where the world paint panel's listener flags it while
-    // that panel is mounted, even under an alliance editor.
-    const onAlliance = activeAllianceSurface() !== null && !worldPaintMounted()
-    const next = simulatedInputAllowed('shift-paint', onAlliance) ? simulate : filter
+    const next = simulatedInputAllowed('shift-paint') ? simulate : filter
     if (next !== current) {
       next.reset()
       current = next
@@ -316,9 +293,7 @@ export const installShiftPaint = (): void => {
   window.addEventListener(
     'keydown',
     (event) => {
-      if (isForwardedPaintKey(event) || typing(event)) return
-      keys.shift = event.shiftKey
-      if (event.code === 'Space') keys.space = true
+      if (isForwardedEvent(event) || typingInTextField(event)) return
       mode().keydown(event)
     },
     true,
@@ -326,9 +301,7 @@ export const installShiftPaint = (): void => {
   window.addEventListener(
     'keyup',
     (event) => {
-      if (isForwardedPaintKey(event)) return
-      if (event.code === 'Space') keys.space = false
-      keys.shift = event.shiftKey
+      if (isForwardedEvent(event)) return
       mode().keyup(event)
     },
     true,
@@ -337,11 +310,7 @@ export const installShiftPaint = (): void => {
   window.addEventListener('pointermove', (event) => mode().move(event), true)
   window.addEventListener('pointerleave', (event) => mode().leave(event), true)
 
-  const reset = (): void => {
-    keys.shift = false
-    keys.space = false
-    mode().reset()
-  }
+  const reset = (): void => mode().reset()
   window.addEventListener('blur', reset)
   window.addEventListener('pointercancel', reset)
   document.addEventListener('visibilitychange', () => {

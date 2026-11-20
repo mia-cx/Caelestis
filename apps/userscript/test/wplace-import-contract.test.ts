@@ -139,16 +139,21 @@ it('samples the projected footprint before processing the embedded recipe and pe
   expect(new Uint8Array(await (imported.authoring?.source ?? new Blob()).arrayBuffer())).toEqual(
     await encodeIndexedPng(4, 2, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8])),
   )
-  const store = await import('../src/templates/local-store.js')
-  const saved = await store.addLocalTemplate(imported, undefined, true)
+  const catalog = await import('../src/templates/catalog.js')
+  const residency = await import('../src/templates/residency.js')
+  const restore = await import('../src/templates/restore.js')
+  const edits = await import('../src/templates/template-edits.js')
+  const saved = await edits.addLocalTemplate(imported, undefined, true)
   try {
-    await store.restoreLocalTemplates()
-    const restored = store.templateById(saved.id)
+    await restore.restoreLocalTemplates()
+    const restored = catalog.templateById(saved.id)
     if (restored === undefined) throw new Error('the template did not restore')
-    expect(await store.templatePixels(restored)).toEqual(new Uint8Array([TRANSPARENT_INDEX, 2, 3]))
+    expect(await residency.templatePixels(restored)).toEqual(
+      new Uint8Array([TRANSPARENT_INDEX, 2, 3]),
+    )
     expect(processor.render).toHaveBeenCalledTimes(1)
   } finally {
-    await store.removeLocalTemplate(saved.id)
+    await edits.removeLocalTemplate(saved.id)
   }
 })
 

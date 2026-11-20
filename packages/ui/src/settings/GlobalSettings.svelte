@@ -2,8 +2,7 @@
   import SectionHeader from '../foundations/SectionHeader.svelte'
   import SettingRow from '../foundations/SettingRow.svelte'
   import Toggle from '../foundations/Toggle.svelte'
-  import { SIMULATED_INPUT_FLAGS, shortcutLabel } from '@caelestis/shared'
-  import { SIMULATED_INPUT } from '../simulated-input.js'
+  import { SIMULATED_INPUT, SIMULATED_INPUT_IDS, shortcutLabel, simulatedInputOn } from '@caelestis/shared'
   import type { GlobalSettingsIntent, GlobalSettingsModel, SettingsBooleanKey } from './model.js'
 
   /**
@@ -64,8 +63,20 @@
   <SectionHeader title="Dangerous settings" icon="flag" />
   <p class="subtle">These quality-of-life patches don't technically break Wplace's rules, but they use functionality that trips flags in Pawtect, Wplace's anticheat, which are sent with every paint. These flags don't get you banned automatically, especially on a high-trust account with no other evidence of rule-breaking, but Caelestis can't guarantee they won't, so these settings are off by default. With them off, Caelestis trips no Pawtect flags.</p>
   <p class="subtle">Alliance canvases (HQ, avatar and banner) don't check for simulated input, so these features always work there.</p>
-  {#each SIMULATED_INPUT as feature (feature.id)}
-    <SettingRow label={feature.label}>{#snippet hint()}{#each feature.hint as part}{#if typeof part === 'string'}{part}{:else if 'fixed' in part}<kbd class="hint-key">{part.fixed}</kbd>{:else}<kbd class="hint-key">{shortcutLabel(model.shortcuts.bindings[part.key], model.shortcuts.platform) || 'not set'}</kbd>{/if}{/each}{/snippet}{#snippet details()}<small class="flags">Trips: {#each SIMULATED_INPUT_FLAGS[feature.id] as flag}<code>{flag}</code>{/each}</small>{/snippet}{#snippet children()}<Toggle label={feature.label} checked={model.simulatedInput[feature.id] === true} disabled={feature.extends !== undefined && model.simulatedInput[feature.extends] !== true} onChange={(value) => onIntent?.({ type: 'set-simulated-input', id: feature.id, value })} />{/snippet}</SettingRow>
+  {#each SIMULATED_INPUT_IDS as id (id)}
+    {@const feature = SIMULATED_INPUT[id]}
+    <SettingRow label={feature.label}>
+      {#snippet hint()}{#each feature.hint as part}{#if typeof part === 'string'}{part}{:else if 'fixed' in part}<kbd class="hint-key">{part.fixed}</kbd>{:else}<kbd class="hint-key">{shortcutLabel(model.shortcuts.bindings[part.key], model.shortcuts.platform) || 'not set'}</kbd>{/if}{/each}{/snippet}
+      {#snippet details()}<small class="flags">Trips: {#each feature.flags as flag}<code>{flag}</code>{/each}</small>{/snippet}
+      {#snippet children()}
+        <Toggle
+          label={feature.label}
+          checked={simulatedInputOn(model.simulatedInput, id)}
+          disabled={feature.extends !== undefined && !simulatedInputOn(model.simulatedInput, feature.extends)}
+          onChange={(value) => onIntent?.({ type: 'set-simulated-input', id, value })}
+        />
+      {/snippet}
+    </SettingRow>
   {/each}
 {/if}
 

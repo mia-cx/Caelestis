@@ -2,7 +2,7 @@ import { WPLACE_PALETTE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MarkList } from '../src/templates/mark-list.js'
 
-vi.mock('../src/main.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
+vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
 
 /**
  * A painted pixel patches cached marker lists in place instead of rescanning the tile. Patching is
@@ -150,10 +150,19 @@ const setup = async () => {
   vi.stubGlobal('navigator', { deviceMemory: 8 })
   vi.stubGlobal('OffscreenCanvas', OffscreenCanvasStub)
   vi.resetModules()
-  const tileTransform = await import('../src/tile-transform.js')
-  const store = await import('../src/templates/local-store.js')
-  const { pixelAccounting } = await import('../src/templates/mismatch.js')
+  const pageTaps = {
+    ...(await import('../src/page-taps.js')),
+    ...(await import('../src/tile-pixels.js')),
+    ...(await import('../src/draft-pixels.js')),
+    ...(await import('../src/paint-requests.js')),
+  }
+  const catalog = await import('../src/templates/catalog.js')
+  const edits = await import('../src/templates/template-edits.js')
+  const { installMismatchAccounting, pixelAccounting } = await import(
+    '../src/templates/mismatch.js'
+  )
   const { MarkerRenderer } = await import('../src/gl/marker-renderer.js')
+  installMismatchAccounting()
 
   const served = new Uint8Array(SIZE * SIDE).fill(UNPAINTED)
   for (let y = 0; y < SIDE; y++)
@@ -181,14 +190,14 @@ const setup = async () => {
       }
     },
   } as unknown as Window & typeof globalThis
-  tileTransform.install(realm, () => null)
-  tileTransform.captureTilePixels(true)
-  stopCapture = () => tileTransform.captureTilePixels(false)
+  pageTaps.install(realm)
+  pageTaps.captureTilePixels(true)
+  stopCapture = () => pageTaps.captureTilePixels(false)
   const tileResponse = await realm.fetch(
     `https://backend.wplace.live/files/s0/tiles/${TILE.x}/${TILE.y}.png`,
   )
   await realm.createImageBitmap(new realm.Blob([await tileResponse.arrayBuffer()]))
-  await tileTransform.settledTileCaptures()
+  await pageTaps.settledTileCaptures()
 
   const indices = new Uint8Array(SIDE * SIDE)
   for (let y = 0; y < SIDE; y++)
@@ -196,7 +205,7 @@ const setup = async () => {
   let added = 0
   const addTemplate = async (): Promise<string> => {
     const id = `patching-${added++}`
-    await store.addLocalTemplate(
+    await edits.addLocalTemplate(
       {
         id,
         name: id,
@@ -213,12 +222,12 @@ const setup = async () => {
       true,
     )
     // Unpainted pixels are shown too, so the markers are the merged list and are patched as one.
-    await store.setOwnsGroup(id, 'markers', true)
-    await store.setAppearance(id, { markUnpainted: true, unpaintedLimit: 1 })
+    await edits.setOwnsGroup(id, 'markers', true)
+    await edits.setAppearance(id, { markUnpainted: true, unpaintedLimit: 1 })
     return id
   }
   const read = (id: string) => {
-    const template = store.displayTemplates().find((candidate) => candidate.id === id)
+    const template = catalog.displayTemplates().find((candidate) => candidate.id === id)
     if (template === undefined) throw new Error(`no template ${id}`)
     const accounting = pixelAccounting.read(template)
     return pixelAccounting.frame(() => {
@@ -242,7 +251,7 @@ const setup = async () => {
   const rescan = async () => {
     const id = await addTemplate()
     const fresh = lists(read(id))
-    await store.removeLocalTemplate(id)
+    await edits.removeLocalTemplate(id)
     return fresh
   }
 
@@ -250,12 +259,12 @@ const setup = async () => {
   /** Native draft writes, one batch at a time, as Wplace's draft canvas reports them. */
   const drafts = (pixels: readonly (readonly [number, number, number])[]) => {
     for (const [x, y, colour] of pixels) draft[y * SIZE + x] = colour
-    tileTransform.captureDraftPixels(TILE, draft.slice())
+    pageTaps.captureDraftPixels(TILE, draft.slice())
   }
   /** Submit pixels to the faked paint endpoint and wait for Caelestis to accept them. */
   const submit = async (pixels: readonly (readonly [number, number, number])[]) => {
     const accepted = new Promise<void>((resolve) => {
-      const stop = tileTransform.onAcceptedPaint(() => {
+      const stop = pageTaps.onAcceptedPaint(() => {
         stop()
         resolve()
       })

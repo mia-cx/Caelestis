@@ -2,7 +2,8 @@ import { readFile } from 'node:fs/promises'
 import { encodeIndexedPng, sha256Hex } from '@caelestis/shared'
 import { vi } from 'vitest'
 import { ditheretteAvailable } from '../src/templates/ditherette.js'
-import { type ImportedTemplate, importFile } from '../src/templates/import.js'
+import { importFile } from '../src/templates/import.js'
+import type { ImportedTemplate } from '../src/templates/template-record.js'
 import { installBitmapDecoder } from './image-decoder.js'
 
 const PROLOGUE =

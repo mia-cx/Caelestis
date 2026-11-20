@@ -1,14 +1,16 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, expect, it } from 'vitest'
-import { setState } from '../state.js'
+import { setState } from '../settings.js'
 import { clearAppearancePreview, setAppearancePreview } from '../templates/appearance-preview.js'
-import type { PlacedTemplate } from '../templates/local-store.js'
+import type { PlacedTemplate } from '../templates/catalog.js'
 import { cutPixels } from '../templates/sparse-pixels.js'
 import { RenderScene } from './render-scene.js'
 
 const shown: PlacedTemplate = {
+  origin: 'local',
   id: 'settled',
   name: 'Settled',
+  surface: WORLD_TEMPLATE_SURFACE,
   source: 'image',
   originX: 0,
   originY: 0,
@@ -33,7 +35,7 @@ afterEach(() => {
 
 it('reuses a settled scene until something outside the template changes', () => {
   const scene = new RenderScene()
-  const frame = (now: number) => scene.advanceTemplates([shown], WORLD_TEMPLATE_SURFACE, now, false)
+  const frame = (now: number) => scene.advanceTemplates([shown], WORLD_TEMPLATE_SURFACE, now)
   frame(0)
   const settled = frame(1000)
   expect(settled.animating).toBe(false)

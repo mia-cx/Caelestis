@@ -1,16 +1,11 @@
-import { activeAllianceSurface } from './alliance-surface.js'
+import { currentSurface } from './alliance-surface.js'
 import { userscriptVersion } from './client-metrics.js'
 import { getMap } from './map-handle.js'
 import { presenceView } from './presence-client.js'
-import { getState } from './state.js'
-import { isTemplateVisible, localTemplates } from './templates/local-store.js'
+import type { ProfileContext } from './profile.js'
+import { getState } from './settings.js'
+import { isTemplateVisible, localTemplates } from './templates/catalog.js'
 import { isPaintOpen, selectedColour } from './wplace-paint.js'
-
-declare const __CAELESTIS_BUILD__: {
-  readonly revision: string | null
-  readonly dirty: boolean | null
-  readonly development: boolean
-}
 
 /** Read report metadata on demand; no environment probes run in the render loop. */
 export const readProfileContext = () => {
@@ -42,7 +37,7 @@ export const readProfileContext = () => {
       visibility: globalThis.document?.visibilityState ?? null,
     },
     camera: center ? { longitude: center.lng, latitude: center.lat, zoom: map?.getZoom() } : null,
-    surface: activeAllianceSurface()?.surface.kind ?? 'world',
+    surface: currentSurface().kind,
     templates: {
       loaded: templates.length,
       enabled: templates.filter((template) => template.visible).length,
@@ -67,7 +62,5 @@ export const readProfileContext = () => {
       claimsShown: state.showPresenceClaims,
       claimsOnlyWhilePainting: state.showPresenceClaimsOnlyWhilePainting,
     },
-  }
+  } satisfies ProfileContext
 }
-
-export type ProfileContext = ReturnType<typeof readProfileContext>

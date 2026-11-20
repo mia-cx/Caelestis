@@ -1,19 +1,14 @@
-import {
-  type TemplateSurface,
-  TRANSPARENT_INDEX,
-  templateSurfaceBounds,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
-import { activeAllianceSurface } from '../alliance-surface.js'
-import { viewportCentre } from '../main.js'
-import { claimedHiddenFor } from './colour-filter.js'
+import { type TemplateSurface, TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { activeAllianceSurface, allianceSurfaceBounds } from '../alliance-surface.js'
+import { viewportCentre } from '../map-view.js'
 import {
   appearanceOf,
   displayTemplatesForSurface,
   isTemplateDraft,
   isTemplateVisible,
   type PlacedTemplate,
-} from './local-store.js'
+} from './catalog.js'
+import { claimedHiddenFor } from './colour-filter.js'
 import { horizontalCentre, sourceXAt, wrappedDeltaX } from './placement.js'
 import { pixelAt } from './sparse-pixels.js'
 
@@ -59,7 +54,7 @@ const focusContext = (): FocusContext | null => {
     const centre = viewportCentre()
     return centre === null ? null : { surface: WORLD_TEMPLATE_SURFACE, centre }
   }
-  const bounds = alliance.bounds ?? templateSurfaceBounds(alliance.surface)
+  const bounds = allianceSurfaceBounds(alliance.surface)
   if (bounds === null) return null
   const frame = alliance.frame.getBoundingClientRect()
   const stage = alliance.stage.getBoundingClientRect()

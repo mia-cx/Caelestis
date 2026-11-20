@@ -1,6 +1,6 @@
+import { isStoredBlob } from '../cross-realm.js'
 import { warn } from '../debug.js'
-import { isStoredBlob } from '../page-world.js'
-import { openTemplateDatabase, SERVER_PIXELS_STORE } from './persist.js'
+import { openCaelestisDb, SERVER_PIXELS_STORE } from './caelestis-db.js'
 import { cutPixels, packPixels, type SparsePixels, unpackPixels } from './sparse-pixels.js'
 
 /**
@@ -33,7 +33,7 @@ const transact = async <T>(
   mode: IDBTransactionMode,
   run: (store: IDBObjectStore) => () => T,
 ): Promise<T> => {
-  const db = await openTemplateDatabase()
+  const db = await openCaelestisDb()
   try {
     return await new Promise<T>((resolve, reject) => {
       const transaction = db.transaction(SERVER_PIXELS_STORE, mode)
@@ -85,7 +85,7 @@ export const saveServerPixels = async (
       return () => undefined
     })
   } catch (error) {
-    warn('install', `could not cache server template ${key}`, String(error))
+    warn(`could not cache server template ${key}`, String(error))
   }
 }
 
@@ -98,7 +98,7 @@ export const cachedServerCopy = async (
     const entry = await cachedEntry(key, version)
     return entry === null ? null : { opaque: entry.opaque, area: entry.indices.size }
   } catch (error) {
-    warn('install', `could not read cached server template ${key}`, String(error))
+    warn(`could not read cached server template ${key}`, String(error))
     return null
   }
 }
@@ -118,7 +118,7 @@ export const readServerPixels = async (
       return unpackPixels(width, height, { bytes, chunks: entry.chunks })
     return bytes.length === width * height ? cutPixels(width, height, bytes) : null
   } catch (error) {
-    warn('install', `could not read cached server template ${key}`, String(error))
+    warn(`could not read cached server template ${key}`, String(error))
     return null
   }
 }
@@ -132,7 +132,7 @@ export const forgetServerPixels = async (keys: readonly string[]): Promise<void>
       return () => undefined
     })
   } catch (error) {
-    warn('install', 'could not drop cached server templates', String(error))
+    warn('could not drop cached server templates', String(error))
   }
 }
 
@@ -150,6 +150,6 @@ export const retainServerPixels = async (
     const stale = keys.filter((key): key is string => typeof key === 'string' && !keep(key))
     await forgetServerPixels(stale)
   } catch (error) {
-    warn('install', 'could not prune cached server templates', String(error))
+    warn('could not prune cached server templates', String(error))
   }
 }

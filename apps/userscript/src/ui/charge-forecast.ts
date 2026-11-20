@@ -1,11 +1,5 @@
-import { onAcceptedPaint } from '../tile-transform.js'
-import {
-  chargeForecast,
-  formatCountdown,
-  onChargesChange,
-  spendCharges,
-} from '../wplace-charges.js'
-import { paintDockButton } from '../wplace-paint.js'
+import { chargeForecast, formatCountdown, onChargesChange } from '../wplace-charges.js'
+import { paintDockButton } from '../wplace-dom.js'
 import { GAP } from './metrics.js'
 import { applyWplaceTheme } from './theme.js'
 
@@ -78,8 +72,6 @@ export const positionChargeForecast = (): void => {
  * where `document.body` is still null, and a throw here would leave the chip uninstalled for good.
  */
 export const installChargeForecast = (): void => {
-  // Accepted paints stamp Unix seconds; the charge clock runs on `Date.now()` milliseconds.
-  onAcceptedPaint((paint) => spendCharges(paint.painted, paint.observedAt * 1_000))
   const mount = (): void => {
     onChargesChange(renderChargeForecast)
     setInterval(renderChargeForecast, TICK_MS)

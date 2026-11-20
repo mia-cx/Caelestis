@@ -4,19 +4,19 @@ import {
   TILE_SIZE,
   TRANSPARENT_INDEX,
   WORLD_PIXELS,
-  WORLD_TEMPLATE_SURFACE,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import { allianceBounds } from '../alliance-coordinates.js'
 import { activeAllianceSurface } from '../alliance-surface.js'
 import { readArtboardPixels, refreshArtboardPixels } from '../gl/artboard-pixels.js'
 import {
   type NativePixelSnapshot,
   type NativePixelWindow,
   nativePixelWindow,
+  UNPAINTED,
 } from '../native-pixels.js'
-import { loadCommittedTilePixels, UNPAINTED } from '../tile-transform.js'
-import { type PlacedTemplate, templatePixels } from './local-store.js'
+import { loadCommittedTilePixels } from '../tile-pixels.js'
+import type { PlacedTemplate } from './catalog.js'
+import { templatePixels } from './residency.js'
 
 /**
  * A placement with a dense copy of its pixels. Capture writes a whole new image, so it works on
@@ -73,10 +73,10 @@ export const compositeCommittedArtwork = (
 /** Capture complete committed art at the saved placement, including world tile crossings and east-edge wrapping. */
 export const captureCurrentArtwork = async (placed: PlacedTemplate): Promise<Uint8Array> => {
   const template = { ...placed, indices: await templatePixels(placed) }
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   if (surface.kind !== 'world') {
     const active = activeAllianceSurface()
-    const bounds = active === null ? null : allianceBounds(active)
+    const bounds = active?.bounds ?? null
     if (active === null || bounds === null || !sameTemplateSurface(surface, active.surface)) {
       throw new Error('Open this template’s alliance canvas before updating it.')
     }

@@ -1,20 +1,15 @@
+import type { PixelRect } from './geometry.js'
+import { notifyListeners } from './listeners.js'
 import { isProfileEnabled, recordProfileCounter } from './profile.js'
 
-export interface CanvasWriteRect {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
-
 /** The image a `drawImage` call copied and the destination rectangle it landed in. */
-export interface CanvasDraw extends CanvasWriteRect {
+export interface CanvasDraw extends PixelRect {
   readonly source: unknown
 }
 
 type CanvasWriteListener = (
   canvas: object,
-  dirty: CanvasWriteRect | null,
+  dirty: PixelRect | null,
   draw: CanvasDraw | null,
 ) => void
 
@@ -29,7 +24,7 @@ export const onCanvasWrite = (listener: CanvasWriteListener): (() => void) => {
 /** Publish a successful observed canvas write; count known integer rectangles within canvas bounds. */
 export const announceCanvasWrite = (
   canvas: { readonly width: number; readonly height: number },
-  dirty: CanvasWriteRect | null = null,
+  dirty: PixelRect | null = null,
   draw: CanvasDraw | null = null,
 ): void => {
   recordProfileCounter('canvas:observed writes')
@@ -47,5 +42,5 @@ export const announceCanvasWrite = (
       Math.max(0, right - left) * Math.max(0, bottom - top),
     )
   }
-  for (const listener of listeners) listener(canvas, dirty, draw)
+  notifyListeners(listeners, 'canvas write observer failed', canvas, dirty, draw)
 }

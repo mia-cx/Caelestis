@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { importStateModules } from './state-modules.js'
 
 const STATE_KEY = 'caelestis.state.v2'
 const SHARE_TILES_KEY = 'caelestis.setting.shareTiles'
@@ -17,7 +18,7 @@ const extensionContext = async (store: Map<string, string>) => {
     persist: (key, value) => (value === null ? store.delete(key) : store.set(key, value)),
     fetch: async () => Object.fromEntries(store),
   })
-  const state = await import('../src/state.js')
+  const state = await importStateModules()
   return { adopt, state }
 }
 

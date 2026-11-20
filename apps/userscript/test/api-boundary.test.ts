@@ -4,11 +4,13 @@ import {
   LIVE_PROTOCOL_V2,
   sha256Hex,
   type TemplateRecipe,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TemplateAuthoring } from '../src/templates/authoring.js'
 import { adminToken, backendFetch, createTestBackend, readToken } from './backend.js'
 import { installBitmapDecoder } from './image-decoder.js'
+import { importStateModules } from './state-modules.js'
 
 const origin = 'https://userscript-api-boundary.test'
 
@@ -21,7 +23,7 @@ const installBackend = async (options?: Parameters<typeof createTestBackend>[0])
 }
 
 const connect = async (token = adminToken) => {
-  const state = await import('../src/state.js')
+  const state = await importStateModules()
   const probed = await state.probeServer(origin, token)
   expect(probed.status).toBe('connected')
   state.upsertServer(probed)
@@ -73,7 +75,7 @@ describe('access token creation through the backend', () => {
     await installBackend()
     const { server, state } = await connect()
     const { registerCaelestisUi } = await import('@caelestis/ui/elements')
-    const { createServerAccessToken } = await import('../src/application/access-tokens.js')
+    const { createServerAccessToken } = await import('../src/ui/access-tokens.js')
     const { readInvite } = await import('../src/invite.js')
     registerCaelestisUi()
     const copied: string[] = []
@@ -231,20 +233,22 @@ describe('userscript to backend API boundary', () => {
       const { state, server } = await connect()
       const identity = state.serverConnectionIdentity(server)
       const signal = state.serverConnectionSignal(server)
-      const { backendVersionOutdated } = await import('../src/userscript-update.js')
+      const { backendVersionOutdated } = await import('../src/client-metrics.js')
       expect(backendVersionOutdated(server.info?.version, '0.9.0')).toBe(true)
       const changed = vi.fn()
       state.onStateChange(changed)
 
       await installBackend({ version: '0.9.0', build: 'new-build' })
       if (transport === 'poll') {
-        expect(await state.listServerContents(server)).not.toBeNull()
+        expect(await state.readManifest(server)).not.toBeNull()
       } else {
         const response = await fetch(`${origin}/v1/manifest?season=3`, {
           headers: { authorization: `Bearer ${adminToken}` },
         })
         expect(response.ok).toBe(true)
-        expect(state.applyLiveServerManifest(server, await response.json())).not.toBeNull()
+        expect(
+          state.applyLiveManifest(server, WORLD_TEMPLATE_SURFACE, await response.json()),
+        ).not.toBeNull()
       }
 
       const current = state.getState().servers.find((candidate) => candidate.url === origin)
@@ -327,7 +331,7 @@ describe('userscript to backend API boundary', () => {
     expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
       ok: true,
     })
-    const contents = await state.listServerContents(server)
+    const contents = await state.readManifest(server)
     expect(contents).not.toBeNull()
     const template = contents?.templates.find((candidate) => candidate.id === uploaded.id)
     expect(template).toMatchObject({
@@ -451,7 +455,7 @@ describe('userscript to backend API boundary', () => {
     expect(await state.deleteNode(server, folder.node.id, { nodes: 1, templates: 1 })).toEqual({
       ok: true,
     })
-    expect(await state.listServerContents(server)).toMatchObject({ nodes: [], templates: [] })
+    expect(await state.readManifest(server)).toMatchObject({ nodes: [], templates: [] })
   })
 
   it('keeps a newer template when the backend refuses a stale delete', async () => {
@@ -471,7 +475,7 @@ describe('userscript to backend API boundary', () => {
       ok: true,
     })
 
-    const before = (await state.listServerContents(server))?.templates.find(
+    const before = (await state.readManifest(server))?.templates.find(
       (template) => template.id === uploaded.id,
     )
     if (before === undefined) throw new Error('uploaded template was not in the manifest')
@@ -486,12 +490,12 @@ describe('userscript to backend API boundary', () => {
     })
     expect(refused.ok).toBe(false)
     expect(
-      (await state.listServerContents(server))?.templates.some(
+      (await state.readManifest(server))?.templates.some(
         (template) => template.id === uploaded.id && template.name === 'Newer pixels',
       ),
     ).toBe(true)
 
-    const current = (await state.listServerContents(server))?.templates.find(
+    const current = (await state.readManifest(server))?.templates.find(
       (template) => template.id === uploaded.id,
     )
     if (current === undefined) throw new Error('template disappeared after stale delete')
@@ -502,9 +506,7 @@ describe('userscript to backend API boundary', () => {
       }),
     ).toEqual({ ok: true })
     expect(
-      (await state.listServerContents(server))?.templates.some(
-        (template) => template.id === uploaded.id,
-      ),
+      (await state.readManifest(server))?.templates.some((template) => template.id === uploaded.id),
     ).toBe(false)
   })
 
@@ -513,7 +515,7 @@ describe('userscript to backend API boundary', () => {
     const { state, server } = await connect(readToken)
     expect(server).toMatchObject({ isAdmin: false, token: readToken })
 
-    expect(await state.listServerContents(server)).toMatchObject({ nodes: [], templates: [] })
+    expect(await state.readManifest(server)).toMatchObject({ nodes: [], templates: [] })
     await expect(state.createNode(server, 'Forbidden folder', null)).resolves.toMatchObject({
       ok: false,
       message: 'That code cannot create folders — it needs admin access.',
@@ -539,34 +541,25 @@ describe('userscript to backend API boundary', () => {
     'rejects an invalid invite despite anonymous access (already connected: %s)',
     async (alreadyConnected) => {
       await installBackend({ openAccess: true })
-      const state = await import('../src/state.js')
+      const state = await importStateModules()
       if (alreadyConnected) await connect()
       const servers = state.getState().servers
       const saved = localStorage.getItem('caelestis.state.v2')
       const { consumeInvite, encodeInvite } = await import('../src/invite.js')
       const connected = vi.fn()
-      const notify = vi.fn()
+      state.onServerConnected(connected)
       const clearHash = vi.fn()
 
-      await consumeInvite({
-        hash: `#${encodeInvite(origin, 'rejected-invite-token')}`,
+      const outcome = await consumeInvite(
+        `#${encodeInvite(origin, 'rejected-invite-token')}`,
         clearHash,
-        servers: () => state.getState().servers,
-        probe: state.probeServer,
-        upsert: state.upsertServer,
-        connected,
-        notify,
-        isBusy: () => false,
-      })
+      )
 
       expect(clearHash).toHaveBeenCalledOnce()
       expect(state.getState().servers).toEqual(servers)
       expect(localStorage.getItem('caelestis.state.v2')).toBe(saved)
       expect(connected).not.toHaveBeenCalled()
-      expect(notify).toHaveBeenCalledExactlyOnceWith(
-        `${origin} didn't accept the invite's token.`,
-        'error',
-      )
+      expect(outcome?.kind).toBe('refused')
     },
   )
 
@@ -580,7 +573,7 @@ describe('userscript to backend API boundary', () => {
       }),
     )
 
-    const accessTokens = await import('../src/application/access-tokens.js')
+    const accessTokens = await import('../src/ui/access-tokens.js')
     let firstPage: (() => void) | undefined
     let finalPage: (() => void) | undefined
     const firstReady = new Promise<void>((resolve) => {
@@ -624,7 +617,7 @@ describe('userscript to backend API boundary', () => {
     const { state, server } = await connect()
     const result = await state.createNode(server, 'Legacy folder', null)
     if (!result.ok) throw new Error(result.message)
-    expect(await state.listServerContents(server)).toMatchObject({
+    expect(await state.readManifest(server)).toMatchObject({
       nodes: [expect.objectContaining({ id: result.node.id, name: 'Legacy folder' })],
     })
     const paths = legacy.mock.calls.map(
@@ -641,11 +634,12 @@ describe('admin drafts and page-readable storage', () => {
     await installBackend()
     installBitmapDecoder()
     const { state, server } = await connect()
-    await import('../src/application/tree-server-state.js')
+    const { installServerSync } = await import('../src/templates/server-sync.js')
+    installServerSync()
     const { loadServerCache } = await import('../src/server-cache.js')
-    const { serverTemplateKey } = await import('../src/templates/server-sync.js')
+    const { serverTemplateKey } = await import('../src/tree-keys.js')
     const { cachedServerCopy } = await import('../src/templates/server-pixel-cache.js')
-    const store = await import('../src/templates/local-store.js')
+    const catalog = await import('../src/templates/catalog.js')
     const folder = await state.createNode(server, 'Drafts', null)
     if (!folder.ok) throw new Error(folder.message)
     const uploaded = await state.uploadTemplate(server, {
@@ -660,17 +654,18 @@ describe('admin drafts and page-readable storage', () => {
     const cached = async () => (await loadServerCache([origin]))[0]
 
     // The admin still sees and draws the draft; only the disk copies are missing.
-    await state.listServerContents(server)
-    await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
+    await state.readManifest(server)
+    await vi.waitFor(() => expect(catalog.templateById(key)).toBeDefined())
     await vi.waitFor(async () => expect((await cached())?.fetchedAt).toBeDefined())
     expect(await cached()).toMatchObject({ nodes: [], templates: [] })
-    const version = store.templateById(key)?.serverVersion ?? ''
+    const drawn = catalog.templateById(key)
+    const version = drawn?.origin === 'server' ? drawn.version : ''
     expect(await cachedServerCopy(key, version)).toBeNull()
 
     expect(await state.patchTemplate(server, uploaded.id, { published: true })).toEqual({
       ok: true,
     })
-    await state.listServerContents(server)
+    await state.readManifest(server)
     await vi.waitFor(async () =>
       expect((await cached())?.templates?.map((template) => template.id)).toEqual([uploaded.id]),
     )
@@ -712,7 +707,15 @@ describe('server cache saved by an older version', () => {
       templates: [template(publicArt, publicFolder, true), template(draftArt, draftsFolder, false)],
     }
     // Creates the store, then overwrites the entry the way the previous version saved it.
-    await cacheServer(entry)
+    await cacheServer({
+      ...entry,
+      templates: entry.templates.map((row) => ({
+        ...row,
+        totalPixels: 1,
+        finished: false,
+        surface: WORLD_TEMPLATE_SURFACE,
+      })),
+    })
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('caelestis')
       request.onsuccess = () => resolve(request.result)
@@ -769,9 +772,11 @@ describe('server data reuse', () => {
     await installBackend()
     const decode = installBitmapDecoder()
     const { state, server } = await connect()
-    await import('../src/application/tree-server-state.js')
-    const store = await import('../src/templates/local-store.js')
-    const { serverTemplateKey } = await import('../src/templates/server-sync.js')
+    const { installServerSync } = await import('../src/templates/server-sync.js')
+    installServerSync()
+    const catalog = await import('../src/templates/catalog.js')
+    const residency = await import('../src/templates/residency.js')
+    const { serverTemplateKey } = await import('../src/tree-keys.js')
     // Four pixels across the boundary of tiles 0/0 and 1/0: one chunk on each side.
     const artwork = async (right: readonly number[]) => {
       const bytes = await encodeIndexedPng(4, 1, new Uint8Array([1, 2, ...right]))
@@ -786,10 +791,10 @@ describe('server data reuse', () => {
     })
     if (!uploaded.ok) throw new Error(uploaded.message)
     const key = serverTemplateKey(origin, uploaded.id)
-    await state.listServerContents(server)
+    await state.readManifest(server)
     const pixels = async () => {
-      const template = store.templateById(key)
-      return template === undefined ? [] : [...(await store.templatePixels(template))]
+      const template = catalog.templateById(key)
+      return template === undefined ? [] : [...(await residency.templatePixels(template))]
     }
     await vi.waitFor(async () => expect(await pixels()).toEqual([1, 2, 3, 4]))
     expect(decode).toHaveBeenCalledTimes(2)
@@ -802,8 +807,10 @@ describe('server data reuse', () => {
       png: await artwork([5, 6]),
     })
     if (!replaced.ok) throw new Error(replaced.message)
-    await state.listServerContents(server)
-    await vi.waitFor(() => expect(store.templateById(key)?.serverVersion).toBe(replaced.versionId))
+    await state.readManifest(server)
+    await vi.waitFor(() =>
+      expect(catalog.templateById(key)).toMatchObject({ version: replaced.versionId }),
+    )
     expect(await pixels()).toEqual([1, 2, 5, 6])
     expect(decode).toHaveBeenCalledTimes(1)
   })
@@ -864,9 +871,9 @@ describe('server data reuse', () => {
 
     // A fresh page: sync installs first, then the stored server is probed and connected.
     vi.resetModules()
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     await import('../src/application/tree-server-state.js')
-    const store = await import('../src/templates/local-store.js')
+    const catalog = await import('../src/templates/catalog.js')
     const serverSync = await import('../src/templates/server-sync.js')
     const coordinator = await import('../src/server-sync-coordinator.js')
     serverSync.installServerSync()
@@ -874,8 +881,9 @@ describe('server data reuse', () => {
     fetch.mockClear()
     state.upsertServer(await state.probeServer(origin, adminToken))
 
-    const key = serverSync.serverTemplateKey(origin, uploaded.id)
-    await vi.waitFor(() => expect(store.templateById(key)).toBeDefined())
+    const { serverTemplateKey } = await import('../src/tree-keys.js')
+    const key = serverTemplateKey(origin, uploaded.id)
+    await vi.waitFor(() => expect(catalog.templateById(key)).toBeDefined())
     const socket = sockets[0]
     if (socket === undefined) throw new Error('coordinator did not open a live socket')
     socket.open()
@@ -899,16 +907,17 @@ describe('server data reuse', () => {
     })
     vi.stubGlobal('fetch', fetch)
     window.fetch = fetch
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     await import('../src/application/tree-server-state.js')
     const serverSync = await import('../src/templates/server-sync.js')
     const coordinator = await import('../src/server-sync-coordinator.js')
     serverSync.installServerSync()
     coordinator.installServerSyncCoordinator()
-    // Registered after the manifest, so its refresh means the sweep has passed the manifest.
+    // Registered after the manifest, so its refresh means the sweep has passed the manifest. Any
+    // resource id telemetry would otherwise own serves as the witness here.
     const swept: string[] = []
     coordinator.registerServerSyncResource({
-      id: 'sweep-witness',
+      id: 'telemetry-status',
       scope: () => 'world',
       refresh: async (server) => {
         swept.push(server.url)

@@ -1,14 +1,16 @@
 import {
+  type AdjacencyBudget,
+  claimDocumentPixels,
   MAX_REGION_DOCUMENT_PIXELS,
-  type PresenceRect,
+  padRect,
+  pixelsTouch,
   type RegionClaim,
   type RegionShapePixels,
-  rectIntersection,
+  rectsIntersect,
   sameTemplateSurface,
+  unionRect,
 } from '@caelestis/shared'
-import { claimDocumentPixels } from './claim-document.js'
-import { registerProfileMemorySource } from './profile.js'
-import type { State } from './state.js'
+import type { State } from './settings.js'
 
 export interface DisplayClaim {
   readonly id: string
@@ -16,50 +18,12 @@ export interface DisplayClaim {
   readonly pixels: RegionShapePixels
 }
 
-const unionBounds = (a: PresenceRect, b: PresenceRect): PresenceRect => ({
-  x: Math.min(a.x, b.x),
-  y: Math.min(a.y, b.y),
-  w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x),
-  h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y),
-})
-
 // This bounds added grouping work across a whole snapshot, not just one mask allocation.
 const MAX_GROUPING_WORK = MAX_REGION_DOCUMENT_PIXELS
-type WorkBudget = { remaining: number }
-
-const pixelsTouch = (a: RegionShapePixels, b: RegionShapePixels, budget: WorkBudget): boolean => {
-  const bounds = a.rect
-  const overlap = rectIntersection(
-    { x: bounds.x - 1, y: bounds.y - 1, w: bounds.w + 2, h: bounds.h + 2 },
-    b.rect,
-  )
-  if (overlap === null) return false
-  for (let y = overlap.y; y < overlap.y + overlap.h; y++) {
-    for (let x = overlap.x; x < overlap.x + overlap.w; x++) {
-      if (--budget.remaining < 0) return false
-      if (b.mask[(y - b.rect.y) * b.rect.w + x - b.rect.x] !== 1) continue
-      for (
-        let ny = Math.max(y - 1, bounds.y);
-        ny <= Math.min(y + 1, bounds.y + bounds.h - 1);
-        ny++
-      ) {
-        for (
-          let nx = Math.max(x - 1, bounds.x);
-          nx <= Math.min(x + 1, bounds.x + bounds.w - 1);
-          nx++
-        ) {
-          if (--budget.remaining < 0) return false
-          if (a.mask[(ny - bounds.y) * bounds.w + nx - bounds.x] === 1) return true
-        }
-      }
-    }
-  }
-  return false
-}
 
 /** Union already-composited claims so one document's subtractors cannot erase another's pixels. */
 const unionPixels = (a: RegionShapePixels, b: RegionShapePixels): RegionShapePixels => {
-  const rect = unionBounds(a.rect, b.rect)
+  const rect = unionRect(a.rect, b.rect)
   const mask = new Uint8Array(rect.w * rect.h)
   let count = 0
   for (const source of [a, b]) {
@@ -95,7 +59,7 @@ export const createDisplayClaims = () => {
     )
       return displayed
     const groups: DisplayClaim[] = []
-    const budget: WorkBudget = { remaining: MAX_GROUPING_WORK }
+    const budget: AdjacencyBudget = { remaining: MAX_GROUPING_WORK }
     for (const region of visible) {
       const pixels = claimDocumentPixels(region.document)
       if (pixels === null || pixels.count === 0) continue
@@ -113,8 +77,8 @@ export const createDisplayClaims = () => {
           continue
         const a = group.pixels.rect
         const b = candidate.pixels.rect
-        if (a.x > b.x + b.w || b.x > a.x + a.w || a.y > b.y + b.h || b.y > a.y + a.h) continue
-        const bounds = unionBounds(a, b)
+        if (!rectsIntersect(padRect(a, 1), b)) continue
+        const bounds = unionRect(a, b)
         if (bounds.w * bounds.h > MAX_REGION_DOCUMENT_PIXELS) continue
         if (!pixelsTouch(group.pixels, candidate.pixels, budget)) continue
         const memberCount = candidate.regions.length + group.regions.length
@@ -170,6 +134,6 @@ export const displayClaims = (
   return retained
 }
 
-registerProfileMemorySource('Presence region masks', () =>
-  retained.reduce((bytes, claim) => bytes + claim.pixels.mask.byteLength, 0),
-)
+/** What the last displayed claims' masks hold in memory, for the profile. */
+export const presenceMaskMemoryBytes = (): number =>
+  retained.reduce((bytes, claim) => bytes + claim.pixels.mask.byteLength, 0)

@@ -19,21 +19,21 @@
  *
  * What this is and is not: the bundle is installed with
  * `Page.addScriptToEvaluateOnNewDocument`, which runs in the page's main world before any page
- * script. That is the timing and the world a `@grant none` userscript gets. A script with any
- * `@grant` runs in the manager's sandbox instead, and reaches the page only by injecting a
- * `<script>` element — the bridge BlueMarble uses. So this harness is faithful for page-context
- * work and proves nothing about the sandboxed path. Verify that separately before relying on it.
+ * script, as a userscript manager's copy would. With no `GM_*` storage there, that copy serves
+ * `localStorage` over the storage bridge and moves Caelestis into the page with an inline
+ * `<script>`, the path every manager takes (see `src/entry.ts`). What it cannot show is
+ * a real manager's `GM_*` storage or its sandbox realm; verify those in a manager.
  */
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ensureChromium } from './chromium.mjs'
+import { USERSCRIPT_BUNDLE } from './build-config.mjs'
+import { CDP, ensureChromium } from './chromium.mjs'
 import { watchSources } from './dev-watch.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const BUNDLE = join(here, 'dist/wplace-template-server.user.js')
-const CDP = 'http://127.0.0.1:9222'
+const BUNDLE = join(here, USERSCRIPT_BUNDLE)
 
 const argv = process.argv.slice(2)
 const flag = (name, fallback) => {

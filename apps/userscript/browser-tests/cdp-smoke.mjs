@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
+import { CDP_PORT } from '../chromium.mjs'
 
-const port = process.env.CDP_PORT ?? '9222'
+const port = process.env.CDP_PORT ?? String(CDP_PORT)
 const bundle = process.env.BROWSER_BUNDLE
 if (bundle === undefined) throw new Error('BROWSER_BUNDLE is required')
 const browser = await fetch(`http://127.0.0.1:${port}/json/version`, {
@@ -214,6 +215,13 @@ try {
   )
   if (typeof menu?.innerHeight !== 'number')
     throw new Error('open menu contract returned an incomplete result')
+
+  const overlay = await runContract(
+    'runOverlayMenuContracts()',
+    'data:text/html,<!doctype html><title>overlay menu</title>',
+  )
+  if (typeof overlay?.menuHeight !== 'number')
+    throw new Error('overlay menu contract returned an incomplete result')
 
   const production = await runContract('runProductionBrowserBoundaries()')
   if (

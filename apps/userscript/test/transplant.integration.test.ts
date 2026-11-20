@@ -1,16 +1,21 @@
-import { decodePng, decodeWplaceIndexedPng } from '@caelestis/shared'
+import {
+  decodePng,
+  decodeWplaceIndexedPng,
+  type TemplateSurface,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { moveServerTemplateToServer, transplant } from '../src/application/transplant.js'
+import { moveServerTemplateToServer } from '../src/application/transfer.js'
+import { transplant } from '../src/application/transplant.js'
 import '../src/application/tree-server-state.js'
 import { createLocalFolder } from '../src/local-folders.js'
-import {
-  admittedServerContentsFor,
-  type ConnectedServer,
-  getState,
-  upsertServer,
-} from '../src/state.js'
-import { addLocalTemplate, setTemplateFolder, templateById } from '../src/templates/local-store.js'
-import { serverTemplateKey } from '../src/templates/server-sync.js'
+import { upsertServer } from '../src/server-connections.js'
+import { admittedManifest } from '../src/server-manifests.js'
+import { getState, type ServerConnection } from '../src/settings.js'
+import { templateById } from '../src/templates/catalog.js'
+import { putTemplateCopy } from '../src/templates/template-copies.js'
+import { addLocalTemplate, setTemplateFolder } from '../src/templates/template-edits.js'
+import { serverTemplateKey } from '../src/tree-keys.js'
 import { adminToken, createTestBackend } from './backend.js'
 
 const ids = {
@@ -20,7 +25,7 @@ const ids = {
   destinationVersion: '018f1b8c-7f4e-7a8c-8234-223456789abd',
 }
 const stamp = 1_700_000_000_000
-const server = (url: string, id: string): ConnectedServer => ({
+const server = (url: string, id: string): ServerConnection => ({
   url,
   info: { id, name: url, auth: 'access_token' },
   token: 'admin',
@@ -28,6 +33,40 @@ const server = (url: string, id: string): ConnectedServer => ({
   isAdmin: true,
   season: 7,
 })
+/** Draw a server template the way server sync does, so a transfer finds a current copy of it. */
+const drawServerCopy = async (
+  owner: ServerConnection,
+  templateId: string,
+  name: string,
+  version: string,
+  surface?: TemplateSurface,
+) => {
+  const id = serverTemplateKey(owner.url, templateId, surface)
+  await putTemplateCopy({
+    id,
+    name,
+    source: 'wplace',
+    originX: 10,
+    originY: 20,
+    width: 2,
+    height: 2,
+    indices: new Uint8Array([1, 2, 3, 4]),
+    moved: 0,
+    opaque: 4,
+    surface: surface ?? WORLD_TEMPLATE_SURFACE,
+    origin: 'server',
+    server: owner,
+    serverTemplateId: templateId,
+    nodeId: null,
+    version,
+    unpublished: false,
+    wrapX: false,
+    tileKeys: surface === undefined ? ['0/0'] : [],
+  })
+  const drawn = templateById(id)
+  if (drawn === undefined) throw new Error('the server copy was not drawn')
+  return drawn
+}
 const published = {
   id: ids.source,
   nodeId: null,
@@ -36,7 +75,7 @@ const published = {
   published: true,
   updatedAt: stamp,
 }
-const fullManifest = (owner: ConnectedServer) => ({
+const fullManifest = (owner: ServerConnection) => ({
   version: 'revision',
   season: 7,
   surface: { kind: 'world', allianceId: null },
@@ -59,7 +98,37 @@ const fullManifest = (owner: ConnectedServer) => ({
   ],
 })
 
-afterEach(() => vi.unstubAllGlobals())
+/** The source row the tree last drew; a test replaces it to simulate another admin's edit. */
+const sourceRow = vi.hoisted(() => ({ edited: null as object | null }))
+/** The alliance manifest the alliance sync last admitted; null until a test admits one. */
+const allianceManifest = vi.hoisted(() => ({ admitted: null as object | null }))
+
+// Refreshing the tree after each write is the panel's business. Admission still reads the
+// destination over the network.
+vi.mock('../src/application/tree-server-state.js', async (original) => ({
+  ...(await original<typeof import('../src/application/tree-server-state.js')>()),
+  serverTemplateAt: () => sourceRow.edited ?? published,
+}))
+vi.mock('../src/server-manifests.js', async (original) => {
+  const store = await original<typeof import('../src/server-manifests.js')>()
+  return {
+    ...store,
+    manifestRows: (...[server, surface]: Parameters<typeof store.manifestRows>) =>
+      surface !== undefined && surface.kind !== 'world'
+        ? (allianceManifest.admitted ?? undefined)
+        : store.manifestRows(server, surface),
+  }
+})
+vi.mock('../src/application/tree-server.js', async (original) => ({
+  ...(await original<typeof import('../src/application/tree-server.js')>()),
+  refreshEditedSurface: async () => {},
+}))
+
+afterEach(() => {
+  sourceRow.edited = null
+  allianceManifest.admitted = null
+  vi.unstubAllGlobals()
+})
 
 describe('cross-server template transplant', () => {
   it('admits a Local folder branch at the server before removing its persisted source', async () => {
@@ -91,7 +160,7 @@ describe('cross-server template transplant', () => {
       },
     )
     const { app } = await createTestBackend()
-    const destination: ConnectedServer = {
+    const destination: ServerConnection = {
       url: 'https://destination-local-folder.test',
       info: {
         id: '00000000-0000-7000-8000-000000000000',
@@ -155,11 +224,11 @@ describe('cross-server template transplant', () => {
     const result = await transplant(
       { kind: 'local', folderId: sourceFolder.id },
       { kind: 'server', server: currentDestination, nodeId: null },
-      () => [],
+      () => {},
     )
 
-    if (!result.ok || result.destinationRootId === undefined) throw new Error(result.message)
-    expect(result).toMatchObject({ ok: true, nodes: 1, templates: 1 })
+    if (!result.ok || result.destinationId === undefined) throw new Error(result.message)
+    expect(result.message).toBe('Moved “Local collection” — 1 folder, 1 template.')
     if (upload === undefined) throw new Error('template upload was not captured')
     expect(await decodeWplaceIndexedPng(upload)).toEqual({
       width: 2,
@@ -167,19 +236,61 @@ describe('cross-server template transplant', () => {
       indices: new Uint8Array([4, 3, 2, 1]),
     })
     expect(sourceWasPresentWhenDestinationWasListed).toBe(true)
-    const admitted = admittedServerContentsFor(currentDestination)
+    const admitted = admittedManifest(currentDestination)
     if (admitted === null) throw new Error('destination manifest was not admitted')
     expect(admitted).toMatchObject({
-      nodes: [expect.objectContaining({ id: result.destinationRootId, name: sourceFolder.name })],
+      nodes: [expect.objectContaining({ id: result.destinationId, name: sourceFolder.name })],
       templates: [
         expect.objectContaining({
-          nodeId: result.destinationRootId,
+          nodeId: result.destinationId,
           name: sourceTemplate.name,
         }),
       ],
     })
     expect(templateById(sourceTemplate.id)).toBeUndefined()
     expect(getState().localFolders.some((folder) => folder.id === sourceFolder.id)).toBe(false)
+  })
+
+  it('moves a server folder on an alliance surface using its drawn alliance copies', async () => {
+    const surface: TemplateSurface = { kind: 'alliance-picture', allianceId: 42 }
+    const source = server('https://alliance-source.test', '018f1b8c-7f4e-7a8c-8a01-123456789abc')
+    upsertServer(source)
+    const currentSource = getState().servers.find((item) => item.url === source.url)!
+    const folder = {
+      id: '018f1b8c-7f4e-7a8c-8234-323456789abc',
+      parentId: null,
+      path: '/Banner art',
+      name: 'Banner art',
+      createdAt: stamp,
+    }
+    const row = { ...published, nodeId: folder.id }
+    allianceManifest.admitted = { nodes: [folder], templates: [row] }
+    await drawServerCopy(currentSource, row.id, row.name, row.version, surface)
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      // The source version was published without a recipe.
+      if (url.pathname.includes('/recipes/')) return new Response(null, { status: 404 })
+      if (url.pathname.endsWith('/admin/nodes') && url.searchParams.get('allianceId') === '42')
+        return Response.json({ nodes: [folder] })
+      if (init?.method === 'DELETE') return Response.json({})
+      throw new Error(`unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.fetch = fetchMock as typeof window.fetch
+
+    const result = await transplant(
+      { kind: 'server', server: currentSource, nodeId: folder.id },
+      { kind: 'local', folderId: null },
+      () => {},
+      surface,
+    )
+
+    expect(result).toMatchObject({
+      ok: true,
+      message: 'Moved “Banner art” — 1 folder, 1 template.',
+    })
+    const moved = getState().localFolders.find((local) => local.id === result.destinationId)
+    expect(moved).toMatchObject({ name: folder.name, surface })
   })
 
   it('uses real persisted pixels, admits a canonical manifest, then deletes the source', async () => {
@@ -189,25 +300,12 @@ describe('cross-server template transplant', () => {
     upsertServer(destination)
     const currentSource = getState().servers.find((item) => item.url === source.url)!
     const currentDestination = getState().servers.find((item) => item.url === destination.url)!
-    const drawn = await addLocalTemplate(
-      {
-        id: serverTemplateKey(source.url, ids.source),
-        name: published.name,
-        source: 'wplace',
-        originX: 10,
-        originY: 20,
-        width: 2,
-        height: 2,
-        indices: new Uint8Array([1, 2, 3, 4]),
-        moved: 0,
-        opaque: 4,
-      },
-      undefined,
-      true,
-    )
+    const drawn = await drawServerCopy(currentSource, ids.source, published.name, ids.sourceVersion)
     let upload: Uint8Array | undefined
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input))
+      // The source version was published without a recipe.
+      if (url.pathname.includes('/recipes/')) return new Response(null, { status: 404 })
       if (
         url.hostname === 'destination.test' &&
         url.pathname.endsWith('/admin/templates') &&
@@ -234,15 +332,13 @@ describe('cross-server template transplant', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     window.fetch = fetchMock as typeof window.fetch
-    const serverDrawn = Object.assign(templateById(drawn.id)!, { serverVersion: ids.sourceVersion })
     const result = await moveServerTemplateToServer(
       currentSource,
       currentDestination,
       null,
       published,
-      serverDrawn,
-      () => published,
-      async () => {},
+      drawn,
+      () => {},
     )
     expect(result).toMatchObject({ ok: true, destinationId: ids.destination })
     expect(await decodeWplaceIndexedPng(upload!)).toEqual({
@@ -266,24 +362,11 @@ describe('cross-server template transplant', () => {
     upsertServer(destination)
     const currentSource = getState().servers.find((item) => item.url === source.url)!
     const currentDestination = getState().servers.find((item) => item.url === destination.url)!
-    const drawn = await addLocalTemplate(
-      {
-        id: serverTemplateKey(source.url, ids.source),
-        name: published.name,
-        source: 'wplace',
-        originX: 10,
-        originY: 20,
-        width: 2,
-        height: 2,
-        indices: new Uint8Array([1, 2, 3, 4]),
-        moved: 0,
-        opaque: 4,
-      },
-      undefined,
-      true,
-    )
+    const drawn = await drawServerCopy(currentSource, ids.source, published.name, ids.sourceVersion)
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input))
+      // The source version was published without a recipe.
+      if (url.pathname.includes('/recipes/')) return new Response(null, { status: 404 })
       if (
         url.hostname === 'destination-refusal.test' &&
         url.pathname.endsWith('/admin/templates') &&
@@ -304,15 +387,13 @@ describe('cross-server template transplant', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     window.fetch = fetchMock as typeof window.fetch
-    const serverDrawn = Object.assign(templateById(drawn.id)!, { serverVersion: ids.sourceVersion })
     const result = await moveServerTemplateToServer(
       currentSource,
       currentDestination,
       null,
       published,
-      serverDrawn,
-      () => published,
-      async () => {},
+      drawn,
+      () => {},
     )
     expect(result).toMatchObject({ ok: false, destinationId: ids.destination })
     expect(templateById(drawn.id)).toBeDefined()
@@ -320,5 +401,55 @@ describe('cross-server template transplant', () => {
       expect.stringContaining(`/admin/templates/${ids.source}`),
       expect.objectContaining({ method: 'DELETE' }),
     )
+  })
+
+  it('keeps the source when it is edited while its copy uploads', async () => {
+    const source = server('https://source-edited.test', '018f1b8c-7f4e-7a8c-8a01-123456789abc')
+    const destination = server(
+      'https://destination-edited.test',
+      '018f1b8c-7f4e-7a8c-8a01-123456789abd',
+    )
+    upsertServer(source)
+    upsertServer(destination)
+    const currentSource = getState().servers.find((item) => item.url === source.url)!
+    const currentDestination = getState().servers.find((item) => item.url === destination.url)!
+    const drawn = await drawServerCopy(currentSource, ids.source, published.name, ids.sourceVersion)
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input))
+      // The source version was published without a recipe.
+      if (url.pathname.includes('/recipes/')) return new Response(null, { status: 404 })
+      if (
+        url.hostname === 'destination-edited.test' &&
+        url.pathname.endsWith('/admin/templates') &&
+        init?.method === 'POST'
+      ) {
+        sourceRow.edited = { ...published, name: 'Renamed meanwhile', updatedAt: stamp + 1 }
+        return Response.json(
+          { templateId: ids.destination, versionId: ids.destinationVersion },
+          { status: 201 },
+        )
+      }
+      throw new Error(`unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    window.fetch = fetchMock as typeof window.fetch
+    const result = await moveServerTemplateToServer(
+      currentSource,
+      currentDestination,
+      null,
+      published,
+      drawn,
+      () => {},
+    )
+    expect(result).toEqual({
+      ok: false,
+      tone: 'warning',
+      destinationId: ids.destination,
+      message: `Copied to ${destination.url} as a draft, but the source changed and was kept.`,
+    })
+    // Besides reading the source's recipe, only the upload reached a server: nothing was deleted.
+    expect(
+      fetchMock.mock.calls.filter(([input]) => !String(input).includes('/recipes/')),
+    ).toHaveLength(1)
   })
 })

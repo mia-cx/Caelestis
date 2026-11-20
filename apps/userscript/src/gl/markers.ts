@@ -1,49 +1,56 @@
-import { sameTemplateSurface, TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { TILE_SIZE, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import type { TileQuad } from '../coordinates.js'
 import { count, warn } from '../debug.js'
 import { getMap } from '../map-handle.js'
+import { requestMapFrame } from '../map-view.js'
 import { overlayPeekFade } from '../overlay-peek.js'
-import { isProfileEnabled, measureProfile, profileGpu, recordProfileWorkload } from '../profile.js'
-import { getState } from '../state.js'
-import { toRgbUnit } from '../templates/appearance.js'
 import {
-  displayTemplates,
+  isProfileEnabled,
+  measureProfile,
+  profileGpu,
+  recordProfileWorkload,
+  registerProfileMemorySource,
+} from '../profile.js'
+import { getState } from '../settings.js'
+import {
+  displayTemplatesForSurface,
   isTemplateVisible,
   type PlacedTemplate,
-} from '../templates/local-store.js'
+} from '../templates/catalog.js'
 import type { MarkList } from '../templates/mark-list.js'
 import { pixelAccounting } from '../templates/mismatch.js'
 import { horizontalSpans } from '../templates/placement.js'
-import { measuresLocally } from '../templates/wplace-owned.js'
-import {
-  currentQuads,
-  holdTilePixels,
-  isDrawingTiles,
-  registerDraftCanvas,
-  retainDraftCanvases,
-  type TileQuad,
-} from '../tile-transform.js'
-import { isPaintOpen, selectedColour } from '../wplace-paint.js'
-import { prefersReducedMotion } from './appearance-transition.js'
-import { batchMarkerWork } from './marker-batching.js'
-import {
-  markerDensityMemoryBytes,
-  markerSampleRate,
-  visibleListPoints,
-  visibleSourceRect,
-} from './marker-density.js'
+import { currentQuads, isDrawingTiles } from '../tile-frame.js'
+import { holdTilePixels, onTileLoadsChange } from '../tile-pixels.js'
+import { selectedColour } from '../wplace-paint.js'
+import { LAYER_IDS } from './layer-stack.js'
+import { markerDensityMemoryBytes, visibleListPoints, visibleSourceRect } from './marker-density.js'
+import { budgetMarkers, markerStyles } from './marker-frame.js'
 import { MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
 import { worldRenderScene } from './render-scene.js'
 
-export { deviceScale, MarkerRenderer, type MarkerStyle } from './marker-renderer.js'
-export { markerDensityMemoryBytes }
-
 let worldMarkerRenderer: MarkerRenderer | null = null
 
-export const markerGpuMemoryBytes = (): number => worldMarkerRenderer?.memoryBytes() ?? 0
-export const initMarkers = (gl: WebGL2RenderingContext): void => {
+const markerGpuMemoryBytes = (): number => worldMarkerRenderer?.memoryBytes() ?? 0
+/**
+ * Whether the last frame left a tile unanswered because its pixels had not arrived. An idle Wplace
+ * map renders nothing, so the frame that answers it is asked for when a tile read can progress.
+ */
+let awaitingPixels = false
+
+/** Register the world markers' memory sources, and redraw a deferred frame once pixels can arrive. */
+export const installMarkerLayer = (): void => {
+  registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
+  registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
+  onTileLoadsChange(() => {
+    if (awaitingPixels) requestMapFrame()
+  })
+}
+
+const initMarkers = (gl: WebGL2RenderingContext): void => {
   worldMarkerRenderer = new MarkerRenderer(gl)
 }
-export const releaseMarkers = (gl: WebGL2RenderingContext): void => {
+const releaseMarkers = (gl: WebGL2RenderingContext): void => {
   if (worldMarkerRenderer?.gl !== gl) return
   worldMarkerRenderer.dispose()
   worldMarkerRenderer = null
@@ -56,7 +63,7 @@ export const releaseMarkers = (gl: WebGL2RenderingContext): void => {
  * tile's own on-screen rect, the same rect the overlay itself is drawn on, so markers inherit
  * whatever MapLibre did to place that tile rather than being projected separately.
  */
-export const drawMarkers = (
+const drawMarkers = (
   gl: WebGL2RenderingContext,
   tile: TileQuad,
   pixels: readonly MarkList[],
@@ -81,117 +88,6 @@ export const drawMarkers = (
   )
 }
 
-export const MARKER_LAYER_ID = 'caelestis-markers'
-
-/** Their crosshair. It stays on top; the markers go directly below it. */
-const CROSSHAIR_LAYER = 'pixel-hover'
-
-/** A tile being painted gets its own layer, named for the tile. */
-const DRAFT_LAYER = /^paint-preview-/
-
-interface Ordered {
-  /** MapLibre's own draw order. Custom layers are in it; `getStyle` leaves them out. */
-  style?: { _order?: string[] }
-  getLayer?: (id: string) => unknown
-  getSource?: (id: string) => { getCanvas?: () => HTMLCanvasElement } | undefined
-  moveLayer?: (id: string, before?: string) => void
-}
-
-/** Their id ends with the tile: `paint-preview-0.9268…-325,1783`. */
-const DRAFT_TILE = /-(\d+),(\d+)$/
-
-/**
- * Keep the markers above wplace's draft layers.
- *
- * They add one per tile being painted, inserted wherever MapLibre puts it, which lands above a layer
- * of ours added earlier — so the pixel just placed covers the marker it was meant to clear, and the
- * only way to see the marker go is to zoom out until the placed pixel is too small to hide it.
- *
- * Checked from the frame hook rather than from `styledata`. Moving a layer *fires* `styledata`, so
- * listening to it to decide whether to move is a loop that provokes itself — and if wplace re-insert
- * a draft above ours, the two take turns for as long as the tab lasts. A poll cannot do that, and
- * reading `_order` is an array scan. Register canvases on every frame so the first native writes
- * become available immediately, including when Paint closes and reopens between frames.
- */
-export const keepMarkersAboveDrafts = (): void => {
-  const map = getMap() as Ordered | null
-  const order = map?.style?._order
-  if (map === null || order === undefined) {
-    count('paint:no layer order to read')
-    return
-  }
-  count('paint:checked the layer order')
-
-  const markers = order.indexOf(MARKER_LAYER_ID)
-  let lastDraft = -1
-  const canvases = new Set<object>()
-  for (let i = 0; i < order.length; i++) {
-    const id = order[i] as string
-    if (!DRAFT_LAYER.test(id)) continue
-    lastDraft = i
-    /**
-     * Tell the pixel capture which tile this canvas is, while we are already looking at the style.
-     *
-     * wplace name the layer and its image source for the tile, and the source hands back the canvas
-     * a placed-but-unsubmitted pixel is drawn into. Working it out from where the texture landed
-     * instead does not work: those quads measure 0.125x and 0.063x of a tile, so they are not draft
-     * layers at all, and the writes went to whichever tile the geometry matched — every patched
-     * pixel came out "became wrong" and none came out "fixed".
-     */
-    count('paint:saw a draft layer')
-    const match = DRAFT_TILE.exec(id)
-    if (match === null) {
-      count('paint:draft layer id had no tile in it')
-      continue
-    }
-    const canvas = map.getSource?.(id)?.getCanvas?.()
-    if (canvas === undefined) {
-      count('paint:draft source gave no canvas')
-      continue
-    }
-    canvases.add(canvas)
-    registerDraftCanvas(canvas, { x: Number(match[1]), y: Number(match[2]) })
-  }
-  retainDraftCanvases(canvases)
-  if (markers < 0 || lastDraft < 0 || markers > lastDraft) return
-
-  const crosshair = map.getLayer?.(CROSSHAIR_LAYER) === undefined ? undefined : CROSSHAIR_LAYER
-  map.moveLayer?.(MARKER_LAYER_ID, crosshair)
-  count('marker:moved above the draft layers')
-}
-
-/**
- * The soonest a deferred scan may ask for another frame.
- *
- * Asking from inside a render callback is asking for the next frame from the frame you are in, so a
- * tile that can never be answered — because its pixels were never captured, say — turns into a
- * render loop at full rate that looks exactly like a hang. This makes the retry a heartbeat instead.
- */
-const RETRY_MS = 250
-let nextRetry = 0
-let retryTimer: ReturnType<typeof setTimeout> | null = null
-
-/**
- * Ask for another frame once the heartbeat allows it, from a timer.
- *
- * Asking only from inside a frame relied on some other frame arriving after the heartbeat was due.
- * Wplace's map used to render continuously, so one always did. Now an idle map renders nothing, and
- * a scan deferred behind a failed or queued tile chase would wait for the next unrelated movement.
- */
-const retryDeferredScan = (now: number): void => {
-  if (retryTimer !== null) return
-  retryTimer = setTimeout(
-    () => {
-      retryTimer = null
-      nextRetry = performance.now() + RETRY_MS
-      const map = getMap() as { triggerRepaint?: () => void } | null
-      map?.triggerRepaint?.()
-      count('marker:asked for another frame')
-    },
-    Math.max(0, nextRetry - now),
-  )
-}
-
 /** Every marked pixel of every template that asks for it, over every tile on screen. */
 const drawVisible = (
   gl: WebGL2RenderingContext,
@@ -200,27 +96,15 @@ const drawVisible = (
   const tiles = isDrawingTiles() ? currentQuads() : []
   if (tiles.length === 0) {
     holdTilePixels([])
+    awaitingPixels = false
     return
   }
-  /**
-   * Everything whose markers are still worth anything, which is not the same as everything that
-   * asked for them.
-   *
-   * Switching markers off used to remove the template from this list, and every crosshair on it
-   * vanished between two frames. On dense artwork that is indistinguishable from the overlay
-   * breaking: a few thousand marks disappear at once and nothing says whether they were fixed,
-   * filtered, or lost. So the switch is a destination — the marks keep being drawn at falling
-   * opacity until the ramp runs out, and only then does the template drop off this list.
-   */
   const now = performance.now()
-  const selected = isPaintOpen() ? (selectedColour() ?? -1) : -1
+  const selected = selectedColour() ?? -1
   const sceneTemplates = worldRenderScene.advanceTemplates(
-    displayTemplates().filter((candidate) =>
-      sameTemplateSurface(candidate.surface ?? WORLD_TEMPLATE_SURFACE, WORLD_TEMPLATE_SURFACE),
-    ),
+    displayTemplatesForSurface(WORLD_TEMPLATE_SURFACE),
     WORLD_TEMPLATE_SURFACE,
     now,
-    prefersReducedMotion(),
     tiles,
   )
   const sceneMarkers = worldRenderScene.advanceMarkers(
@@ -229,6 +113,10 @@ const drawVisible = (
     now,
   )
   const animating = sceneTemplates.animating || sceneMarkers.animating || !peek.done
+  // Everything whose markers are still worth drawing, which is not everything that asked for them.
+  // Switching markers off is a destination: the marks keep drawing at falling opacity until the ramp
+  // runs out. On dense artwork, thousands of marks vanishing between two frames would look like the
+  // overlay breaking, with nothing saying whether they were fixed, filtered, or lost.
   const wanted: {
     template: PlacedTemplate
     appearance: (typeof sceneTemplates.templates)[number]['appearance']
@@ -240,7 +128,7 @@ const drawVisible = (
     const { template, appearance } = rendered
     const hasSelectedFade = selectedFades.some(({ fade }) => fade > 0)
     if (
-      measuresLocally(template) &&
+      template.origin !== 'server' &&
       isTemplateVisible(template) &&
       mismatchFade === 0 &&
       !hasSelectedFade
@@ -250,10 +138,7 @@ const drawVisible = (
       wanted.push({ template, appearance, mismatchFade, selectedFades })
     }
   }
-  if (animating) {
-    const map = getMap() as { triggerRepaint?: () => void } | null
-    map?.triggerRepaint?.()
-  }
+  if (animating) requestMapFrame()
   if (wanted.length > 0) count('marker:layer rendered')
   // Only the tiles a template covers. Asking about a tile is not free — one whose pixels have not
   // been captured triggers a fetch and a 1000x1000 `getImageData`.
@@ -295,34 +180,12 @@ const drawVisible = (
       if (covers(template, tile) && !accounting.ensure(tile.tile)) deferred = true
     }
   }
-  const { markerBudget, onlySelectedColour } = getState()
-  const moving = (getMap() as { isMoving?: () => boolean } | null)?.isMoving?.() === true
-  const renderBudget = markerBudget
+  const renderBudget = getState().markerBudget
+  const moving = getMap()?.isMoving() === true
   const profiling = isProfileEnabled()
-  const mismatchSelection = onlySelectedColour && isPaintOpen() ? selected : -1
   for (const { template, appearance, mismatchFade, selectedFades } of wanted) {
     const accounting = pixelAccounting.read(template)
-    const mismatchStyle: MarkerStyle = {
-      size: appearance.markerSize,
-      thickness: 2,
-      colour: toRgbUnit(appearance.markerColour),
-      // One switch above both: off means every marker is drawn the same, and the fade and the second
-      // colour keep their values for whenever it goes back on.
-      otherColour:
-        !appearance.dimOthers || appearance.otherColour === null
-          ? null
-          : toRgbUnit(appearance.otherColour),
-      otherOpacity: appearance.dimOthers ? appearance.otherOpacity : 1,
-      selected: mismatchSelection,
-    }
-    const selectedStyle: MarkerStyle = {
-      size: appearance.selectedMarkerSize,
-      thickness: 2,
-      colour: toRgbUnit(appearance.selectedMarkerColour),
-      otherColour: null,
-      otherOpacity: 1,
-      selected: -1,
-    }
+    const styles = markerStyles(appearance, WORLD_TEMPLATE_SURFACE, selected >= 0 ? selected : null)
     for (const tile of tiles) {
       if (!covers(template, tile)) continue
       for (const selectedFade of selectedFades) {
@@ -333,7 +196,7 @@ const drawVisible = (
           selectedWork.push({
             tile,
             marks,
-            style: selectedStyle,
+            style: styles.selected,
             fade: selectedFade.fade * peek.opacity,
           })
         }
@@ -345,7 +208,7 @@ const drawVisible = (
           mismatchWork.push({
             tile,
             marks: tileAccounting.markers,
-            style: mismatchStyle,
+            style: styles.mismatch,
             fade: mismatchFade * peek.opacity,
           })
         }
@@ -354,20 +217,18 @@ const drawVisible = (
   }
   const points = (work: readonly { readonly marks: { readonly length: number } }[]): number =>
     work.reduce((total, one) => total + one.marks.length, 0)
-  const estimatedVisiblePoints = (work: readonly Work[]): number =>
-    work.reduce(
-      (total, { marks, tile }) =>
-        total +
-        visibleListPoints(
-          marks,
-          visibleSourceRect(tile, gl.drawingBufferWidth, gl.drawingBufferHeight),
-        ),
-      0,
-    )
+  const { selectedSampleRate, mismatchSampleRate, batches } = budgetMarkers(
+    selectedWork,
+    mismatchWork,
+    ({ marks, tile }) =>
+      visibleListPoints(
+        marks,
+        visibleSourceRect(tile, gl.drawingBufferWidth, gl.drawingBufferHeight),
+      ),
+    renderBudget,
+  )
   const selectedSourcePoints = points(selectedWork)
   const mismatchSourcePoints = points(mismatchWork)
-  const selectedSampleRate = markerSampleRate(estimatedVisiblePoints(selectedWork), renderBudget)
-  const mismatchSampleRate = markerSampleRate(estimatedVisiblePoints(mismatchWork), renderBudget)
   const expectedSelectedPoints = Math.round(selectedSourcePoints * selectedSampleRate)
   const expectedMismatchPoints = Math.round(mismatchSourcePoints * mismatchSampleRate)
   const reportWorkload = (
@@ -401,7 +262,7 @@ const drawVisible = (
 
   if (selectedWork.length === 0 && mismatchWork.length === 0) {
     reportWorkload(0, 0, 0)
-    if (deferred) retryDeferredScan(now)
+    awaitingPixels = deferred
     return
   }
 
@@ -411,21 +272,15 @@ const drawVisible = (
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
   gl.disable(gl.DEPTH_TEST)
 
-  // The selected colour is a guide; a real mismatch is the error signal and wins where they meet.
-  const selectedDraws = batchMarkerWork(selectedWork)
-  const mismatchDraws = batchMarkerWork(mismatchWork)
-  const drawBatches = selectedDraws.length + mismatchDraws.length
   const drawnPoints = profiling ? expectedSelectedPoints + expectedMismatchPoints : 0
   count('marker:draw batches before batching', selectedWork.length + mismatchWork.length)
-  count('marker:draw batches after batching', drawBatches)
+  count('marker:draw batches after batching', batches.length)
   let submittedPoints = 0
-  for (const one of selectedDraws)
-    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, selectedSampleRate)
-  for (const one of mismatchDraws)
-    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, mismatchSampleRate)
-  reportWorkload(drawBatches, drawnPoints, submittedPoints)
+  for (const one of batches)
+    submittedPoints += drawMarkers(gl, one.tile, one.marks, one.style, one.fade, one.sampleRate)
+  reportWorkload(batches.length, drawnPoints, submittedPoints)
 
-  if (deferred) retryDeferredScan(now)
+  awaitingPixels = deferred
 }
 
 const drawAll = (
@@ -448,7 +303,7 @@ const drawAll = (
  * sit beneath the pixel it describes. One layer could not be both.
  */
 export const markerLayer = {
-  id: MARKER_LAYER_ID,
+  id: LAYER_IDS.markers,
   type: 'custom' as const,
   renderingMode: '2d' as const,
 
@@ -472,7 +327,7 @@ export const markerLayer = {
     try {
       profileGpu(gl, 'Marker GPU', () => measureProfile('Marker render', () => drawAll(gl, peek)))
     } catch (error) {
-      warn('install', 'marker layer render failed; skipping this frame', String(error))
+      warn('marker layer render failed; skipping this frame', String(error))
     }
   },
 }

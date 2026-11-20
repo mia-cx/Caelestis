@@ -8,11 +8,11 @@ import type {
   ToastKind,
   ToastModel,
 } from '@caelestis/ui/elements'
-import { getState } from '../state.js'
+import { PANEL_ID } from '../chrome-ids.js'
+import { getState } from '../settings.js'
 import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
 import { applyWplaceTheme } from './theme.js'
 
-export const PANEL_ID = 'caelestis-panel'
 const NOTIFICATIONS_ID = 'caelestis-notifications'
 const MAX_PENDING_AMBIENT_TOASTS = 20
 /** Errors kept behind the newest toast; a bulk operation can fail many times over. */
@@ -21,6 +21,8 @@ const MAX_RETAINED_ERRORS = 6
 const TOAST_MAX_WIDTH = 384
 /** Below this, a column beside the panel is too narrow to read, so toasts run along the bottom instead. */
 const TOAST_MIN_BESIDE_PANEL = 240
+/** How long a notice stays before it dismisses itself; errors and toasts with an action stay. */
+const TOAST_DISMISS_MS = 6000
 
 let root: CaelestisElement<'caelestis-notifications'> | null = null
 /** Where the root lives while the panel is popped out into a modal, so toasts stay above it. */
@@ -236,7 +238,7 @@ const pushToast = (message: string, kind: ToastKind, action?: ToastActionModel):
   if (kind !== 'error' && action === undefined) {
     timers.set(
       id,
-      window.setTimeout(() => removeToast(id), 6000),
+      window.setTimeout(() => removeToast(id), TOAST_DISMISS_MS),
     )
   }
 }
@@ -281,30 +283,32 @@ export const showAmbientToast = (
   pushToast(message, kind, action)
 }
 
-export interface ConfirmationRequest {
+interface ConfirmationRequest {
   readonly title: string
   readonly body: string
-  readonly note: string
+  /** Defaults to saying the action cannot be undone. */
+  readonly note?: string
   readonly confirmLabel: string
-  readonly restoreFocusTo: HTMLElement | null
+  readonly restoreFocusTo?: HTMLElement | null
 }
 
-export const requestConfirmation = (request: ConfirmationRequest): Promise<boolean> => {
+/** Ask before a destructive action; resolves true only when the user confirms. */
+export const requestConfirmation = ({
+  title,
+  body,
+  note = 'This action cannot be undone.',
+  confirmLabel,
+  restoreFocusTo = null,
+}: ConfirmationRequest): Promise<boolean> => {
   ensureRoot()
   if (pendingConfirm !== undefined) finishConfirmation(pendingConfirm.id, false)
 
   const id = `confirm-${++sequence}`
-  confirm = {
-    id,
-    title: request.title,
-    body: request.body,
-    note: request.note,
-    confirmLabel: request.confirmLabel,
-  }
+  confirm = { id, title, body, note, confirmLabel }
   render()
 
   return new Promise((resolve) => {
-    pendingConfirm = { id, resolve, restoreFocusTo: request.restoreFocusTo }
+    pendingConfirm = { id, resolve, restoreFocusTo }
   })
 }
 

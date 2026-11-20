@@ -6,12 +6,22 @@
   import SettingRow from '../foundations/SettingRow.svelte'
   import Toggle from '../foundations/Toggle.svelte'
   import GlobalSettings from './GlobalSettings.svelte'
-  import { keyBindingFromStroke, keyBindingLabel, type ShortcutId, shortcutLabel } from '@caelestis/shared'
-  import { SHORTCUT_ACTIONS, type ShortcutCategory, shortcutActionLabel } from '../shortcut-help/actions.js'
+  import {
+    keyBindingFromStroke,
+    keyBindingLabel,
+    SHORTCUT_IDS,
+    SHORTCUTS,
+    type ShortcutCategory,
+    type ShortcutId,
+    shortcutLabel,
+    simulatedInputOn,
+  } from '@caelestis/shared'
   import type { AccessTokenScope, GlobalSettingsIntent, SettingsIntent, SettingsModel, SettingsServerModel } from './model.js'
 
   let { model, onIntent }: { model: SettingsModel; onIntent?: (intent: SettingsIntent) => void } = $props()
   const SHORTCUT_CATEGORIES: readonly ShortcutCategory[] = ['Painting', 'Overlay']
+  const SHORTCUT_ACTIONS = SHORTCUT_IDS.map((id) => ({ id, ...SHORTCUTS[id] }))
+  const shortcutActionLabel = (id: ShortcutId): string => SHORTCUTS[id].label
   /**
    * The action whose key control is waiting for a keystroke. While set, that control carries
    * `data-caelestis-key-capture` (KEY_CAPTURE_ATTRIBUTE in @caelestis/shared), which the
@@ -222,7 +232,7 @@
       {#each SHORTCUT_ACTIONS.filter((action) => action.category === category) as action (action.id)}
         {@const bindings = model.shortcuts.bindings[action.id]}
         {@const isRecording = recording === action.id}
-        {@const inert = action.simulated?.inert === true && model.simulatedInput[action.simulated.id] !== true}
+        {@const inert = action.simulated !== undefined && 'inert' in action.simulated && !simulatedInputOn(model.simulatedInput, action.simulated.id)}
         <div class="shortcut-row" class:inert>
           <span class="shortcut-label">{action.label}</span>
           <button

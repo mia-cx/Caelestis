@@ -1,7 +1,8 @@
 import { type TileKey, tileKey as worldTileKey } from '@caelestis/shared'
-import { count, log } from './debug.js'
+import { count, logRender } from './debug.js'
+import type { PatchableMap } from './map-handle.js'
 import { pageWindow } from './page-world.js'
-import { isWplacePatchEnabled, type PatchableMap } from './wplace-patches.js'
+import { isWplacePatchEnabled } from './wplace-switches.js'
 
 const SOURCE = 'pixel-art-layer'
 const FULL_REFRESH_INTERVAL = 10
@@ -120,8 +121,8 @@ export const installServiceWorkerTap = (realm: Window & typeof globalThis = page
     try {
       const message = args[0] as { type?: unknown; data?: unknown } | null
       // Only a change to what the tiles show is a draft refresh. Wplace also posts
-      // `clearPixelPreview` every few seconds with nothing drafted; counting that as a change turned
-      // every periodic refresh into an empty draft refresh, and tiles stopped updating.
+      // `clearPixelPreview` every few seconds with nothing drafted; counting that as a change would
+      // turn every periodic refresh into an empty draft refresh, and tiles would stop updating.
       if (message?.type === 'previewPixels') {
         state.preview = previewFrom(message.data)
         state.draftPending = !samePreview(state.applied, state.preview)
@@ -294,7 +295,7 @@ const scheduleScopeReload = (): void => {
  * Re-download the visible Wplace tiles that `entered` picks, once.
  *
  * Caelestis keeps captured pixels while capture is off, on the promise that turning it back on
- * re-reads everything visible. Wplace's six-second re-download used to keep that promise; the
+ * re-reads everything visible. Wplace's own six-second re-download keeps that promise; the
  * conditional refresh above does not, so a tile that changed unread would keep its old pixels.
  * Reloading each tile as capture starts caring about it restores it. With the patch off, Wplace
  * reloads everything on its own timer anyway.
@@ -450,7 +451,10 @@ export const patchTileRefresh = (map: PatchableMap): void => {
         count('wplace-patch:checked tiles', visible.length)
         count('wplace-patch:reloaded changed tiles', changed.length)
         if (changed.length > 0) original.call(receiver, SOURCE, changed)
-        log('fetch', 'checked Wplace tiles', { checked: visible.length, changed: changed.length })
+        logRender('fetch', 'checked Wplace tiles', {
+          checked: visible.length,
+          changed: changed.length,
+        })
       })
       .catch(() => {
         checking = false
@@ -511,7 +515,7 @@ export const patchTileRefresh = (map: PatchableMap): void => {
             resetCache(manager)
             refreshRevision++
             original.call(this, SOURCE, changed)
-            log('fetch', 'narrowed draft tile refresh', { tiles: changed.length })
+            logRender('fetch', 'narrowed draft tile refresh', { tiles: changed.length })
           } catch {
             count('wplace-patch:draft refresh fallback')
             full(this)

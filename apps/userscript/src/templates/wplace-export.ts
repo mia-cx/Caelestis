@@ -7,14 +7,9 @@ import {
 } from '@caelestis/shared'
 import type { TemplateAuthoring } from './authoring.js'
 import { CAELESTIS_FORMAT, CAELESTIS_VERSION, type CaelestisBlock } from './caelestis-file.js'
-import {
-  appearanceOf,
-  isCurrentTemplate,
-  type PlacedTemplate,
-  templateAsPng,
-  templatePixels,
-} from './local-store.js'
+import { appearanceOf, isCurrentTemplate, type PlacedTemplate } from './catalog.js'
 import { movingId } from './move.js'
+import { templateAsPng, templatePixels } from './residency.js'
 
 export interface WplaceFile {
   readonly id: string

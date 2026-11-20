@@ -24,7 +24,6 @@ declare const chrome: {
 
 const storage = (): StorageArea => chrome.storage.local
 
-/** Every stored string. */
 export const loadStoredStrings = async (): Promise<Record<string, string>> => {
   const values: Record<string, string> = {}
   for (const [key, value] of Object.entries(await storage().get(null))) {
@@ -33,15 +32,9 @@ export const loadStoredStrings = async (): Promise<Record<string, string>> => {
   return values
 }
 
-/** Store `value` under `key`, or delete it for `null`. Resolves `false` when that failed. */
-export const writeStoredString = async (key: string, value: string | null): Promise<boolean> => {
-  try {
-    await (value === null ? storage().remove(key) : storage().set({ [key]: value }))
-    return true
-  } catch (error) {
-    console.warn(`[caelestis] could not store ${key}`, error)
-    return false
-  }
+/** Store `value` under `key`, or delete it for `null`. */
+export const writeStoredString = async (key: string, value: string | null): Promise<void> => {
+  await (value === null ? storage().remove(key) : storage().set({ [key]: value }))
 }
 
 /** Run `listener` with every change to stored strings, from any context; `null` for a delete. */

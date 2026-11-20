@@ -1,28 +1,34 @@
 import {
+  claimDocumentPixels,
+  type Point,
+  type PresencePeer,
   type PresenceRect,
   type RegionPixelComponents,
   type RegionShapePixels,
+  rectContains,
   regionPixelComponents,
+  unionRect,
 } from '@caelestis/shared'
-import { claimDocumentPixels } from './claim-document.js'
-import { claimEditorEditingIds } from './claim-editor.js'
-import type { ScreenProjection } from './coordinates.js'
-import { displayedPresenceRect } from './gl/presence-layer.js'
-import { claimsVisible, displayClaims } from './presence-claims.js'
-import { presenceView } from './presence-client.js'
-import { presenceCss } from './presence-colour.js'
-import { canvasPixelAt, rectOnScreen } from './presence-geometry.js'
-import { setHoveredPresenceItems } from './presence-hover.js'
+import { CLAIM_OVERLAY_ID } from './claim-overlay.js'
 import {
-  measureProfileDetail,
-  recordProfileCounter,
-  recordProfileWorkload,
-  registerProfileMemorySource,
-} from './profile.js'
-import { QUICK_CLAIM_PREVIEW_KEY, quickClaimItems } from './quick-claims.js'
-import { getState } from './state.js'
-import { isDrawingTiles, type TileFrame } from './tile-transform.js'
-import { isPaintOpen } from './wplace-paint.js'
+  type DeviceBox,
+  framePixelAt,
+  rectOnScreen,
+  type ScreenProjection,
+  type TileFrame,
+} from './coordinates.js'
+import { presenceCss } from './presence-colour.js'
+import {
+  displayedRect,
+  presenceScene,
+  type SceneItem,
+  type SceneItemId,
+  setHoveredSceneItems,
+} from './presence-scene.js'
+import { measureProfileDetail, recordProfileCounter, recordProfileWorkload } from './profile.js'
+import { getState } from './settings.js'
+import { isDrawingTiles } from './tile-frame.js'
+import { MAP_CANVAS } from './wplace-dom.js'
 
 /**
  * Name tags for what the presence layer draws, shown only for what the pointer is over.
@@ -45,7 +51,9 @@ const TAG_HEIGHT = 17
 const estimateWidth = (text: string): number => Math.round(text.length * 6.6 + 12)
 
 export interface PresenceTag {
-  readonly key: string
+  readonly id: SceneItemId
+  /** The item that steps aside while this tag shows. */
+  readonly aside: SceneItemId
   readonly text: string
   readonly colour: string
   /** Canvas rect the tag sits above. */
@@ -60,7 +68,7 @@ interface Placed extends PresenceTag {
 }
 
 let host: HTMLElement | null = null
-const nodes = new Map<string, HTMLElement>()
+const nodes = new Map<SceneItemId, HTMLElement>()
 let pointer: { x: number; y: number } | null = null
 let pointerWatched = false
 const MAX_MEASURED_LABELS = 128
@@ -75,9 +83,9 @@ interface ClaimPieces {
 /** Pieces of each display union, per mask identity, so hovering costs a lookup. */
 const pieces = new Map<string, ClaimPieces>()
 
-registerProfileMemorySource('Presence component labels', () =>
-  [...pieces.values()].reduce((bytes, entry) => bytes + entry.components.labels.byteLength, 0),
-)
+/** What the claim pieces' component labels hold in memory, for the profile. */
+export const presenceLabelMemoryBytes = (): number =>
+  [...pieces.values()].reduce((bytes, entry) => bytes + entry.components.labels.byteLength, 0)
 
 const piecesFor = (id: string, pixels: RegionShapePixels): ClaimPieces => {
   const held = pieces.get(id)
@@ -93,13 +101,9 @@ const piecesFor = (id: string, pixels: RegionShapePixels): ClaimPieces => {
   return entry
 }
 
-const contains = (rect: PresenceRect, x: number, y: number): boolean =>
-  x >= rect.x && y >= rect.y && x < rect.x + rect.w && y < rect.y + rect.h
-
 const overMap = (target: EventTarget | null): boolean =>
   target instanceof Element &&
-  (target.classList.contains('maplibregl-canvas') ||
-    target.closest('#caelestis-claim-overlay') !== null)
+  (target.matches(MAP_CANVAS) || target.closest(`#${CLAIM_OVERLAY_ID}`) !== null)
 
 const watchPointer = (window: Window): void => {
   if (pointerWatched) return
@@ -146,7 +150,7 @@ const chipAbove = (
   rect: PresenceRect,
   width: number,
   ratio: number,
-): { x: number; y: number; width: number; height: number } | null => {
+): DeviceBox | null => {
   const screen = rectOnScreen(frame, rect)
   if (screen === null) return null
   const w = width * ratio
@@ -154,30 +158,12 @@ const chipAbove = (
   return { x: screen.x + screen.width / 2 - w / 2, y: screen.y - h, width: w, height: h }
 }
 
-const boxesTouch = (
-  a: { x: number; y: number; width: number; height: number },
-  b: { x: number; y: number; width: number; height: number },
-): boolean =>
+const boxesTouch = (a: DeviceBox, b: DeviceBox): boolean =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 
-const union = (rects: readonly PresenceRect[]): PresenceRect => {
-  let x0 = Number.POSITIVE_INFINITY
-  let y0 = Number.POSITIVE_INFINITY
-  let x1 = Number.NEGATIVE_INFINITY
-  let y1 = Number.NEGATIVE_INFINITY
-  for (const rect of rects) {
-    x0 = Math.min(x0, rect.x)
-    y0 = Math.min(y0, rect.y)
-    x1 = Math.max(x1, rect.x + rect.w)
-    y1 = Math.max(y1, rect.y + rect.h)
-  }
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
-}
-
-const screenBox = (
-  frame: TileFrame,
-  rect: PresenceRect,
-): { x: number; y: number; width: number; height: number } | null => rectOnScreen(frame, rect)
+/** The box around some members of `boxes`, given at least one. */
+const union = (boxes: readonly PresenceRect[], members: readonly number[]): PresenceRect =>
+  members.map((member) => boxes[member] as PresenceRect).reduce(unionRect)
 
 /**
  * The pieces of a claim that share a tag with the piece at `index`.
@@ -197,10 +183,10 @@ const clusterWith = (
   width: number,
   ratio: number,
 ): PresenceRect => {
-  const shapes = boxes.map((box) => screenBox(frame, box))
+  const shapes = boxes.map((box) => rectOnScreen(frame, box))
   let clusters = boxes.map((_, member) => [member])
   for (let pass = 0; pass < boxes.length; pass++) {
-    const rects = clusters.map((members) => union(members.map((m) => boxes[m] as PresenceRect)))
+    const rects = clusters.map((members) => union(boxes, members))
     const chips = rects.map((rect) => chipAbove(frame, rect, width, ratio))
     const lands = (chip: ReturnType<typeof chipAbove>, members: readonly number[]): boolean =>
       chip !== null &&
@@ -233,8 +219,7 @@ const clusterWith = (
     clusters = next
     if (!merged) break
   }
-  const mine = clusters.find((members) => members.includes(index)) ?? [index]
-  return union(mine.map((member) => boxes[member] as PresenceRect))
+  return union(boxes, clusters.find((members) => members.includes(index)) ?? [index])
 }
 
 const regionText = (displayName: string, label: string): string =>
@@ -279,55 +264,58 @@ const clusterFor = (
  * piece of each hovered claim (or the cluster of pieces it shares a tag with at this zoom).
  * `measure` gives a tag's width in CSS pixels; `ratio` is device pixels per CSS pixel.
  */
-export const presenceTagsAt = (
+const presenceTagsAt = (
   frame: TileFrame,
-  at: { readonly x: number; readonly y: number },
+  at: Point,
   measure: (text: string) => number = estimateWidth,
   ratio = 1,
 ): PresenceTag[] => {
-  const view = presenceView()
+  const scene = presenceScene()
   const tags: PresenceTag[] = []
-  const flags = getState()
-  for (const peer of flags.showPresenceViewports === false ? [] : view.peers) {
-    const colour = presenceCss(peer.painter.wplaceUserId, 0.85)
-    const painting = peer.draft !== null
-    const text = painting
-      ? `${peer.painter.displayName} · painting ${peer.draft?.pixels ?? 0} px`
-      : peer.painter.displayName
-    const draftKey = `peer:${peer.sessionId}:draft`
-    const viewportKey = `peer:${peer.sessionId}:viewport`
-    const draftRect =
-      peer.draft === null ? null : (displayedPresenceRect(draftKey) ?? peer.draft.rect)
-    const viewportRect =
-      peer.viewport === null ? null : (displayedPresenceRect(viewportKey) ?? peer.viewport)
-    if (draftRect !== null && contains(draftRect, at.x, at.y))
-      tags.push({ key: draftKey, text, colour, rect: draftRect })
-    else if (viewportRect !== null && contains(viewportRect, at.x, at.y))
-      tags.push({ key: viewportKey, text, colour, rect: viewportRect })
+  // A peer's drafted pixels are tagged when the pointer is on them, else its viewport.
+  const peers = new Map<string, { peer: PresencePeer; items: SceneItem[] }>()
+  for (const item of scene) {
+    if (item.source.kind !== 'peer') continue
+    const { peer } = item.source
+    const held = peers.get(peer.sessionId) ?? { peer, items: [] }
+    held.items.push(item)
+    peers.set(peer.sessionId, held)
   }
-  for (const quick of quickClaimItems(view)) {
-    if (quick.key === QUICK_CLAIM_PREVIEW_KEY || !contains(quick.rect, at.x, at.y)) continue
+  for (const { peer, items } of peers.values()) {
+    const text =
+      peer.draft === null
+        ? peer.painter.displayName
+        : `${peer.painter.displayName} · painting ${peer.draft.pixels} px`
+    const colour = presenceCss(peer.painter.wplaceUserId, 0.85)
+    const hit = ['draft', 'viewport', 'painting']
+      .flatMap((kind) => items.filter((item) => item.kind === kind))
+      .find((item) => rectContains(displayedRect(item), at))
+    if (hit !== undefined)
+      tags.push({ id: hit.id, aside: hit.aside, text, colour, rect: displayedRect(hit) })
+  }
+  for (const item of scene) {
+    if (item.kind !== 'quick' || item.follows || !rectContains(item.rect, at)) continue
     tags.push({
-      key: quick.key,
-      text: quick.mine
+      id: item.id,
+      aside: item.aside,
+      text: item.mine
         ? 'Quick claim · Ctrl+click to remove'
-        : `${quick.painter?.displayName ?? 'Painter'} · painting here`,
+        : `${item.painter?.displayName ?? 'Painter'} · painting here`,
       colour:
-        quick.painter === null
+        item.painter === null
           ? 'rgba(255, 255, 255, 0.85)'
-          : presenceCss(quick.painter.wplaceUserId, 0.85),
-      rect: quick.rect,
+          : presenceCss(item.painter.wplaceUserId, 0.85),
+      rect: item.rect,
     })
   }
   const seen = new Set<string>()
-  const claims = claimsVisible(flags, isPaintOpen())
-    ? displayClaims(view.regions, claimEditorEditingIds())
-    : []
-  for (const claim of claims) {
+  for (const item of scene) {
+    if (item.source.kind !== 'claim') continue
+    const { claim } = item.source
     seen.add(claim.id)
     const pixels = claim.pixels
     if (pieces.get(claim.id)?.pixels !== pixels) pieces.delete(claim.id)
-    if (!contains(pixels.rect, at.x, at.y)) continue
+    if (!rectContains(pixels.rect, at)) continue
     const index = (at.y - pixels.rect.y) * pixels.rect.w + (at.x - pixels.rect.x)
     // A gap or subtractive hole needs no flood fill. Build pieces on the first real hit only.
     if (!pixels.mask[index]) continue
@@ -339,18 +327,18 @@ export const presenceTagsAt = (
       const pixels = claimDocumentPixels(region.document)
       return (
         pixels !== null &&
-        contains(pixels.rect, at.x, at.y) &&
+        rectContains(pixels.rect, at) &&
         pixels.mask[(at.y - pixels.rect.y) * pixels.rect.w + at.x - pixels.rect.x] === 1
       )
     })
     if (region === undefined) continue
     const text = regionText(region.claimant.displayName, region.label)
-    const rect = clusterFor(frame, held, label - 1, measure(text), ratio)
     tags.push({
-      key: `region:${claim.id}`,
+      id: item.id,
+      aside: item.aside,
       text,
       colour: presenceCss(region.claimant.wplaceUserId, 0.85),
-      rect,
+      rect: clusterFor(frame, held, label - 1, measure(text), ratio),
     })
   }
   for (const id of [...pieces.keys()]) if (!seen.has(id)) pieces.delete(id)
@@ -360,7 +348,7 @@ export const presenceTagsAt = (
 const removeAll = (): void => {
   for (const node of nodes.values()) node.remove()
   nodes.clear()
-  setHoveredPresenceItems(new Set())
+  setHoveredSceneItems(new Set())
 }
 
 const measureWith =
@@ -414,7 +402,7 @@ export const renderPresenceLabels = (
   }
   const ratioX = frame.canvas.width / box.width
   const ratioY = frame.canvas.height / box.height
-  const at = canvasPixelAt(frame, (pointer.x - box.left) * ratioX, (pointer.y - box.top) * ratioY)
+  const at = framePixelAt(frame, (pointer.x - box.left) * ratioX, (pointer.y - box.top) * ratioY)
   if (at === null) {
     removeAll()
     return
@@ -423,14 +411,13 @@ export const renderPresenceLabels = (
   const measure = measureWith(document, container)
   const wanted = presenceTagsAt(frame, at, measure, ratioX)
   recordProfileWorkload('Presence hover labels', wanted.length)
-  // A draft is tagged instead of the viewport around it, but it is the viewport that steps aside.
-  setHoveredPresenceItems(new Set(wanted.map((tag) => tag.key.replace(/:draft$/, ':viewport'))))
+  setHoveredSceneItems(new Set(wanted.map((tag) => tag.aside)))
   if (wanted.length === 0 && nodes.size === 0) return
   const placed: Placed[] = []
   for (const tag of wanted) {
     const screen = rectOnScreen(frame, tag.rect)
     if (screen === null) continue
-    let node = nodes.get(tag.key)
+    let node = nodes.get(tag.id)
     if (node === undefined) {
       node = document.createElement('span')
       Object.assign(node.style, {
@@ -445,7 +432,7 @@ export const renderPresenceLabels = (
         willChange: 'transform',
       } satisfies Partial<CSSStyleDeclaration>)
       container.appendChild(node)
-      nodes.set(tag.key, node)
+      nodes.set(tag.id, node)
     }
     if (node.textContent !== tag.text) node.textContent = tag.text
     if (node.style.background !== tag.colour) node.style.background = tag.colour
@@ -480,7 +467,7 @@ export const renderPresenceLabels = (
     placed.push({ ...tag, x, y, width })
     node.style.transform = `translate(${x}px, ${y}px)`
   }
-  const kept = new Set(placed.map((tag) => tag.key))
+  const kept = new Set(placed.map((tag) => tag.id))
   for (const [key, node] of nodes) {
     if (kept.has(key)) continue
     node.remove()

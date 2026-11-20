@@ -32,23 +32,24 @@ import { addDocumentStyle } from './document-style.js'
  */
 export const CURSORS_ATTRIBUTE = 'data-caelestis-cursors'
 
-const CURSORS: Record<string, readonly [string, string, number, number, string]> = {
-  default: [defaultCursor, defaultCursor2x, 5, 3, 'default'],
-  pointer: [pointer, pointer2x, 10, 0, 'pointer'],
-  text: [text, text2x, 12, 12, 'text'],
-  crosshair: [crosshair, crosshair2x, 12, 12, 'crosshair'],
-  grab: [grab, grab2x, 12, 12, 'grab'],
-  grabbing: [grabbing, grabbing2x, 12, 12, 'grabbing'],
-  'ew-resize': [ewResize, ewResize2x, 12, 12, 'ew-resize'],
-  'not-allowed': [notAllowed, notAllowed2x, 12, 12, 'not-allowed'],
+/** By CSS cursor keyword, which is also the fallback: 1x and 2x images, then the hotspot. */
+const CURSORS: Record<string, readonly [string, string, number, number]> = {
+  default: [defaultCursor, defaultCursor2x, 5, 3],
+  pointer: [pointer, pointer2x, 10, 0],
+  text: [text, text2x, 12, 12],
+  crosshair: [crosshair, crosshair2x, 12, 12],
+  grab: [grab, grab2x, 12, 12],
+  grabbing: [grabbing, grabbing2x, 12, 12],
+  'ew-resize': [ewResize, ewResize2x, 12, 12],
+  'not-allowed': [notAllowed, notAllowed2x, 12, 12],
 }
 
 const CSS =
   `html:root:not([data-native-cursor]):not([data-standard-ui]):not([${CURSORS_ATTRIBUTE}=off]){` +
   Object.entries(CURSORS)
     .map(
-      ([suffix, [png, png2x, x, y, keyword]]) =>
-        `--cursor-${suffix}:image-set(url("${png}") 1x, url("${png2x}") 2x) ${x} ${y}, ${keyword}`,
+      ([keyword, [png, png2x, x, y]]) =>
+        `--cursor-${keyword}:image-set(url("${png}") 1x, url("${png2x}") 2x) ${x} ${y}, ${keyword}`,
     )
     .join(';') +
   '}'

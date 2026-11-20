@@ -3,8 +3,8 @@ import { WPLACE_PALETTE } from '@caelestis/shared'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
 import { nativePixelAt } from '../native-pixels.js'
-import { canvasWriteTouchesArtboard } from '../ui/panel-progress.js'
 import {
+  canvasWriteTouchesArtboard,
   onHeadquartersTilesChange,
   patchArtboardPixels,
   readArtboardPixels,

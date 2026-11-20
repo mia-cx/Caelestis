@@ -1,4 +1,6 @@
+import { isRecord } from './guards.js'
 import { isUuidV7 } from './uuid.js'
+
 /** Choices combine with OR within a category and AND between categories. */
 export const TEMPLATE_FILTER_OPTIONS = {
   source: { local: 'Local', server: 'Server' },
@@ -28,8 +30,7 @@ export const EMPTY_TEMPLATE_FILTERS: TemplateFilters = {
 
 /** Read saved preferences, dropping unknown choices and duplicates. */
 export const parseTemplateFilters = (value: unknown): TemplateFilters => {
-  const saved: Record<string, unknown> =
-    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+  const saved: Record<string, unknown> = isRecord(value) ? value : {}
   const choices = <Category extends TemplateFilterCategory>(category: Category) => {
     const values = saved[category]
     return (

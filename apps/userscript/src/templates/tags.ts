@@ -6,18 +6,14 @@ import {
   tagNameKey,
   uuidV7,
 } from '@caelestis/shared'
+import { notifyListeners } from '../listeners.js'
 import { leaseLocalFolder } from '../local-folders.js'
-import { getState, MAX_LOCAL_FOLDERS } from '../state.js'
+import { getState, MAX_LOCAL_FOLDERS } from '../settings.js'
+import { LOCAL_TAGS_STORE, LOCAL_TEMPLATES_STORE, openCaelestisDb } from './caelestis-db.js'
 import type { NativeTemplates } from './native-store.js'
 import { reconcileNativeTags } from './native-tags.js'
-import type { StoredTemplate } from './persist.js'
-import { openTemplateDatabase } from './persist.js'
-import { LOCAL_TAG_STORE } from './tag-schema.js'
-
-export interface LocalTag extends TemplateTag {
-  readonly templateIds: readonly string[]
-  readonly folderIds?: readonly string[]
-}
+import type { LocalTag } from './tag-schema.js'
+import type { StoredTemplate } from './template-record.js'
 
 export type LocalTagMutation =
   | { readonly type: 'create'; readonly name: string }
@@ -50,7 +46,7 @@ export const onLocalTags = (listener: () => void): (() => void) => {
 const updateSnapshot = (tags: readonly LocalTag[]): void => {
   const changed = JSON.stringify(snapshot) !== JSON.stringify(tags)
   snapshot = tags
-  if (changed) for (const listener of listeners) listener()
+  if (changed) notifyListeners(listeners, 'tag observer failed')
 }
 
 /** Schedule personal tag mirroring after a durable local edit. */
@@ -96,11 +92,11 @@ const parseStoredTags = (value: unknown): readonly LocalTag[] => {
 
 /** Load authoritative local tags, including assignments from other tabs. */
 export const readLocalTags = async (): Promise<readonly LocalTag[]> => {
-  const database = await openTemplateDatabase()
+  const database = await openCaelestisDb()
   try {
     const tags = await new Promise<readonly LocalTag[]>((resolve, reject) => {
-      const transaction = database.transaction(LOCAL_TAG_STORE, 'readonly')
-      const request = transaction.objectStore(LOCAL_TAG_STORE).getAll()
+      const transaction = database.transaction(LOCAL_TAGS_STORE, 'readonly')
+      const request = transaction.objectStore(LOCAL_TAGS_STORE).getAll()
       transaction.oncomplete = () => {
         try {
           resolve(parseStoredTags(request.result))
@@ -125,14 +121,17 @@ export const ensureLocalTags = (): Promise<readonly LocalTag[]> => (hydration ??
 const mutateStoredTag = async (mutation: LocalTagMutation): Promise<readonly LocalTag[]> => {
   const name = 'name' in mutation ? tagName(mutation.name) : undefined
   if (name === null) throw new Error('Use 1–64 characters without control characters.')
-  const database = await openTemplateDatabase()
+  const database = await openCaelestisDb()
   const releaseFolder =
     mutation.type === 'assign-folder' ? leaseLocalFolder(mutation.folderId) : undefined
   try {
     if (releaseFolder === null) throw new Error('Folder no longer exists.')
     const tags = await new Promise<readonly LocalTag[]>((resolve, reject) => {
-      const transaction = database.transaction([LOCAL_TAG_STORE, 'local-templates'], 'readwrite')
-      const store = transaction.objectStore(LOCAL_TAG_STORE)
+      const transaction = database.transaction(
+        [LOCAL_TAGS_STORE, LOCAL_TEMPLATES_STORE],
+        'readwrite',
+      )
+      const store = transaction.objectStore(LOCAL_TAGS_STORE)
       const request = store.getAll()
       let failure: unknown
       let next: readonly LocalTag[] = []
@@ -155,7 +154,7 @@ const mutateStoredTag = async (mutation: LocalTagMutation): Promise<readonly Loc
           )
             throw new Error('A tag with that name already exists.')
           if (mutation.type === 'create' && current.length >= MAX_TEMPLATE_TAGS)
-            throw new Error('The 256-tag limit was reached.')
+            throw new Error(`The ${MAX_TEMPLATE_TAGS}-tag limit was reached.`)
           if (mutation.type === 'create') {
             const tag: LocalTag = { id: uuidV7(), name: name ?? '', templateIds: [] }
             store.add(tag)
@@ -183,7 +182,7 @@ const mutateStoredTag = async (mutation: LocalTagMutation): Promise<readonly Loc
             save({ ...existing, folderIds: [...folderIds] })
             return
           }
-          const template = transaction.objectStore('local-templates').get(mutation.templateId)
+          const template = transaction.objectStore(LOCAL_TEMPLATES_STORE).get(mutation.templateId)
           template.onsuccess = () => {
             if (template.result === undefined) {
               fail(new Error('Template no longer exists.'))
@@ -222,12 +221,15 @@ export const synchronizeLocalTemplateTags = async (
   templateId: string,
   native: NativeTemplates,
 ): Promise<boolean> => {
-  const database = await openTemplateDatabase()
+  const database = await openCaelestisDb()
   try {
     return await new Promise<boolean>((resolve, reject) => {
-      const transaction = database.transaction([LOCAL_TAG_STORE, 'local-templates'], 'readwrite')
-      const store = transaction.objectStore(LOCAL_TAG_STORE)
-      const templates = transaction.objectStore('local-templates')
+      const transaction = database.transaction(
+        [LOCAL_TAGS_STORE, LOCAL_TEMPLATES_STORE],
+        'readwrite',
+      )
+      const store = transaction.objectStore(LOCAL_TAGS_STORE)
+      const templates = transaction.objectStore(LOCAL_TEMPLATES_STORE)
       const tagsRequest = store.getAll()
       const templateRequest = templates.get(templateId)
       let failure: unknown

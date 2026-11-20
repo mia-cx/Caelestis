@@ -1,25 +1,25 @@
 import { type ServerAsset, type ServerAssetKind, serverAssetPath } from '@caelestis/shared'
 import type { ServerDetailsFields } from '@caelestis/ui/elements'
+import { networkFailureText } from '../error-text.js'
 import {
-  type ConnectedServer,
   deleteServerAsset,
-  getState,
-  isCurrentServerConnection,
   type ServerDetailsPatch,
-  serverEndpoint,
   updateServerDetails,
   uploadServerAsset,
-} from '../state.js'
+} from '../server-api.js'
+import { isCurrentServerConnection, serverByUrl } from '../server-connections.js'
+import { serverEndpoint } from '../server-request.js'
+import type { ServerConnection } from '../settings.js'
 import { openModalHost } from './modal-host.js'
 
 const assetUrl = (
-  server: ConnectedServer,
+  server: ServerConnection,
   kind: ServerAssetKind,
   asset: ServerAsset | undefined,
-) => (asset === undefined ? null : serverEndpoint(server.url, serverAssetPath(kind, asset)))
+) => (asset === undefined ? null : serverEndpoint(server, serverAssetPath(kind, asset)))
 
 /** What the dialog shows: the server's current public presentation, as this browser last read it. */
-const fieldsFor = (server: ConnectedServer): ServerDetailsFields => ({
+const fieldsFor = (server: ServerConnection): ServerDetailsFields => ({
   name: server.info?.name ?? '',
   description: server.info?.description ?? '',
   discordInviteUrl: server.info?.discordInviteUrl ?? '',
@@ -51,9 +51,8 @@ const patchBetween = (
 })
 
 /** Open the public presentation editor for one connected server. Admin only; the tree gates it. */
-export const openServerDetails = (server: ConnectedServer, rerender: () => void): void => {
-  const current = (): ConnectedServer =>
-    getState().servers.find((candidate) => candidate.url === server.url) ?? server
+export const openServerDetails = (server: ServerConnection, rerender: () => void): void => {
+  const current = (): ServerConnection => serverByUrl(server.url) ?? server
   const reseed = (notice: string): void => {
     const latest = current()
     dialog.update({
@@ -66,14 +65,7 @@ export const openServerDetails = (server: ConnectedServer, rerender: () => void)
       revision: dialog.model.revision + 1,
     })
   }
-  const failure = (error: unknown): string => {
-    const message = error instanceof Error ? error.message : String(error)
-    return navigator.onLine === false
-      ? 'You are offline. Reconnect and try again.'
-      : /failed to fetch|network|timed out/i.test(message)
-        ? 'Could not reach the server. Check your connection and try again.'
-        : message
-  }
+  const failure = (error: unknown): string => networkFailureText(error, 'try again')
   const run = async (
     work: () => Promise<{ ok: true } | { ok: false; message: string }>,
     done: string,

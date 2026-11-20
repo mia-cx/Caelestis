@@ -4,7 +4,7 @@ import { presenceLayer } from './presence-layer.js'
 
 type Item = Parameters<typeof presenceLayer.displayRect>[0]
 
-const item = (key: string, kind: Item['kind'], x: number): Item => ({
+const item = (key: Item['key'], kind: Item['kind'], x: number): Item => ({
   key,
   kind,
   rect: { x, y: 0, w: 4, h: 4 },
@@ -13,13 +13,13 @@ const item = (key: string, kind: Item['kind'], x: number): Item => ({
 })
 
 it('snaps a quick claim to its new pixels while a viewport glides between them', () => {
-  presenceLayer.displayRect(item('quick', 'quick', 0), 0)
-  presenceLayer.displayRect(item('viewport', 'viewport', 0), 0)
-  expect(presenceLayer.displayRect(item('quick', 'quick', 10), 50)).toEqual({
+  presenceLayer.displayRect(item('quick:me:0', 'quick', 0), 0)
+  presenceLayer.displayRect(item('peer:a:viewport', 'viewport', 0), 0)
+  expect(presenceLayer.displayRect(item('quick:me:0', 'quick', 10), 50)).toEqual({
     rect: { x: 10, y: 0, w: 4, h: 4 },
     moving: false,
   })
-  const viewport = presenceLayer.displayRect(item('viewport', 'viewport', 10), 50)
+  const viewport = presenceLayer.displayRect(item('peer:a:viewport', 'viewport', 10), 50)
   expect(viewport.moving).toBe(true)
   expect(viewport.rect.x).toBe(0)
 })

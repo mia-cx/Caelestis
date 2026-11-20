@@ -1,28 +1,23 @@
 import type { TagManagerIntent } from '@caelestis/ui/elements'
 import { refreshAllianceManifest } from '../alliance-server-sync.js'
 import { refreshServerSnapshot } from '../application/tree-server-state.js'
-import {
-  isCurrentServerConnection,
-  listServerTags,
-  mutateServerTag,
-  onServerContents,
-} from '../state.js'
+import { errorText, networkFailureText } from '../error-text.js'
+import { listServerTags, mutateServerTag } from '../server-api.js'
+import { isCurrentServerConnection } from '../server-connections.js'
+import { onManifestChange } from '../server-manifests.js'
 import { mutateLocalTag, onLocalTags, readLocalTags } from '../templates/tags.js'
+import { localFolderIdOf, localTemplateIdOf } from '../tree-keys.js'
 import { openModalHost } from './modal-host.js'
-import type { TreeTarget } from './tree.js'
+import type { TreeTarget } from './tree-context.js'
 
 /** Open the same tag workflow for browser-owned and server-owned templates or catalogs. */
 export const openTagManager = (target: TreeTarget, rerender: () => void): void => {
   const server = target.server
   const templateId =
-    server === null && target.key.startsWith('local:')
-      ? target.key.slice('local:'.length)
-      : target.templateId
+    server === null ? (localTemplateIdOf(target.key) ?? undefined) : target.templateId
   const folderId =
     server === null
-      ? target.key.startsWith('lf:')
-        ? target.key.slice(3)
-        : undefined
+      ? (localFolderIdOf(target.key) ?? undefined)
       : target.templateId === undefined
         ? (target.nodeId ?? undefined)
         : undefined
@@ -55,18 +50,12 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
     if (!result.ok) throw new Error(result.message)
     dialog.update({ tags: result.tags, selected: result.selected, ready: true })
   }
-  const failure = (error: unknown): string => {
-    if (server !== null && navigator.onLine === false)
-      return 'You are offline. Reconnect and reload tags.'
-    const message = error instanceof Error ? error.message : String(error)
-    return /failed to fetch|network|timed out/i.test(message)
-      ? 'Could not reach the server. Check your connection and reload tags.'
-      : message
-  }
+  const failure = (error: unknown): string =>
+    server === null ? errorText(error) : networkFailureText(error, 'reload tags')
   const refreshTemplates = async (): Promise<void> => {
     if (server === null) return
     checkConnection()
-    if (target.surface?.kind !== undefined && target.surface.kind !== 'world') {
+    if (target.surface.kind !== 'world') {
       const result = await refreshAllianceManifest(server, target.surface)
       if (result.status === 'failed' || result.status === 'skipped')
         throw new Error('The alliance template list could not refresh. Reload tags to retry.')
@@ -151,7 +140,7 @@ export const openTagManager = (target: TreeTarget, rerender: () => void): void =
       },
     },
   )
-  const unsubscribe = onServerContents((owner) => {
+  const unsubscribe = onManifestChange((owner) => {
     if (server === null || owner.url !== server.url) return
     reloadPending = true
     reloadIfPending()

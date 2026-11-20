@@ -1,11 +1,11 @@
 import type { TemplateSortOrder } from '@caelestis/shared'
-import { getState, setState } from '../state.js'
-import type { TemplateProgress } from '../templates/mismatch.js'
+import { getState, setState } from '../settings.js'
+import type { TemplateProgress } from '../templates/progress-types.js'
 import { completionRatio } from './progress.js'
 
 export const MAX_RENDERED_ROWS = 2_000
 
-export interface OrderedTreeItem {
+interface OrderedTreeItem {
   readonly key: string
   readonly name: string
   readonly createdAt?: number
@@ -195,7 +195,7 @@ const replaceSiblingOrder = (
  *
  * `customOrder` spans all levels; only ever edit it, never replace it with one sibling list.
  */
-export const moveTreeKey = (
+const moveTreeKey = (
   keys: readonly string[],
   from: string,
   to: string,

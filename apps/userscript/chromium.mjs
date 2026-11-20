@@ -22,8 +22,10 @@ import { closeSync, mkdtempSync, openSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const CDP = 'http://127.0.0.1:9222'
-const PORT_ARG = '--remote-debugging-port=9222'
+/** The debugging port every Caelestis dev tool and browser test expects Chromium on. */
+export const CDP_PORT = 9222
+export const CDP = `http://127.0.0.1:${CDP_PORT}`
+const PORT_ARG = `--remote-debugging-port=${CDP_PORT}`
 const CHROME_PROFILE_ARG = `--user-data-dir=${join(homedir(), '.caelestis-chrome-debug')}`
 /**
  * How to recognise a running browser.
@@ -160,7 +162,7 @@ export const mayReuseExistingBrowser = (already, relaunch) => already !== null &
 export const ensureChromium = async ({ relaunch = false, quiet = false } = {}) => {
   const already = await cdpReady()
   if (mayReuseExistingBrowser(already, relaunch)) {
-    if (!quiet) console.log(`chromium already listening on 9222 (${already})`)
+    if (!quiet) console.log(`chromium already listening on ${CDP_PORT} (${already})`)
     return true
   }
 
@@ -187,7 +189,7 @@ export const ensureChromium = async ({ relaunch = false, quiet = false } = {}) =
   // and let the port decide.
   const { version, launched } = await launchFirstReady(LAUNCHERS)
   if (version !== null) {
-    if (!quiet) console.log(`chromium started on 9222 (${version})`)
+    if (!quiet) console.log(`chromium started on ${CDP_PORT} (${version})`)
     return true
   }
   if (!launched) throw new Error('could not launch Chromium — is it installed?')

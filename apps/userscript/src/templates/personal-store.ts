@@ -1,6 +1,6 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { warn } from '../debug.js'
-import { getSurfaceAppearance } from '../state.js'
+import { getSurfaceAppearance } from '../settings.js'
 import { APPEARANCE_GROUPS } from './appearance.js'
 import {
   NativeConflict,
@@ -17,23 +17,6 @@ import * as disk from './persist.js'
 import { cutPixels, joinPixels, type SparsePixels, samePixels } from './sparse-pixels.js'
 import { connectLocalTagSync, synchronizeLocalTemplateTags } from './tags.js'
 
-export type {
-  SaveResult,
-  StoredRecord,
-  StoredTemplate,
-  TemplateCatalog,
-  TemplateLoadFailure,
-} from './persist.js'
-export {
-  catalogStoredArea,
-  catalogTileKeys,
-  deleteTemplate as discardTemplate,
-  hydrateStoredTemplate,
-  loadTemplateCatalog,
-  saveTemplateFolders,
-  saveTemplateTileKeys,
-} from './persist.js'
-
 let native: NativeTemplates | null = null
 let onMutation: (() => void) | undefined
 let tail: Promise<unknown> = Promise.resolve()
@@ -49,8 +32,7 @@ const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
   return pending
 }
 
-const isWorld = (template: TemplateSave): boolean =>
-  (template.surface ?? WORLD_TEMPLATE_SURFACE).kind === 'world'
+const isWorld = (template: TemplateSave): boolean => template.surface.kind === 'world'
 
 /** A loaded record. Its pixels are null when it was loaded as metadata. */
 const loadedTemplate = (loaded: disk.LoadTemplateResult): TemplateSave | null =>
@@ -236,7 +218,7 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
         const current = await synchronizeOne(api, template)
         if (current?.native !== undefined) known.add(current.native.id)
       } catch (error) {
-        warn('install', `could not sync personal template ${template.name}`, String(error))
+        warn(`could not sync personal template ${template.name}`, String(error))
       }
     }
     const identities = await disk.loadNativeTemplateIds()
@@ -254,7 +236,7 @@ export const synchronizePersonalTemplates = (): Promise<void> =>
         if (previous?.native?.status === 'pending') continue
         await project(api, snapshot, previous)
       } catch (error) {
-        warn('install', `could not mirror Wplace template ${id}`, String(error))
+        warn(`could not mirror Wplace template ${id}`, String(error))
       }
     }
   })
@@ -273,7 +255,7 @@ const loadCurrent = async (
       const current = await synchronizeOne(native, previous)
       return current === null ? { status: 'missing' } : { status: 'loaded', template: current }
     } catch (error) {
-      warn('install', `could not read native template ${id}`, String(error))
+      warn(`could not read native template ${id}`, String(error))
       return { status: 'unavailable' }
     }
   })
@@ -403,7 +385,7 @@ export const saveTemplate = async (
       )
       return result.status === 'saved' ? { ...result, native: link } : { status: 'conflict' }
     } catch (error) {
-      warn('install', `could not save personal template ${template.name}`, String(error))
+      warn(`could not save personal template ${template.name}`, String(error))
       return { status: error instanceof NativeConflict ? 'conflict' : 'unavailable' }
     }
   }).finally(() => onMutation?.())
@@ -430,7 +412,7 @@ export const deleteTemplate = async (id: IDBValidKey, revision: number): Promise
       }
       return await disk.deleteTemplate(id, revision)
     } catch (error) {
-      warn('install', `could not delete native template ${String(id)}`, String(error))
+      warn(`could not delete native template ${String(id)}`, String(error))
       return { status: error instanceof NativeConflict ? 'conflict' : 'unavailable' }
     }
   })

@@ -1,4 +1,5 @@
 import {
+  isRecord,
   MAX_TEMPLATE_PIXELS,
   parseTemplateRecipe,
   type TemplateRecipe,
@@ -30,9 +31,6 @@ export const CAELESTIS_VERSION = 1
 
 const SHA256_HEX = /^[0-9a-f]{64}$/
 const PNG_DATA_URL = /^data:image\/png;base64,/i
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const isCoordinate = (value: unknown): value is number =>
   Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) < WORLD_PIXELS

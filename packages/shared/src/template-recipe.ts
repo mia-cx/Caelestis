@@ -1,4 +1,5 @@
 import type { RecipeV2 } from 'ditherette'
+import { isRecord } from './guards.js'
 import { isSha256Hex, sha256Hex } from './hash.js'
 import { TRANSPARENT_INDEX } from './palette.js'
 import { WORLD_PIXELS } from './tiles.js'
@@ -120,9 +121,6 @@ const MAX_DITHERETTE_JSON_BYTES = 64 * 1024
 const MAX_DITHERETTE_DEPTH = 10
 
 type Json = null | boolean | number | string | readonly Json[] | { readonly [key: string]: Json }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const hasExactly = (value: Record<string, unknown>, keys: readonly string[]): boolean =>
   Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))

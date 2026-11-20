@@ -1,9 +1,12 @@
 export * from './access.js'
 export * from './backfill.js'
 export * from './bitmask.js'
+export * from './claim-document.js'
+export * from './claim-geometry.js'
 export * from './client-contract.js'
 export * from './client-metrics.js'
 export * from './count.js'
+export * from './guards.js'
 export { isSha256Hex, SHA256_HEX_PATTERN, sha256Hex } from './hash.js'
 export * from './history-retention.js'
 export * from './live.js'
@@ -30,6 +33,7 @@ export {
   type RgbaImage,
 } from './png.js'
 export * from './presence.js'
+export * from './presence-events.js'
 export * from './progress.js'
 export {
   OPAQUE_ALPHA_THRESHOLD,

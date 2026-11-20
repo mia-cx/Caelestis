@@ -1,12 +1,13 @@
 import { expect, it, vi } from 'vitest'
-import * as store from '../src/templates/local-store.js'
-import { captureScopeTiles } from '../src/templates/mismatch.js'
+import { captureScopeTiles } from '../src/templates/capture-scope.js'
+import * as catalog from '../src/templates/catalog.js'
+import * as edits from '../src/templates/template-edits.js'
 
-vi.mock('../src/main.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
+vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
 
 it('grows the capture scope only when a dragged template reaches a new tile', async () => {
   const id = `capture-scope-${crypto.randomUUID()}`
-  await store.addLocalTemplate(
+  await edits.addLocalTemplate(
     {
       id,
       name: 'Dragged',
@@ -24,9 +25,9 @@ it('grows the capture scope only when a dragged template reaches a new tile', as
   )
   expect([...captureScopeTiles()]).toEqual(['1/3'])
 
-  store.previewLocalTemplate(id, 1_850, 3_500)
+  catalog.previewLocalTemplate(id, 1_850, 3_500)
   expect([...captureScopeTiles()]).toEqual(['1/3'])
 
-  store.previewLocalTemplate(id, 1_950, 3_500)
+  catalog.previewLocalTemplate(id, 1_950, 3_500)
   expect([...captureScopeTiles()]).toEqual(['1/3', '2/3'])
 })

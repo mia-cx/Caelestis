@@ -1,4 +1,4 @@
-import { PALETTE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { PALETTE_SIZE, TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
 import type { AppearanceNumberKey, AppearanceSliderModel } from '@caelestis/ui/elements'
 
 /**
@@ -6,8 +6,7 @@ import type { AppearanceNumberKey, AppearanceSliderModel } from '@caelestis/ui/e
  *
  * Every pixel is a square, and the controls deform it. There is no shape *mode*, because a mode list
  * is just a handful of frozen points in this space with worse names — "Dot" is a full-radius stamp
- * at a small size, "Corner" is a rotated stamp translated into a corner and clipped, and "Full" and
- * "Square" were the same shape at two sizes, split only because one had a cheaper render path.
+ * at a small size, and "Corner" is a rotated stamp translated into a corner and clipped.
  *
  * Each stamp is clipped to its own cell, so translating or rotating past the edge cuts the stamp off
  * rather than bleeding into the neighbouring pixel. That clipping is what makes partial corners and
@@ -17,10 +16,8 @@ import type { AppearanceNumberKey, AppearanceSliderModel } from '@caelestis/ui/e
  * measured along the stamp's own axes, so rotating a translated stamp swings it around rather than
  * sliding it sideways.
  *
- * None of this costs per-pixel work. The stamp is rasterised once into a small mask and tiled over
- * the template at draw time, so the shape is independent of the pixel grid it sits on — which is
- * what an earlier version got wrong by expanding every source pixel into a 3x3 block and drawing
- * inside it.
+ * None of this costs per-pixel CPU work. The fragment shader evaluates the stamp in cell space at
+ * draw time, so the shape is independent of the pixel grid it sits on.
  */
 
 export interface Appearance {
@@ -93,9 +90,8 @@ export interface Appearance {
   /**
    * Whether markers you cannot act on right now are drawn differently from the ones you can.
    *
-   * A switch of its own rather than a value that happens to mean "off". It was reachable before only
-   * by pushing the fade to 1 and pressing "Same" — two controls, neither of which announces that
-   * together they are one behaviour, and no way to switch it off and keep the settings you had.
+   * A switch of its own rather than a value that happens to mean "off", so it can be switched off
+   * while keeping the fade and colour it uses.
    */
   readonly dimOthers: boolean
   /**
@@ -118,10 +114,9 @@ export interface Appearance {
 /**
  * The three things a template can have opinions about, separately.
  *
- * One switch used to govern all of them, so wanting a template's own marker colour meant taking
- * ownership of its shape and its colour filter as well — and then the global sliders stopped
- * reaching it forever. Splitting them is what lets an overlay follow the defaults for everything it
- * has no opinion about.
+ * With one switch for all of them, wanting a template's own marker colour would mean taking
+ * ownership of its shape and its colour filter as well, out of reach of the global sliders.
+ * Splitting them lets an overlay follow the defaults for everything it has no opinion about.
  */
 export type AppearanceGroup = 'pixels' | 'colours' | 'markers'
 
@@ -162,6 +157,28 @@ export const GROUP_FIELDS: Record<AppearanceGroup, readonly (keyof Appearance)[]
  * of the template redrawn in crosshairs, and every value beyond this one is that with more of it.
  */
 export const UNPAINTED_LIMIT_MAX = 0.2
+
+type NumericField = {
+  [Key in keyof Appearance]: Appearance[Key] extends number ? Key : never
+}[keyof Appearance]
+
+/** The valid range of every numeric field. Stored values are clamped into it; edits must fall in it. */
+export const APPEARANCE_RANGES: Record<
+  NumericField,
+  { readonly min: number; readonly max: number }
+> = {
+  size: { min: 0.05, max: 2 },
+  radius: { min: 0, max: 1 },
+  translateX: { min: -1, max: 1 },
+  translateY: { min: -1, max: 1 },
+  rotation: { min: 0, max: 360 },
+  opacity: { min: 0.05, max: 1 },
+  contrastOutlineSize: { min: 0.25, max: 2 },
+  unpaintedLimit: { min: 0, max: UNPAINTED_LIMIT_MAX },
+  markerSize: { min: 3, max: 33 },
+  selectedMarkerSize: { min: 3, max: 33 },
+  otherOpacity: { min: 0, max: 1 },
+}
 
 export const DEFAULT_APPEARANCE: Appearance = {
   size: 0.6,
@@ -281,14 +298,14 @@ export const normaliseAppearance = (raw: unknown): Appearance | null => {
   // would draw every upgraded overlay at a third of its size, so a legacy record keeps its position
   // and opacity and takes the current defaults for the stamp the old model never used.
   const legacy = 'shape' in source
-  const number = (key: string, fallback: number, min: number, max: number): number => {
+  const clamped = (key: string, fallback: number, min: number, max: number): number => {
     const value = source[key]
     if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
     return Math.min(max, Math.max(min, value))
   }
-  const stamped = (key: string, fallback: number, min: number, max: number): number =>
-    legacy ? fallback : number(key, fallback, min, max)
-  const legacySize = number('size', 1 / 3, 0.05, 1)
+  const number = (key: NumericField): number =>
+    clamped(key, DEFAULT_APPEARANCE[key], APPEARANCE_RANGES[key].min, APPEARANCE_RANGES[key].max)
+  const legacySize = clamped('size', 1 / 3, 0.05, 1)
   const legacyAnchor =
     typeof source.anchor === 'string' &&
     ['tl', 't', 'tr', 'l', 'c', 'r', 'bl', 'b', 'br'].includes(source.anchor)
@@ -345,49 +362,64 @@ export const normaliseAppearance = (raw: unknown): Appearance | null => {
       ].slice(0, PALETTE_SIZE)
     : []
   return {
-    size: legacy ? legacyPixels.size : stamped('size', DEFAULT_APPEARANCE.size, 0.05, 2),
-    radius: legacy ? legacyPixels.radius : stamped('radius', DEFAULT_APPEARANCE.radius, 0, 1),
-    translateX: legacy
-      ? legacyPixels.translateX
-      : number('translateX', DEFAULT_APPEARANCE.translateX, -1, 1),
-    translateY: legacy
-      ? legacyPixels.translateY
-      : number('translateY', DEFAULT_APPEARANCE.translateY, -1, 1),
-    rotation: legacy
-      ? legacyPixels.rotation
-      : number('rotation', DEFAULT_APPEARANCE.rotation, 0, 360),
-    opacity: number('opacity', DEFAULT_APPEARANCE.opacity, 0.05, 1),
+    size: legacy ? legacyPixels.size : number('size'),
+    radius: legacy ? legacyPixels.radius : number('radius'),
+    translateX: legacy ? legacyPixels.translateX : number('translateX'),
+    translateY: legacy ? legacyPixels.translateY : number('translateY'),
+    rotation: legacy ? legacyPixels.rotation : number('rotation'),
+    opacity: number('opacity'),
     // The treatment shipped enabled before it became configurable, so missing persisted fields
     // preserve that appearance instead of silently opting upgraded users out.
     contrastOutline: source.contrastOutline !== false,
-    contrastOutlineSize: number(
-      'contrastOutlineSize',
-      DEFAULT_APPEARANCE.contrastOutlineSize,
-      0.25,
-      2,
-    ),
+    contrastOutlineSize: number('contrastOutlineSize'),
     hiddenColours: hidden,
-    // `onlySelectedColour` used to live here too. A stored one is simply dropped: the mode is one
-    // switch for the whole view now, so there is nothing per-overlay left for it to mean.
+    // A stored `onlySelectedColour` is dropped: the mode is one switch for the whole view, so there
+    // is nothing per-overlay for it to mean.
     markMismatch: source.markMismatch === true,
     markUnpainted: source.markUnpainted === true,
     // Absent on anything stored before the switch existed, where the behaviour was always on.
     dimOthers: source.dimOthers !== false,
-    unpaintedLimit: number(
-      'unpaintedLimit',
-      DEFAULT_APPEARANCE.unpaintedLimit,
-      0,
-      UNPAINTED_LIMIT_MAX,
-    ),
+    unpaintedLimit: number('unpaintedLimit'),
     markerColour: colour(source.markerColour) ?? DEFAULT_APPEARANCE.markerColour,
-    markerSize: number('markerSize', DEFAULT_APPEARANCE.markerSize, 3, 33),
+    markerSize: number('markerSize'),
     markSelectedColour: source.markSelectedColour === true,
     selectedMarkerColour:
       colour(source.selectedMarkerColour) ?? DEFAULT_APPEARANCE.selectedMarkerColour,
-    selectedMarkerSize: number('selectedMarkerSize', DEFAULT_APPEARANCE.selectedMarkerSize, 3, 33),
-    otherOpacity: number('otherOpacity', DEFAULT_APPEARANCE.otherOpacity, 0, 1),
+    selectedMarkerSize: number('selectedMarkerSize'),
+    otherOpacity: number('otherOpacity'),
     otherColour: colour(source.otherColour),
   }
+}
+
+const PIXEL_RANGE_FIELDS = [
+  'size',
+  'radius',
+  'translateX',
+  'translateY',
+  'rotation',
+  'opacity',
+  'contrastOutlineSize',
+] as const
+
+/** Whether an edited appearance's pixels and colours fields are all in range, so it may be saved. */
+export const isValidAppearance = (value: unknown): value is Appearance => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const fields = value as Record<string, unknown>
+  const { contrastOutline, hiddenColours } = fields
+  return (
+    PIXEL_RANGE_FIELDS.every((key) => {
+      const field = fields[key]
+      const { min, max } = APPEARANCE_RANGES[key]
+      return typeof field === 'number' && Number.isFinite(field) && field >= min && field <= max
+    }) &&
+    typeof contrastOutline === 'boolean' &&
+    Array.isArray(hiddenColours) &&
+    hiddenColours.length <= WPLACE_PALETTE.length &&
+    hiddenColours.every(
+      (index) => Number.isSafeInteger(index) && index >= 0 && index < WPLACE_PALETTE.length,
+    ) &&
+    new Set(hiddenColours).size === hiddenColours.length
+  )
 }
 
 /** Appearance groups an old stored overlay had changed away from its old defaults. */
@@ -422,8 +454,8 @@ export const toRgbUnit = (hex: string): [number, number, number] => [
 /**
  * Whether this appearance is just the source pixels, untouched.
  *
- * Opacity is excluded on purpose: it is applied at draw time with `globalAlpha`, so it never costs a
- * re-stamp and never forces the expensive path.
+ * Opacity is excluded on purpose: it is its own uniform at draw time, so it never forces the
+ * stamp's distance field.
  */
 export const isPlain = (appearance: Appearance): boolean =>
   appearance.size >= 1 &&
@@ -431,26 +463,6 @@ export const isPlain = (appearance: Appearance): boolean =>
   appearance.translateX === 0 &&
   appearance.translateY === 0 &&
   appearance.rotation === 0
-
-/** Whether a point within one source cell is covered by the same stamp the shader draws. */
-export const stampContains = (appearance: Appearance, cellX: number, cellY: number): boolean => {
-  if (isPlain(appearance)) return true
-  const radians = (-appearance.rotation * Math.PI) / 180
-  const c = Math.cos(radians)
-  const s = Math.sin(radians)
-  const localX = cellX - 0.5
-  const localY = cellY - 0.5
-  // This is the GLSL mat2 multiplication in `FRAGMENT_SOURCE`, including its column order.
-  const pointX = c * localX - s * localY - appearance.translateX
-  const pointY = s * localX + c * localY - appearance.translateY
-  const half = appearance.size * 0.5
-  const radius = appearance.radius * half
-  const qx = Math.abs(pointX) - half + radius
-  const qy = Math.abs(pointY) - half + radius
-  const distance =
-    Math.min(Math.max(qx, qy), 0) + Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - radius
-  return distance <= 0
-}
 
 /**
  * Whether a template pixel of this index should be left unpainted by the overlay.

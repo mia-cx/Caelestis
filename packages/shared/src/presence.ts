@@ -1,4 +1,5 @@
 import { bytesToBase64, isPackedBits, unpackBits } from './bitmask.js'
+import { isSafeInteger } from './guards.js'
 import type { RegionDocument } from './region-shape.js'
 import type { PainterIdentity } from './telemetry.js'
 import type { TemplateSurface } from './template-surface.js'
@@ -151,16 +152,13 @@ export interface RegionClaimRequest {
   readonly actor: PainterIdentity
 }
 
-const finiteInt = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isSafeInteger(value)
-
 export const isPresenceRect = (value: unknown): value is PresenceRect =>
   typeof value === 'object' &&
   value !== null &&
-  finiteInt((value as PresenceRect).x) &&
-  finiteInt((value as PresenceRect).y) &&
-  finiteInt((value as PresenceRect).w) &&
-  finiteInt((value as PresenceRect).h) &&
+  isSafeInteger((value as PresenceRect).x) &&
+  isSafeInteger((value as PresenceRect).y) &&
+  isSafeInteger((value as PresenceRect).w) &&
+  isSafeInteger((value as PresenceRect).h) &&
   (value as PresenceRect).x >= 0 &&
   (value as PresenceRect).y >= 0 &&
   (value as PresenceRect).w > 0 &&
@@ -253,7 +251,7 @@ export const decodePresenceDraftMask = (draft: PresenceDraft): Uint8Array | null
 export const isPresenceDraft = (value: unknown): value is PresenceDraft => {
   if (typeof value !== 'object' || value === null) return false
   const draft = value as PresenceDraft
-  if (!isPresenceRect(draft.rect) || !finiteInt(draft.pixels) || draft.pixels < 0) return false
+  if (!isPresenceRect(draft.rect) || !isSafeInteger(draft.pixels) || draft.pixels < 0) return false
   if (draft.mask === undefined) return true
   const bits = draft.rect.w * draft.rect.h
   return bits <= MAX_PRESENCE_MASK_BITS && isPackedBits(draft.mask, bits)

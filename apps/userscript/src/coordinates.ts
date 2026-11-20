@@ -1,5 +1,32 @@
-import { TILE_SIZE, WORLD_PIXELS } from '@caelestis/shared'
-import type { TileFrame } from './tile-transform.js'
+import {
+  type Point,
+  type PresenceRect,
+  quantiseRect,
+  TILE_SIZE,
+  type TileCoord,
+  WORLD_PIXELS,
+} from '@caelestis/shared'
+
+/** Where Wplace drew one tile this frame, as an axis-aligned rectangle. */
+export interface TileQuad {
+  readonly tile: TileCoord
+  /** Screen position of the tile's top-left corner, in canvas device pixels. */
+  readonly x: number
+  readonly y: number
+  /** Screen size of the whole tile, in canvas device pixels. */
+  readonly width: number
+  readonly height: number
+}
+
+export interface TileFrame {
+  readonly canvas: HTMLCanvasElement
+  /**
+   * Every wplace tile drawn this frame. Empty when the map is showing none — zoomed out past the
+   * point where wplace serves them, for instance — which is the signal to clear the overlay rather
+   * than leave the last frame's squares stranded on screen.
+   */
+  readonly quads: readonly TileQuad[]
+}
 
 const wrapWorldX = (x: number): number => ((x % WORLD_PIXELS) + WORLD_PIXELS) % WORLD_PIXELS
 
@@ -9,6 +36,16 @@ const wrappedXDelta = (x: number, reference: number): number => {
   return (
     ((((delta + WORLD_PIXELS / 2) % WORLD_PIXELS) + WORLD_PIXELS) % WORLD_PIXELS) - WORLD_PIXELS / 2
   )
+}
+
+/**
+ * A tile frame's affine reference: any tile quad gives the scale and origin between device pixels
+ * on the map canvas and canvas pixels. Nothing here projects through MapLibre, which keeps what is
+ * drawn over tiles consistent with the tiles themselves.
+ */
+const frameReference = (frame: TileFrame): TileQuad | null => {
+  const reference = frame.quads[0]
+  return reference === undefined || reference.width <= 0 || reference.height <= 0 ? null : reference
 }
 
 export interface ScreenProjection {
@@ -34,8 +71,8 @@ export const screenProjectionIn = (
   frame: TileFrame | null,
   knownBox?: CanvasBox,
 ): ScreenProjection | null => {
-  const reference = frame?.quads[0]
-  if (reference === undefined || frame === null) return null
+  const reference = frame === null ? null : frameReference(frame)
+  if (reference === null || frame === null) return null
   const box = knownBox ?? frame.canvas.getBoundingClientRect()
   if (box.width <= 0 || box.height <= 0 || frame.canvas.width <= 0 || frame.canvas.height <= 0) {
     return null
@@ -203,6 +240,62 @@ export const canvasPixelAtIn = (
     }
   }
   return null
+}
+
+/**
+ * The canvas-pixel rect the whole map canvas covers. A viewport straddling the antimeridian
+ * clamps to the canonical world; the far side is rare and not worth a second rect on the wire.
+ */
+export const viewportRectIn = (frame: TileFrame): PresenceRect | null => {
+  const reference = frameReference(frame)
+  if (reference === null) return null
+  const scaleX = TILE_SIZE / reference.width
+  const scaleY = TILE_SIZE / reference.height
+  const originX = reference.tile.x * TILE_SIZE - reference.x * scaleX
+  const originY = reference.tile.y * TILE_SIZE - reference.y * scaleY
+  const left = Math.max(0, Math.floor(originX))
+  const top = Math.max(0, Math.floor(originY))
+  const right = Math.min(WORLD_PIXELS, Math.ceil(originX + frame.canvas.width * scaleX))
+  const bottom = Math.min(WORLD_PIXELS, Math.ceil(originY + frame.canvas.height * scaleY))
+  if (right <= left || bottom <= top) return null
+  return quantiseRect({ x: left, y: top, w: right - left, h: bottom - top })
+}
+
+/** A box on the map canvas, in device pixels. */
+export interface DeviceBox {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
+
+/** Where `rect` lands on the canvas this frame, in device pixels, or null when off screen. */
+export const rectOnScreen = (frame: TileFrame, rect: PresenceRect): DeviceBox | null => {
+  const reference = frameReference(frame)
+  if (reference === null) return null
+  const scaleX = reference.width / TILE_SIZE
+  const scaleY = reference.height / TILE_SIZE
+  const x = reference.x + (rect.x - reference.tile.x * TILE_SIZE) * scaleX
+  const y = reference.y + (rect.y - reference.tile.y * TILE_SIZE) * scaleY
+  const width = rect.w * scaleX
+  const height = rect.h * scaleY
+  if (x + width <= 0 || y + height <= 0 || x >= frame.canvas.width || y >= frame.canvas.height)
+    return null
+  return { x, y, width, height }
+}
+
+/** The whole canvas pixel under a device-pixel point on the map canvas, by the frame's tiles. */
+export const framePixelAt = (frame: TileFrame, deviceX: number, deviceY: number): Point | null => {
+  const reference = frameReference(frame)
+  if (reference === null) return null
+  return {
+    x: Math.floor(
+      reference.tile.x * TILE_SIZE + (deviceX - reference.x) * (TILE_SIZE / reference.width),
+    ),
+    y: Math.floor(
+      reference.tile.y * TILE_SIZE + (deviceY - reference.y) * (TILE_SIZE / reference.height),
+    ),
+  }
 }
 
 /** Browser client-coordinate position of a global canvas pixel. */

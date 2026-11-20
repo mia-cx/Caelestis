@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { installWplaceSettings } from './wplace-settings.js'
+import { resetWplaceSwitches } from './wplace-switches.js'
 
 const STORAGE_KEY = 'caelestis.wplace-options.v1'
 const FALSETYPE_ATTRIBUTE = 'data-caelestis-falsetype'
@@ -59,6 +60,7 @@ afterEach(() => {
     document.documentElement.removeAttribute(attribute)
   document.body.replaceChildren()
   localStorage.clear()
+  resetWplaceSwitches()
   history.replaceState({}, '', '/')
 })
 

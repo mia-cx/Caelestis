@@ -48,7 +48,6 @@ export interface AppearanceTransitions {
     id: string,
     target: Appearance,
     now: number,
-    reducedMotion?: boolean,
     interactive?: boolean,
   ) => { appearance: Appearance; done: boolean }
   readonly prune: (keep: ReadonlySet<string>) => void
@@ -72,7 +71,7 @@ export const appearanceTransitionSet = (): AppearanceTransitions => {
       : transition.target
 
   return {
-    advance: (id, target, now, reducedMotion = prefersReducedMotion(), interactive = false) => {
+    advance: (id, target, now, interactive = false) => {
       const next = styleOf(target)
       const existing = transitions.get(id)
       if (existing === undefined) {
@@ -82,7 +81,8 @@ export const appearanceTransitionSet = (): AppearanceTransitions => {
 
       if (!sameStyle(existing.target, next)) {
         const current = valueAt(existing, now)
-        const moving = !reducedMotion && (interactive || pixelStylePresetOf(target) !== null)
+        const moving =
+          !prefersReducedMotion() && (interactive || pixelStylePresetOf(target) !== null)
         transitions.set(id, { from: moving ? current : next, target: next, since: now, moving })
         return { appearance: moving ? withStyle(target, current) : target, done: !moving }
       }
@@ -99,5 +99,3 @@ export const appearanceTransitionSet = (): AppearanceTransitions => {
     },
   }
 }
-
-export const appearanceTransitions = appearanceTransitionSet()

@@ -1,6 +1,7 @@
 import type { TemplateSurface } from '@caelestis/shared'
 import type { StudioRect } from '@caelestis/ui/studio'
-import { activeAllianceEditorStage } from '../alliance-surface.js'
+import { activeAllianceDialog, activeAllianceEditorStage } from '../alliance-editor-dom.js'
+import { onViewChange } from '../map-view.js'
 import { placementScale, placementScreenPoint } from './move.js'
 
 /**
@@ -134,9 +135,7 @@ const hitSize = (): number =>
  * leave the rest of the page inert and cover it, so an alliance draft's handles go inside one.
  */
 const overlayHost = (surface: TemplateSurface): HTMLElement =>
-  (surface.kind === 'world'
-    ? null
-    : activeAllianceEditorStage()?.closest<HTMLElement>('dialog[open]')) ?? document.body
+  (surface.kind === 'world' ? null : activeAllianceDialog()) ?? document.body
 
 /**
  * Keep an alliance draft's handles inside the editor's stage, where Wplace clips the art itself.
@@ -539,8 +538,13 @@ const onScreen = (frame: StudioFrameView, box: Box) => {
   return { x: start.x, y: start.y, width: end.x - start.x, height: end.y - start.y }
 }
 
+/** Keep the studio's handles on the template as the world map or an alliance artboard moves. */
+export const installStudioFrame = (): void => {
+  onViewChange(syncStudioFrame, 'Template studio handles')
+}
+
 /** Redraw at the current projection. Runs every map frame and after every studio change. */
-export const syncStudioFrame = (): void => {
+const syncStudioFrame = (): void => {
   const frame = view
   if (frame === null) {
     overlay?.root.remove()

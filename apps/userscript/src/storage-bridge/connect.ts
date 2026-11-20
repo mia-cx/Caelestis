@@ -1,20 +1,21 @@
-import { type Build, claimPage } from '../page-claim.js'
+import { claimPage } from '../page-claim.js'
+import { BRIDGE_HANDOFF, type Build } from '../page-markers.js'
 import { useStoredValues } from '../stored-values.js'
-import { BRIDGE_HANDOFF, type BridgeMessage, type PageMessage } from './protocol.js'
+import type { BridgeMessage, PageMessage } from './protocol.js'
 
 /**
  * Claim the page for `build`, unless `standby`, and take its stored values over the storage bridge.
  * See `protocol.ts`.
  *
  * Runs at document start in the page world. Every read before the snapshot arrives returns the
- * default rather than a page-readable fallback; `onSnapshot` runs once it has, and changes made
- * elsewhere afterwards apply as they arrive. Returns whether this copy claimed the page. One that
- * did not must install nothing: its values are only for the build that did (see
- * `build-transfer.ts`).
+ * default rather than a page-readable fallback; `onSnapshot` runs once it has, told whether this
+ * copy claimed the page, and changes made elsewhere afterwards apply as they arrive. Returns
+ * whether this copy claimed the page. One that did not must install nothing: its values are only
+ * for the build that did (see `build-transfer.ts`).
  */
 export const connectStorageBridge = (
   build: Build,
-  onSnapshot: () => void,
+  onSnapshot: (claimed: boolean) => void,
   standby = false,
 ): boolean => {
   const claimed = !standby && claimPage(build)
@@ -51,7 +52,7 @@ export const connectStorageBridge = (
     switch (message.type) {
       case 'snapshot':
         for (const [key, value] of Object.entries(message.values)) values.set(key, value)
-        onSnapshot()
+        onSnapshot(claimed)
         break
       case 'changes':
         adopt(message.changes)

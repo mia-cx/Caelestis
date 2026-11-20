@@ -2,7 +2,6 @@ import {
   bboxSize,
   PALETTE_RGB,
   quantiseToPalette,
-  type ReconciliationReason,
   sameTemplateSurface,
   sha256Hex,
   type TemplateSurface,
@@ -12,37 +11,41 @@ import {
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { userscriptClientHeaders } from '../client-metrics.js'
+import { Semaphore } from '../concurrency.js'
 import { count, warn } from '../debug.js'
-import type { ServerTemplate } from '../server-cache.js'
+import { PerServerMap } from '../per-server-map.js'
+import {
+  type ConnectedServer,
+  isConnected,
+  isCurrentServerConnection,
+  onServerRemoved,
+  serverConnectionIdentity,
+  serverConnectionSignal,
+} from '../server-connections.js'
+import type { ServerTemplate } from '../server-manifest.js'
+import {
+  adoptProbedManifest,
+  applyLiveManifest,
+  onManifestChange,
+  readManifest,
+} from '../server-manifests.js'
 import { invalidateServerMismatches } from '../server-mismatch.js'
 import { deleteCachedServerMismatches } from '../server-mismatch-cache.js'
-import { applyServerSyncRevision, registerServerSyncResource } from '../server-sync-coordinator.js'
-import { serverEndpoint } from '../server-url.js'
-import {
-  activeServerToken,
-  adoptProbedServerContents,
-  applyLiveServerManifest,
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-  isLatestServerContents,
-  listServerContents,
-  onStateChange,
-  type ServerContents,
-} from '../state.js'
+import { serverRequest } from '../server-request.js'
+import { registerServerSyncResource, WORLD_SCOPE } from '../server-sync-coordinator.js'
+import type { ServerConnection } from '../settings.js'
+import { serverTemplateIdPrefix, serverTemplateKey } from '../tree-keys.js'
 import { ByteCache } from './byte-cache.js'
+import { localTemplates, type ServerCopy } from './catalog.js'
+import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
 import {
-  forgetServerTemplate,
-  hasRoomForServerTemplate,
-  localTemplates,
-  type PlacedTemplate,
-  putServerTemplate,
+  forgetTemplateCopies,
+  forgetTemplateCopy,
+  hasRoomForCopy,
+  putTemplateCopy,
   setServerPixelSource,
   updateServerTemplateMetadata,
-} from './local-store.js'
-import { rememberNodes } from './server-nodes.js'
-import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
+} from './template-copies.js'
 
 /**
  * Bringing a server's published templates onto the canvas.
@@ -61,66 +64,14 @@ import { cachedServerCopy, retainServerPixels } from './server-pixel-cache.js'
 const CHUNK_CACHE_LIMIT = 512
 /** Encoded cache budget. The entry cap alone permits 512 adversarial 8 MiB responses. */
 const CHUNK_CACHE_BYTES = 64 * 1024 * 1024
-const CHUNK_FETCH_TIMEOUT_MS = 15_000
 const MAX_CHUNK_BYTES = 8 * 1024 * 1024
 /** Matches the server upload boundary; a wider manifest is not one this client can safely drain. */
 const MAX_TEMPLATE_CHUNKS = 400
 /** Encoded work per template. Decoded pixels have their own 64M-pixel bound below. */
 const MAX_TEMPLATE_TRANSFER_BYTES = 64 * 1024 * 1024
 const MAX_TEMPLATE_ASSEMBLY_MS = 120_000
-const ASSEMBLY_CONCURRENCY = 4
-let activeAssemblies = 0
-interface AssemblyWaiter {
-  readonly grant: () => void
-  readonly cancel: () => void
-}
-const assemblyWaiters: AssemblyWaiter[] = []
-
-const acquireAssemblySlot = (signal: AbortSignal): true | Promise<boolean> => {
-  if (signal.aborted) return Promise.resolve(false)
-  if (activeAssemblies < ASSEMBLY_CONCURRENCY) {
-    activeAssemblies++
-    return true
-  }
-  return new Promise<boolean>((resolve) => {
-    const waiter: AssemblyWaiter = {
-      grant: () => {
-        signal.removeEventListener('abort', waiter.cancel)
-        resolve(true)
-      },
-      cancel: () => {
-        const index = assemblyWaiters.indexOf(waiter)
-        if (index !== -1) assemblyWaiters.splice(index, 1)
-        resolve(false)
-      },
-    }
-    signal.addEventListener('abort', waiter.cancel, { once: true })
-    assemblyWaiters.push(waiter)
-  })
-}
-
-const releaseAssemblySlot = (): void => {
-  const next = assemblyWaiters.shift()
-  if (next === undefined) activeAssemblies--
-  else next.grant()
-}
-
-const withAssemblySlot = async <T>(
-  signal: AbortSignal,
-  work: () => Promise<T>,
-): Promise<T | undefined> => {
-  const admission = acquireAssemblySlot(signal)
-  if (admission !== true && !(await admission)) return undefined
-  try {
-    return await work()
-  } finally {
-    releaseAssemblySlot()
-  }
-}
-
-/** @internal Arithmetic seam for proving that cached and downloaded chunks share one work budget. */
-export const templateTransferWithinBudget = (used: number, next: number): boolean =>
-  used >= 0 && next >= 0 && used + next <= MAX_TEMPLATE_TRANSFER_BYTES
+/** At most this many templates own network, decode, and bitmap memory at once. */
+const assemblySlots = new Semaphore(4)
 
 /** Chunk bytes by hash. Immutable by definition, so nothing here ever needs invalidating. */
 const chunkCache = new ByteCache<string>(CHUNK_CACHE_LIMIT, CHUNK_CACHE_BYTES)
@@ -134,9 +85,9 @@ const decodedChunks = new ByteCache<string>(CHUNK_CACHE_LIMIT, 32 * TILE_SIZE * 
 
 /** Fetch one chunk without spending more than this template still has left. */
 export const fetchChunkWithinBudget = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   hash: string,
-  generationSignal: AbortSignal,
+  downloadSignal: AbortSignal,
   remainingBytes: number,
 ): Promise<Uint8Array | null> => {
   if (!Number.isSafeInteger(remainingBytes) || remainingBytes < 0) return null
@@ -144,43 +95,13 @@ export const fetchChunkWithinBudget = async (
   if (cached !== undefined) return cached.byteLength <= remainingBytes ? cached : null
   const readLimit = Math.min(MAX_CHUNK_BYTES, remainingBytes)
   try {
-    const response = await fetch(serverEndpoint(server.url, `/chunks/${hash}`), {
-      headers:
-        activeServerToken(server) === null
-          ? userscriptClientHeaders()
-          : {
-              ...userscriptClientHeaders(),
-              authorization: `Bearer ${activeServerToken(server)}`,
-            },
-      signal: AbortSignal.any([generationSignal, AbortSignal.timeout(CHUNK_FETCH_TIMEOUT_MS)]),
+    const { response, body: bytes } = await serverRequest(server, `/chunks/${hash}`, {
+      limits: 'background',
+      read: 'bytes',
+      maxBytes: readLimit,
+      signal: downloadSignal,
     })
     if (!response.ok) return null
-    const declared = Number(response.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > readLimit) return null
-    if (response.body === null) return null
-    const reader = response.body.getReader()
-    const parts: Uint8Array[] = []
-    let length = 0
-    try {
-      while (true) {
-        const part = await reader.read()
-        if (part.done) break
-        length += part.value.byteLength
-        if (length > readLimit) {
-          await reader.cancel()
-          return null
-        }
-        parts.push(part.value)
-      }
-    } finally {
-      reader.releaseLock()
-    }
-    const bytes = new Uint8Array(length)
-    let offset = 0
-    for (const part of parts) {
-      bytes.set(part, offset)
-      offset += part.byteLength
-    }
     // A configured server is not trusted to tell the truth about a content address. Verify before
     // admitting bytes to the global cache, otherwise one server can seed another server's hash.
     // `readLimit` also means an over-budget template never admits the chunk that would evict useful
@@ -235,10 +156,14 @@ const decodeChunk = async (
     // a non-event.
     return quantiseToPalette(new Uint8Array(image.data.buffer), PALETTE_RGB).indices
   } catch (error) {
-    warn('install', 'could not decode a chunk', String(error))
+    warn('could not decode a chunk', String(error))
     return null
   }
 }
+
+/** A world bbox whose `minX` is past its `maxX` wraps around the antimeridian. */
+const wrapsWorldEdge = (template: ServerTemplate): boolean =>
+  template.surface.kind === 'world' && template.bbox.minX > template.bbox.maxX
 
 /**
  * Assemble a template's chunks into one bitmap the size of its bounding box.
@@ -250,12 +175,11 @@ const decodeChunk = async (
 const assemble = async (
   server: ConnectedServer,
   template: ServerTemplate,
-  generationSignal: AbortSignal,
+  downloadSignal: AbortSignal,
 ): Promise<{ width: number; height: number; indices: Uint8Array } | null> => {
-  if (generationSignal.aborted) return null
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
-  const wrapsX = surface.kind === 'world' && template.bbox.minX > template.bbox.maxX
-  const { width, height } = bboxSize(surface, template.bbox)
+  if (downloadSignal.aborted) return null
+  const wrapsX = wrapsWorldEdge(template)
+  const { width, height } = bboxSize(template.surface, template.bbox)
   if (
     width <= 0 ||
     height <= 0 ||
@@ -276,7 +200,7 @@ const assemble = async (
     ...template.chunks.filter((chunk) => !isDecoded(chunk)),
   ]
   for (const chunk of ordered) {
-    if (generationSignal.aborted) return null
+    if (downloadSignal.aborted) return null
     const [tileX, tileY] = chunk.tile.split('/').map(Number)
     if (
       tileX === undefined ||
@@ -299,11 +223,10 @@ const assemble = async (
     const bytes = await fetchChunkWithinBudget(
       server,
       chunk.hash,
-      generationSignal,
+      downloadSignal,
       MAX_TEMPLATE_TRANSFER_BYTES - encodedBytes,
     )
     if (bytes === null) return null
-    if (!templateTransferWithinBudget(encodedBytes, bytes.byteLength)) return null
     encodedBytes += bytes.byteLength
     if (!declaresSize(bytes, chunkWidth, chunkHeight)) return null
     let decoded = decodedChunks.get(chunk.hash) ?? null
@@ -333,37 +256,12 @@ const assemble = async (
   return { width, height, indices }
 }
 
-/**
- * Drop cached chunk bytes, by hash.
- *
- * Chunks are content-addressed, so the cache has no idea which server anything came from — the
- * caller does, from the manifest it still holds, and hands the hashes over on the way out.
- */
-export const forgetChunks = (hashes: Iterable<string>): void => {
-  for (const hash of hashes) {
-    chunkCache.delete(hash)
-    decodedChunks.delete(hash)
-  }
-}
-
-/** Our id for a server's template, namespaced so two servers cannot collide. */
-export const serverTemplateKey = (
-  serverUrl: string,
-  id: string,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-): string => {
-  const prefix = `srv:${encodeURIComponent(serverUrl)}:`
-  return surface.kind === 'world'
-    ? `${prefix}${id}`
-    : `${prefix}@${templateSurfaceKey(surface)}:${id}`
-}
-
 const serverTemplateBelongsToSurface = (
   key: string,
   serverUrl: string,
   surface: TemplateSurface,
 ): boolean => {
-  const prefix = serverTemplateKey(serverUrl, '')
+  const prefix = serverTemplateIdPrefix(serverUrl)
   if (!key.startsWith(prefix)) return false
   const scopedId = key.slice(prefix.length)
   return surface.kind === 'world'
@@ -371,77 +269,45 @@ const serverTemplateBelongsToSurface = (
     : scopedId.startsWith(`@${templateSurfaceKey(surface)}:`)
 }
 
-/** Templates already in flight, so a second sync while one runs does not download everything twice. */
-const inFlight = new Map<string, number>()
+/** Templates already downloading, by the connection lifetime that started them. */
+const inFlight = new PerServerMap<object>()
 
 /**
- * Each key's newest manifest entry, and the connection it came through.
+ * Each template's newest manifest entry, and the connection it came through.
  *
  * A download that is already running is skipped rather than restarted, which is right — but the
  * manifest that arrives while it runs may have replaced or deleted that template, and installing
- * the finished download then put back artwork nobody publishes any more. This is what the far side
- * of the download checks itself against, and what an evicted copy downloads again from.
+ * the finished download would then put back artwork nobody publishes any more. This is what the far
+ * side of the download checks itself against, and what an evicted copy downloads again from.
  */
-const latest = new Map<
-  string,
-  { readonly server: ConnectedServer; readonly template: ServerTemplate }
->()
-
-const latestVersion = (key: string): string | undefined => latest.get(key)?.template.version
-const rejectedServerContents = new WeakSet<ServerContents>()
-
-/** Mark a parsed manifest as inadmissible before a blind poll can reconcile it. */
-export const rejectServerContentsForSync = (contents: ServerContents): void => {
-  rejectedServerContents.add(contents)
-}
+const latest = new PerServerMap<{
+  readonly server: ConnectedServer
+  readonly template: ServerTemplate
+}>()
 
 /**
- * Which generation of a server's connection a download belongs to.
+ * Download a server template again, for a copy whose pixels were evicted and lost from disk.
  *
- * A chunk request outlives the connection that asked for it. Disconnecting takes the server's
- * templates away, and a download still in the air then put one back — an overlay with no server row
- * left to poll it or turn it off, until the page reloads. The generation moves when the connection
- * does, so a reply that comes back into a different one is dropped rather than drawn.
+ * Only the version the newest manifest asked for, through the connection it came from.
  */
-const generations = new Map<string, number>()
-const generationControllers = new Map<string, { generation: number; controller: AbortController }>()
-
-const generationOf = (serverUrl: string): number => generations.get(serverUrl) ?? 0
-
-const generationSignal = (serverUrl: string, generation: number): AbortSignal => {
-  const existing = generationControllers.get(serverUrl)
-  if (existing?.generation === generation) return existing.controller.signal
-  existing?.controller.abort()
-  const controller = new AbortController()
-  generationControllers.set(serverUrl, { generation, controller })
-  return controller.signal
-}
-
-/** Called when a server's templates are taken away, so anything already downloading for it lands stale. */
-export const endServerGeneration = (serverUrl: string): void => {
-  generationControllers.get(serverUrl)?.controller.abort()
-  generationControllers.delete(serverUrl)
-  generations.set(serverUrl, generationOf(serverUrl) + 1)
-  for (const key of [...pendingServerSyncs.keys()]) {
-    if (key.startsWith(`${serverUrl}\n`)) pendingServerSyncs.delete(key)
-  }
-  // A new connection must not queue behind the obsolete drain. The old run's release callback is
-  // identity guarded, so it cannot delete the replacement when it eventually settles.
-  for (const key of [...serverSyncRuns.keys()]) {
-    if (key.startsWith(`${serverUrl}\n`)) serverSyncRuns.delete(key)
-  }
-  // The versions this server had asked for go with it. Kept, they outlive the connection for the
-  // rest of the session, and a second server whose URL extends this one's shares their key prefix.
-  const prefix = serverTemplateKey(serverUrl, '')
-  for (const key of [...latest.keys()]) {
-    if (key.startsWith(prefix)) latest.delete(key)
-  }
+const downloadAgain = async (copy: ServerCopy): Promise<Uint8Array | null> => {
+  const entry = latest.get(copy.server.url, copy.id)
+  if (entry === undefined || entry.template.version !== copy.version) return null
+  const { server } = entry
+  const signal = AbortSignal.any([
+    serverConnectionSignal(server),
+    AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS),
+  ])
+  const built = await assemblySlots.run(
+    signal,
+    async () => await assemble(server, entry.template, signal),
+  )
+  return built?.indices ?? null
 }
 
 const opaqueCount = (indices: Uint8Array): number =>
   indices.reduce((total, index) => (index === TRANSPARENT_INDEX ? total : total + 1), 0)
 
-/** The store row for one manifest entry, before its pixels. */
 const serverTemplateRow = (
   server: ConnectedServer,
   template: ServerTemplate,
@@ -461,38 +327,20 @@ const serverTemplateRow = (
   // The server quantised on ingest, so nothing moved on the way here and every pixel it carries is
   // one it asserts.
   moved: 0,
-  serverUrl: server.url,
+  origin: 'server' as const,
+  server,
   serverTemplateId: template.id,
-  serverNodeId: template.nodeId,
-  serverVersion: template.version,
-  serverUnpublished: !template.published,
-  serverConnection: server,
-  serverTileKeys: template.chunks.map((chunk) => chunk.tile),
-  wrapX: surface.kind === 'world' && template.bbox.minX > template.bbox.maxX,
+  nodeId: template.nodeId,
+  version: template.version,
+  unpublished: !template.published,
+  tileKeys: template.chunks.map((chunk) => chunk.tile),
+  wrapX: wrapsWorldEdge(template),
 })
 
 /**
- * Download a server template again, for a copy whose pixels were evicted and lost from disk.
- *
- * Only the version the newest manifest asked for, through the connection it came from.
- */
-const downloadAgain = async (template: PlacedTemplate): Promise<Uint8Array | null> => {
-  const entry = latest.get(template.id)
-  if (entry === undefined || entry.template.version !== template.serverVersion) return null
-  const { server } = entry
-  const signal = AbortSignal.any([
-    generationSignal(server.url, generationOf(server.url)),
-    AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS),
-  ])
-  const built = await withAssemblySlot(
-    signal,
-    async () => await assemble(server, entry.template, signal),
-  )
-  return built?.indices ?? null
-}
-
-/**
- * Bring one server's templates onto the canvas, and take away what it no longer has.
+ * Bring one server's templates on one surface onto the canvas, and take away what it no longer
+ * has. Downloads belong to the connection lifetime: one that ends aborts them, so a reply landing
+ * after a disconnect is dropped rather than drawn.
  *
  * Unpublished ones are drawn too, and the scope sorts that out by itself: the manifest only lists
  * them for an admin code, so a member never sees one and an admin sees exactly what they are about
@@ -500,69 +348,43 @@ const downloadAgain = async (template: PlacedTemplate): Promise<Uint8Array | nul
  */
 const syncServerTemplatesOnce = async (
   server: ConnectedServer,
-  /** The manifest's templates, when the caller has just read them and would only re-read them. */
-  known?: readonly ServerTemplate[],
-  snapshotCurrent: () => boolean = () => true,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-  reason: ReconciliationReason = 'unknown',
+  available: readonly ServerTemplate[],
+  snapshotCurrent: () => boolean,
+  surface: TemplateSurface,
 ): Promise<void> => {
-  const connectionCurrent = (): boolean => isCurrentServerConnection(server)
-  if (server.status !== 'connected' || !connectionCurrent() || !snapshotCurrent()) return
-  const generation = generationOf(server.url)
-  const signal = generationSignal(server.url, generation)
+  const signal = serverConnectionSignal(server)
+  const lifetime = serverConnectionIdentity(server)
   const current = (): boolean =>
-    connectionCurrent() &&
-    generationOf(server.url) === generation &&
-    !signal.aborted &&
-    snapshotCurrent()
-  let available = known ?? null
-  if (known === undefined) {
-    const contents = await listServerContents(server, signal, reason)
-    if (!current()) return
-    if (contents !== null) {
-      snapshotCurrent = () => isLatestServerContents(server.url, contents)
-      if (!current()) return
-      if (rejectedServerContents.delete(contents)) return
-      // The manifest coordinator queues either this admitted snapshot or the previous admitted one
-      // when the new response exceeds aggregate budgets. In both cases that explicit authority must
-      // replace this blind result rather than being reconciled after it.
-      if (pendingServerSyncs.get(serverSyncKey(server.url, surface))?.known !== undefined) return
-    }
-    // The folders as well as the templates, because a template's visibility answers to the folders
-    // above it and this is the only place that learns of them changing between polls.
-    if (contents !== null) rememberNodes(server.url, contents.nodes)
-    available = contents?.templates ?? null
-  }
-  // Could not ask, so nothing is known and nothing changes. Treating this as an empty server took
-  // every template off the canvas on a single blip and put them back looking newly arrived.
-  if (available === null) return
-  available = available.filter((template) =>
-    sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface),
-  )
+    isCurrentServerConnection(server) && !signal.aborted && snapshotCurrent()
   if (!current()) return
   const wanted = new Map(
-    available.map((template) => [serverTemplateKey(server.url, template.id, surface), template]),
+    available
+      .filter((template) => sameTemplateSurface(template.surface, surface))
+      .map((template) => [serverTemplateKey(server.url, template.id, surface), template]),
   )
-  // Snapshot once. Re-reading and linearly searching the store for every manifest entry made a
-  // large server sync quadratic in the number of templates.
-  const heldById = new Map(localTemplates().map((template) => [template.id, template]))
+  // Snapshot once. Re-reading and linearly searching the store for every manifest entry would make
+  // a large server sync quadratic in the number of templates.
+  const heldById = new Map(
+    localTemplates()
+      .filter((template): template is ServerCopy => template.origin === 'server')
+      .map((template) => [template.id, template]),
+  )
 
   for (const held of heldById.values()) {
     if (!current()) return
-    if (held.serverUrl !== server.url) continue
-    if (!sameTemplateSurface(held.surface ?? WORLD_TEMPLATE_SURFACE, surface)) continue
-    if (!wanted.has(held.id)) await forgetServerTemplate(held.id)
+    if (held.server.url !== server.url) continue
+    if (!sameTemplateSurface(held.surface, surface)) continue
+    if (!wanted.has(held.id)) await forgetTemplateCopy(held.id)
   }
   if (!current()) return
-  for (const key of [...latest.keys()]) {
-    if (serverTemplateBelongsToSurface(key, server.url, surface) && !wanted.has(key)) {
-      latest.delete(key)
-    }
+  for (const [key, entry] of latest.entries(server.url)) {
+    const onSurface = sameTemplateSurface(entry.template.surface, surface)
+    if (onSurface && !wanted.has(key)) latest.delete(server.url, key)
   }
-  for (const [key, template] of wanted) latest.set(key, { server, template })
+  for (const [key, template] of wanted) latest.set(server.url, key, { server, template })
   // Cached pixels of templates this server stopped publishing while nobody was looking.
   void retainServerPixels(
-    serverTemplateKey(server.url, ''),
+    serverTemplateIdPrefix(server.url),
     (key) => wanted.has(key) || !serverTemplateBelongsToSurface(key, server.url, surface),
   )
 
@@ -572,8 +394,8 @@ const syncServerTemplatesOnce = async (
     // The version is the whole point of the sync being cheap: same version, same pixels, nothing to
     // rebuild. Names and folder membership still arrive through the manifest because neither
     // changes the pixel version.
-    if (held !== undefined && held.serverVersion === template.version) {
-      const unpublishing = !template.published && held.serverUnpublished !== true
+    if (held !== undefined && held.version === template.version) {
+      const unpublishing = !template.published && !held.unpublished
       await updateServerTemplateMetadata(
         key,
         template.name,
@@ -587,19 +409,20 @@ const syncServerTemplatesOnce = async (
       if (!current()) return
       continue
     }
-    if (inFlight.get(key) === generation) continue
+    if (inFlight.get(server.url, key) === lifetime) continue
     // Asked before the download, not after. A server may advertise a template larger than memory
     // could ever hold, and decoding it only to have the store refuse it wastes the entire chunk
     // transfer and assembly on every poll.
-    const { width, height } = bboxSize(surface, template.bbox)
+    const { width, height } = bboxSize(template.surface, template.bbox)
     const pixels = width * height
-    if (!Number.isSafeInteger(pixels) || pixels <= 0 || !hasRoomForServerTemplate(key, pixels)) {
+    if (!Number.isSafeInteger(pixels) || pixels <= 0 || !hasRoomForCopy(key, pixels)) {
       continue
     }
-    inFlight.set(key, generation)
-    const stillWanted = (): boolean => current() && latestVersion(key) === template.version
+    inFlight.set(server.url, key, lifetime)
+    const latestVersion = (): string | undefined => latest.get(server.url, key)?.template.version
+    const stillWanted = (): boolean => current() && latestVersion() === template.version
     // A draft keeps no saved masks, including ones a public copy saved in an earlier session.
-    const wasPublic = !template.published && held?.serverUnpublished !== true
+    const wasPublic = !template.published && held?.unpublished !== true
     try {
       // Cached at this version: install without downloading, and read the pixels when needed.
       const cached = await cachedServerCopy(key, template.version)
@@ -607,28 +430,28 @@ const syncServerTemplatesOnce = async (
       if (cached !== null) {
         const row = serverTemplateRow(server, template, key, surface, width, height)
         const copy = { ...row, indices: null, opaque: cached.opaque, cachedArea: cached.area }
-        if (!(await putServerTemplate(copy, stillWanted))) return
+        if (!(await putTemplateCopy(copy, stillWanted))) return
         count('server:template restored from disk')
         continue
       }
       const attemptSignal = AbortSignal.any([signal, AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS)])
-      const outcome = await withAssemblySlot(
+      const outcome = await assemblySlots.run(
         attemptSignal,
         async (): Promise<'continue' | 'stop'> => {
           const built = await assemble(server, template, attemptSignal)
           if (built === null) return 'continue'
           if (attemptSignal.aborted) return 'continue'
-          // The connection this download belongs to may have ended, or a later poll may have taken
-          // over this template, while the chunks were in the air.
+          // The connection this download belongs to may have ended, or a later manifest may have
+          // taken over this template, while the chunks were in the air.
           if (!current()) return 'stop'
           // A newer manifest landed while the chunks were in the air, and it no longer asks for this
           // version — or no longer asks for this template at all. Installing now would draw artwork
           // that has already been replaced, or bring a deleted overlay back.
-          if (latestVersion(key) !== template.version) return 'continue'
-          if (!hasRoomForServerTemplate(key, built.indices.length)) return 'continue'
+          if (latestVersion() !== template.version) return 'continue'
+          if (!hasRoomForCopy(key, built.indices.length)) return 'continue'
           // Hold the shared assembly slot through persistence so its decoded buffer cannot pile up
           // behind other completed assemblies while the store is busy.
-          const installed = await putServerTemplate(
+          const installed = await putTemplateCopy(
             {
               ...serverTemplateRow(server, template, key, surface, built.width, built.height),
               indices: built.indices,
@@ -644,9 +467,9 @@ const syncServerTemplatesOnce = async (
       if (outcome === undefined) continue
       if (outcome === 'stop') return
     } catch (error) {
-      warn('install', `could not sync server template ${template.name}`, String(error))
+      warn(`could not sync server template ${template.name}`, String(error))
     } finally {
-      if (inFlight.get(key) === generation) inFlight.delete(key)
+      if (inFlight.get(server.url, key) === lifetime) inFlight.delete(server.url, key)
       // After the install, so the row already says draft: a public row of an older version may
       // have requests in flight, which only a server-wide invalidation fences.
       if (wasPublic) {
@@ -659,188 +482,131 @@ const syncServerTemplatesOnce = async (
 
 interface PendingServerSync {
   readonly server: ConnectedServer
+  readonly templates: readonly ServerTemplate[]
+  readonly current: () => boolean
   readonly surface: TemplateSurface
-  readonly known?: readonly ServerTemplate[]
-  readonly snapshotCurrent?: () => boolean
-  readonly reason: ReconciliationReason
 }
 
-/** The newest request per server. Slow downloads must never make minute polls pile up behind them. */
-const pendingServerSyncs = new Map<string, PendingServerSync>()
-const serverSyncRuns = new Map<string, Promise<void>>()
+/** The newest admitted manifest per server and surface, waiting for the running drain. */
+const pendingServerSyncs = new PerServerMap<PendingServerSync>()
+/** The drain per server and surface, and the connection lifetime it belongs to. */
+const serverSyncRuns = new PerServerMap<{
+  readonly lifetime: object
+  readonly done: Promise<void>
+}>()
 
-const serverSyncKey = (serverUrl: string, surface: TemplateSurface): string =>
-  `${serverUrl}\n${templateSurfaceKey(surface)}`
-
-const ensureServerSyncRun = (key: string): Promise<void> => {
-  const existing = serverSyncRuns.get(key)
-  if (existing !== undefined) return existing
-  const requestedAtStart = pendingServerSyncs.get(key)
-  if (requestedAtStart === undefined) return Promise.resolve()
-  const serverUrl = requestedAtStart.server.url
-  const generation = generationOf(serverUrl)
-  const running = (async () => {
+const ensureServerSyncRun = (serverUrl: string, key: string): Promise<void> => {
+  const requested = pendingServerSyncs.get(serverUrl, key)
+  const existing = serverSyncRuns.get(serverUrl, key)
+  // A new connection must not queue behind an obsolete drain. The old run's release is identity
+  // guarded, so it cannot delete the replacement when it eventually settles.
+  if (
+    existing !== undefined &&
+    (requested === undefined || serverConnectionIdentity(requested.server) === existing.lifetime)
+  )
+    return existing.done
+  if (requested === undefined) return Promise.resolve()
+  const lifetime = serverConnectionIdentity(requested.server)
+  const done = (async () => {
     while (true) {
-      if (generationOf(serverUrl) !== generation) return
-      const requested = pendingServerSyncs.get(key)
-      if (requested === undefined) return
-      pendingServerSyncs.delete(key)
-      await syncServerTemplatesOnce(
-        requested.server,
-        requested.known,
-        requested.snapshotCurrent,
-        requested.surface,
-        requested.reason,
-      )
+      const next = pendingServerSyncs.get(serverUrl, key)
+      if (next === undefined || serverConnectionIdentity(next.server) !== lifetime) return
+      pendingServerSyncs.delete(serverUrl, key)
+      await syncServerTemplatesOnce(next.server, next.templates, next.current, next.surface)
     }
   })()
-  serverSyncRuns.set(key, running)
+  const run = { lifetime, done }
+  serverSyncRuns.set(serverUrl, key, run)
   const release = (): void => {
-    if (serverSyncRuns.get(key) === running) serverSyncRuns.delete(key)
+    if (serverSyncRuns.get(serverUrl, key) === run) serverSyncRuns.delete(serverUrl, key)
   }
-  void running.then(release, release)
-  return running
+  void done.then(release, release)
+  return done
+}
+
+/** Wait until the canvas holds every manifest already queued for this server and surface. */
+export const serverTemplatesSettled = async (
+  server: ServerConnection,
+  surface: TemplateSurface,
+): Promise<void> => {
+  const key = templateSurfaceKey(surface)
+  while (pendingServerSyncs.has(server.url, key) || serverSyncRuns.has(server.url, key))
+    await ensureServerSyncRun(server.url, key)
 }
 
 /**
- * Bring one server up to date, coalescing any polls that arrive while its current download runs.
- *
- * The newest manifest wins. Callers still await the drain that includes their request, while at most
- * one assembly per server can own network, decode, and bitmap memory at a time.
+ * Bring one server up to date with an admitted manifest, coalescing any that arrive while its
+ * current download runs. The newest manifest wins, and at most one assembly per server and surface
+ * can own network, decode, and bitmap memory at a time.
  */
-export const syncServerTemplates = async (
-  server: ConnectedServer,
-  known?: readonly ServerTemplate[],
-  snapshotCurrent?: () => boolean,
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-  reason: ReconciliationReason = 'unknown',
-): Promise<void> => {
+const syncServerTemplates = (
+  server: ServerConnection,
+  templates: readonly ServerTemplate[],
+  current: () => boolean,
+  surface: TemplateSurface,
+): void => {
   // Immutable state rows may change cosmetic server metadata in place. Credentials, deployment,
   // season, scope, and connectivity define the lifetime that is allowed to continue this work.
-  if (!isCurrentServerConnection(server)) return
-  if (snapshotCurrent?.() === false) return
-  const key = serverSyncKey(server.url, surface)
-  const pending = pendingServerSyncs.get(key)
-  // A blind poll carries no newer state of its own. If a mutation has already queued the manifest
-  // it just read, keep that authoritative snapshot instead of replacing it with a request that may
-  // fail or return a stale intermediary. A later explicit snapshot still replaces an older one.
-  if (known === undefined && pending?.known !== undefined) {
-    pendingServerSyncs.set(key, {
-      server,
-      surface,
-      reason,
-      known: pending.known,
-      ...(pending.snapshotCurrent === undefined
-        ? {}
-        : { snapshotCurrent: pending.snapshotCurrent }),
-    })
-  } else {
-    pendingServerSyncs.set(key, {
-      server,
-      surface,
-      reason,
-      ...(known === undefined ? {} : { known }),
-      ...(snapshotCurrent === undefined ? {} : { snapshotCurrent }),
-    })
-  }
-  while (pendingServerSyncs.has(key) || serverSyncRuns.has(key)) {
-    await ensureServerSyncRun(key)
-  }
+  if (!isConnected(server) || !isCurrentServerConnection(server) || !current()) return
+  pendingServerSyncs.set(server.url, templateSurfaceKey(surface), {
+    server,
+    templates,
+    current,
+    surface,
+  })
+  void serverTemplatesSettled(server, surface)
 }
 
 /**
- * Keep every connected server's templates on the canvas.
+ * Keep every connected server's world templates on the canvas.
  *
- * The shared coordinator supplies the compatibility cadence. Successful manifests flow through the
- * central snapshot listener, so the tree, canvas, telemetry coverage, and revision schedule all use
- * the same response.
+ * The shared coordinator supplies the compatibility cadence; admitted manifests reach the canvas
+ * through the manifest store, so the tree, canvas, telemetry coverage, and revision schedule all
+ * use the same response.
  */
 export const installServerSync = (): void => {
   setServerPixelSource(downloadAgain)
-  lastConnected = getState().servers.filter((server) => server.status === 'connected')
+  // Every admitted manifest reaches the canvas, whichever read, poll or event brought it in.
+  onManifestChange((server, surface, change) => {
+    if (change.status === 'admitted')
+      syncServerTemplates(server, change.contents.templates, change.current, surface)
+  })
+
+  // A disconnected server's downloads land stale rather than drawing an overlay with no server row
+  // left to control it, and the overlays it already drew go with it. The chunk caches are
+  // content-addressed and cannot tell whose bytes are whose; the manifest entries are the last thing
+  // that knows, so they hand their hashes over on the way out.
+  onServerRemoved(async (serverUrl) => {
+    pendingServerSyncs.forget(serverUrl)
+    serverSyncRuns.forget(serverUrl)
+    inFlight.forget(serverUrl)
+    for (const { template } of latest.forget(serverUrl).values())
+      for (const chunk of template.chunks) {
+        chunkCache.delete(chunk.hash)
+        decodedChunks.delete(chunk.hash)
+      }
+    await forgetTemplateCopies((copy) => copy.origin === 'server' && copy.server.url === serverUrl)
+  })
   registerServerSyncResource({
     id: 'world-manifest',
     live: true,
     reconcileOnManifestEvent: true,
-    scope: (server) => (server.status === 'connected' && server.season !== null ? 'world' : null),
+    scope: () => WORLD_SCOPE,
     refresh: async (server, reason, transport) => {
-      const contents = await listServerContents(server, undefined, reason, transport)
+      const contents = await readManifest(server, { reason, transport })
       if (contents === null) return { status: 'failed' }
       return contents.revision === undefined
         ? { status: 'unchanged' }
         : { status: 'unchanged', revision: contents.revision }
     },
     applyLiveEvent: async (server, event) => {
-      if (
-        typeof event !== 'object' ||
-        event === null ||
-        !('type' in event) ||
-        event.type !== 'manifest-snapshot' ||
-        !('resource' in event) ||
-        event.resource !== 'world-manifest' ||
-        !('scope' in event) ||
-        event.scope !== 'world' ||
-        !('manifest' in event)
-      )
-        return false
-      const contents = applyLiveServerManifest(server, event.manifest)
-      if (contents === null) return false
-      rememberNodes(server.url, contents.nodes)
-      await syncServerTemplates(server, contents.templates, () =>
-        isLatestServerContents(server.url, contents),
-      )
-      return isLatestServerContents(server.url, contents)
+      if (event.type !== 'manifest-snapshot' || event.scope !== WORLD_SCOPE) return false
+      if (applyLiveManifest(server, WORLD_TEMPLATE_SURFACE, event.manifest) === null) return false
+      await serverTemplatesSettled(server, WORLD_TEMPLATE_SURFACE)
+      return true
     },
-  })
-  /**
-   * And whenever the set of servers changes.
-   *
-   * Polling alone was not enough, and in the ordinary case it was not enough by a whole minute:
-   * nothing is connected when this installs — the stored servers are loaded later, by the panel —
-   * so the first sweep finds nothing and the first real one is a poll away. Connecting a server and
-   * watching an empty map for up to sixty seconds reads as broken.
-   *
-   * The coordinator owns the resulting refresh; this listener only retires obsolete download
-   * generations and starts new connections from their probe's manifest, so unrelated settings
-   * changes remain local.
-   */
-  onStateChange(() => {
-    const connected = getState().servers.filter((server) => server.status === 'connected')
-    if (
-      connected.length === lastConnected.length &&
-      lastConnected.every((previous) => isCurrentServerConnection(previous))
-    ) {
-      lastConnected = connected
-      return
-    }
-    for (const previous of lastConnected) {
-      if (!isCurrentServerConnection(previous)) {
-        endServerGeneration(previous.url)
-      }
-    }
-    const added = connected.filter(
-      (server) =>
-        !lastConnected.some(
-          (previous) => previous.url === server.url && isCurrentServerConnection(previous),
-        ),
-    )
-    // Before adopting: publishing a manifest can change state again, which re-enters here.
-    lastConnected = connected
-    for (const server of added) adoptProbedManifest(server)
+    // A newly connected server starts from the manifest its probe already downloaded, so the live
+    // socket's state vector names that version and the server does not send it again.
+    adopt: (server) => adoptProbedManifest(server)?.revision,
   })
 }
-
-/**
- * Start a new connection from the manifest its probe already downloaded.
- *
- * Its revision is applied before the live socket opens, so the socket's state vector names the
- * version this client holds and the server does not send the same manifest again.
- */
-const adoptProbedManifest = (server: ConnectedServer): void => {
-  const contents = adoptProbedServerContents(server)
-  if (contents?.revision === undefined || !isCurrentServerConnection(server)) return
-  applyServerSyncRevision(server, 'world', 'world-manifest', contents.revision)
-}
-
-/** Which servers were connected last time state changed, so an unrelated setting does not resync. */
-let lastConnected: readonly ConnectedServer[] = []

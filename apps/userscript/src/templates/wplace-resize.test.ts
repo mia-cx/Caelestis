@@ -27,9 +27,4 @@ describe('Wplace nearest-neighbor sampling', () => {
       selected.flatMap((pixel) => [...image.data.slice(pixel * 4, pixel * 4 + 4)]),
     )
   })
-
-  it('retains the source for an identity resize', async () => {
-    const image = source()
-    expect(await resizeWplaceImage(image, 4, 2)).toBe(image)
-  })
 })

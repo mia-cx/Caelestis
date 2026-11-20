@@ -1,3 +1,5 @@
+import { WPLACE_PALETTE } from '@caelestis/shared'
+
 interface IndexedRgb {
   readonly rgb: readonly [number, number, number]
   readonly index: number
@@ -65,3 +67,30 @@ export const canvasRgbIndex = (
 
   return missing
 }
+
+/**
+ * One RGBA pixel at byte offset `at` as a palette index: alpha zero is `empty`, anything else a
+ * palette colour within `canvasRgbIndex`'s noise, or `missing` when none matches. Page-side only:
+ * the tile reader worker inlines the same rule, since it is built from function sources.
+ */
+export const rgbaPaletteIndex = (
+  table: Uint32Array,
+  data: Uint8ClampedArray,
+  at: number,
+  empty: number,
+  missing: number = empty,
+): number =>
+  data[at + 3] === 0
+    ? empty
+    : canvasRgbIndex(table, data[at] ?? 0, data[at + 1] ?? 0, data[at + 2] ?? 0, missing)
+
+let paletteTable: Uint32Array | null = null
+
+/** The exact-colour table for Wplace's palette, built on first use and shared by every reader. */
+export const paletteRgbIndex = (): Uint32Array => {
+  paletteTable ??= buildExactRgbIndex(WPLACE_PALETTE)
+  return paletteTable
+}
+
+/** What the shared palette table holds in memory, or zero before anything read a canvas. */
+export const paletteRgbIndexMemoryBytes = (): number => paletteTable?.byteLength ?? 0

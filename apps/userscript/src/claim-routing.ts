@@ -1,4 +1,9 @@
 import {
+  claimDocumentError,
+  claimDocumentPixels,
+  claimDocumentsLimitError,
+  claimExpiry,
+  isRegionClaim,
   isRegionDocument,
   type PresenceRect,
   REGION_CLAIM_TTL_MS,
@@ -7,36 +12,33 @@ import {
   type RegionShapePixels,
   rectIntersection,
   regionDocumentBounds,
+  reuseDocument,
+  sameDocument,
   sameTemplateSurface,
   uuidV7,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { onServerSnapshot, rowsForSurface } from './application/tree-server-state.js'
-import {
-  claimDocumentError,
-  claimDocumentPixels,
-  claimDocumentsLimitError,
-} from './claim-document.js'
+import { onServerSnapshot } from './application/tree-server-state.js'
+import { canWriteClaims, claimServers, onClaimsChange, serverClaims } from './claim-store.js'
 import { warn } from './debug.js'
+import { claimRegion, type RegionWriteResult, releaseRegion } from './region-api.js'
 import {
-  claimRegion,
-  isPresenceRegion,
-  onPresenceClaimsChange,
-  presenceCanWriteClaims,
-  presenceServerClaims,
-  presenceServers,
-  type RegionWriteResult,
-  releaseRegion,
-} from './presence-client.js'
-import type { ServerTemplate } from './server-cache.js'
-import { type ConnectedServer, onStateChange, serverConnectionIdentity } from './state.js'
+  onServerConnected,
+  onServerRemoving,
+  serverConnectionIdentity,
+} from './server-connections.js'
+import type { ServerTemplate } from './server-manifest.js'
+import { manifestRows } from './server-manifests.js'
+import { onStateChange, type ServerConnection } from './settings.js'
 import { storedValue, storeValue, syncStoredValues } from './stored-values.js'
 import { accountIdentity } from './wplace-account.js'
 
 const STORAGE_KEY = 'caelestis.region-claims.v1'
+/** How long a failed delivery waits before the router tries again on its own. */
 const RETRY_MS = 30_000
 const DISCONNECT_MS = 3_000
+
 interface Copy {
   readonly url: string
   readonly serverId: string
@@ -52,6 +54,35 @@ export interface ClaimSaveResult {
   readonly ids: readonly string[]
   readonly error: string | null
 }
+
+const isCopy = (value: unknown): value is Copy =>
+  typeof value === 'object' &&
+  value !== null &&
+  'url' in value &&
+  typeof value.url === 'string' &&
+  'serverId' in value &&
+  typeof value.serverId === 'string'
+
+/** One stored journal entry, checked before routing trusts it. */
+const isEntry = (value: unknown): value is Entry => {
+  if (typeof value !== 'object' || value === null) return false
+  const entry = value as Entry
+  return (
+    isRegionClaim(entry.region) &&
+    typeof entry.deleted === 'boolean' &&
+    (entry.replaceAfter === undefined ||
+      (Array.isArray(entry.replaceAfter) &&
+        entry.replaceAfter.every((id: unknown) => typeof id === 'string'))) &&
+    Array.isArray(entry.copies) &&
+    entry.copies.every(isCopy)
+  )
+}
+
+const isCopyOn = (copy: Copy, server: ServerConnection): boolean =>
+  copy.url === server.url && copy.serverId === server.info?.id
+
+/** Whether an entry is a live claim rather than a deletion or a record awaiting replacement. */
+const isLive = (entry: Entry): boolean => !entry.deleted && entry.replaceAfter === undefined
 
 /** Raster overlap respects subtractors and gaps between shapes, plus world-wrapping templates. */
 const overlaps = (pixels: RegionShapePixels, template: ServerTemplate): boolean => {
@@ -80,38 +111,40 @@ const overlaps = (pixels: RegionShapePixels, template: ServerTemplate): boolean 
   })
 }
 
-/** Eligible recipients and a template hint per copy; null means a catalog is still loading. */
-export const claimRecipients = (
+/**
+ * The servers a claim goes to, each with the template it overlaps there as a hint. Null while a
+ * catalog is still loading. With no overlap anywhere, every server of the claim's season gets it.
+ */
+const claimRecipients = (
   region: RegionClaim,
-  servers: readonly ConnectedServer[],
+  servers: readonly ServerConnection[],
   templates: (
-    server: ConnectedServer,
+    server: ServerConnection,
     region: RegionClaim,
   ) => readonly ServerTemplate[] | undefined,
-): Map<ConnectedServer, string | null> | null => {
-  const candidates = servers.filter(
-    (server) => server.season === region.season && presenceCanWriteClaims(server),
-  )
+): Map<ServerConnection, string | null> | null => {
+  const candidates = servers.filter((server) => server.season === region.season)
   const pixels = claimDocumentPixels(region.document)
   if (pixels === null) return new Map()
-  const matching = new Map<ConnectedServer, string | null>()
+  const matching = new Map<ServerConnection, string | null>()
   for (const server of candidates) {
     const rows = templates(server, region)
     if (rows === undefined) return null
     const match = rows.find(
       (template) =>
-        sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, region.surface) &&
-        overlaps(pixels, template),
+        sameTemplateSurface(template.surface, region.surface) && overlaps(pixels, template),
     )
     if (match !== undefined) matching.set(server, match.id)
   }
   return matching.size > 0 ? matching : new Map(candidates.map((server) => [server, null]))
 }
 
+/** What the router needs from the page: servers, their claims, storage, and the claim API. */
 interface RoutingHost {
-  servers(): readonly ConnectedServer[]
-  templates(server: ConnectedServer, region: RegionClaim): readonly ServerTemplate[] | undefined
-  claims(server: ConnectedServer): {
+  /** Servers that accept claim writes. */
+  servers(): readonly ServerConnection[]
+  templates(server: ServerConnection, region: RegionClaim): readonly ServerTemplate[] | undefined
+  claims(server: ServerConnection): {
     readonly ready: boolean
     readonly regions: readonly RegionClaim[]
     readonly revision?: number
@@ -119,16 +152,21 @@ interface RoutingHost {
   }
   actor(): ReturnType<typeof accountIdentity>
   persist(entries: readonly Entry[]): void
-  saved?(): readonly Entry[]
-  retired(server: ConnectedServer): boolean
-  retire(server: ConnectedServer): void
-  put(server: ConnectedServer, region: RegionClaim, signal: AbortSignal): Promise<RegionWriteResult>
+  /** The journal as stored now, which another tab may have written since. */
+  saved(): readonly Entry[]
+  retired(server: ServerConnection): boolean
+  retire(server: ServerConnection): void
+  put(
+    server: ServerConnection,
+    region: RegionClaim,
+    signal: AbortSignal,
+  ): Promise<RegionWriteResult>
   remove(
-    server: ConnectedServer,
+    server: ServerConnection,
     region: RegionClaim,
     signal: AbortSignal,
     withdraw: boolean,
-  ): Promise<string | null>
+  ): Promise<RegionWriteResult>
 }
 
 /** Durable claim intent with serialized reconciliation and retryable per-server copies. */
@@ -138,7 +176,6 @@ export class ClaimRouter {
   private readonly snapshots = new WeakMap<object, number>()
   private readonly retiring = new Set<object>()
   private readonly inFlight = new Map<object, Promise<RegionWriteResult>>()
-  private draftId: string | null = null
   private readonly requests = new Map<object, AbortController>()
   private pending: Promise<void> = Promise.resolve()
   private wanted = false
@@ -153,6 +190,11 @@ export class ClaimRouter {
     this.prune()
   }
 
+  /** Whether some delivery failed and is worth trying again later. */
+  get failing(): boolean {
+    return this.errors.size > 0
+  }
+
   /**
    * Refresh shared intent while the browser-wide mutation lock is held. A claim whose document is
    * unchanged keeps the document object it had, so its cached raster survives the reload.
@@ -160,89 +202,25 @@ export class ClaimRouter {
   restore(saved: readonly Entry[]): void {
     const previous = new Map(this.entries)
     this.entries.clear()
-    for (const entry of saved) {
-      const document = previous.get(entry.region.id)?.region.document
-      const unchanged =
-        document !== undefined && JSON.stringify(document) === JSON.stringify(entry.region.document)
-      this.entries.set(
-        entry.region.id,
-        unchanged ? { ...entry, region: { ...entry.region, document } } : entry,
-      )
-    }
+    for (const entry of saved)
+      this.entries.set(entry.region.id, {
+        ...entry,
+        region: reuseDocument(previous.get(entry.region.id)?.region, entry.region),
+      })
     this.prune()
   }
 
   private prune(): void {
     for (const [id, entry] of this.entries)
-      if (
-        (entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) <= Date.now() &&
-        ((!entry.deleted && entry.replaceAfter === undefined) || entry.copies.length === 0)
-      )
+      if (claimExpiry(entry.region) <= Date.now() && (isLive(entry) || entry.copies.length === 0))
         this.entries.delete(id)
   }
 
-  /** The current painter's unexpired logical claims, including pending deliveries. */
-  mine(): readonly RegionClaim[] {
-    this.prune()
-    return [...this.entries.values()]
-      .filter(
-        (entry) =>
-          !entry.deleted &&
-          entry.replaceAfter === undefined &&
-          entry.region.claimant.wplaceUserId === this.host.actor()?.wplaceUserId,
-      )
-      .map((entry) => entry.region)
-  }
-
-  /** Persist before sending so failures and reloads retain the same logical ID. */
-  async save(id: string | null, document: RegionDocument): Promise<string | null> {
-    const actor = this.host.actor()
-    if (actor === null) return 'Sign in to Wplace to claim regions.'
-    id ??= this.draftId
-    const existing = id === null ? undefined : this.entries.get(id)
-    if (
-      id !== null &&
-      (existing === undefined || existing.region.claimant.wplaceUserId !== actor.wplaceUserId)
-    )
-      return 'That claim is no longer available.'
-    const documentError = claimDocumentError(document)
-    if (documentError !== null) return documentError
-    const seasons = new Set(this.servers().map((server) => server.season))
-    const season = existing?.region.season ?? (seasons.size === 1 ? [...seasons][0] : null)
-    if (season == null) return 'Connect servers for the same season, then retry.'
-    const rect = regionDocumentBounds(document)
-    if (rect === null) return 'Add a shape before saving this claim.'
-    const region: RegionClaim = {
-      id: id ?? uuidV7(),
-      season,
-      surface: existing?.region.surface ?? WORLD_TEMPLATE_SURFACE,
-      templateId: null,
-      document,
-      rect,
-      claimant: actor,
-      label: '',
-      createdAt: existing?.region.createdAt ?? Date.now(),
-      expiresAt:
-        existing === undefined
-          ? Date.now() + REGION_CLAIM_TTL_MS
-          : (existing.region.expiresAt ?? existing.region.createdAt + REGION_CLAIM_TTL_MS),
-    }
-    if (id === null) this.draftId = region.id
-    const previous = this.entries.get(region.id)
-    this.entries.set(region.id, { region, deleted: false, copies: previous?.copies ?? [] })
-    try {
-      this.persist()
-    } catch (error) {
-      if (previous === undefined) this.entries.delete(region.id)
-      else this.entries.set(region.id, previous)
-      return `Could not save claims: ${String(error)}`
-    }
-    await this.reconcile()
-    const error = this.errors.get(region.id) ?? null
-    if (error === null) this.draftId = null
-    return error
-  }
-
+  /**
+   * Persist the whole set of this painter's claims before sending, so failures and reloads keep
+   * the same logical ids. Each document keeps the id of a loaded claim it matches; loaded claims
+   * with nothing left are released once every replacement is accepted.
+   */
   async saveAll(
     ids: readonly string[],
     documents: readonly RegionDocument[],
@@ -250,14 +228,13 @@ export class ClaimRouter {
     const fail = (error: string): ClaimSaveResult => ({ ids, error })
     const actor = this.host.actor()
     if (actor === null) return fail('Sign in to Wplace to claim regions.')
-    const originals = [...new Set(ids)].map((id) => this.entries.get(id))
-    if (
-      originals.some(
-        (entry) => entry === undefined || entry.region.claimant.wplaceUserId !== actor.wplaceUserId,
-      )
-    )
-      return fail('That claim is no longer available.')
-    const previous = originals as Entry[]
+    const previous: Entry[] = []
+    for (const id of new Set(ids)) {
+      const entry = this.entries.get(id)
+      if (entry === undefined || entry.region.claimant.wplaceUserId !== actor.wplaceUserId)
+        return fail('That claim is no longer available.')
+      previous.push(entry)
+    }
     const limitError = claimDocumentsLimitError(documents)
     if (limitError !== null) return fail(limitError)
     for (const document of documents) {
@@ -276,13 +253,9 @@ export class ClaimRouter {
     const surface = previous[0]?.region.surface ?? WORLD_TEMPLATE_SURFACE
     if (previous.some(({ region }) => !sameTemplateSurface(region.surface, surface)))
       return fail('That claim is no longer available.')
-    const unused = new Set(
-      previous.filter((entry) => !entry.deleted && entry.replaceAfter === undefined),
-    )
+    const unused = new Set(previous.filter(isLive))
     const matched = documents.map((document) => {
-      const exact = [...unused].find(
-        ({ region }) => JSON.stringify(region.document) === JSON.stringify(document),
-      )
+      const exact = [...unused].find(({ region }) => sameDocument(region.document, document))
       if (exact !== undefined) {
         unused.delete(exact)
         return { document, existing: exact }
@@ -299,13 +272,11 @@ export class ClaimRouter {
     const claims = new Map<Entry, number>()
     for (const { existing } of matched)
       if (existing !== undefined) claims.set(existing, (claims.get(existing) ?? 0) + 1)
-    const selected = matched.map(({ document, existing }) => ({
-      document,
-      existing: existing !== undefined && claims.get(existing) === 1 ? existing : undefined,
-    }))
     const held = new Map(this.entries)
     const nextIds: string[] = []
-    for (const { document, existing } of selected) {
+    for (const { document, existing: candidate } of matched) {
+      const existing =
+        candidate !== undefined && claims.get(candidate) === 1 ? candidate : undefined
       const now = Date.now()
       const region: RegionClaim = {
         id: existing?.region.id ?? uuidV7(),
@@ -318,9 +289,7 @@ export class ClaimRouter {
         label: existing?.region.label ?? '',
         createdAt: existing?.region.createdAt ?? now,
         expiresAt:
-          existing === undefined
-            ? now + REGION_CLAIM_TTL_MS
-            : (existing.region.expiresAt ?? existing.region.createdAt + REGION_CLAIM_TTL_MS),
+          existing === undefined ? now + REGION_CLAIM_TTL_MS : claimExpiry(existing.region),
       }
       nextIds.push(region.id)
       this.entries.set(region.id, { region, deleted: false, copies: existing?.copies ?? [] })
@@ -373,14 +342,13 @@ export class ClaimRouter {
   private persist(): void {
     this.host.persist([...this.entries.values()])
   }
-  private servers(): readonly ConnectedServer[] {
+
+  private servers(): readonly ServerConnection[] {
     return this.host
       .servers()
       .filter(
         (server) =>
-          presenceCanWriteClaims(server) &&
-          !this.host.retired(server) &&
-          !this.retiring.has(serverConnectionIdentity(server)),
+          !this.host.retired(server) && !this.retiring.has(serverConnectionIdentity(server)),
       )
   }
 
@@ -396,7 +364,7 @@ export class ClaimRouter {
       })
       .catch((error: unknown) => {
         for (const entry of this.entries.values()) this.errors.set(entry.region.id, String(error))
-        warn('install', 'claim reconciliation failed', String(error))
+        warn('claim reconciliation failed', String(error))
       })
     return this.pending
   }
@@ -419,8 +387,7 @@ export class ClaimRouter {
           if (
             signature === 'deleted' || signature === 'withdrawn'
               ? region !== undefined
-              : region === undefined ||
-                JSON.stringify([region.document, region.label, region.templateId]) !== signature
+              : region === undefined || writeSignature(region) !== signature
           )
             receipts?.delete(id)
         }
@@ -429,7 +396,7 @@ export class ClaimRouter {
         if (
           region.claimant.wplaceUserId !== actor.wplaceUserId ||
           !received.ownedRegionIds?.includes(region.id) ||
-          (region.expiresAt ?? region.createdAt + REGION_CLAIM_TTL_MS) <= Date.now()
+          claimExpiry(region) <= Date.now()
         )
           continue
         let entry = this.entries.get(region.id)
@@ -444,9 +411,7 @@ export class ClaimRouter {
     }
     this.persist()
     const entries = [...this.entries.values()].sort(
-      (a, b) =>
-        Number(a.deleted || a.replaceAfter !== undefined) -
-        Number(b.deleted || b.replaceAfter !== undefined),
+      (a, b) => Number(!isLive(a)) - Number(!isLive(b)),
     )
     for (const entry of entries) {
       if (entry.region.claimant.wplaceUserId !== actor.wplaceUserId) continue
@@ -467,7 +432,7 @@ export class ClaimRouter {
         }
       }
       const recipients = entry.deleted
-        ? new Map<ConnectedServer, string | null>()
+        ? new Map<ServerConnection, string | null>()
         : claimRecipients(entry.region, servers, this.host.templates)
       if (recipients === null) {
         this.errors.set(
@@ -515,17 +480,18 @@ export class ClaimRouter {
     return undefined
   }
 
-  private hasCopy(entry: Entry, server: ConnectedServer): boolean {
-    return entry.copies.some((copy) => copy.url === server.url && copy.serverId === server.info?.id)
+  private hasCopy(entry: Entry, server: ServerConnection): boolean {
+    return entry.copies.some((copy) => isCopyOn(copy, server))
   }
-  private rememberCopy(entry: Entry, server: ConnectedServer): void {
+
+  private rememberCopy(entry: Entry, server: ServerConnection): void {
     if (!this.hasCopy(entry, server) && server.info !== null)
       entry.copies.push({ url: server.url, serverId: server.info.id })
   }
 
   private async write(
     entry: Entry,
-    server: ConnectedServer,
+    server: ServerConnection,
     region: RegionClaim | null,
   ): Promise<boolean> {
     const owner = serverConnectionIdentity(server)
@@ -536,11 +502,7 @@ export class ClaimRouter {
       return false
     }
     const signature =
-      region === null
-        ? entry.deleted
-          ? 'deleted'
-          : 'withdrawn'
-        : JSON.stringify([region.document, region.label, region.templateId])
+      region === null ? (entry.deleted ? 'deleted' : 'withdrawn') : writeSignature(region)
     let receipts = this.receipts.get(owner)
     if (receipts === undefined) {
       receipts = new Map()
@@ -558,10 +520,10 @@ export class ClaimRouter {
         ? this.host.remove(server, entry.region, controller.signal, !entry.deleted)
         : this.host.put(server, region, controller.signal)
     this.inFlight.set(owner, work)
-    const error = await work
+    const result = await work
     this.inFlight.delete(owner)
     this.requests.delete(owner)
-    if (error !== null && typeof error === 'object') {
+    if (result.kind === 'deleted') {
       // Retain the server's deletion before another snapshot can restore this saved claim.
       entry.deleted = true
       delete entry.replaceAfter
@@ -578,25 +540,22 @@ export class ClaimRouter {
         new AbortController().signal,
         !entry.deleted,
       )
-      if (cleanup !== null) warn('install', 'late claim disconnect cleanup failed', cleanup)
+      if (cleanup.kind === 'error') warn('late claim disconnect cleanup failed', cleanup.message)
       return false
     }
-    if (error !== null) {
-      const message = `${server.info?.name ?? server.url}: ${error}`
+    if (result.kind === 'error') {
+      const message = `${server.info?.name ?? server.url}: ${result.message}`
       this.errors.set(entry.region.id, message)
       this.failedServers.set(owner, message)
       return false
     }
     receipts.set(entry.region.id, signature)
-    if (region === null)
-      entry.copies = entry.copies.filter(
-        (copy) => !(copy.url === server.url && copy.serverId === server.info?.id),
-      )
+    if (region === null) entry.copies = entry.copies.filter((copy) => !isCopyOn(copy, server))
     return true
   }
 
   /** Stop new writes and attempt only this painter's cleanup within a fixed disconnect deadline. */
-  async disconnect(server: ConnectedServer): Promise<void> {
+  async disconnect(server: ServerConnection): Promise<void> {
     this.host.retire(server)
     const owner = serverConnectionIdentity(server)
     this.retiring.add(owner)
@@ -612,7 +571,7 @@ export class ClaimRouter {
         )
         .map((region) => [region.id, region]),
     )
-    const entries = [...this.entries.values(), ...(this.host.saved?.() ?? [])]
+    const entries = [...this.entries.values(), ...this.host.saved()]
     const deleted = new Set(
       entries.filter((entry) => entry.deleted).map((entry) => entry.region.id),
     )
@@ -631,13 +590,13 @@ export class ClaimRouter {
       if (controller.signal.aborted) return
       return Promise.all(
         [...regions.values()].map(async (region) => {
-          const error = await this.host.remove(
+          const result = await this.host.remove(
             server,
             region,
             controller.signal,
             !deleted.has(region.id),
           )
-          if (error !== null) warn('install', 'claim disconnect cleanup failed', error)
+          if (result.kind === 'error') warn('claim disconnect cleanup failed', result.message)
         }),
       ).then(() => undefined)
     })
@@ -649,66 +608,54 @@ export class ClaimRouter {
   }
 }
 
-const retirementKey = (server: ConnectedServer): string =>
-  `${STORAGE_KEY}.retired:${encodeURIComponent(server.url)}`
-/**
- * Set when this tab wrote the journal or a retirement during the current locked operation. A
- * disconnect retires its server without the lock, so it can land while another operation holds it.
- */
-let claimsWritten = false
-const setRetired = (server: ConnectedServer, retired: boolean): void => {
-  claimsWritten = true
-  storeValue(retirementKey(server), JSON.stringify(retired))
-}
-const load = (): Entry[] => {
-  try {
-    const raw: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '[]')
-    if (!Array.isArray(raw)) return []
-    return raw.filter(
-      (entry): entry is Entry =>
-        typeof entry === 'object' &&
-        entry !== null &&
-        isPresenceRegion(entry.region) &&
-        typeof entry.deleted === 'boolean' &&
-        (entry.replaceAfter === undefined ||
-          (Array.isArray(entry.replaceAfter) &&
-            entry.replaceAfter.every((id: unknown) => typeof id === 'string'))) &&
-        Array.isArray(entry.copies) &&
-        entry.copies.every(
-          (copy: unknown) =>
-            typeof copy === 'object' &&
-            copy !== null &&
-            'url' in copy &&
-            typeof copy.url === 'string' &&
-            'serverId' in copy &&
-            typeof copy.serverId === 'string',
-        ),
-    )
-  } catch (error) {
-    warn('install', 'could not load claims', String(error))
-    return []
-  }
-}
+/** What a server holds once a write lands, so an unchanged claim is not written again. */
+const writeSignature = (region: RegionClaim): string =>
+  JSON.stringify([region.document, region.label, region.templateId])
 
-const persist = (entries: readonly Entry[]): void => {
-  const raw = JSON.stringify(entries)
-  if (storedValue(STORAGE_KEY) === raw) return
-  claimsWritten = true
-  storeValue(STORAGE_KEY, raw)
+const retirementKey = (server: ServerConnection): string =>
+  `${STORAGE_KEY}.retired:${encodeURIComponent(server.url)}`
+
+/**
+ * The claim journal and per-server retirement flags in storage shared by every tab. `written`
+ * records whether this tab wrote during the current locked operation; a disconnect retires its
+ * server without the lock, so it can land while another operation holds it.
+ */
+const journal = {
+  written: false,
+  load(): Entry[] {
+    try {
+      const raw: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '[]')
+      return Array.isArray(raw) ? raw.filter(isEntry) : []
+    } catch (error) {
+      warn('could not load claims', String(error))
+      return []
+    }
+  },
+  persist(entries: readonly Entry[]): void {
+    const raw = JSON.stringify(entries)
+    if (storedValue(STORAGE_KEY) === raw) return
+    journal.written = true
+    storeValue(STORAGE_KEY, raw)
+  },
+  retired: (server: ServerConnection): boolean => storedValue(retirementKey(server)) === 'true',
+  setRetired(server: ServerConnection, retired: boolean): void {
+    journal.written = true
+    storeValue(retirementKey(server), JSON.stringify(retired))
+  },
 }
 
 let router: ClaimRouter | undefined
 const localRouter = (): ClaimRouter =>
   (router ??= new ClaimRouter(
     {
-      servers: presenceServers,
-      templates: (server, region) => rowsForSurface(server, region.surface)?.templates,
-      claims: presenceServerClaims,
+      servers: () => claimServers().filter(canWriteClaims),
+      templates: (server, region) => manifestRows(server, region.surface)?.templates,
+      claims: serverClaims,
       actor: accountIdentity,
-      persist,
-      saved: load,
-      retired: (server) => storedValue(retirementKey(server)) === 'true',
-      retire: (server) => setRetired(server, true),
+      persist: journal.persist,
+      saved: journal.load,
+      retired: journal.retired,
+      retire: (server) => journal.setRetired(server, true),
       put: (server, region, signal) =>
         claimRegion(
           server,
@@ -725,22 +672,36 @@ const localRouter = (): ClaimRouter =>
       remove: (server, region, signal, withdraw) =>
         releaseRegion(server, region.id, region.claimant, region, signal, withdraw),
     },
-    load(),
+    journal.load(),
   ))
+
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Try failed deliveries again once, later, while any remain. */
+const scheduleRetry = (): void => {
+  if (retryTimer !== null || !localRouter().failing) return
+  retryTimer = setTimeout(() => {
+    retryTimer = null
+    void claimRouter
+      .reconcile()
+      .catch((error: unknown) => warn('claim routing failed', String(error)))
+  }, RETRY_MS)
+}
 
 let pendingOperation: Promise<unknown> = Promise.resolve()
 const withClaims = <T>(operation: (router: ClaimRouter) => Promise<T>): Promise<T> => {
   const run = async (): Promise<T> => {
     // The extension's storage is asynchronous: catch up on other tabs' writes after taking the
     // lock, and store ours before giving it up, so the next tab reads what this one wrote.
-    claimsWritten = false
+    journal.written = false
     await syncStoredValues()
     const router = localRouter()
-    router.restore(load())
+    router.restore(journal.load())
     try {
       return await operation(router)
     } finally {
-      if (claimsWritten) await syncStoredValues()
+      if (journal.written) await syncStoredValues()
+      scheduleRetry()
     }
   }
   const next = pendingOperation.then(async (): Promise<T> => {
@@ -748,23 +709,26 @@ const withClaims = <T>(operation: (router: ClaimRouter) => Promise<T>): Promise<
     if (locks == null) return run()
     return await locks.request<Promise<T>>(STORAGE_KEY, run)
   })
+  // The chain only orders operations; each caller handles its own operation's failure.
   pendingOperation = next.catch(() => undefined)
   return next
 }
+
 let pendingReconciliation: Promise<void> | null = null
-const operations = {
-  mine: () =>
-    load()
+
+/** Share claim intent across tabs; one browser-wide writer reconciles it at a time. */
+export const claimRouter = {
+  /** This painter's unexpired live claims, as the journal holds them now. */
+  mine: (): RegionClaim[] =>
+    journal
+      .load()
       .filter(
         (entry) =>
-          !entry.deleted &&
-          entry.replaceAfter === undefined &&
+          isLive(entry) &&
           entry.region.claimant.wplaceUserId === accountIdentity()?.wplaceUserId &&
-          (entry.region.expiresAt ?? entry.region.createdAt + REGION_CLAIM_TTL_MS) > Date.now(),
+          claimExpiry(entry.region) > Date.now(),
       )
       .map((entry) => entry.region),
-  save: (id: string | null, document: RegionDocument) =>
-    withClaims((router) => router.save(id, document)),
   saveAll: (ids: readonly string[], documents: readonly RegionDocument[]) =>
     withClaims((router) => router.saveAll(ids, documents)),
   remove: (id: string) => withClaims((router) => router.remove(id)),
@@ -772,25 +736,24 @@ const operations = {
     (pendingReconciliation ??= withClaims((router) => router.reconcile()).finally(() => {
       pendingReconciliation = null
     })),
-  // Disconnection must retain its deadline even if another tab holds the mutation lock.
-  disconnect: (server: ConnectedServer) => localRouter().disconnect(server),
-  /** An explicit reconnect authorizes claim delivery to this server again. */
-  connect: (server: ConnectedServer) => setRetired(server, false),
 }
 
-/** Share claim intent across tabs; one browser-wide writer reconciles it at a time. */
-export const claimRouter = () => operations
-
-/** Reconcile on catalog/connection changes and retry partial failures while the page remains open. */
+/**
+ * Reconcile whenever claims, connections, or catalogs change; failures retry on their own. A
+ * server the user connects may receive claims again; one they disconnect is retired, and this
+ * painter's claims on it are withdrawn while its credential still exists.
+ */
 export const installClaimRouting = (): void => {
   const reconcile = () => {
-    void claimRouter()
+    void claimRouter
       .reconcile()
-      .catch((error: unknown) => warn('install', 'claim routing failed', String(error)))
+      .catch((error: unknown) => warn('claim routing failed', String(error)))
   }
-  onPresenceClaimsChange(reconcile)
+  onClaimsChange(reconcile)
   onStateChange(reconcile)
   onServerSnapshot(reconcile)
-  setInterval(reconcile, RETRY_MS)
+  onServerConnected((server) => journal.setRetired(server, false))
+  // Not behind the mutation lock: disconnecting keeps its deadline even while another tab holds it.
+  onServerRemoving((server) => localRouter().disconnect(server))
   reconcile()
 }

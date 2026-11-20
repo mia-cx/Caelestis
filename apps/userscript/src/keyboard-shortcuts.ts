@@ -1,34 +1,35 @@
-import { type KeyBinding, keyBindingReleasedBy, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
-import { activeAllianceEditorStage, activeAllianceSurface } from './alliance-surface.js'
-import { handleTemplateStudioIntent, isTemplateStudioOpen } from './application/template-studio.js'
+import {
+  type KeyBinding,
+  keyBindingReleasedBy,
+  SHORTCUTS,
+  type ShortcutId,
+  type ShortcutPlatform,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
+import { activeAllianceEditorStage } from './alliance-editor-dom.js'
+import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
 import { isClaimModeActive } from './claim-editor.js'
-import { getMap } from './map-handle.js'
+import { openClaimTool } from './claims.js'
+import { requestMapFrame } from './map-view.js'
 import { setOverlayPeekActive } from './overlay-peek.js'
-import { cycleFocusedColour, navigateFocusedSelectedColour } from './paint-palette.js'
-import { activeShortcutBindings } from './shortcut-bindings.js'
-import { currentShortcutPlatform, type ShortcutPlatform, shortcutFor } from './shortcuts.js'
+import { cycleFocusedColour, navigateFocusedSelectedColour } from './palette-navigation.js'
+import { getState, onlySelectedColourFor, setOnlySelectedColourFor, setState } from './settings.js'
+import { activeShortcutBindings, currentShortcutPlatform, shortcutFor } from './shortcuts.js'
 import { simulatedInputAllowed } from './simulated-input.js'
+import { ownsGroup } from './templates/catalog.js'
+import { isMoving } from './templates/move.js'
+import { focusedTemplate } from './templates/nearest.js'
 import {
-  getState,
-  getSurfaceAppearance,
-  onlySelectedColourFor,
-  setOnlySelectedColourFor,
-  setState,
-  setSurfaceAppearance,
-} from './state.js'
-import {
-  ownsGroup,
   setAppearance,
   setLocalVisible,
   setOwnsGroup,
   toggleAppearanceBoolean,
-} from './templates/local-store.js'
-import { isMoving } from './templates/move.js'
-import { focusedTemplate } from './templates/nearest.js'
+} from './templates/template-edits.js'
+import { toggleSurfaceAppearance } from './ui/appearance.js'
 import { refreshOverlayMenu, toggleOverlayMenu } from './ui/overlay-menu.js'
 import { togglePanel } from './ui/panel.js'
-import { openClaimTool } from './ui/presence-actions.js'
 import { toggleShortcutHelp } from './ui/shortcut-help.js'
+import { handleTemplateStudioIntent, isTemplateStudioOpen } from './ui/template-studio.js'
 import {
   cancelPaintDraft,
   performPaintAction,
@@ -37,10 +38,7 @@ import {
 } from './wplace-paint.js'
 import { toggleWplaceTheme } from './wplace-theme.js'
 
-const triggerMapRepaint = (): void => {
-  const map = getMap() as { triggerRepaint?: () => void } | null
-  map?.triggerRepaint?.()
-}
+type AllianceSurface = ActiveAllianceSurface['surface']
 
 /** Claim a handled shortcut inside an alliance editor so it cannot reach the world behind it. */
 const claimShortcut = (
@@ -53,7 +51,7 @@ const claimShortcut = (
 
 const toggleMarkerKind = (
   property: 'markMismatch' | 'markSelectedColour',
-  allianceSurface: NonNullable<ReturnType<typeof activeAllianceSurface>>['surface'] | null,
+  allianceSurface: AllianceSurface | null,
 ): void => {
   const focused = focusedTemplate()
   if (focused !== null && ownsGroup(focused, 'markers')) {
@@ -62,60 +60,37 @@ const toggleMarkerKind = (
     refreshOverlayMenu()
     return
   }
-  if (allianceSurface !== null) {
-    const appearance = getSurfaceAppearance(allianceSurface)
-    setSurfaceAppearance(allianceSurface, {
-      ...appearance,
-      [property]: !appearance[property],
-    })
-    return
-  }
-  const appearance = getState().appearance
-  setState({ appearance: { ...appearance, [property]: !appearance[property] } })
+  toggleSurfaceAppearance(allianceSurface ?? WORLD_TEMPLATE_SURFACE, property)
 }
 
-const toggleRings = (
-  allianceSurface: NonNullable<ReturnType<typeof activeAllianceSurface>>['surface'] | null,
-): void => {
+const toggleRings = (allianceSurface: AllianceSurface | null): void => {
   const focused = focusedTemplate()
   if (focused !== null && ownsGroup(focused, 'pixels')) {
     void toggleAppearanceBoolean(focused.id, 'contrastOutline').then((changed) => {
       if (!changed) return
       refreshOverlayMenu()
-      if (allianceSurface === null) triggerMapRepaint()
+      if (allianceSurface === null) requestMapFrame()
     })
     return
   }
-  if (allianceSurface !== null) {
-    const appearance = getSurfaceAppearance(allianceSurface)
-    setSurfaceAppearance(allianceSurface, {
-      ...appearance,
-      contrastOutline: !appearance.contrastOutline,
-    })
-    return
-  }
-  const appearance = getState().appearance
-  setState({
-    appearance: { ...appearance, contrastOutline: !appearance.contrastOutline },
-  })
-  triggerMapRepaint()
+  toggleSurfaceAppearance(allianceSurface ?? WORLD_TEMPLATE_SURFACE, 'contrastOutline')
+  if (allianceSurface === null) requestMapFrame()
 }
 
-const opacityFor = (shortcut: string): number | null => {
-  switch (shortcut) {
-    case 'set-opacity-20':
-      return 0.2
-    case 'set-opacity-40':
-      return 0.4
-    case 'set-opacity-60':
-      return 0.6
-    case 'set-opacity-80':
-      return 0.8
-    case 'set-opacity-100':
-      return 1
-    default:
-      return null
-  }
+interface ShortcutContext {
+  readonly shortcut: ShortcutId
+  readonly allianceSurface: AllianceSurface | null
+}
+
+interface ShortcutHandler {
+  /** Run the action. Returns whether it acted; an alliance editor claims the key either way. */
+  readonly run: (context: ShortcutContext) => boolean
+  /**
+   * Runs in an alliance editor that has no resolved surface yet. Its native paint controls stay
+   * scoped to the editor's dialog; every action that needs template or appearance state waits
+   * rather than falling through to the world.
+   */
+  readonly withoutSurface?: true
 }
 
 /**
@@ -126,7 +101,6 @@ const opacityFor = (shortcut: string): number | null => {
  * keyup, blur, disposal, or a hidden tab rather than touching any persisted visibility switch.
  */
 export const installKeyboardShortcuts = (
-  redraw: () => void,
   platform: ShortcutPlatform = currentShortcutPlatform(),
 ): (() => void) => {
   let peeking = false
@@ -134,13 +108,129 @@ export const installKeyboardShortcuts = (
   let peekBindings: readonly KeyBinding[] = []
   const repaintPeek = (active: boolean): void => {
     if (!setOverlayPeekActive(active)) return
-    triggerMapRepaint()
+    requestMapFrame()
   }
   const endPeek = (): void => {
     if (!peeking) return
     peeking = false
     peekBindings = []
     repaintPeek(false)
+  }
+
+  const setOpacity = ({ shortcut }: ShortcutContext): boolean => {
+    const focused = focusedTemplate()
+    const opacity = SHORTCUTS[shortcut].opacity
+    if (focused === null || opacity === undefined) return false
+    void setOwnsGroup(focused.id, 'pixels', true).then((owned) => {
+      if (owned) void setAppearance(focused.id, { opacity })
+    })
+    return true
+  }
+  const cycle = (direction: -1 | 1) => (): boolean => {
+    // Cycling clicks a swatch, which Wplace flags on the world map.
+    if (simulatedInputAllowed('cycle-colour')) cycleFocusedColour(direction)
+    return true
+  }
+  /** The template studio's edits take undo and redo while it is open; the paint draft's otherwise. */
+  const history = (type: 'undo' | 'redo', paint: () => boolean) => (): boolean => {
+    if (!isTemplateStudioOpen()) return paint()
+    handleTemplateStudioIntent({ type })
+    return true
+  }
+
+  const handlers: Readonly<Record<ShortcutId, ShortcutHandler>> = {
+    'cycle-colour-previous': { run: cycle(-1) },
+    'cycle-colour-next': { run: cycle(1) },
+    'paint-action': { run: performPaintAction, withoutSurface: true },
+    'cancel-paint': { run: cancelPaintDraft, withoutSurface: true },
+    'fly-to-colour': {
+      run: () => {
+        void navigateFocusedSelectedColour()
+        return true
+      },
+    },
+    'peek-overlays': {
+      run: () => {
+        if (!peeking) peekBindings = activeShortcutBindings()['peek-overlays']
+        peeking = true
+        repaintPeek(true)
+        return true
+      },
+    },
+    'undo-paint': { run: history('undo', undoPaintDraft), withoutSurface: true },
+    'redo-paint': { run: history('redo', redoPaintDraft), withoutSurface: true },
+    'toggle-panel': {
+      run: () => {
+        togglePanel()
+        return true
+      },
+    },
+    'toggle-theme': { run: () => toggleWplaceTheme(), withoutSurface: true },
+    'claim-mode': {
+      // Claimed on every canvas so Wplace never sees the key; the claim gate says where it opens.
+      run: () => {
+        openClaimTool('rectangle')
+        return true
+      },
+    },
+    'toggle-presence': {
+      run: () => {
+        setState({ showPresence: !getState().showPresence })
+        return true
+      },
+    },
+    'toggle-rings': {
+      run: ({ allianceSurface }) => {
+        toggleRings(allianceSurface)
+        return true
+      },
+    },
+    'toggle-colour': {
+      run: ({ allianceSurface }) => {
+        const surface = allianceSurface ?? WORLD_TEMPLATE_SURFACE
+        setOnlySelectedColourFor(surface, !onlySelectedColourFor(surface))
+        return true
+      },
+    },
+    'toggle-template-menu': {
+      run: () => {
+        const focused = focusedTemplate()
+        if (focused === null) return false
+        toggleOverlayMenu(focused.id)
+        return true
+      },
+    },
+    'toggle-visibility': {
+      run: () => {
+        const focused = focusedTemplate({ restoreHiddenAtCentre: true })
+        if (focused !== null) void setLocalVisible(focused.id, !focused.visible)
+        return true
+      },
+    },
+    'toggle-markers': {
+      run: ({ allianceSurface }) => {
+        toggleMarkerKind('markMismatch', allianceSurface)
+        return true
+      },
+    },
+    'toggle-selected-colour-markers': {
+      run: ({ allianceSurface }) => {
+        toggleMarkerKind('markSelectedColour', allianceSurface)
+        return true
+      },
+    },
+    'set-opacity-20': { run: setOpacity },
+    'set-opacity-40': { run: setOpacity },
+    'set-opacity-60': { run: setOpacity },
+    'set-opacity-80': { run: setOpacity },
+    'set-opacity-100': { run: setOpacity },
+    'show-shortcut-help': {
+      run: () => {
+        toggleShortcutHelp(platform)
+        return true
+      },
+      withoutSurface: true,
+    },
   }
 
   const onKeyup = (event: KeyboardEvent): void => {
@@ -158,156 +248,18 @@ export const installKeyboardShortcuts = (
     if (isMoving() && (event.key === 'Escape' || event.key === 'Enter')) return
     // Claim mode is its own keyboard world: tool letters, confirm, cancel, delete all belong to it.
     if (isClaimModeActive()) return
-    const shortcut = shortcutFor(event, platform, activeShortcutBindings())
+    const shortcut = shortcutFor(event, platform)
     if (shortcut === null) return
     const alliance = activeAllianceSurface()
-    const allianceEditorStage = activeAllianceEditorStage()
-    const allianceSurface = alliance?.surface ?? null
-    const nativeRoot = allianceEditorStage?.closest('dialog[open]') ?? document
-    const claim = (): void => claimShortcut(event, allianceEditorStage !== null)
-
-    // The template studio's edits take undo and redo while it is open.
-    if (isTemplateStudioOpen() && (shortcut === 'undo-paint' || shortcut === 'redo-paint')) {
-      claim()
-      handleTemplateStudioIntent({ type: shortcut === 'undo-paint' ? 'undo' : 'redo' })
-      return
-    }
+    const inAllianceEditor = activeAllianceEditorStage() !== null
 
     // An asset editor intentionally has no resolved surface while Wplace's draft metadata is
-    // pending or invalid. Native paint controls remain safely scoped to its dialog; every action
-    // that needs template or appearance state must wait rather than falling through to the world.
-    if (
-      allianceEditorStage !== null &&
-      alliance === null &&
-      shortcut !== 'show-shortcut-help' &&
-      shortcut !== 'undo-paint' &&
-      shortcut !== 'redo-paint' &&
-      shortcut !== 'paint-action' &&
-      shortcut !== 'cancel-paint' &&
-      shortcut !== 'toggle-theme'
-    ) {
-      claim()
-      return
-    }
-
-    if (shortcut === 'show-shortcut-help') {
-      claim()
-      toggleShortcutHelp(platform)
-      return
-    }
-    if (shortcut === 'undo-paint' || shortcut === 'redo-paint') {
-      const moved =
-        shortcut === 'undo-paint' ? undoPaintDraft(nativeRoot) : redoPaintDraft(nativeRoot)
-      if (allianceEditorStage !== null || moved) claim()
-      return
-    }
-    if (shortcut === 'toggle-panel') {
-      claim()
-      togglePanel()
-      return
-    }
-    if (shortcut === 'claim-mode') {
-      // Claimed on every canvas so Wplace never sees the key; alliance artboards have no
-      // presence room yet, so only the world canvas opens the tool.
-      claim()
-      if (allianceSurface === null) openClaimTool('rectangle')
-      return
-    }
-    if (shortcut === 'toggle-presence') {
-      // Hide or show other painters' viewports and every region claim, to ignore them for a while.
-      claim()
-      setState({ showPresence: !getState().showPresence })
-      return
-    }
-    if (shortcut === 'toggle-template-menu') {
-      const focused = focusedTemplate()
-      if (focused === null) {
-        if (allianceEditorStage !== null) claim()
-        return
-      }
-      claim()
-      toggleOverlayMenu(focused.id, redraw)
-      return
-    }
-    if (shortcut === 'toggle-colour') {
-      claim()
-      const surface = allianceSurface ?? WORLD_TEMPLATE_SURFACE
-      setOnlySelectedColourFor(surface, !onlySelectedColourFor(surface))
-      return
-    }
-    if (shortcut === 'toggle-visibility') {
-      claim()
-      const focused = focusedTemplate({ restoreHiddenAtCentre: true })
-      if (focused !== null) void setLocalVisible(focused.id, !focused.visible)
-      return
-    }
-    if (shortcut === 'toggle-markers') {
-      claim()
-      toggleMarkerKind('markMismatch', allianceSurface)
-      return
-    }
-    if (shortcut === 'toggle-rings') {
-      claim()
-      toggleRings(allianceSurface)
-      return
-    }
-    if (shortcut === 'toggle-selected-colour-markers') {
-      claim()
-      toggleMarkerKind('markSelectedColour', allianceSurface)
-      return
-    }
-    if (shortcut === 'fly-to-colour') {
-      claim()
-      void navigateFocusedSelectedColour()
-      return
-    }
-    if (shortcut === 'peek-overlays') {
-      claim()
-      if (!peeking) peekBindings = activeShortcutBindings()['peek-overlays']
-      peeking = true
-      repaintPeek(true)
-      return
-    }
-    // Cycling clicks a swatch and submitting clicks the drawer's Paint button. On the world map
-    // Wplace flags both simulated clicks, so each waits for its own switch there. In an alliance
-    // editor both clicks stay inside its dialog, which checks nothing.
-    const inAllianceEditor = allianceEditorStage !== null
-    if (shortcut === 'cycle-colour-previous' || shortcut === 'cycle-colour-next') {
-      claim()
-      if (simulatedInputAllowed('cycle-colour', inAllianceEditor))
-        cycleFocusedColour(shortcut === 'cycle-colour-previous' ? -1 : 1)
-      return
-    }
-    if (shortcut === 'paint-action') {
-      const handled = performPaintAction(
-        nativeRoot,
-        simulatedInputAllowed('paint-commit', inAllianceEditor),
-      )
-      if (allianceEditorStage !== null || handled) claim()
-      return
-    }
-    if (shortcut === 'cancel-paint') {
-      const handled = cancelPaintDraft(nativeRoot)
-      if (allianceEditorStage !== null || handled) claim()
-      return
-    }
-    if (shortcut === 'toggle-theme') {
-      const handled = toggleWplaceTheme()
-      if (allianceEditorStage !== null || handled) claim()
-      return
-    }
-
-    const opacity = opacityFor(shortcut)
-    if (opacity === null) return
-    const focused = focusedTemplate()
-    if (focused === null) {
-      if (allianceEditorStage !== null) claim()
-      return
-    }
-    claim()
-    void setOwnsGroup(focused.id, 'pixels', true).then((owned) => {
-      if (owned) void setAppearance(focused.id, { opacity })
-    })
+    // pending or invalid.
+    const handler = handlers[shortcut]
+    const acted =
+      (!inAllianceEditor || alliance !== null || handler.withoutSurface === true) &&
+      handler.run({ shortcut, allianceSurface: alliance?.surface ?? null })
+    if (acted || inAllianceEditor) claimShortcut(event, inAllianceEditor)
   }
 
   window.addEventListener('keydown', onKeydown, true)

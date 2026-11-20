@@ -1,16 +1,11 @@
 import { TRANSPARENT_INDEX } from '@caelestis/shared'
+import { intersectRects, type PixelRect } from './geometry.js'
 
-export const NO_NATIVE_DRAFT = 255
-
-export interface NativePixelRect {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
+/** Index meaning "nobody has painted here", in native art or a draft. Distinct from every palette entry. */
+export const UNPAINTED = 255
 
 /** One uncomposited native layer. Its empty index means unpainted art or an absent draft. */
-export interface NativePixelRegion extends NativePixelRect {
+export interface NativePixelRegion extends PixelRect {
   readonly pixels: Uint8Array
   readonly emptyIndex: number
   /** Distinguishes a drafted transparent pixel from a draft canvas pixel with no draft. */
@@ -23,7 +18,7 @@ export interface NativePixelSnapshot {
   readonly draft: readonly NativePixelRegion[]
 }
 
-export interface NativePixelWindow extends NativePixelRect {
+export interface NativePixelWindow extends PixelRect {
   /** Palette indices, with every known unpainted pixel normalized to `TRANSPARENT_INDEX`. */
   readonly indices: Uint8Array
   /** Zero means neither committed art nor a draft has established this pixel. */
@@ -35,14 +30,6 @@ export interface NativePixelWindow extends NativePixelRect {
 export interface NativePixel {
   readonly index: number
   readonly source: 'committed' | 'draft'
-}
-
-const intersection = (left: NativePixelRect, right: NativePixelRect): NativePixelRect | null => {
-  const x = Math.max(left.x, right.x)
-  const y = Math.max(left.y, right.y)
-  const farX = Math.min(left.x + left.width, right.x + right.width)
-  const farY = Math.min(left.y + left.height, right.y + right.height)
-  return farX <= x || farY <= y ? null : { x, y, width: farX - x, height: farY - y }
 }
 
 const regionPixel = (region: NativePixelRegion, x: number, y: number): number | undefined =>
@@ -106,7 +93,7 @@ export const nativePixelAt = (
  */
 export const nativePixelWindow = (
   snapshot: NativePixelSnapshot,
-  rect: NativePixelRect,
+  rect: PixelRect,
 ): NativePixelWindow => {
   const length = rect.width * rect.height
   const indices = new Uint8Array(length).fill(TRANSPARENT_INDEX)
@@ -114,7 +101,7 @@ export const nativePixelWindow = (
   const drafted = new Uint8Array(length)
 
   for (const region of snapshot.committed) {
-    const overlap = intersection(rect, region)
+    const overlap = intersectRects(rect, region)
     if (overlap === null) continue
     for (let y = overlap.y; y < overlap.y + overlap.height; y++) {
       let sourceAt = (y - region.y) * region.width + (overlap.x - region.x)
@@ -129,7 +116,7 @@ export const nativePixelWindow = (
   }
 
   for (const region of snapshot.draft) {
-    const overlap = intersection(rect, region)
+    const overlap = intersectRects(rect, region)
     if (overlap === null) continue
     for (let y = overlap.y; y < overlap.y + overlap.height; y++) {
       let sourceAt = (y - region.y) * region.width + (overlap.x - region.x)

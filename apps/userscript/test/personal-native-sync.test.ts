@@ -1,13 +1,12 @@
-import { decodePng, encodeIndexedPng } from '@caelestis/shared'
+import { decodePng, encodeIndexedPng, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { expect, it, vi } from 'vitest'
-import * as local from '../src/templates/local-store.js'
+import * as catalog from '../src/templates/catalog.js'
 import {
   type NativeImageStore,
   type NativeMetadataStore,
   type NativeTemplate,
   NativeTemplates,
 } from '../src/templates/native-store.js'
-import type { StoredTemplate } from '../src/templates/persist.js'
 import * as disk from '../src/templates/persist.js'
 import {
   connectPersonalStore,
@@ -15,7 +14,11 @@ import {
   saveTemplate,
   synchronizePersonalTemplates,
 } from '../src/templates/personal-store.js'
+import * as residency from '../src/templates/residency.js'
+import * as restore from '../src/templates/restore.js'
 import { cutPixels, joinPixels } from '../src/templates/sparse-pixels.js'
+import * as edits from '../src/templates/template-edits.js'
+import type { StoredTemplate } from '../src/templates/template-record.js'
 
 /** Lets a test land a Wplace edit while tags reconcile, the one await inside a projection. */
 const duringTagSync = vi.hoisted(() => ({ edit: null as (() => Promise<void>) | null }))
@@ -111,6 +114,7 @@ const add = async (id: string) => {
       pixels: cutPixels(4, 2, indices),
       moved: 0,
       opaque: 8,
+      surface: WORLD_TEMPLATE_SURFACE,
       visible: true,
       everPlaced: true,
       revision: 0,
@@ -156,6 +160,32 @@ it('renders Wplace artwork that changed while the new copy was being linked', as
   expect(await storedPixels('local-edited')).toEqual(reversed)
 })
 
+it('mirrors a template stored before templates had a surface', async () => {
+  const native = wplace()
+  const record = {
+    id: 'local-before-surfaces',
+    name: 'Old',
+    source: 'image',
+    originX: 1000,
+    originY: 2000,
+    width: 4,
+    height: 2,
+    pixels: cutPixels(4, 2, indices),
+    moved: 0,
+    opaque: 8,
+    visible: true,
+    everPlaced: true,
+    revision: 0,
+  }
+  // Written straight to disk, the way a version without alliance surfaces stored it.
+  expect((await disk.saveTemplate(record as disk.TemplateSave, null)).status).toBe('saved')
+
+  connectPersonalStore(native.api)
+  await synchronizePersonalTemplates()
+
+  expect(native.records.map(({ name }) => name)).toContain('Old')
+})
+
 it('renders again when Wplace changes how the template is coloured', async () => {
   const native = wplace()
   connectPersonalStore(native.api)
@@ -170,7 +200,7 @@ it('renders again when Wplace changes how the template is coloured', async () =>
 
 /** A placed Local template, through the same store the sidebar edits. */
 const place = async (id: string) =>
-  await local.addLocalTemplate(
+  await edits.addLocalTemplate(
     {
       id,
       name: id,
@@ -190,7 +220,7 @@ const place = async (id: string) =>
 /** What a tab does when it regains focus. */
 const focus = async () => {
   await synchronizePersonalTemplates()
-  await local.refreshPersonalTemplates()
+  await restore.refreshPersonalTemplates()
 }
 
 /** Every artwork byte read from IndexedDB or Wplace's image store goes through a Blob. */
@@ -216,7 +246,7 @@ it('saves a visibility change without reading its pixels', async () => {
   await focus()
 
   const reads = artworkReads()
-  expect(await local.setLocalVisible(id, false)).toBe(true)
+  expect(await edits.setLocalVisible(id, false)).toBe(true)
 
   // Only the Wplace source is read: checked before it is written over, and after.
   const stored = reads.mock.contexts.filter((blob) => !native.images.has(blob as Blob))
@@ -237,7 +267,7 @@ it('refuses to delete a template whose Wplace image another tab just replaced', 
 
   native.images.setInAnotherTab(nativeId, replacement)
 
-  expect(await local.removeLocalTemplate(id)).toBe(false)
+  expect(await edits.removeLocalTemplate(id)).toBe(false)
   expect(native.images.get(nativeId)).toBe(replacement)
   expect(native.records).toHaveLength(1)
 })
@@ -251,7 +281,7 @@ it('keeps the artwork in memory when Wplace hides a template', async () => {
   native.api.metadata.update(native.records[0]?.id ?? '', { visible: false })
   await focus()
 
-  expect(local.templateById(id)).toMatchObject({ visible: false, artwork })
+  expect(catalog.templateById(id)).toMatchObject({ visible: false, artwork })
   expect(native.render).not.toHaveBeenCalled()
 })
 
@@ -271,7 +301,7 @@ it('applies another tab’s rename without reading any artwork', async () => {
 
   expect(reads).not.toHaveBeenCalled()
   reads.mockRestore()
-  expect(local.templateById(id)).toMatchObject({ name: 'Renamed', artwork })
+  expect(catalog.templateById(id)).toMatchObject({ name: 'Renamed', artwork })
   expect(await storedPixels(id)).toEqual(indices)
 })
 
@@ -285,14 +315,14 @@ it('shows Wplace artwork edited during linking after later metadata edits', asyn
   }
   const { id } = await place('linking-edited')
 
-  expect(await local.setLocalVisible(id, false)).toBe(true)
+  expect(await edits.setLocalVisible(id, false)).toBe(true)
   native.api.metadata.update(native.records[0]?.id ?? '', { name: 'Renamed in Wplace' })
   await focus()
 
-  const template = local.templateById(id)
+  const template = catalog.templateById(id)
   if (template === undefined) throw new Error('the template left the catalog')
   expect(template.name).toBe('Renamed in Wplace')
-  expect(await local.templatePixels(template)).toEqual(reversed)
+  expect(await residency.templatePixels(template)).toEqual(reversed)
 })
 
 it('refuses a save when another tab replaces the Wplace image while it is checked', async () => {
@@ -311,7 +341,7 @@ it('refuses a save when another tab replaces the Wplace image while it is checke
     return bytes
   })
 
-  expect(await local.setLocalVisible(id, false)).toBe(false)
+  expect(await edits.setLocalVisible(id, false)).toBe(false)
   expect(native.images.get(nativeId)).toBe(replacement)
 })
 
@@ -333,6 +363,7 @@ it('shows Wplace artwork edited while a hide links an unlinked template', async 
         pixels: cutPixels(4, 2, indices),
         moved: 0,
         opaque: 8,
+        surface: WORLD_TEMPLATE_SURFACE,
         visible: true,
         everPlaced: true,
         revision: 0,
@@ -341,21 +372,21 @@ it('shows Wplace artwork edited while a hide links an unlinked template', async 
       null,
     ),
   ).toMatchObject({ status: 'saved' })
-  await local.restoreLocalTemplates()
+  await restore.restoreLocalTemplates()
   const reversed = indices.slice().reverse()
   duringTagSync.edit = async () => {
     const png = new Uint8Array(await encodeIndexedPng(4, 2, reversed))
     native.images.set(native.records[0]?.id ?? '', new Blob([png], { type: 'image/png' }))
   }
 
-  expect(await local.setLocalVisible(id, false)).toBe(true)
+  expect(await edits.setLocalVisible(id, false)).toBe(true)
   native.api.metadata.update(native.records[0]?.id ?? '', { name: 'Renamed in Wplace' })
   await focus()
 
-  const template = local.templateById(id)
+  const template = catalog.templateById(id)
   if (template === undefined) throw new Error('the template left the catalog')
   expect(template.name).toBe('Renamed in Wplace')
-  expect(await local.templatePixels(template)).toEqual(reversed)
+  expect(await residency.templatePixels(template)).toEqual(reversed)
 })
 
 it('renders a Wplace image replacement on the next focus', async () => {
@@ -369,8 +400,8 @@ it('renders a Wplace image replacement on the next focus', async () => {
   native.images.set(native.records[0]?.id ?? '', new Blob([png], { type: 'image/png' }))
   await focus()
 
-  const template = local.templateById(id)
+  const template = catalog.templateById(id)
   if (template === undefined) throw new Error('the template left the catalog')
-  expect(await local.templatePixels(template)).toEqual(reversed)
+  expect(await residency.templatePixels(template)).toEqual(reversed)
   expect(await storedPixels(id)).toEqual(reversed)
 })

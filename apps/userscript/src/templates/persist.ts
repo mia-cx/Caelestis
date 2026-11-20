@@ -1,27 +1,24 @@
 import {
+  MAX_TEMPLATE_PIXELS,
+  PALETTE_SIZE,
   sha256Hex,
-  type TemplateSurface,
-  type TemplateTag,
   TILE_SIZE,
-  templateSurface,
-  templateSurfaceBounds,
-  WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import { isStoredBlob, isUint8Array, type StoredBlob } from '../cross-realm.js'
 import { warn } from '../debug.js'
-import { isStoredBlob, isUint8Array, type StoredBlob } from '../page-world.js'
-import type { Appearance, AppearanceGroup } from './appearance.js'
 import { storedAuthoring } from './authoring.js'
 import {
-  type ImportedTemplate,
-  MAX_TEMPLATE_ID_LENGTH,
-  MAX_TEMPLATE_NAME_LENGTH,
-  processRecipe,
-} from './import.js'
+  blockedOpenSettled,
+  LOCAL_TAGS_STORE,
+  LOCAL_TEMPLATE_VERSIONS_STORE,
+  LOCAL_TEMPLATES_STORE,
+  openCaelestisDb,
+} from './caelestis-db.js'
+import { processRecipe } from './import.js'
 import {
   hasCurrentPalette,
   markCurrentPalette,
-  migrateTemplateStorePalette,
   remapPaletteIndices,
   remapStoredAppearance,
 } from './palette-migration.js'
@@ -33,151 +30,23 @@ import {
   type SparsePixels,
   unpackPixels,
 } from './sparse-pixels.js'
-import { LOCAL_TAG_STORE, upgradeLocalTags } from './tag-schema.js'
+import { forgetTemplateTags } from './tag-schema.js'
+import {
+  MAX_TEMPLATE_ID_LENGTH,
+  type NativeLink,
+  parseStoredCore,
+  type StoredMetadata,
+  storedRevision,
+} from './template-record.js'
 
-/**
- * Local templates on disk.
- *
- * IndexedDB rather than `GM_setValue` or `localStorage`, for a reason that is not preference: the
- * observed `.wplace` file is 11 MB and its decoded index array is 4 MB, which is past what a string
- * store will hold and would have to be base64'd to get there. IndexedDB takes a `Uint8Array`
- * directly.
- *
- * This is what makes navigating to an imported template survivable. There is no reachable MapLibre
- * instance, so going to a coordinate means a page load — and without persistence the import would
- * be destroyed by the very navigation meant to show it off.
- */
-
-const DB_NAME = 'caelestis'
-const STORE = 'local-templates'
-// Shared with server-cache.ts: one database, one version, every store created in either upgrade.
-// v8 packs pixels into chunks; the bump closes older tabs out, since they read packed records as
-// corrupt and would delete them.
-const VERSION = 8
-const VERSIONS_STORE = 'local-template-versions'
-/** Server template pixels on disk, so an evicted copy reloads without downloading it again. */
-export const SERVER_PIXELS_STORE = 'server-pixels'
+const STORE = LOCAL_TEMPLATES_STORE
+const VERSIONS_STORE = LOCAL_TEMPLATE_VERSIONS_STORE
 const MAX_ARCHIVED_VERSIONS = 256
-const MAX_ARCHIVED_INDEX_PIXELS = 64 * 1024 * 1024
-let blockedOpenRequest: IDBOpenDBRequest | null = null
-let blockedOpenRecovery: Promise<void> | null = null
-let settleBlockedOpen: (() => void) | null = null
-
-const markOpenBlocked = (request: IDBOpenDBRequest): void => {
-  blockedOpenRequest = request
-  if (blockedOpenRecovery !== null) return
-  blockedOpenRecovery = new Promise<void>((resolve) => {
-    settleBlockedOpen = resolve
-  })
-}
-
-const finishBlockedOpen = (request: IDBOpenDBRequest): void => {
-  if (blockedOpenRequest !== request) return
-  blockedOpenRequest = null
-  const settle = settleBlockedOpen
-  settleBlockedOpen = null
-  blockedOpenRecovery = null
-  settle?.()
-}
-
-export interface StoredTemplate extends Omit<ImportedTemplate, 'indices'> {
-  /**
-   * The painted chunks. On disk they are one Blob of packed chunk bytes in `indices` and the chunk
-   * keys in `chunks`; records written before chunks hold the whole image there and no `chunks`.
-   */
-  readonly pixels: SparsePixels
-  /** Last mirrored tag assignments; owned by the tag transaction, not artwork edits. */
-  readonly nativeTags?: readonly TemplateTag[]
-  /** Native identity and last derived snapshot. Pending records are resumable migration journals. */
-  readonly native?: {
-    readonly id: string
-    readonly status: 'pending' | 'linked'
-    readonly token?: string
-    readonly opacity?: number
-    /** A native opacity edit overrides only opacity, without owning the whole pixels appearance. */
-    readonly opacityOverride?: boolean
-  }
-  readonly updatedAt?: number
-  /** Exact drawing surface. Records written before alliance support are world-scoped. */
-  readonly surface?: TemplateSurface
-  readonly visible: boolean
-  readonly everPlaced: boolean
-  /** Null means "follow the global appearance"; absent means the same, from before this was stored. */
-  readonly appearance?: Appearance | null
-  /** Monotonic compare-and-swap token. Records written before v3 restore as revision zero. */
-  readonly revision: number
-  /**
-   * Which appearance groups this template answers for itself.
-   *
-   * Absent on anything stored before ownership was per group, where holding an appearance at all
-   * meant owning everything — which is how it is read back.
-   */
-  readonly owns?: readonly AppearanceGroup[]
-  /** Which Local folder this is in. Absent means the top level, as it did before folders existed. */
-  readonly folderId?: string | null
-  /**
-   * Painted world tiles (`x/y`) at this placement, so a template can join the catalog without its
-   * pixels in memory. Absent on records written before eviction, which restore by reading them.
-   */
-  readonly tileKeys?: readonly string[]
-}
-
-const open = (): Promise<IDBDatabase> => {
-  if (blockedOpenRequest !== null) {
-    return Promise.reject(new Error('indexedDB.open is still blocked by another connection'))
-  }
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, VERSION)
-    let abandoned = false
-    request.onupgradeneeded = (event) => {
-      const db = request.result
-      upgradeLocalTags(db)
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' })
-      if (!db.objectStoreNames.contains(VERSIONS_STORE)) {
-        db.createObjectStore(VERSIONS_STORE, { keyPath: ['id', 'revision'] })
-      }
-      if (!db.objectStoreNames.contains('server-cache')) {
-        db.createObjectStore('server-cache', { keyPath: 'url' })
-      }
-      if (!db.objectStoreNames.contains(SERVER_PIXELS_STORE)) {
-        db.createObjectStore(SERVER_PIXELS_STORE, { keyPath: 'key' })
-      }
-      if (event.oldVersion < 4) {
-        const templates = request.transaction?.objectStore(STORE)
-        if (templates !== undefined) migrateTemplateStorePalette(templates)
-      }
-    }
-    request.onblocked = () => {
-      abandoned = true
-      markOpenBlocked(request)
-      reject(new Error('indexedDB.open blocked by another connection'))
-    }
-    request.onsuccess = () => {
-      const db = request.result
-      finishBlockedOpen(request)
-      if (abandoned) {
-        db.close()
-        return
-      }
-      db.onversionchange = () => db.close()
-      resolve(db)
-    }
-    request.onerror = () => {
-      finishBlockedOpen(request)
-      reject(request.error ?? new Error('indexedDB.open failed'))
-    }
-  })
-}
-
-const normaliseRevision = (value: unknown): number =>
-  Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0
-
-/** Share the existing database upgrade and blocked-connection handling with tag persistence. */
-export { open as openTemplateDatabase }
+const MAX_ARCHIVED_INDEX_PIXELS = MAX_TEMPLATE_PIXELS
 
 /** Read native identity links without hydrating artwork, including records outside the rendering budget. */
 export const loadNativeTemplateIds = async (): Promise<ReadonlyMap<string, string>> => {
-  const db = await open()
+  const db = await openCaelestisDb()
   try {
     return await new Promise((resolve, reject) => {
       const links = new Map<string, string>()
@@ -223,12 +92,12 @@ const writeVersioned = async (
   history?: 'archive' | 'delete',
 ): Promise<SaveResult> => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<SaveResult>((resolve, reject) => {
         const stores = [STORE]
         if (history !== undefined) stores.push(VERSIONS_STORE)
-        if (history === 'delete') stores.push(LOCAL_TAG_STORE)
+        if (history === 'delete') stores.push(LOCAL_TAGS_STORE)
         const transaction = db.transaction(stores, 'readwrite')
         const templates = transaction.objectStore(STORE)
         const request = templates.get(id)
@@ -239,7 +108,7 @@ const writeVersioned = async (
             if (current !== undefined) return
           } else {
             if (current === undefined) return
-            const actual = normaliseRevision(current.revision)
+            const actual = storedRevision(current)
             if (incrementRevision && actual >= Number.MAX_SAFE_INTEGER - 1) return
             if (actual !== expectedRevision) return
           }
@@ -294,7 +163,7 @@ const writeVersioned = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return { status: 'unavailable' }
   }
 }
@@ -304,14 +173,14 @@ export type SaveResult =
       readonly status: 'saved'
       readonly revision: number
       /** The Wplace link a personal save committed, when its snapshot renders the saved artwork. */
-      readonly native?: NonNullable<StoredTemplate['native']>
+      readonly native?: NativeLink
     }
   | { readonly status: 'conflict' }
   | { readonly status: 'limit' }
   | { readonly status: 'unavailable' }
 
 /** A record to save. Null pixels keep the stored ones, so an evicted template can save metadata. */
-export type TemplateSave = Omit<StoredTemplate, 'pixels'> & { readonly pixels: SparsePixels | null }
+export type TemplateSave = StoredMetadata & { readonly pixels: SparsePixels | null }
 
 const sameKeys = (left: unknown, right: readonly number[]): boolean =>
   Array.isArray(left) &&
@@ -364,8 +233,8 @@ export const saveTemplate = async (
           sameKeys(currentChunks, packed.chunks))
       if (reusable) {
         // Metadata-only mutations keep the already-cloned durable value. Re-wrapping a multi-MB
-        // ArrayBuffer in a Blob copies it and makes every move/toggle/appearance change rewrite all
-        // pixels even though this PR has no pixel-editing mutation.
+        // ArrayBuffer in a Blob copies it and would make every move, toggle or appearance change
+        // rewrite all pixels.
         const record: Record<string, unknown> = {
           ...savedMetadata,
           revision,
@@ -412,7 +281,7 @@ export const saveTemplateFolders = async (
   if (updates.length === 0) return { status: 'saved', revisions: new Map() }
   if (new Set(updates.map(({ id }) => id)).size !== updates.length) return { status: 'conflict' }
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<SaveTemplateFoldersResult>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readwrite')
@@ -448,8 +317,7 @@ export const saveTemplateFolders = async (
             if (
               typeof record !== 'object' ||
               record === null ||
-              normaliseRevision((record as { revision?: unknown }).revision) !==
-                update.expectedRevision ||
+              storedRevision(record) !== update.expectedRevision ||
               update.expectedRevision >= Number.MAX_SAFE_INTEGER - 1
             ) {
               conflict = true
@@ -471,7 +339,7 @@ export const saveTemplateFolders = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return { status: 'unavailable' }
   }
 }
@@ -485,18 +353,7 @@ export const deleteTemplate = async (
     expectedRevision,
     (templates, _revision, _current, transaction) => {
       templates.delete(id)
-      const cursorRequest = transaction.objectStore(LOCAL_TAG_STORE).openCursor()
-      cursorRequest.onsuccess = () => {
-        const cursor = cursorRequest.result
-        if (cursor === null) return
-        const tag = cursor.value as { templateIds: string[] }
-        if (tag.templateIds.includes(String(id)))
-          cursor.update({
-            ...tag,
-            templateIds: tag.templateIds.filter((templateId) => templateId !== id),
-          })
-        cursor.continue()
-      }
+      forgetTemplateTags(transaction, String(id))
       // Record absence is itself the tombstone: a stale mutation requires an existing record with the
       // expected revision, so deleted IDs need no permanent side-store entry.
     },
@@ -524,89 +381,36 @@ const expectedStoredPixels = (record: Record<string, unknown>): number | null =>
 const storedPixelCount = (indices: unknown): number =>
   isUint8Array(indices) ? indices.length : isStoredBlob(indices) ? indices.size : -1
 
-const boundedStoredRecord = (value: unknown): value is StoredRecord => {
-  if (typeof value !== 'object' || value === null) return false
-  const record = value as Record<string, unknown>
-  const storedPixels = storedPixelCount(record.indices)
+/**
+ * Whether a raw record is worth keeping in the catalog: its shared fields parse and its artwork
+ * bytes (or the recipe that rebuilds them) fit its size. Its other metadata is parsed on restore.
+ */
+const isStoredRecord = (value: unknown): value is StoredRecord => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const record: Record<string, unknown> = { ...value }
   // Missing or wrong-sized artwork is lost, but a source and recipe can rebuild it on hydration.
-  const indexPixels = isRebuildable(record) ? (expectedStoredPixels(record) ?? -1) : storedPixels
-  if (
-    typeof record.id !== 'string' ||
-    record.id.length === 0 ||
-    record.id.length > MAX_TEMPLATE_ID_LENGTH ||
-    typeof record.name !== 'string' ||
-    record.name.length > MAX_TEMPLATE_NAME_LENGTH ||
-    typeof record.source !== 'string' ||
-    !['wplace', 'marble', 'image'].includes(record.source) ||
-    !Number.isSafeInteger(record.originX) ||
-    !Number.isSafeInteger(record.originY) ||
-    !Number.isSafeInteger(record.width) ||
-    Number(record.width) <= 0 ||
-    !Number.isSafeInteger(record.height) ||
-    Number(record.height) <= 0 ||
-    indexPixels < 0 ||
-    !Number.isSafeInteger(record.moved) ||
-    Number(record.moved) < 0 ||
-    !Number.isSafeInteger(record.opaque) ||
-    (Number(record.opaque) <= 0 && !(Number(record.opaque) === 0 && record.native !== undefined)) ||
-    Number(record.moved) > Number(record.opaque) ||
-    Number(record.opaque) > indexPixels ||
-    typeof record.visible !== 'boolean' ||
-    typeof record.everPlaced !== 'boolean' ||
-    (record.sortOrder !== undefined && !Number.isSafeInteger(record.sortOrder))
-  ) {
-    return false
-  }
-  const width = Number(record.width)
-  const height = Number(record.height)
-  const originX = Number(record.originX)
-  const originY = Number(record.originY)
-  const rawSurface = record.surface
-  const surface =
-    rawSurface === undefined
-      ? WORLD_TEMPLATE_SURFACE
-      : typeof rawSurface === 'object' && rawSurface !== null && 'kind' in rawSurface
-        ? templateSurface(
-            rawSurface.kind,
-            'allianceId' in rawSurface ? rawSurface.allianceId : undefined,
-          )
-        : null
-  if (surface === null) return false
-  const bounds = templateSurfaceBounds(surface) ?? {
-    minX: 0,
-    minY: 0,
-    maxX: WORLD_PIXELS,
-    maxY: WORLD_PIXELS,
-  }
-  if (
-    originX < bounds.minX ||
-    originY < bounds.minY ||
-    originX > bounds.maxX - width ||
-    originY > bounds.maxY - height ||
-    indexPixels !== expectedStoredPixels(record) ||
-    (record.source === 'image' && record.everPlaced === false)
-  ) {
-    return false
-  }
-  if (
-    record.revision !== undefined &&
-    (!Number.isSafeInteger(record.revision) ||
-      Number(record.revision) < 0 ||
-      Number(record.revision) >= Number.MAX_SAFE_INTEGER)
-  ) {
+  const indexPixels = isRebuildable(record)
+    ? (expectedStoredPixels(record) ?? -1)
+    : storedPixelCount(record.indices)
+  if (!(indexPixels >= 0)) return false
+  try {
+    parseStoredCore(record, indexPixels)
+  } catch {
     return false
   }
   const appearance = record.appearance
-  if (
-    typeof appearance === 'object' &&
-    appearance !== null &&
-    'hiddenColours' in appearance &&
-    Array.isArray(appearance.hiddenColours) &&
-    appearance.hiddenColours.length > 64
-  ) {
-    return false
-  }
-  return true
+  return (
+    indexPixels === expectedStoredPixels(record) &&
+    // A plain image is stored only once it has been placed; see the catalog's `isPendingImage`.
+    !(record.source === 'image' && record.everPlaced === false) &&
+    !(
+      typeof appearance === 'object' &&
+      appearance !== null &&
+      'hiddenColours' in appearance &&
+      Array.isArray(appearance.hiddenColours) &&
+      appearance.hiddenColours.length > PALETTE_SIZE
+    )
+  )
 }
 
 type HydrationResult =
@@ -645,10 +449,18 @@ const candidateIndexPixels = (value: unknown): number => {
 const boundedPixelSum = (total: number, pixels: number): number =>
   pixels > Number.MAX_SAFE_INTEGER - total ? Number.MAX_SAFE_INTEGER : total + pixels
 
-/** A loaded template: the record's fields with its artwork bytes swapped for its pixels. */
+/**
+ * A loaded template: the record's fields with its artwork bytes swapped for its pixels. Records
+ * written before alliance surfaces existed are world templates.
+ */
 const hydrated = (record: Record<string, unknown>, pixels: SparsePixels | null) => {
   const { indices: _indices, chunks: _chunks, ...metadata } = record
-  return { ...metadata, revision: record.revision ?? 0, pixels }
+  return {
+    ...metadata,
+    surface: record.surface ?? WORLD_TEMPLATE_SURFACE,
+    revision: record.revision ?? 0,
+    pixels,
+  }
 }
 
 /** A record with its artwork written the current way: packed painted chunks. */
@@ -712,7 +524,7 @@ const hydrateCandidate = async (candidate: StoredRecord): Promise<HydrationResul
     if (buffer.byteLength !== indices.size) return await rebuildArtwork(candidate, 'invalid')
     return await accept(new Uint8Array(buffer))
   } catch (error) {
-    warn('install', `could not read local template ${String(candidate.id)}`, String(error))
+    warn(`could not read local template ${String(candidate.id)}`, String(error))
     return await rebuildArtwork(candidate, 'unavailable')
   }
 }
@@ -742,7 +554,7 @@ const rebuildArtwork = async (
       repaired: packedRecord(candidate, pixels),
     }
   } catch (error) {
-    warn('install', `could not rebuild local template ${String(candidate.id)}`, String(error))
+    warn(`could not rebuild local template ${String(candidate.id)}`, String(error))
     return { status: 'unavailable' }
   }
 }
@@ -780,11 +592,6 @@ export type LoadTemplateResult =
   | { readonly status: 'invalid'; readonly revision: number }
   | { readonly status: 'unavailable' }
 
-const storedRevision = (value: unknown): number => {
-  if (typeof value !== 'object' || value === null || !('revision' in value)) return 0
-  return normaliseRevision((value as { readonly revision?: unknown }).revision)
-}
-
 const loadFailureIdentity = (
   value: unknown,
   primaryKey: IDBValidKey | undefined,
@@ -812,7 +619,7 @@ const loadRecord = async (
   | Exclude<LoadTemplateResult, { readonly status: 'loaded' }>
 > => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       const value = await new Promise<unknown>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readonly')
@@ -829,7 +636,7 @@ const loadRecord = async (
           reject(transaction.error ?? new Error('indexedDB transaction aborted'))
       })
       if (value === undefined) return { status: 'missing' }
-      if (!boundedStoredRecord(value)) {
+      if (!isStoredRecord(value)) {
         return { status: 'invalid', revision: storedRevision(value) }
       }
       return { status: 'found', record: value }
@@ -837,7 +644,7 @@ const loadRecord = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return { status: 'unavailable' }
   }
 }
@@ -845,7 +652,7 @@ const loadRecord = async (
 /** Read one winning CAS value after a conflict without materialising every other template. */
 export const loadTemplate = async (
   id: string,
-  maxIndexPixels = 64 * 1024 * 1024,
+  maxIndexPixels = MAX_TEMPLATE_PIXELS,
 ): Promise<LoadTemplateResult> => {
   const loaded = await loadRecord(id)
   return loaded.status === 'found'
@@ -875,7 +682,7 @@ export const loadTemplateMetadata = async (id: string): Promise<LoadTemplateResu
  */
 export const hydrateStoredTemplate = async (
   record: StoredRecord,
-  maxIndexPixels = 64 * 1024 * 1024,
+  maxIndexPixels = MAX_TEMPLATE_PIXELS,
 ): Promise<LoadTemplateResult> => {
   if ((expectedStoredPixels(record) ?? Number.POSITIVE_INFINITY) > maxIndexPixels) {
     return { status: 'invalid', revision: storedRevision(record) }
@@ -942,7 +749,7 @@ export const saveTemplateTileKeys = async (
 /** Every stored template's id, for walking the store one record at a time. */
 export const loadTemplateIds = async (): Promise<readonly string[]> => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<readonly string[]>((resolve, reject) => {
         const request = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys()
@@ -954,7 +761,7 @@ export const loadTemplateIds = async (): Promise<readonly string[]> => {
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
+    warn('local template storage unavailable', String(error))
     return []
   }
 }
@@ -970,7 +777,7 @@ export const loadTemplateCatalog = async (
   excludedRevisions: ReadonlyMap<string, number> = new Map(),
 ): Promise<TemplateCatalog> => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<TemplateCatalog>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readonly')
@@ -981,7 +788,7 @@ export const loadTemplateCatalog = async (
           const cursor = request.result
           if (cursor === null) return
           const value: unknown = cursor.value
-          if (boundedStoredRecord(value)) {
+          if (isStoredRecord(value)) {
             if (excludedRevisions.get(value.id as string) !== storedRevision(value))
               records.push(value)
           } else {
@@ -1005,7 +812,7 @@ export const loadTemplateCatalog = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'local template storage unavailable', String(error))
-    return { records: [], invalid: [], retryAfterUnavailable: blockedOpenRecovery }
+    warn('local template storage unavailable', String(error))
+    return { records: [], invalid: [], retryAfterUnavailable: blockedOpenSettled() }
   }
 }

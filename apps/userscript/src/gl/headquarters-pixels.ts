@@ -1,13 +1,9 @@
 import { TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
+import type { Placement } from '../geometry.js'
+import { notifyListeners } from '../listeners.js'
 import type { NativePixelRegion } from '../native-pixels.js'
 import { pageWindow } from '../page-world.js'
-
-export interface HeadquartersPixelGeometry {
-  readonly originX: number
-  readonly originY: number
-  readonly width: number
-  readonly height: number
-}
+import { BACKEND_ORIGIN } from '../wplace-raster.js'
 
 const SNAPSHOT_HEADER_BYTES = 19
 const CHANGED_TILE_HEADER_BYTES = 12
@@ -34,7 +30,7 @@ interface DecodedSnapshot {
 
 interface RetainedPixels {
   readonly allianceId: number
-  readonly geometry: HeadquartersPixelGeometry
+  readonly geometry: Placement
   readonly pixels: Uint8Array
   readonly versions: Map<string, TileVersion>
   tileSize: number | null
@@ -46,8 +42,12 @@ interface RetainedPixels {
 
 let retained: RetainedPixels | null = null
 const listeners = new Set<() => void>()
+let revision = 0
 
-const sameGeometry = (left: HeadquartersPixelGeometry, right: HeadquartersPixelGeometry): boolean =>
+/** Moves each time the complete HQ snapshot changes, so derived caches can tell they are stale. */
+export const headquartersPixelsRevision = (): number => revision
+
+const sameGeometry = (left: Placement, right: Placement): boolean =>
   left.originX === right.originX &&
   left.originY === right.originY &&
   left.width === right.width &&
@@ -55,7 +55,7 @@ const sameGeometry = (left: HeadquartersPixelGeometry, right: HeadquartersPixelG
 
 const tileKey = (x: number, y: number): string => `${x}/${y}`
 
-const cacheFor = (allianceId: number, geometry: HeadquartersPixelGeometry): RetainedPixels => {
+const cacheFor = (allianceId: number, geometry: Placement): RetainedPixels => {
   if (retained?.allianceId === allianceId && sameGeometry(retained.geometry, geometry))
     return retained
   retained = {
@@ -170,7 +170,7 @@ export const onHeadquartersPixelsChange = (listener: () => void): (() => void) =
 /** Load or update one alliance's complete bounded headquarters canvas. */
 export const refreshHeadquartersPixels = async (
   allianceId: number,
-  geometry: HeadquartersPixelGeometry,
+  geometry: Placement,
 ): Promise<void> => {
   if (
     geometry.width <= 0 ||
@@ -192,7 +192,7 @@ export const refreshHeadquartersPixels = async (
       let snapshot: DecodedSnapshot | null = null
       try {
         const response = await pageWindow().fetch(
-          `https://backend.wplace.live/alliances/${allianceId}/headquarters/snapshot`,
+          `${BACKEND_ORIGIN}/alliances/${allianceId}/headquarters/snapshot`,
           {
             method: 'POST',
             credentials: 'include',
@@ -221,7 +221,8 @@ export const refreshHeadquartersPixels = async (
         continue
       }
       apply(cache, snapshot)
-      for (const listener of listeners) listener()
+      revision++
+      notifyListeners(listeners, 'headquarters pixels listener failed')
       if (!cache.refreshQueued) return
     }
   })()
@@ -233,7 +234,7 @@ export const refreshHeadquartersPixels = async (
 /** Merge mounted native tiles into the retained full canvas and return that complete region. */
 export const headquartersPixels = (
   allianceId: number,
-  geometry: HeadquartersPixelGeometry,
+  geometry: Placement,
   visible: readonly NativePixelRegion[],
   nativeAdvanced = false,
 ): NativePixelRegion[] | null => {

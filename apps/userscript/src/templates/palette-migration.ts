@@ -1,4 +1,5 @@
-import { isStoredBlob, isUint8Array } from '../page-world.js'
+import { isRecord } from '@caelestis/shared'
+import { isStoredBlob, isUint8Array } from '../cross-realm.js'
 
 /** Old persisted palette indices mapped to wplace's authoritative current ordering. */
 const OLD_TO_CURRENT = [
@@ -20,9 +21,6 @@ export const remapPaletteIndices = (values: Uint8Array): Uint8Array => {
   }
   return remapped
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const MAX_MIGRATED_INDEX_BYTES = 64 * 1024 * 1024
 export const PALETTE_MIGRATION_VERSION = 4

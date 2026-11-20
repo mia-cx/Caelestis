@@ -1,11 +1,9 @@
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, expect, it, vi } from 'vitest'
-import {
-  loadTemplate,
-  openTemplateDatabase,
-  type StoredTemplate,
-} from '../src/templates/persist.js'
+import { openCaelestisDb } from '../src/templates/caelestis-db.js'
+import { loadTemplate } from '../src/templates/persist.js'
 import { joinPixels } from '../src/templates/sparse-pixels.js'
+import type { StoredTemplate } from '../src/templates/template-record.js'
 
 beforeEach(() => vi.stubGlobal('indexedDB', new IDBFactory()))
 
@@ -51,8 +49,8 @@ it('upgrades Blob-backed legacy artwork past a corrupt row without remapping it 
 it('recovers a blocked upgrade and closes the abandoned connection before the next upgrade', async () => {
   const legacy = await legacyDatabase()
   try {
-    await expect(openTemplateDatabase()).rejects.toThrow('blocked')
-    await expect(openTemplateDatabase()).rejects.toThrow('still blocked')
+    await expect(openCaelestisDb()).rejects.toThrow('blocked')
+    await expect(openCaelestisDb()).rejects.toThrow('still blocked')
   } finally {
     legacy.close()
   }

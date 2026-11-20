@@ -68,8 +68,12 @@ it('resumes live sync without accepting retired frames and reconciles a divergen
   vi.useFakeTimers()
   vi.stubGlobal('WebSocket', FakeWebSocket)
 
-  const state = await import('../src/state.js')
-  const sync = await import('../src/server-sync-coordinator.js')
+  // Connections only: the manifest store's cache cleanup would leave IndexedDB work pending.
+  const state = await import('../src/server-connections.js')
+  const sync = {
+    ...(await import('../src/server-sync-coordinator.js')),
+    ...(await import('../src/live-socket.js')),
+  }
   const server = {
     url: 'https://live.test',
     info: {

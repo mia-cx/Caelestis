@@ -1,43 +1,36 @@
 import { MAX_TEMPLATE_SOURCE_BYTES, parseTemplateRecipe, sha256Hex } from '@caelestis/shared'
-import { userscriptClientHeaders } from '../client-metrics.js'
-import { serverEndpoint } from '../server-url.js'
-import { activeServerToken, type ConnectedServer, getState } from '../state.js'
+import { errorText } from '../error-text.js'
+import { serverByUrl } from '../server-connections.js'
+import { serverRequest } from '../server-request.js'
+import type { ServerRead } from '../server-transport.js'
+import type { ServerConnection } from '../settings.js'
 import { currentAuthoring, type TemplateAuthoring } from '../templates/authoring.js'
-import { isServerTemplate, type PlacedTemplate, templatePixels } from '../templates/local-store.js'
+import type { PlacedTemplate } from '../templates/catalog.js'
+import { templatePixels } from '../templates/residency.js'
 
-const AUTHORING_FETCH_TIMEOUT_MS = 30_000
-
-const serverGet = async (server: ConnectedServer, path: string): Promise<Response> => {
-  const token = activeServerToken(server)
-  return await fetch(serverEndpoint(server.url, path), {
-    headers: {
-      ...userscriptClientHeaders(),
-      ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-    },
-    signal: AbortSignal.timeout(AUTHORING_FETCH_TIMEOUT_MS),
-  })
-}
+const serverGet = <Read extends ServerRead>(server: ServerConnection, path: string, read: Read) =>
+  serverRequest(server, path, { limits: 'interactive', read })
 
 /**
  * The source and recipe behind a server version. Null for processed-only versions. The server is
  * not trusted: the source must hash to what the recipe names.
  */
 export const readServerAuthoring = async (
-  server: ConnectedServer,
+  server: ServerConnection,
   versionId: string,
   indices: Uint8Array,
 ): Promise<TemplateAuthoring | null> => {
-  const recipeResponse = await serverGet(server, `/recipes/${versionId}`)
-  if (recipeResponse.status === 404) return null
-  if (!recipeResponse.ok) throw new Error(`Server said ${recipeResponse.status}.`)
-  const body: unknown = await recipeResponse.json()
+  const recipeRead = await serverGet(server, `/recipes/${versionId}`, 'json')
+  if (recipeRead.response.status === 404) return null
+  if (!recipeRead.response.ok) throw new Error(`Server said ${recipeRead.response.status}.`)
+  const body = recipeRead.body
   const recipe = parseTemplateRecipe(
     typeof body === 'object' && body !== null && 'recipe' in body ? body.recipe : null,
   )
   if (recipe === null) throw new Error('The server returned an unreadable recipe.')
-  const sourceResponse = await serverGet(server, `/sources/${recipe.source.sha256}`)
-  if (!sourceResponse.ok) throw new Error(`Server said ${sourceResponse.status}.`)
-  const bytes = new Uint8Array(await sourceResponse.arrayBuffer())
+  const source = await serverGet(server, `/sources/${recipe.source.sha256}`, 'bytes')
+  if (!source.response.ok) throw new Error(`Server said ${source.response.status}.`)
+  const bytes = source.body
   if (
     bytes.byteLength > MAX_TEMPLATE_SOURCE_BYTES ||
     (await sha256Hex(bytes)) !== recipe.source.sha256
@@ -56,13 +49,14 @@ export const readServerAuthoring = async (
  * record, or on the server version it was loaded from.
  */
 export const authoringOf = async (template: PlacedTemplate): Promise<TemplateAuthoring | null> => {
-  if (!isServerTemplate(template)) {
+  if (template.origin === 'wplace') return null
+  if (template.origin === 'local') {
     if (template.authoring === undefined) return null
     return await currentAuthoring({ ...template, indices: await templatePixels(template) })
   }
-  const server = getState().servers.find((candidate) => candidate.url === template.serverUrl)
-  if (server === undefined || template.serverVersion === undefined) return null
-  return await readServerAuthoring(server, template.serverVersion, await templatePixels(template))
+  const server = serverByUrl(template.server.url)
+  if (server === undefined) return null
+  return await readServerAuthoring(server, template.version, await templatePixels(template))
 }
 
 /**
@@ -76,7 +70,7 @@ export const transferAuthoring = async (
     return { authoring: await authoringOf(template) }
   } catch (error) {
     return {
-      message: `Could not read the source image of “${template.name}”: ${error instanceof Error ? error.message : String(error)}`,
+      message: `Could not read the source image of “${template.name}”: ${errorText(error)}`,
     }
   }
 }

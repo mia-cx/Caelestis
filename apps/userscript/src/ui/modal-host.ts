@@ -1,4 +1,5 @@
 import type { CaelestisElement, CaelestisIntent, CaelestisTag } from '@caelestis/ui/elements'
+import { deepActiveElement } from './focus.js'
 import { applyWplaceTheme } from './theme.js'
 
 /** Elements built on ui's Modal: an `open` model field, and a `closed` intent once the exit ends. */
@@ -29,13 +30,6 @@ export interface ModalHost<Tag extends ModalTag> {
 /** The close of the open dialog per tag, so opening another replaces it. */
 const openHosts = new Map<ModalTag, () => void>()
 
-/** The focused element, looking through open shadow roots, so a row inside the panel counts. */
-const focusedElement = (): HTMLElement | null => {
-  let focused = document.activeElement
-  while (focused?.shadowRoot?.activeElement) focused = focused.shadowRoot.activeElement
-  return focused instanceof HTMLElement ? focused : null
-}
-
 /**
  * Mount a ui Modal element and own its lifecycle: one open dialog per tag, `open: true` on the
  * model, `close()` on the close intent, and on `closed` removal plus focus back to what had it at
@@ -53,7 +47,8 @@ export const openModalHost = <Tag extends ModalTag>(
   },
 ): ModalHost<Tag> => {
   openHosts.get(tag)?.()
-  const restoreFocus = focusedElement()
+  // Looks through open shadow roots, so a row inside the panel counts.
+  const restoreFocus = deepActiveElement()
   const element = document.createElement(tag)
   // TypeScript cannot rebuild a generic model from `Omit` plus the omitted field.
   let model = { ...initial, open: true } as ModalModel<Tag>

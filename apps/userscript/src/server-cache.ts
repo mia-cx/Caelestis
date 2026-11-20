@@ -1,20 +1,14 @@
-import {
-  parseTemplateTags,
-  type TemplateSurface,
-  type TemplateTag,
-  templateSurface,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
+import { parseTemplateTags, templateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { warn } from './debug.js'
 import {
   MAX_MANIFEST_CHUNKS,
   MAX_MANIFEST_TEMPLATES,
   MAX_TREE_NODES,
   parseTreeNodes,
+  type ServerTemplate,
   type TreeNode,
 } from './server-manifest.js'
-import { migrateTemplateStorePalette } from './templates/palette-migration.js'
-import { upgradeLocalTags } from './templates/tag-schema.js'
+import { openCaelestisDb, SERVER_CACHE_STORE as STORE } from './templates/caelestis-db.js'
 
 /**
  * What a server told us, kept between sessions.
@@ -27,12 +21,7 @@ import { upgradeLocalTags } from './templates/tag-schema.js'
  * it as soon as one arrives. Nothing here is trusted for anything but rendering.
  */
 
-const DB_NAME = 'caelestis'
-const STORE = 'server-cache'
-// Shared with local template persistence. Opening an older version after v3 exists is a VersionError.
-const VERSION = 8
-
-export interface CachedServer {
+interface CachedServer {
   /** Server URL, which is the identity of the connection. */
   readonly url: string
   /** Verified identity and season prevent one deployment at this URL reusing another's tree. */
@@ -40,34 +29,7 @@ export interface CachedServer {
   readonly season: number
   readonly nodes: readonly TreeNode[]
   readonly fetchedAt: number
-  /** ETag from the manifest, so a refetch can be a 304. */
-  readonly etag?: string
   readonly templates?: readonly ServerTemplate[]
-}
-
-export interface ServerTemplate {
-  readonly tags?: readonly TemplateTag[]
-  readonly id: string
-  readonly nodeId: string | null
-  readonly name: string
-  readonly version: string
-  /** Added to manifests with progress bars; absent only in an older persisted cache entry. */
-  readonly totalPixels?: number
-  readonly published: boolean
-  /** Absent only in a cache written before template lifecycle state shipped. */
-  readonly finished?: boolean
-  readonly finishedAt?: number | null
-  readonly timelapseFrozen?: boolean
-  readonly updatedAt: number
-  readonly bbox: {
-    readonly minX: number
-    readonly minY: number
-    readonly maxX: number
-    readonly maxY: number
-  }
-  readonly chunks: readonly { readonly tile: string; readonly hash: string }[]
-  /** Absent only in legacy world cache entries and test fixtures. */
-  readonly surface?: TemplateSurface
 }
 
 const cachedTemplatesFrom = (value: unknown): readonly ServerTemplate[] | undefined => {
@@ -111,56 +73,23 @@ const cachedTemplatesFrom = (value: unknown): readonly ServerTemplate[] | undefi
       )
     )
       return undefined
-    templates.push({ ...(candidate as ServerTemplate), surface })
+    // Entries saved before manifests carried these fields read as untallied and unfinished.
+    templates.push({
+      ...(candidate as ServerTemplate),
+      totalPixels: candidate.totalPixels ?? 0,
+      finished: candidate.finished ?? false,
+      surface,
+    })
   }
   return templates
 }
-
-const open = (): Promise<IDBDatabase> =>
-  new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, VERSION)
-    let abandoned = false
-    request.onupgradeneeded = (event) => {
-      const db = request.result
-      upgradeLocalTags(db)
-      // The local-template store lives in the same database and must survive this upgrade.
-      if (!db.objectStoreNames.contains('local-templates')) {
-        db.createObjectStore('local-templates', { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains('local-template-versions')) {
-        db.createObjectStore('local-template-versions', { keyPath: ['id', 'revision'] })
-      }
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'url' })
-      if (!db.objectStoreNames.contains('server-pixels')) {
-        db.createObjectStore('server-pixels', { keyPath: 'key' })
-      }
-      if (event.oldVersion < 4) {
-        const templates = request.transaction?.objectStore('local-templates')
-        if (templates !== undefined) migrateTemplateStorePalette(templates)
-      }
-    }
-    request.onblocked = () => {
-      abandoned = true
-      reject(new Error('indexedDB.open blocked by another connection'))
-    }
-    request.onsuccess = () => {
-      const db = request.result
-      if (abandoned) {
-        db.close()
-        return
-      }
-      db.onversionchange = () => db.close()
-      resolve(db)
-    }
-    request.onerror = () => reject(request.error ?? new Error('indexedDB.open failed'))
-  })
 
 const run = async <T>(
   mode: IDBTransactionMode,
   body: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T | null> => {
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<T>((resolve, reject) => {
         const transaction = db.transaction(STORE, mode)
@@ -180,7 +109,7 @@ const run = async <T>(
       db.close()
     }
   } catch (error) {
-    warn('install', 'server cache unavailable', String(error))
+    warn('server cache unavailable', String(error))
     return null
   }
 }
@@ -214,7 +143,7 @@ export const cacheServer = async (entry: CachedServer): Promise<void> => {
   await run('readwrite', (store) => store.put(stored))
 }
 
-export const forgetServer = async (url: string): Promise<void> => {
+export const forgetCachedServer = async (url: string): Promise<void> => {
   await run('readwrite', (store) => store.delete(url))
 }
 
@@ -250,7 +179,6 @@ const cachedServerFrom = (
     nodes,
     fetchedAt: Number(candidate.fetchedAt),
     ...(templates === undefined ? {} : { templates }),
-    ...(typeof candidate.etag === 'string' ? { etag: candidate.etag } : {}),
   }
 }
 
@@ -260,7 +188,7 @@ export const loadServerCache = async (
   const unique = [...new Set(configuredUrls)]
   if (unique.length === 0) return []
   try {
-    const db = await open()
+    const db = await openCaelestisDb()
     try {
       return await new Promise<readonly CachedServer[]>((resolve, reject) => {
         const transaction = db.transaction(STORE, 'readonly')
@@ -306,7 +234,7 @@ export const loadServerCache = async (
       db.close()
     }
   } catch (error) {
-    warn('install', 'server cache unavailable', String(error))
+    warn('server cache unavailable', String(error))
     return []
   }
 }

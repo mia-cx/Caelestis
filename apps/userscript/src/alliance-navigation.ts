@@ -1,9 +1,18 @@
-import { allianceBounds } from './alliance-coordinates.js'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
-import { markPaintTargetStale, refreshPaintTarget } from './paint-cursor.js'
+import { notifyListeners } from './listeners.js'
 
 const MAX_ARTBOARD_SCALE = 64
 const WHEEL_STEP = 100
+
+const navigatedListeners = new Set<(active: ActiveAllianceSurface) => void>()
+
+/** Call `listener` after navigation moves an artboard under the still pointer. Returns the unsubscribe. */
+export const onAllianceArtboardNavigated = (
+  listener: (active: ActiveAllianceSurface) => void,
+): (() => void) => {
+  navigatedListeners.add(listener)
+  return () => navigatedListeners.delete(listener)
+}
 
 /**
  * Centre one alliance pixel through Wplace's own artboard transform without changing its zoom.
@@ -17,7 +26,7 @@ export const navigateAllianceArtboardTo = (
   active: ActiveAllianceSurface,
   target: { readonly x: number; readonly y: number },
 ): boolean => {
-  const bounds = allianceBounds(active)
+  const { bounds } = active
   if (bounds === null) return false
   const stage = active.stage.getBoundingClientRect()
   const frame = active.frame.getBoundingClientRect()
@@ -54,7 +63,6 @@ export const navigateAllianceArtboardTo = (
   }
   wheel(pivot, zoomInFirst ? -WHEEL_STEP : WHEEL_STEP)
   wheel(centre, zoomInFirst ? WHEEL_STEP : -WHEEL_STEP)
-  markPaintTargetStale()
-  requestAnimationFrame(() => refreshPaintTarget(active.frame, 'pointermove'))
+  notifyListeners(navigatedListeners, 'alliance navigation observer failed', active)
   return true
 }

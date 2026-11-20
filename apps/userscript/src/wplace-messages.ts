@@ -1,13 +1,10 @@
-import { warn } from './debug.js'
-import { findWplaceModules } from './templates/native-store.js'
-
 /**
  * Wplace's control labels in the reader's language.
  *
  * Wplace translates its UI with Paraglide into twelve locales, so a control found by its English
  * `aria-label` disappears for everyone reading another language (#624). Wplace's locale module
- * exports a getter for the active message catalog; once the map exists, labels come from there.
- * Until then, or if the module cannot be found, the English labels stand in.
+ * exports a getter for the active message catalog; `wplace-modules.ts` hands it over once the map
+ * exists. Until then, or if the module cannot be found, the English labels stand in.
  */
 const ENGLISH = {
   undo: 'Undo',
@@ -23,7 +20,7 @@ const ENGLISH = {
 
 export type WplaceLabel = keyof typeof ENGLISH
 
-type Catalog = () => Readonly<Record<string, unknown>>
+export type Catalog = () => Readonly<Record<string, unknown>>
 
 let catalog: Catalog | null = null
 
@@ -47,28 +44,7 @@ export const findWplaceLabelled = <E extends Element = HTMLButtonElement>(
 ): E | null =>
   [...root.querySelectorAll<E>(selector)].find((element) => hasWplaceLabel(element, key)) ?? null
 
-/** Test seam: read labels from this catalog getter instead of Wplace's. */
+/** Read labels from this getter for Wplace's active catalog; null falls back to English. */
 export const useWplaceCatalog = (read: Catalog | null): void => {
   catalog = read
-}
-
-/** Find Wplace's active-catalog getter once its map, and therefore its locale, has loaded. */
-export const installWplaceMessages = async (): Promise<void> => {
-  const found = await findWplaceModules({
-    locale: (source) => source.includes('PARAGLIDE_LOCALE'),
-  }).catch((error: unknown) => {
-    warn('install', 'Wplace modules unreadable; matching English labels', String(error))
-    return null
-  })
-  if (found === null) return
-  const getter = Object.values(found.locale?.module ?? {}).find(
-    (value): value is Catalog =>
-      typeof value === 'function' &&
-      Function.prototype.toString.call(value).includes('initializeLocale() completed'),
-  )
-  if (getter === undefined) {
-    warn('install', 'Wplace message catalog not found; matching English labels')
-    return
-  }
-  catalog = getter
 }

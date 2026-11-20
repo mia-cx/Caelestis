@@ -1,3 +1,7 @@
+import { isRecord } from '@caelestis/shared'
+import { notifyListeners } from './listeners.js'
+import { onAcceptedPaint } from './paint-requests.js'
+
 /**
  * The signed-in painter's pixel charges, and when they will be full.
  *
@@ -28,18 +32,7 @@ type ChargeListener = () => void
 let snapshot: ChargeSnapshot | null = null
 const listeners = new Set<ChargeListener>()
 
-const notify = (): void => {
-  for (const listener of listeners) {
-    try {
-      listener()
-    } catch {
-      // One listener's failure is not another's problem.
-    }
-  }
-}
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
+const notify = (): void => notifyListeners(listeners, 'charge listener failed')
 
 const projectedCount = (state: ChargeSnapshot, now: number): number =>
   Math.min(state.max, state.count + Math.max(0, now - state.at) / state.cooldownMs)
@@ -92,7 +85,13 @@ export const spendCharges = (painted: number, at = Date.now()): void => {
   notify()
 }
 
-/** The charges right now, or null until Wplace has reported them. */
+/** Spend charges on every paint Wplace accepts. */
+export const installChargeSpending = (): void => {
+  // Accepted paints stamp Unix seconds; the charge clock runs on `Date.now()` milliseconds.
+  onAcceptedPaint((paint) => spendCharges(paint.painted, paint.observedAt * 1_000))
+}
+
+/** Null until Wplace has reported charges. */
 export const chargeForecast = (now = Date.now()): ChargeForecast | null => {
   if (snapshot === null) return null
   const count = projectedCount(snapshot, now)
@@ -115,7 +114,6 @@ export const formatCountdown = (ms: number): string => {
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`
 }
 
-/** Test seam: forget the reading and every listener. */
 export const resetCharges = (): void => {
   snapshot = null
   listeners.clear()

@@ -1,4 +1,5 @@
 import { PALETTE_SIZE } from '@caelestis/shared'
+import type { PixelRect } from '../geometry.js'
 import {
   isProfileEnabled,
   measureProfileDetail,
@@ -6,7 +7,7 @@ import {
   recordProfileCounter,
   recordProfileWorkload,
 } from '../profile.js'
-import type { PlacedTemplate, TemplateArtwork } from '../templates/local-store.js'
+import type { PlacedTemplate, TemplateArtwork } from '../templates/catalog.js'
 import { pixelRect, type SparsePixels } from '../templates/sparse-pixels.js'
 import { gpuCacheEvictions } from './gpu-cache.js'
 import { TEXTURE_HALO } from './shaders.js'
@@ -73,14 +74,6 @@ export interface TemplateGpuEntry {
   paletteData: Uint8Array | null
 }
 
-/** A rectangle in template coordinates. */
-export interface TemplateRect {
-  readonly x: number
-  readonly y: number
-  readonly width: number
-  readonly height: number
-}
-
 export interface TemplateGpuAdvance {
   /** What can be drawn now: every chunk when complete, the finished ones while pending. */
   readonly entry: TemplateGpuEntry | null
@@ -113,7 +106,7 @@ const isCurrent = (entry: TemplateGpuEntry, template: TemplateSource): boolean =
   entry.width === template.width &&
   entry.height === template.height
 
-const overlaps = (tile: TemplateRect, rects: readonly TemplateRect[]): boolean =>
+const overlaps = (tile: PixelRect, rects: readonly PixelRect[]): boolean =>
   rects.some(
     (rect) =>
       rect.x < tile.x + tile.width &&
@@ -284,13 +277,12 @@ export class TemplateGpuStore {
     entry: GrowingTemplateGpuEntry,
     upload: TemplateGpuUpload,
     allowance: number,
-    visible: readonly TemplateRect[],
+    visible: readonly PixelRect[],
   ): { readonly uploadedPixels: number; readonly failed: boolean } {
     const gl = this.gl
     let left = Math.max(0, Math.floor(allowance))
     let uploadedPixels = 0
     while (left > 0 && upload.queue.length > 0) {
-      // The first visible chunk, else the next in plan order.
       const at = Math.max(
         0,
         upload.queue.findIndex((tile) => overlaps(tile, visible)),
@@ -358,7 +350,7 @@ export class TemplateGpuStore {
     template: TemplateSource,
     allowance: number,
     generation: number,
-    visible: readonly TemplateRect[] = [],
+    visible: readonly PixelRect[] = [],
   ): TemplateGpuAdvance {
     let stored = this.stored.get(template.id)
     if (stored !== undefined && !isCurrent(stored.entry, template)) {

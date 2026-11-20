@@ -1,58 +1,66 @@
-import { TILE_SIZE } from '@caelestis/shared'
+import { MAX_MISMATCH_MASK_BYTES, type TileCoord } from '@caelestis/shared'
+import { SerialQueue } from './concurrency.js'
 
 const CACHE_NAME = 'caelestis-server-mismatches-v1'
 const CACHE_PATH = '/__caelestis-cache/server-mismatch/'
 const MAX_ENTRIES = 512
-const MAX_RESPONSE_BYTES = 12 + Math.ceil((TILE_SIZE * TILE_SIZE) / 4)
 const PRUNE_EVERY_WRITES = 16
+const SEPARATOR = '\u0000'
+
+/** Everything that identifies one server mismatch mask: whose, which version, which tile. */
+export interface MismatchKey {
+  readonly serverUrl: string
+  readonly serverId: string
+  readonly season: number
+  readonly templateId: string
+  readonly version: string
+  readonly tile: TileCoord
+}
+
+/** The key's one string form, used for in-memory maps and as the saved entry's name. */
+export const mismatchKeyString = (key: MismatchKey): string =>
+  [
+    key.serverUrl,
+    key.serverId,
+    key.season,
+    key.templateId,
+    key.version,
+    `${key.tile.x}/${key.tile.y}`,
+  ].join(SEPARATOR)
+
+const parseMismatchKey = (value: string): Pick<MismatchKey, 'serverUrl' | 'templateId'> | null => {
+  const parts = value.split(SEPARATOR)
+  const [serverUrl, , , templateId] = parts
+  return parts.length === 6 && serverUrl !== undefined && templateId !== undefined
+    ? { serverUrl, templateId }
+    : null
+}
+
+/** Within one server's queue, the tile: the unit saved work is serialized on. */
+const tileOperationKey = (key: MismatchKey): string => `${key.tile.x}/${key.tile.y}`
 
 let writesUntilPrune = PRUNE_EVERY_WRITES
-const tileOperations = new Map<string, Promise<void>>()
-const serverOperations = new Map<string, Promise<void>>()
+/** Per server URL, so a server-wide purge waits for exactly that server's tile work. */
+const tileOperations = new Map<string, SerialQueue<string>>()
+const serverOperations = new SerialQueue<string>()
 
-const serverUrlFor = (key: string): string => {
-  const separator = key.indexOf('\u0000')
-  return separator < 0 ? key : key.slice(0, separator)
+const tileQueue = (serverUrl: string): SerialQueue<string> => {
+  let queue = tileOperations.get(serverUrl)
+  if (queue === undefined) {
+    queue = new SerialQueue()
+    tileOperations.set(serverUrl, queue)
+  }
+  return queue
 }
 
-const operationKeyFor = (key: string): string => {
-  const first = key.indexOf('\u0000')
-  const last = key.lastIndexOf('\u0000')
-  return first < 0 || last <= first ? key : `${key.slice(0, first)}\u0000${key.slice(last + 1)}`
+/** Serialize saved work for one server tile, after any older server-wide purge. */
+const serializeTile = async (key: MismatchKey, operation: () => Promise<void>): Promise<void> => {
+  await serverOperations.idle(key.serverUrl)
+  await tileQueue(key.serverUrl).run(tileOperationKey(key), operation)
 }
 
-/** Serialize persisted work for one server tile without blocking unrelated tiles. */
-const serialize = <Result>(key: string, operation: () => Promise<Result>): Promise<Result> => {
-  const previous = tileOperations.get(key) ?? Promise.resolve()
-  const result = previous.then(operation, operation)
-  const settled = result.then(
-    () => undefined,
-    () => undefined,
-  )
-  tileOperations.set(key, settled)
-  void settled.then(() => {
-    if (tileOperations.get(key) === settled) tileOperations.delete(key)
-  })
-  return result
-}
-
-const serializeServer = <Result>(
-  serverUrl: string,
-  operation: () => Promise<Result>,
-): Promise<Result> => {
-  const previous = serverOperations.get(serverUrl) ?? Promise.resolve()
-  const result = previous.then(operation, operation)
-  const settled = result.then(
-    () => undefined,
-    () => undefined,
-  )
-  serverOperations.set(serverUrl, settled)
-  void settled.then(() => {
-    if (serverOperations.get(serverUrl) === settled) serverOperations.delete(serverUrl)
-  })
-  return result
-}
-
+// Cache Storage can be absent (insecure contexts, some privacy modes) or throw on quota. A saved
+// mask is only a head start on the network read, so each failure here means "not saved".
 const open = async (): Promise<Cache | null> => {
   try {
     return globalThis.caches === undefined ? null : await globalThis.caches.open(CACHE_NAME)
@@ -61,14 +69,14 @@ const open = async (): Promise<Cache | null> => {
   }
 }
 
-const requestFor = (key: string): Request =>
-  new Request(`${location.origin}${CACHE_PATH}${encodeURIComponent(key)}`)
+const requestFor = (key: MismatchKey): Request =>
+  new Request(`${location.origin}${CACHE_PATH}${encodeURIComponent(mismatchKeyString(key))}`)
 
-const keyFrom = (request: Request): string | null => {
+const savedKeyOf = (request: Request): ReturnType<typeof parseMismatchKey> => {
   try {
     const path = new URL(request.url).pathname
     if (!path.startsWith(CACHE_PATH)) return null
-    return decodeURIComponent(path.slice(CACHE_PATH.length))
+    return parseMismatchKey(decodeURIComponent(path.slice(CACHE_PATH.length)))
   } catch {
     return null
   }
@@ -85,21 +93,21 @@ const prune = async (cache: Cache): Promise<void> => {
  * one. Enough to draw immediately; the caller still revalidates it with the server.
  */
 export const readCachedServerMismatch = async (
-  key: string,
+  key: MismatchKey,
 ): Promise<{ readonly bytes: Uint8Array; readonly etag: string | null } | null> => {
   // Reads stay concurrent across tiles. They wait only for an older server-wide purge or work on
   // their tile, so a read started after invalidation cannot overtake its deletion barrier.
-  await serverOperations.get(serverUrlFor(key))
-  await tileOperations.get(operationKeyFor(key))
+  await serverOperations.idle(key.serverUrl)
+  await tileQueue(key.serverUrl).idle(tileOperationKey(key))
   const cache = await open()
   if (cache === null) return null
   try {
     const response = await cache.match(requestFor(key))
     if (response === undefined) return null
     const declared = Number(response.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) return null
+    if (Number.isFinite(declared) && declared > MAX_MISMATCH_MASK_BYTES) return null
     const bytes = new Uint8Array(await response.arrayBuffer())
-    return bytes.length > 0 && bytes.length <= MAX_RESPONSE_BYTES
+    return bytes.length > 0 && bytes.length <= MAX_MISMATCH_MASK_BYTES
       ? { bytes, etag: response.headers.get('etag') }
       : null
   } catch {
@@ -108,13 +116,12 @@ export const readCachedServerMismatch = async (
 }
 
 export const writeCachedServerMismatch = async (
-  key: string,
+  key: MismatchKey,
   bytes: Uint8Array,
   etag: string | null,
 ): Promise<void> => {
-  if (bytes.length === 0 || bytes.length > MAX_RESPONSE_BYTES) return
-  await serverOperations.get(serverUrlFor(key))
-  await serialize(operationKeyFor(key), async () => {
+  if (bytes.length === 0 || bytes.length > MAX_MISMATCH_MASK_BYTES) return
+  await serializeTile(key, async () => {
     const cache = await open()
     if (cache === null) return
     try {
@@ -139,42 +146,32 @@ export const writeCachedServerMismatch = async (
   })
 }
 
-export const deleteCachedServerMismatch = async (key: string): Promise<void> => {
-  await serverOperations.get(serverUrlFor(key))
-  await serialize(operationKeyFor(key), async () => {
+export const deleteCachedServerMismatch = (key: MismatchKey): Promise<void> =>
+  serializeTile(key, async () => {
     const cache = await open()
     if (cache === null) return
     try {
       await cache.delete(requestFor(key))
     } catch {}
   })
-}
 
 /** Delete a server's saved masks, or only one template's when `templateId` is given. */
-export const deleteCachedServerMismatches = async (
-  serverUrl: string,
-  templateId?: string,
-): Promise<void> => {
-  const prefix = `${serverUrl}\u0000`
-  // Keys are url, server id, season, template id, version, tile.
-  const matches = (key: string) =>
-    key.startsWith(prefix) && (templateId === undefined || key.split('\u0000')[3] === templateId)
-  await serializeServer(serverUrl, async () => {
-    await Promise.all(
-      [...tileOperations].flatMap(([key, operation]) =>
-        key.startsWith(prefix) ? [operation] : [],
-      ),
-    )
+export const deleteCachedServerMismatches = (serverUrl: string, templateId?: string) =>
+  serverOperations.run(serverUrl, async () => {
+    await tileQueue(serverUrl).idleAll()
     const cache = await open()
     if (cache === null) return
     try {
       const requests = await cache.keys()
       await Promise.all(
         requests.map((request) => {
-          const key = keyFrom(request)
-          return key !== null && matches(key) ? cache.delete(request) : false
+          const saved = savedKeyOf(request)
+          return saved !== null &&
+            saved.serverUrl === serverUrl &&
+            (templateId === undefined || saved.templateId === templateId)
+            ? cache.delete(request)
+            : false
         }),
       )
     } catch {}
   })
-}

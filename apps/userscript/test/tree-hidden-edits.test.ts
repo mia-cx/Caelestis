@@ -1,22 +1,27 @@
 import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
-import { type ConnectedServer, setScopeVisible } from '../src/state.js'
-import * as store from '../src/templates/local-store.js'
+import { type ServerConnection, setScopeVisible } from '../src/settings.js'
+import * as catalog from '../src/templates/catalog.js'
 import { abort, movingId } from '../src/templates/move.js'
-import { serverTemplateKey } from '../src/templates/server-sync.js'
-import { toast } from '../src/ui/toast.js'
-import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
+import * as edits from '../src/templates/template-edits.js'
+import { serverTemplateKey } from '../src/tree-keys.js'
+import { showToast } from '../src/ui/notification-host.js'
+import { templateTreeAdapter } from '../src/ui/tree.js'
+import type { TreeCallbacks, TreeTarget } from '../src/ui/tree-context.js'
 
 vi.mock('../src/claim-editor.js', () => ({ startCaptureMode: () => false }))
-vi.mock('../src/main.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
-vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn() }))
+vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
+vi.mock('../src/ui/notification-host.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ui/notification-host.js')>()),
+  showToast: vi.fn(),
+}))
 
 import {
   handleTreeActionPresentationIntent,
-  openContextMenu,
   treeActionPresentation,
-} from '../src/application/tree-actions.js'
+} from '../src/application/tree-presentation.js'
+import { openContextMenu } from '../src/ui/tree-menu.js'
 
 const folder = (name: string, parentId: string | null = null): string => {
   const created = createLocalFolder(parentId, name)
@@ -26,7 +31,7 @@ const folder = (name: string, parentId: string | null = null): string => {
 
 const template = async (folderId: string | null = null): Promise<string> => {
   const id = `hidden-edit-${crypto.randomUUID()}`
-  await store.addLocalTemplate(
+  await edits.addLocalTemplate(
     {
       id,
       name: 'Target',
@@ -42,7 +47,7 @@ const template = async (folderId: string | null = null): Promise<string> => {
     undefined,
     true,
   )
-  if (folderId !== null) await store.setTemplateFolder(id, folderId)
+  if (folderId !== null) await edits.setTemplateFolder(id, folderId)
   return id
 }
 
@@ -52,7 +57,12 @@ const choose = (key: string, label: string): void => {
     onContextMenu: (target: TreeTarget, event: MouseEvent) =>
       openContextMenu(target, event, () => {}),
   } as Partial<TreeCallbacks> as TreeCallbacks
-  templateTreeAdapter(callbacks, () => {}).handle({ type: 'context-menu', key, x: 0, y: 0 })
+  templateTreeAdapter(callbacks, () => {}, { surface: WORLD_TEMPLATE_SURFACE }).handle({
+    type: 'context-menu',
+    key,
+    x: 0,
+    y: 0,
+  })
   const menu = treeActionPresentation().contextMenu
   const item = menu?.items.find((candidate) => candidate.label === label)
   if (menu === undefined || item === undefined) throw new Error(`${label} is not offered`)
@@ -73,20 +83,20 @@ const MANIFEST_ONLY_KEY = serverTemplateKey(
 afterEach(async () => {
   setScopeVisible(MANIFEST_ONLY_KEY, true)
   await abort()
-  for (const placed of store.localTemplates()) await store.removeLocalTemplate(placed.id)
-  vi.mocked(toast).mockClear()
+  for (const placed of catalog.localTemplates()) await edits.removeLocalTemplate(placed.id)
+  vi.mocked(showToast).mockClear()
 })
 
 describe('hidden templates and folders', () => {
   it('starts no placement on a switched-off template and leaves it hidden', async () => {
     const id = await template()
-    await store.setLocalVisible(id, false)
+    await edits.setLocalVisible(id, false)
 
     choose(`local:${id}`, 'Move')
 
-    expect(toast).toHaveBeenCalledWith('“Target” is hidden. Show it first.', 'warning')
+    expect(showToast).toHaveBeenCalledWith('“Target” is hidden. Show it first.', 'warning')
     expect(movingId()).toBeNull()
-    expect(store.templateById(id)?.visible).toBe(false)
+    expect(catalog.templateById(id)?.visible).toBe(false)
   })
 
   it('names the hidden folder rather than the template', async () => {
@@ -96,7 +106,7 @@ describe('hidden templates and folders', () => {
 
     choose(`local:${id}`, 'Move')
 
-    expect(toast).toHaveBeenCalledWith(
+    expect(showToast).toHaveBeenCalledWith(
       '“Target” is in a hidden folder. Show the folder first.',
       'warning',
     )
@@ -104,7 +114,7 @@ describe('hidden templates and folders', () => {
   })
 
   it('refuses new artwork for a hidden server template whose pixels have not arrived', () => {
-    const server: ConnectedServer = {
+    const server: ServerConnection = {
       url: 'https://hidden-edits.test',
       info: null,
       token: 'admin',
@@ -115,6 +125,7 @@ describe('hidden templates and folders', () => {
     setScopeVisible(MANIFEST_ONLY_KEY, false)
     const target: TreeTarget = {
       server,
+      surface: WORLD_TEMPLATE_SURFACE,
       nodeId: null,
       key: 'manifest-only',
       name: 'Pending',
@@ -132,7 +143,7 @@ describe('hidden templates and folders', () => {
       returnToCanvas: item.returnToCanvas === true,
     })
 
-    expect(toast).toHaveBeenCalledWith('“Pending” is hidden. Show it first.', 'warning')
+    expect(showToast).toHaveBeenCalledWith('“Pending” is hidden. Show it first.', 'warning')
     expect(document.querySelector('input[type="file"]')).toBeNull()
   })
 
@@ -143,7 +154,7 @@ describe('hidden templates and folders', () => {
 
     choose(`lf:${inner}`, 'Import template')
 
-    expect(toast).toHaveBeenCalledWith(
+    expect(showToast).toHaveBeenCalledWith(
       '“Inner” is in a hidden folder. Show the folder first.',
       'warning',
     )

@@ -9,6 +9,11 @@ export type AppearanceUpdater = (base: Appearance) => Partial<Appearance>
  *
  * The DOM is disposable: slider drafts survive rebuilds here, while sequenced updater intents keep
  * rapid edits composable until their durable writes settle.
+ *
+ * Intents are kept per property. One intent per template, released only by its latest owner, lets a
+ * refused shape keep asserting itself for as long as *any* later write is outstanding. Each is an
+ * updater rather than a resolved value, so two pending colour toggles compose instead of the
+ * second discarding the first.
  */
 class OverlayAppearanceState {
   readonly #drafts = new Map<string, Map<DraftKey, DraftValue>>()

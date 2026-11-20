@@ -66,7 +66,7 @@ export const strokeArea = (line: readonly Point[], width: number): MultiPolygon 
 }
 
 /** A shape as the area it fills, flattened; an open stroke is its thick outline. */
-export const shapeArea = (shape: RegionShape): MultiPolygon => {
+const shapeArea = (shape: RegionShape): MultiPolygon => {
   if (shape.kind === 'pixels') return []
   if (shape.kind === 'path') {
     const line = flattenPath(shape.nodes, shape.closed)

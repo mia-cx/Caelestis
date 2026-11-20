@@ -1,12 +1,8 @@
-import { TRANSPARENT_INDEX } from '@caelestis/shared'
+import { TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  deleteTemplate,
-  loadTemplate,
-  type StoredTemplate,
-  saveTemplate,
-} from '../src/templates/persist.js'
+import { deleteTemplate, loadTemplate, saveTemplate } from '../src/templates/persist.js'
 import { cutPixels, joinPixels, PIXEL_CHUNK_SIZE } from '../src/templates/sparse-pixels.js'
+import type { StoredTemplate } from '../src/templates/template-record.js'
 import { putRaw, rawRecord } from './template-records.js'
 
 const template = (id: string, name = 'Grid') => ({
@@ -20,6 +16,7 @@ const template = (id: string, name = 'Grid') => ({
   pixels: cutPixels(2, 2, new Uint8Array([1, 2, 3, 4])),
   moved: 0,
   opaque: 4,
+  surface: WORLD_TEMPLATE_SURFACE,
   visible: true,
   everPlaced: true,
   revision: 0,

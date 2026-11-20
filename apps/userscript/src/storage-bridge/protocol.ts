@@ -19,9 +19,6 @@
  * Port messages are JSON strings, so Firefox's cross-world wrappers have no objects to wrap.
  */
 
-/** The `type` of the one `window` message that hands the port over. */
-export const BRIDGE_HANDOFF = 'caelestis:storage-bridge'
-
 /** Storage world to page world. `null` stands for a deleted value. */
 export type BridgeMessage =
   /** Once, first: every stored value. */

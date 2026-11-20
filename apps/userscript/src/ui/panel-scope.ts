@@ -1,6 +1,8 @@
 import type { TemplateSurface } from '@caelestis/shared'
+import { allianceFullscreenActionGroup, allianceFullscreenHeader } from '../wplace-dom.js'
 
 export type PanelScope = 'world' | 'alliance'
+
 export type PanelView = 'tree' | 'settings' | 'appearance'
 
 interface PanelSession {
@@ -37,7 +39,6 @@ export class PanelSessions {
   }
 
   setView(view: PanelView, scope = this.selected): void {
-    if (scope === 'alliance' && view === 'settings') return
     this.sessions[scope].view = view
   }
 
@@ -48,10 +49,8 @@ export class PanelSessions {
   }
 }
 
-export const panelScopeForSurface = (surface: TemplateSurface): PanelScope =>
-  surface.kind === 'world' ? 'world' : 'alliance'
-
-export const alliancePanelTitle = (surface: TemplateSurface): string => {
+/** The panel's title on a canvas: Caelestis on the world, what the alliance canvas holds there. */
+export const panelTitle = (surface: TemplateSurface): string => {
   switch (surface.kind) {
     case 'alliance-headquarters':
       return 'Headquarters overlays'
@@ -62,23 +61,6 @@ export const alliancePanelTitle = (surface: TemplateSurface): string => {
     case 'world':
       return 'Caelestis'
   }
-}
-
-const allianceFullscreenHeader = (stage: HTMLElement): HTMLElement | null =>
-  (Array.from(stage.parentElement?.children ?? []).find(
-    (element) =>
-      element.tagName === 'HEADER' && element.querySelector('button[aria-pressed="true"]') !== null,
-  ) as HTMLElement | undefined) ?? null
-
-const allianceFullscreenActionGroup = (stage: HTMLElement): HTMLElement | null => {
-  const header = allianceFullscreenHeader(stage)
-  const activeButton = header?.querySelector<HTMLElement>('button[aria-pressed="true"]')
-  if (header === null || activeButton === null || activeButton === undefined) return null
-  return (
-    (Array.from(header.children).find((child) => child.contains(activeButton)) as
-      | HTMLElement
-      | undefined) ?? null
-  )
 }
 
 /** Keep artboard controls below Wplace's visible fullscreen actions without counting header padding. */
@@ -105,18 +87,6 @@ export const allianceRailInlineEnd = (
     )
   }
   return Math.max(0, parent.clientWidth - stage.offsetLeft - stage.offsetWidth + gap)
-}
-
-/** Activate on click, optionally shielding a nested control from artboard pointer capture. */
-export const bindRailActivation = (
-  element: HTMLElement,
-  activate: () => void,
-  options: { readonly isolatePointerDown?: boolean } = {},
-): void => {
-  if (options.isolatePointerDown) {
-    element.addEventListener('pointerdown', (event) => event.stopPropagation())
-  }
-  element.addEventListener('click', activate)
 }
 
 /** Own and restore the Wplace geometry changed while the alliance drawer is open. */

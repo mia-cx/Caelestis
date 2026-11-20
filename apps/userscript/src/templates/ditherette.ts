@@ -275,7 +275,7 @@ const start = (job: DitheretteJob): Promise<DitheretteArtwork> =>
     runInWorker(current).catch((error: unknown) => {
       if (running !== current) return
       // A page that refuses blob workers still gets its artwork, on its own thread.
-      warn('install', 'Ditherette worker unavailable; processing in the page', String(error))
+      warn('Ditherette worker unavailable; processing in the page', String(error))
       workersFailed = true
       stopHost()
       runInPage(current).catch(fail)
@@ -308,7 +308,7 @@ const readyHost = async (): Promise<Host | null> => {
     await target.ready
     return target
   } catch (error) {
-    warn('install', 'Ditherette worker unavailable; processing in the page', String(error))
+    warn('Ditherette worker unavailable; processing in the page', String(error))
     workersFailed = true
     stopHost()
     return null
@@ -384,7 +384,7 @@ export const ditheretteAvailable = async (): Promise<boolean> => {
     await compileModules()
     return true
   } catch (error) {
-    warn('install', 'Ditherette cannot load in this browser', String(error))
+    warn('Ditherette cannot load in this browser', String(error))
     return false
   }
 }

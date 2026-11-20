@@ -1,28 +1,33 @@
-import { TRANSPARENT_INDEX, WPLACE_PALETTE } from '@caelestis/shared'
+import { TRANSPARENT_INDEX } from '@caelestis/shared'
 import type { ActiveAllianceSurface } from '../alliance-surface.js'
-import type { CanvasDraw, CanvasWriteRect } from '../canvas-write.js'
+import type { CanvasDraw } from '../canvas-write.js'
+import type { PixelRect, Placement } from '../geometry.js'
+import { notifyListeners } from '../listeners.js'
 import {
-  type NativePixelRect,
   type NativePixelRegion,
   type NativePixelSnapshot,
-  NO_NATIVE_DRAFT,
   nativePixelWindow,
+  UNPAINTED,
 } from '../native-pixels.js'
-import { buildExactRgbIndex, canvasRgbIndex } from '../rgb-index.js'
+import { paletteRgbIndex, rgbaPaletteIndex } from '../rgb-index.js'
 import {
   headquartersPixels,
+  headquartersPixelsRevision,
   onHeadquartersPixelsChange,
   refreshHeadquartersPixels,
 } from './headquarters-pixels.js'
 
-export interface ArtboardPixelGeometry {
-  readonly originX: number
-  readonly originY: number
-  readonly width: number
-  readonly height: number
-}
+/** The attribute naming each of our own canvases inside an alliance artboard, by pass. */
+export const ARTBOARD_CANVAS_ATTRIBUTES = {
+  outline: 'data-caelestis-alliance-outline',
+  overlay: 'data-caelestis-alliance-overlay',
+  markers: 'data-caelestis-alliance-markers',
+} as const
 
-const rgbIndex = buildExactRgbIndex(WPLACE_PALETTE)
+/** Whether a canvas in an artboard is one of ours rather than Wplace's art. */
+export const isCaelestisCanvas = (canvas: Element): boolean =>
+  Object.values(ARTBOARD_CANVAS_ATTRIBUTES).some((name) => canvas.hasAttribute(name))
+
 interface CachedCanvasPixels {
   readonly width: number
   readonly height: number
@@ -40,10 +45,6 @@ interface CachedCrosshairPixels {
 }
 
 const crosshairPixels = new WeakMap<HTMLCanvasElement, CachedCrosshairPixels>()
-const isCaelestisCanvas = (canvas: HTMLCanvasElement): boolean =>
-  canvas.hasAttribute('data-caelestis-alliance-overlay') ||
-  canvas.hasAttribute('data-caelestis-alliance-outline') ||
-  canvas.hasAttribute('data-caelestis-alliance-markers')
 
 const writePalettePixels = (
   target: Uint8Array,
@@ -53,19 +54,14 @@ const writePalettePixels = (
   targetY: number,
   emptyIndex: number,
 ): void => {
+  const table = paletteRgbIndex()
   for (let y = 0; y < image.height; y++) {
     for (let x = 0; x < image.width; x++) {
-      const imageAt = (y * image.width + x) * 4
-      const targetAt = (targetY + y) * targetWidth + targetX + x
-      if ((image.data[imageAt + 3] ?? 0) === 0) {
-        target[targetAt] = emptyIndex
-        continue
-      }
-      target[targetAt] = canvasRgbIndex(
-        rgbIndex,
-        image.data[imageAt] ?? 0,
-        image.data[imageAt + 1] ?? 0,
-        image.data[imageAt + 2] ?? 0,
+      target[(targetY + y) * targetWidth + targetX + x] = rgbaPaletteIndex(
+        table,
+        image.data,
+        (y * image.width + x) * 4,
+        emptyIndex,
         TRANSPARENT_INDEX,
       )
     }
@@ -151,7 +147,7 @@ const crosshairPresence = (canvas: HTMLCanvasElement): Uint8Array | null => {
 /** Moves whenever a held crosshair presence array is patched in place or dropped. */
 let crosshairGeneration = 0
 
-const patchCrosshairPixels = (canvas: HTMLCanvasElement, dirty: CanvasWriteRect | null): void => {
+const patchCrosshairPixels = (canvas: HTMLCanvasElement, dirty: PixelRect | null): void => {
   crosshairGeneration++
   const held = crosshairPixels.get(canvas)
   if (held === undefined) return
@@ -205,13 +201,11 @@ export interface ArtboardPixels extends NativePixelSnapshot {
 export const NO_ARTBOARD_PIXELS: ArtboardPixels = { committed: [], draft: [], revision: -1 }
 
 // Retained canvas pixels change in place, so a read alone cannot tell whether they moved. Patches
-// and HQ snapshots advance the revision; so does a read whose source arrays differ from the last
-// read's, which covers canvases Wplace mounts, replaces or removes without a write.
+// advance this revision; so does a read whose source arrays differ from the last read's, which
+// covers canvases Wplace mounts, replaces or removes without a write. A read adds the HQ
+// snapshot's own revision.
 let pixelRevision = 0
 let lastSources: readonly NativePixelRegion[] = []
-onHeadquartersPixelsChange(() => {
-  pixelRevision++
-})
 
 const sourceOf = (region: NativePixelRegion): Uint8Array => region.present ?? region.pixels
 
@@ -235,9 +229,9 @@ const sameSources = (
 /** Patch a retained native canvas snapshot after Wplace changes a bounded rectangle. */
 export const patchArtboardPixels = (
   active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
+  geometry: Placement,
   canvas: HTMLCanvasElement,
-  dirty: CanvasWriteRect | null,
+  dirty: PixelRect | null,
 ): void => {
   if (isHeadquartersTileLayer(canvas)) return
   pixelRevision++
@@ -290,10 +284,7 @@ export const patchArtboardPixels = (
   syncHeadquartersPixels()
 }
 
-const hqPixels = (
-  active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
-): NativePixelRegion[] => {
+const hqPixels = (active: ActiveAllianceSurface, geometry: Placement): NativePixelRegion[] => {
   const layer = active.frame.querySelector('.hq-tile-layer')
   if (layer === null) return []
   const regions: NativePixelRegion[] = []
@@ -321,10 +312,7 @@ const hqPixels = (
   return regions
 }
 
-const assetPixels = (
-  active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
-): NativePixelRegion[] => {
+const assetPixels = (active: ActiveAllianceSurface, geometry: Placement): NativePixelRegion[] => {
   const canvas = Array.from(active.frame.children).find(
     (child): child is HTMLCanvasElement =>
       child instanceof HTMLCanvasElement &&
@@ -354,7 +342,7 @@ const directNativeCanvases = (active: ActiveAllianceSurface): HTMLCanvasElement[
       child instanceof HTMLCanvasElement && !isCaelestisCanvas(child),
   )
 
-interface CrosshairLayout extends NativePixelRect {
+interface CrosshairLayout extends PixelRect {
   readonly cellWidth: number
   readonly cellHeight: number
 }
@@ -370,7 +358,7 @@ export const isArtboardCrosshairCanvas = (
 
 const crosshairLayout = (
   active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
+  geometry: Placement,
   canvas: HTMLCanvasElement,
 ): CrosshairLayout | null => {
   if (!isArtboardCrosshairCanvas(active, canvas)) return null
@@ -404,7 +392,7 @@ const crosshairLayout = (
 
 const crosshairDraftRegions = (
   active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
+  geometry: Placement,
   draft: NativePixelRegion,
 ): NativePixelRegion[] => {
   const regions: NativePixelRegion[] = []
@@ -414,7 +402,7 @@ const crosshairDraftRegions = (
     if (layout === null) continue
     const present = crosshairPresence(canvas)
     if (present === null) continue
-    const pixels = new Uint8Array(present.length).fill(NO_NATIVE_DRAFT)
+    const pixels = new Uint8Array(present.length).fill(UNPAINTED)
     let count = 0
     for (let y = 0; y < layout.height; y++) {
       for (let x = 0; x < layout.width; x++) {
@@ -425,8 +413,8 @@ const crosshairDraftRegions = (
         const draftAt = draftY * draft.width + draftX
         pixels[at] =
           draftX < 0 || draftY < 0 || draftX >= draft.width || draftY >= draft.height
-            ? NO_NATIVE_DRAFT
-            : (draft.pixels[draftAt] ?? NO_NATIVE_DRAFT)
+            ? UNPAINTED
+            : (draft.pixels[draftAt] ?? UNPAINTED)
         count++
       }
     }
@@ -438,7 +426,7 @@ const crosshairDraftRegions = (
         height: layout.height,
         pixels,
         present,
-        emptyIndex: NO_NATIVE_DRAFT,
+        emptyIndex: UNPAINTED,
       })
   }
   return regions
@@ -447,10 +435,10 @@ const crosshairDraftRegions = (
 /** Map one native canvas write into logical artboard pixels for retained marker accounting. */
 export const artboardCanvasWriteRect = (
   active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
+  geometry: Placement,
   canvas: HTMLCanvasElement,
-  dirty: CanvasWriteRect | null,
-): NativePixelRect | null => {
+  dirty: PixelRect | null,
+): PixelRect | null => {
   if (isCaelestisCanvas(canvas)) return null
   const crosshair = crosshairLayout(active, geometry, canvas)
   if (crosshair !== null) {
@@ -512,15 +500,12 @@ export const artboardCanvasWriteRect = (
 }
 
 /** Drafts on alliance surfaces other than HQ, which keep them in their own artboard canvas. */
-const draftPixels = (
-  active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
-): NativePixelRegion[] => {
+const draftPixels = (active: ActiveAllianceSurface, geometry: Placement): NativePixelRegion[] => {
   const canvases = directNativeCanvases(active)
   const canvas = canvases.length >= 2 ? canvases.at(-1) : undefined
   if (canvas === undefined || canvas.width !== geometry.width || canvas.height !== geometry.height)
     return []
-  const pixels = palettePixels(canvas, NO_NATIVE_DRAFT)
+  const pixels = palettePixels(canvas, UNPAINTED)
   if (pixels === null) return []
   const draft = {
     x: geometry.originX,
@@ -528,7 +513,7 @@ const draftPixels = (
     width: canvas.width,
     height: canvas.height,
     pixels,
-    emptyIndex: NO_NATIVE_DRAFT,
+    emptyIndex: UNPAINTED,
   } satisfies NativePixelRegion
   return [draft, ...crosshairDraftRegions(active, geometry, draft)]
 }
@@ -553,10 +538,7 @@ const TILE_GRID_TOLERANCE = 0.25
 const headquartersTiles = new WeakMap<Element, Map<string, HeadquartersTile>>()
 const seenTileCanvases = new WeakSet<HTMLCanvasElement>()
 
-let committedGeneration = 0
-onHeadquartersPixelsChange(() => {
-  committedGeneration++
-})
+/** Each tile's drafts, against the HQ snapshot revision they were read over. */
 const tileDrafts = new WeakMap<
   HTMLCanvasElement,
   { readonly generation: number; readonly draft: NativePixelRegion | null }
@@ -572,10 +554,10 @@ const tileDrafts = new WeakMap<
  */
 export const trackArtboardTiles = (
   active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
+  geometry: Placement,
   layer: HTMLCanvasElement,
   draw: CanvasDraw | null,
-): NativePixelRect[] => {
+): PixelRect[] => {
   if (active.surface.kind !== 'alliance-headquarters' || !layer.classList.contains('hq-tile-layer'))
     return []
   const screen = layer.getBoundingClientRect()
@@ -598,7 +580,7 @@ export const trackArtboardTiles = (
     headquartersTiles.set(active.frame, tiles)
   }
   if (draw === null) {
-    const staled: NativePixelRect[] = []
+    const staled: PixelRect[] = []
     for (const [key, tile] of tiles) {
       if (!tile.fresh) continue
       tile.fresh = false
@@ -648,9 +630,7 @@ const settleHidden = (tiles: ReadonlyMap<string, HeadquartersTile>): void => {
 
 const tileListeners = new Set<() => void>()
 
-const announceTiles = (): void => {
-  for (const listener of tileListeners) listener()
-}
+const announceTiles = (): void => notifyListeners(tileListeners, 'artboard tile observer failed')
 
 /**
  * Notify when Wplace's HQ tiles change what the artboard holds: a tile drawn with new pixels, or a
@@ -667,19 +647,57 @@ export const isHeadquartersTileLayer = (canvas: object): boolean =>
   (canvas as Element).classList?.contains('hq-tile-layer') === true &&
   (canvas as Element).tagName === 'CANVAS'
 
+interface ArtboardCanvasOwner {
+  readonly stage: HTMLElement
+  readonly frame: HTMLElement
+}
+
+/** Whether one native write changes committed art or explicit transparent-draft presence. */
+export const canvasWriteTouchesArtboard = (
+  active: ArtboardCanvasOwner,
+  canvas: object,
+): boolean => {
+  // Its repaints move the view; new tile pixels arrive through `onHeadquartersTilesChange`.
+  if (isHeadquartersTileLayer(canvas)) return false
+  try {
+    const node = canvas as Node
+    if (active.frame.contains(node)) return true
+    const element = canvas as Element
+    return (
+      active.stage.contains(node) &&
+      element.classList?.contains('paint-crosshair-tile') === true &&
+      element.parentElement?.classList.contains('paint-crosshair-layer') === true
+    )
+  } catch {
+    // Foreign-realm and offscreen canvases do not belong to this artboard.
+    return false
+  }
+}
+
+/** Whether any coalesced native write belongs to the active artboard. */
+export const canvasWritesTouchArtboard = (
+  active: ArtboardCanvasOwner,
+  writes: ReadonlySet<object>,
+): boolean => {
+  for (const canvas of writes) {
+    if (canvasWriteTouchesArtboard(active, canvas)) return true
+  }
+  return false
+}
+
 /** One tile's candidate drafts: its pixels that differ from committed art. Null when it has none. */
 const tileDraft = (
   tile: HeadquartersTile,
   committed: readonly NativePixelRegion[],
 ): NativePixelRegion | null => {
   const held = tileDrafts.get(tile.canvas)
-  if (held?.generation === committedGeneration) return held.draft
+  if (held?.generation === headquartersPixelsRevision()) return held.draft
   const size = tile.canvas.width
   const colours = palettePixels(tile.canvas, TRANSPARENT_INDEX)
   if (colours === null) return null
   const rect = { x: tile.x, y: tile.y, width: size, height: size }
   const base = nativePixelWindow({ committed, draft: [] }, rect)
-  const pixels = new Uint8Array(size * size).fill(NO_NATIVE_DRAFT)
+  const pixels = new Uint8Array(size * size).fill(UNPAINTED)
   let drafted = false
   for (let at = 0; at < pixels.length; at++) {
     const colour = colours[at] ?? TRANSPARENT_INDEX
@@ -687,20 +705,17 @@ const tileDraft = (
     pixels[at] = colour
     drafted = true
   }
-  const draft = drafted ? { ...rect, pixels, emptyIndex: NO_NATIVE_DRAFT } : null
-  tileDrafts.set(tile.canvas, { generation: committedGeneration, draft })
+  const draft = drafted ? { ...rect, pixels, emptyIndex: UNPAINTED } : null
+  tileDrafts.set(tile.canvas, { generation: headquartersPixelsRevision(), draft })
   return draft
 }
 
-interface DraftMarks extends NativePixelRect {
+interface DraftMarks extends PixelRect {
   readonly present: Uint8Array
 }
 
 /** Wplace's own marks on every drafted pixel, offscreen included. Null while it shows none. */
-const draftMarks = (
-  active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
-): DraftMarks[] | null => {
+const draftMarks = (active: ActiveAllianceSurface, geometry: Placement): DraftMarks[] | null => {
   const marks: DraftMarks[] = []
   for (const canvas of active.stage.querySelectorAll('canvas.paint-crosshair-tile')) {
     if (!(canvas instanceof HTMLCanvasElement)) continue
@@ -754,14 +769,14 @@ const markDraft = (
   const pixels = draft.pixels.slice()
   let kept = false
   for (let at = 0; at < pixels.length; at++) {
-    if (pixels[at] === NO_NATIVE_DRAFT) continue
+    if (pixels[at] === UNPAINTED) continue
     const x = draft.x + (at % draft.width)
     const y = draft.y + Math.floor(at / draft.width)
     const mark = marks.find(
       (rect) => x >= rect.x && y >= rect.y && x < rect.x + rect.width && y < rect.y + rect.height,
     )
     if (mark?.present[(y - mark.y) * mark.width + (x - mark.x)] === 1) kept = true
-    else pixels[at] = NO_NATIVE_DRAFT
+    else pixels[at] = UNPAINTED
   }
   return kept ? { ...draft, pixels } : null
 }
@@ -774,7 +789,7 @@ const markDraft = (
  */
 const headquartersDraftPixels = (
   active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
+  geometry: Placement,
   committed: readonly NativePixelRegion[],
 ): NativePixelRegion[] => {
   const tiles = headquartersTiles.get(active.frame)
@@ -817,7 +832,7 @@ const isDraftMark = (node: Node): boolean =>
 export const watchArtboardDraftMarks = (active: ActiveAllianceSurface): (() => void) => {
   const observer = new MutationObserver((records) => {
     if (!records.some((record) => [...record.removedNodes].some(isDraftMark))) return
-    for (const listener of draftMarkListeners) listener()
+    notifyListeners(draftMarkListeners, 'artboard draft mark observer failed')
   })
   observer.observe(active.stage, { childList: true, subtree: true })
   return () => observer.disconnect()
@@ -826,7 +841,7 @@ export const watchArtboardDraftMarks = (active: ActiveAllianceSurface): (() => v
 /** Load or update the complete bounded native canvas for the active alliance surface. */
 export const refreshArtboardPixels = (
   active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
+  geometry: Placement,
 ): Promise<void> => {
   if (active.surface.kind !== 'alliance-headquarters') return Promise.resolve()
   return refreshHeadquartersPixels(active.surface.allianceId, geometry)
@@ -835,7 +850,7 @@ export const refreshArtboardPixels = (
 /** Read Wplace's committed and draft art canvases without compositing Caelestis or feedback. */
 export const readArtboardPixels = (
   active: ActiveAllianceSurface,
-  geometry: ArtboardPixelGeometry,
+  geometry: Placement,
 ): ArtboardPixels => {
   const hq = active.surface.kind === 'alliance-headquarters'
   const visible = hq ? hqPixels(active, geometry) : assetPixels(active, geometry)
@@ -850,5 +865,5 @@ export const readArtboardPixels = (
   const sources = [...visible, ...committed, ...draft]
   if (!sameSources(sources, lastSources)) pixelRevision++
   lastSources = sources
-  return { committed, draft, revision: pixelRevision }
+  return { committed, draft, revision: pixelRevision + headquartersPixelsRevision() }
 }

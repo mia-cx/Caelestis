@@ -1,34 +1,39 @@
-import { decodeMismatchMask, type MismatchMask, TILE_SIZE, type TileCoord } from '@caelestis/shared'
-import { userscriptClientHeaders } from './client-metrics.js'
+import {
+  decodeMismatchMask,
+  MAX_MISMATCH_MASK_BYTES,
+  type MismatchMask,
+  type TileCoord,
+} from '@caelestis/shared'
+import { notifyListeners } from './listeners.js'
 import { nextPixelObservation, recordPixelObservation } from './pixel-observation.js'
+import {
+  type ConnectedServer,
+  connectedServerAt,
+  isCurrentServerConnection,
+  onServerRemoved,
+} from './server-connections.js'
 import {
   deleteCachedServerMismatch,
   deleteCachedServerMismatches,
+  type MismatchKey,
+  mismatchKeyString,
   readCachedServerMismatch,
   writeCachedServerMismatch,
 } from './server-mismatch-cache.js'
-import { serverEndpoint } from './server-url.js'
-import {
-  activeServerToken,
-  type ConnectedServer,
-  getState,
-  isCurrentServerConnection,
-} from './state.js'
+import { serverRequest } from './server-request.js'
+import type { PlacedTemplate, ServerCopy } from './templates/catalog.js'
 
-const REQUEST_TIMEOUT_MS = 15_000
+/**
+ * The renderer asks for a visible tile's mask every frame, so a failed read waits this long before
+ * the next frame may ask the server again.
+ */
 const RETRY_AFTER_MS = 5_000
-const MAX_RESPONSE_BYTES = 12 + Math.ceil((TILE_SIZE * TILE_SIZE) / 4)
-
-interface ServerTemplateRef {
-  readonly serverUrl?: string
-  readonly serverTemplateId?: string
-  readonly serverVersion?: string
-  /** A draft's masks stay in memory: the page can read Cache Storage. */
-  readonly serverUnpublished?: boolean
-}
+/** The mask's rectangle fields, counted alongside its packed bytes. */
+const HELD_MASK_OVERHEAD_BYTES = 12
 
 interface HeldMask {
   readonly server: ConnectedServer
+  readonly key: MismatchKey
   readonly mask: MismatchMask
   /** The server's validator for this mask, or null from a server that sends none. */
   readonly etag: string | null
@@ -44,15 +49,23 @@ interface HeldMask {
 
 interface HeldMiss {
   readonly server: ConnectedServer
+  readonly key: MismatchKey
   readonly at: number
 }
 
+interface PendingRead {
+  readonly key: MismatchKey
+  readonly request: Promise<void>
+}
+
+/** Held masks, misses and reads in flight, by `mismatchKeyString`. */
 const masks = new Map<string, HeldMask>()
 const misses = new Map<string, HeldMiss>()
-const pending = new Map<string, Promise<void>>()
+const pending = new Map<string, PendingRead>()
 const listeners = new Set<() => void>()
 let requestedThisFrame: Set<string> | null = null
 let useGeneration = 0
+/** Invalidation generation per server tile, by `invalidationKeyFor`. */
 const tileInvalidations = new Map<string, number>()
 const serverInvalidations = new Map<string, number>()
 
@@ -63,42 +76,25 @@ const MAX_TILE_INVALIDATIONS = 512
 /** Memory one held mask keeps alive, including unsaved bytes that no longer share its buffer. */
 const heldBytes = (held: HeldMask): number =>
   held.mask.packed.byteLength +
-  12 +
+  HELD_MASK_OVERHEAD_BYTES +
   (held.unsaved === null || held.unsaved.buffer === held.mask.packed.buffer
     ? 0
     : held.unsaved.byteLength)
 
+/** What the held server mismatch masks take in memory, for the profile. */
 export const serverMismatchMemoryBytes = (): number => {
   let bytes = 0
   for (const held of masks.values()) bytes += heldBytes(held)
   return bytes
 }
 
-const keyFor = (
-  server: ConnectedServer,
-  templateId: string,
-  version: string,
-  tile: TileCoord,
-): string =>
-  `${server.url}\u0000${server.info?.id ?? ''}\u0000${server.season}\u0000${templateId}\u0000${version}\u0000${tile.x}/${tile.y}`
-
+const invalidationPrefix = (serverUrl: string): string => `${serverUrl}\u0000`
 const invalidationKeyFor = (serverUrl: string, tile: TileCoord): string =>
-  `${serverUrl}\u0000${tile.x}/${tile.y}`
+  `${invalidationPrefix(serverUrl)}${tile.x}/${tile.y}`
 
-const serverFor = (template: ServerTemplateRef): ConnectedServer | null => {
-  if (
-    template.serverUrl === undefined ||
-    template.serverTemplateId === undefined ||
-    template.serverVersion === undefined
-  )
-    return null
-  const server = getState().servers.find((candidate) => candidate.url === template.serverUrl)
-  return server?.status === 'connected' && server.season !== null ? server : null
-}
+const tileName = (tile: TileCoord): string => `${tile.x}/${tile.y}`
 
-const notify = (): void => {
-  for (const listener of listeners) listener()
-}
+const notify = (): void => notifyListeners(listeners, 'server mismatch observer failed')
 
 /**
  * Read one mask, revalidating the copy already held in memory or on disk.
@@ -109,13 +105,14 @@ const notify = (): void => {
  */
 const readMask = async (
   server: ConnectedServer,
-  templateId: string,
-  version: string,
-  tile: TileCoord,
-  key: string,
+  mismatch: MismatchKey,
   persist: boolean,
 ): Promise<void> => {
-  const token = activeServerToken(server)
+  const { templateId, version, tile } = mismatch
+  const key = mismatchKeyString(mismatch)
+  const miss = (): void => {
+    misses.set(key, { server, key: mismatch, at: Date.now() })
+  }
   const invalidationKey = invalidationKeyFor(server.url, tile)
   const invalidation = tileInvalidations.get(invalidationKey) ?? 0
   const serverInvalidation = serverInvalidations.get(server.url) ?? 0
@@ -127,14 +124,15 @@ const readMask = async (
   const held = masks.get(key)
   let validator = held !== undefined && isCurrentServerConnection(held.server) ? held : undefined
   if (validator === undefined) {
-    const cached = await readCachedServerMismatch(key)
+    const cached = await readCachedServerMismatch(mismatch)
     if (cached !== null && serverCurrent()) {
       const mask = decodeMismatchMask(cached.bytes)
-      if (mask === null) void deleteCachedServerMismatch(key)
+      if (mask === null) void deleteCachedServerMismatch(mismatch)
       else {
         // A saved mask is enough to draw immediately; the request below still refreshes it.
         validator = {
           server,
+          key: mismatch,
           mask,
           etag: cached.etag,
           stale: true,
@@ -148,28 +146,26 @@ const readMask = async (
   }
 
   const requested = nextPixelObservation()
-  const response = await fetch(
-    serverEndpoint(
-      server.url,
-      `/telemetry/templates/${templateId}/versions/${version}/tiles/${tile.x}/${tile.y}/mismatches?season=${server.season}`,
-    ),
+  const answer = await serverRequest(
+    server,
+    `/telemetry/templates/${templateId}/versions/${version}/tiles/${tile.x}/${tile.y}/mismatches`,
     {
-      headers: {
-        ...userscriptClientHeaders(),
-        ...(token === null ? {} : { authorization: `Bearer ${token}` }),
-        ...(validator?.etag == null ? {} : { 'if-none-match': validator.etag }),
-      },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      query: { season: server.season },
+      headers: validator?.etag == null ? {} : { 'if-none-match': validator.etag },
+      limits: 'background',
+      read: 'bytes',
+      maxBytes: MAX_MISMATCH_MASK_BYTES,
     },
   ).catch(() => null)
-  if (response === null) {
-    if (serverCurrent()) misses.set(key, { server, at: Date.now() })
+  // Unreachable, timed out, or a body larger than any mask: nothing to draw from.
+  if (answer === null) {
+    if (serverCurrent()) miss()
     return
   }
-  if (!serverCurrent()) {
-    await response.body?.cancel().catch(() => undefined)
-    return
-  }
+  // A missed revision or an unpublish can land while the body is being read. That answer belongs
+  // to the old world; drop it before it can repopulate memory or the disk.
+  if (!serverCurrent()) return
+  const { response, body: bytes } = answer
   if (response.status === 304 && validator !== undefined) {
     misses.delete(key)
     // Confirmed current as of this request, so draft pixels older than it no longer take precedence.
@@ -180,7 +176,7 @@ const readMask = async (
     const fresh = tileCurrent()
     // The answer a paint overtook is now confirmed current, so it may replace the saved copy.
     if (fresh && validator.unsaved !== null)
-      void writeCachedServerMismatch(key, validator.unsaved, validator.etag)
+      void writeCachedServerMismatch(mismatch, validator.unsaved, validator.etag)
     masks.set(key, {
       ...validator,
       mask,
@@ -193,40 +189,21 @@ const readMask = async (
   }
   // Anything else that answers a request older than a paint on this tile says nothing current.
   // The stale mask stays drawn and the caller reads again.
-  if (response.status !== 200 && !tileCurrent()) {
-    await response.body?.cancel().catch(() => undefined)
-    return
-  }
+  if (response.status !== 200 && !tileCurrent()) return
   if (response.status === 204 || response.status === 404) {
     const changed = masks.delete(key)
-    void deleteCachedServerMismatch(key)
-    misses.set(key, { server, at: Date.now() })
+    void deleteCachedServerMismatch(mismatch)
+    miss()
     if (changed) notify()
     return
   }
-  const declaredHeader = response.headers.get('content-length')
-  const declared = declaredHeader === null ? null : Number(declaredHeader)
-  if (
-    response.status !== 200 ||
-    (declared !== null &&
-      Number.isFinite(declared) &&
-      (declared < 1 || declared > MAX_RESPONSE_BYTES))
-  ) {
-    await response.body?.cancel().catch(() => undefined)
-    misses.set(key, { server, at: Date.now() })
-    return
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  // A missed revision or an unpublish can land while a large body is being consumed. That check
-  // belongs to the old world; reject the body before it can repopulate memory or the disk.
-  if (!serverCurrent()) return
-  if (bytes.length > MAX_RESPONSE_BYTES) {
-    misses.set(key, { server, at: Date.now() })
+  if (response.status !== 200) {
+    miss()
     return
   }
   const mask = decodeMismatchMask(bytes)
   if (mask === null) {
-    misses.set(key, { server, at: Date.now() })
+    miss()
     return
   }
   const fresh = tileCurrent()
@@ -235,9 +212,10 @@ const readMask = async (
   recordPixelObservation(mask.packed, requested)
   // Only a fresh answer is saved: one older than a paint must not outlive this page as current.
   // An overtaken one waits for the 304 that confirms it.
-  if (persist && fresh) void writeCachedServerMismatch(key, bytes, etag)
+  if (persist && fresh) void writeCachedServerMismatch(mismatch, bytes, etag)
   masks.set(key, {
     server,
+    key: mismatch,
     mask,
     etag,
     stale: !fresh,
@@ -273,17 +251,23 @@ export const endServerMismatchFrame = (): void => {
  * read; a stale mask is returned while its revalidation runs.
  */
 export const serverMismatchMaskFor = (
-  template: ServerTemplateRef,
+  template:
+    | Pick<ServerCopy, 'origin' | 'server' | 'serverTemplateId' | 'version' | 'unpublished'>
+    | Pick<Exclude<PlacedTemplate, ServerCopy>, 'origin'>,
   tile: TileCoord,
 ): MismatchMask | null => {
-  const server = serverFor(template)
-  if (
-    server === null ||
-    template.serverTemplateId === undefined ||
-    template.serverVersion === undefined
-  )
-    return null
-  const key = keyFor(server, template.serverTemplateId, template.serverVersion, tile)
+  if (template.origin !== 'server') return null
+  const server = connectedServerAt(template.server.url)
+  if (server === undefined) return null
+  const mismatch: MismatchKey = {
+    serverUrl: server.url,
+    serverId: server.info.id,
+    season: server.season,
+    templateId: template.serverTemplateId,
+    version: template.version,
+    tile,
+  }
+  const key = mismatchKeyString(mismatch)
   const invalidationKey = invalidationKeyFor(server.url, tile)
   requestedThisFrame?.add(key)
   const stored = masks.get(key)
@@ -303,15 +287,9 @@ export const serverMismatchMaskFor = (
     return shown
   const tileInvalidation = tileInvalidations.get(invalidationKey) ?? 0
   const serverInvalidation = serverInvalidations.get(server.url) ?? 0
-  const request = readMask(
-    server,
-    template.serverTemplateId,
-    template.serverVersion,
-    tile,
-    key,
-    template.serverUnpublished !== true,
-  ).finally(() => {
-    if (pending.get(key) !== request) return
+  // A draft's masks stay in memory: the page can read Cache Storage.
+  const request = readMask(server, mismatch, !template.unpublished).finally(() => {
+    if (pending.get(key)?.request !== request) return
     pending.delete(key)
     // Paints that landed during the request left its answer stale; one redraw reads it again.
     if (
@@ -320,33 +298,25 @@ export const serverMismatchMaskFor = (
     )
       notify()
   })
-  pending.set(key, request)
+  pending.set(key, { key: mismatch, request })
   return shown
 }
 
-/** Advance one server tile's invalidation generation, keeping the map bounded. */
+/**
+ * Advance one server tile's invalidation generation, keeping the map bounded. A tile with a read in
+ * flight keeps its generation: that read compares against it when it lands.
+ */
 const advanceTileInvalidation = (invalidationKey: string): void => {
   const generation = (tileInvalidations.get(invalidationKey) ?? 0) + 1
   tileInvalidations.delete(invalidationKey)
   tileInvalidations.set(invalidationKey, generation)
-  while (tileInvalidations.size > MAX_TILE_INVALIDATIONS) {
-    let removed = false
-    for (const candidate of tileInvalidations.keys()) {
-      const separator = candidate.lastIndexOf('\u0000')
-      const pendingPrefix = `${candidate.slice(0, separator)}\u0000`
-      const pendingSuffix = `\u0000${candidate.slice(separator + 1)}`
-      let hasPending = false
-      for (const key of pending.keys()) {
-        if (!key.startsWith(pendingPrefix) || !key.endsWith(pendingSuffix)) continue
-        hasPending = true
-        break
-      }
-      if (hasPending) continue
-      tileInvalidations.delete(candidate)
-      removed = true
-      break
-    }
-    if (!removed) break
+  if (tileInvalidations.size <= MAX_TILE_INVALIDATIONS) return
+  const reading = new Set(
+    [...pending.values()].map(({ key }) => invalidationKeyFor(key.serverUrl, key.tile)),
+  )
+  for (const candidate of tileInvalidations.keys()) {
+    if (tileInvalidations.size <= MAX_TILE_INVALIDATIONS) return
+    if (!reading.has(candidate)) tileInvalidations.delete(candidate)
   }
 }
 
@@ -363,20 +333,19 @@ export const invalidateServerMismatchTiles = (
   const invalidated = new Set<string>()
   for (const tile of tiles) {
     advanceTileInvalidation(invalidationKeyFor(serverUrl, tile))
-    invalidated.add(`${tile.x}/${tile.y}`)
+    invalidated.add(tileName(tile))
   }
   if (invalidated.size === 0) return
-  const prefix = `${serverUrl}\u0000`
-  const covers = (key: string): boolean =>
-    key.startsWith(prefix) && invalidated.has(key.slice(key.lastIndexOf('\u0000') + 1))
+  const covers = (key: MismatchKey): boolean =>
+    key.serverUrl === serverUrl && invalidated.has(tileName(key.tile))
   let changed = false
-  for (const [key, held] of masks) {
-    if (held.stale || !covers(key)) continue
+  for (const held of masks.values()) {
+    if (held.stale || !covers(held.key)) continue
     held.stale = true
     changed = true
   }
-  for (const key of [...misses.keys()]) {
-    if (!covers(key)) continue
+  for (const [key, held] of [...misses]) {
+    if (!covers(held.key)) continue
     misses.delete(key)
     changed = true
   }
@@ -385,22 +354,32 @@ export const invalidateServerMismatchTiles = (
 
 /** A missed status revision can cover any tile, so discard every derived mask for that server. */
 export const invalidateServerMismatches = (serverUrl: string): void => {
-  serverInvalidations.set(serverUrl, (serverInvalidations.get(serverUrl) ?? 0) + 1)
-  const prefix = `${serverUrl}\u0000`
-  let changed = false
-  for (const key of [...masks.keys()]) {
-    if (!key.startsWith(prefix)) continue
-    masks.delete(key)
-    changed = true
-  }
-  for (const key of [...misses.keys()]) {
-    if (!key.startsWith(prefix)) continue
-    misses.delete(key)
-    changed = true
-  }
+  forgetHeldMismatches(serverUrl)
   void deleteCachedServerMismatches(serverUrl)
+}
+
+/** Drop the server's held masks and misses, and fence its reads in flight. */
+const forgetHeldMismatches = (serverUrl: string): void => {
+  serverInvalidations.set(serverUrl, (serverInvalidations.get(serverUrl) ?? 0) + 1)
+  let changed = false
+  for (const held of [masks, misses]) {
+    for (const [key, entry] of [...held]) {
+      if (entry.key.serverUrl !== serverUrl) continue
+      held.delete(key)
+      changed = true
+    }
+  }
   if (changed) notify()
 }
+
+// A disconnected server's masks go from memory and from Cache Storage, which the page can read.
+// The server-wide fence above outlives the tile fences, so dropping those cannot admit a stale read.
+onServerRemoved(async (serverUrl) => {
+  forgetHeldMismatches(serverUrl)
+  for (const key of [...tileInvalidations.keys()])
+    if (key.startsWith(invalidationPrefix(serverUrl))) tileInvalidations.delete(key)
+  await deleteCachedServerMismatches(serverUrl)
+})
 
 export const onServerMismatchesChanged = (listener: () => void): (() => void) => {
   listeners.add(listener)

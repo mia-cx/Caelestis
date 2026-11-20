@@ -3,6 +3,7 @@ import {
   encodeIndexedPng,
   PALETTE_RGB,
   TRANSPARENT_INDEX,
+  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -13,8 +14,9 @@ vi.mock('@caelestis/shared', async (original) => {
 })
 
 import { importFile } from '../src/templates/import.js'
-import { loadTemplate, type StoredTemplate, saveTemplate } from '../src/templates/persist.js'
+import { loadTemplate, saveTemplate } from '../src/templates/persist.js'
 import { cutPixels, joinPixels } from '../src/templates/sparse-pixels.js'
+import type { StoredTemplate } from '../src/templates/template-record.js'
 import { installBitmapDecoder } from './image-decoder.js'
 import { putRaw, rawRecord } from './template-records.js'
 
@@ -38,6 +40,7 @@ const importedAndSaved = async () => {
       {
         ...metadata,
         pixels: cutPixels(imported.width, imported.height, indices),
+        surface: WORLD_TEMPLATE_SURFACE,
         visible: true,
         everPlaced: true,
         revision: 0,
@@ -60,15 +63,15 @@ const loaded = async (id: string): Promise<StoredTemplate & { readonly indices: 
 /** Export a placed local template, returning the parsed `.wplace` JSON. */
 const exported = async () => {
   const { imported, decode } = await importedAndSaved()
-  const store = await import('../src/templates/local-store.js')
+  const edits = await import('../src/templates/template-edits.js')
   const { templateAsWplace } = await import('../src/templates/wplace-export.js')
-  const placed = await store.addLocalTemplate(
+  const placed = await edits.addLocalTemplate(
     { ...imported, id: `${imported.id}-placed` },
     undefined,
     true,
   )
   const file = await templateAsWplace(placed, placed.authoring ?? null)
-  await store.removeLocalTemplate(placed.id)
+  await edits.removeLocalTemplate(placed.id)
   if (file === null) throw new Error('nothing exported')
   return { imported, decode, json: JSON.parse(await file.text()) as Record<string, unknown> }
 }

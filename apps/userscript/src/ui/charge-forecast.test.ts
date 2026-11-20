@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AcceptedPaint } from '../tile-transform.js'
-import { chargeForecast, observeCharges, resetCharges } from '../wplace-charges.js'
+import type { AcceptedPaint } from '../paint-requests.js'
+import {
+  chargeForecast,
+  installChargeSpending,
+  observeCharges,
+  resetCharges,
+} from '../wplace-charges.js'
 import {
   installChargeForecast,
   positionChargeForecast,
@@ -9,7 +14,7 @@ import {
 } from './charge-forecast.js'
 
 const acceptedPaintListeners: Array<(paint: AcceptedPaint) => void> = []
-vi.mock('../tile-transform.js', () => ({
+vi.mock('../paint-requests.js', () => ({
   onAcceptedPaint: (listener: (paint: AcceptedPaint) => void) => {
     acceptedPaintListeners.push(listener)
     return () => {}
@@ -59,6 +64,7 @@ describe('charge forecast chip', () => {
   it('spends accepted paints on the millisecond charge clock', () => {
     vi.useFakeTimers()
     vi.setSystemTime(0)
+    installChargeSpending()
     installChargeForecast()
     observeCharges({ count: 10, max: 60, cooldownMs: 30_000 }, 0)
 

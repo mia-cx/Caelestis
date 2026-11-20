@@ -1,10 +1,14 @@
-import { latLngToCanvasPixel } from '@caelestis/shared'
+import { isRecord, latLngToCanvasPixel, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { warn } from '../debug.js'
-import { forgetServerTemplate, hasRoomForServerTemplate, putServerTemplate } from './local-store.js'
-import type { TemplateProgress } from './mismatch.js'
-import { findWplaceModules, paletteIndices } from './native-store.js'
-import { rememberNodes } from './server-nodes.js'
-import { OFFICIAL_OVERLAY_OWNER } from './wplace-owned.js'
+import { notifyListeners } from '../listeners.js'
+import { onMapAttached } from '../map-handle.js'
+import { serverTemplateKey } from '../tree-keys.js'
+import { findWplaceModules } from '../wplace-modules.js'
+import { paletteIndices } from './native-store.js'
+import type { TemplateProgress } from './progress-types.js'
+import { rememberWplaceOwnedNodes } from './server-nodes.js'
+import { forgetTemplateCopy, hasRoomForCopy, putTemplateCopy } from './template-copies.js'
+import { WPLACE_OWNER_URL } from './wplace-owned.js'
 
 /**
  * Wplace's official event overlays, listed and drawn by Caelestis.
@@ -63,18 +67,13 @@ interface ProgressStore {
   refresh(): Promise<void>
 }
 
-const record = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null
-
 const templateIdOf = (index: number): string =>
-  `srv:${encodeURIComponent(OFFICIAL_OVERLAY_OWNER)}:seven-seals-template-${index}`
+  serverTemplateKey(WPLACE_OWNER_URL.event, `seven-seals-template-${index}`)
 
 let event: OfficialEvent | null = null
 let progressStore: ProgressStore | null = null
 const listeners = new Set<() => void>()
-const notify = (): void => {
-  for (const listener of listeners) listener()
-}
+const notify = (): void => notifyListeners(listeners, 'official overlay observer failed')
 
 /** Called when fragments open, progress refreshes, or the event first loads. */
 export const onOfficialOverlaysChange = (listener: () => void): (() => void) => {
@@ -92,7 +91,7 @@ export const officialEvent = (now = Date.now()): OfficialEvent | null =>
 export const officialProgress = (fragment: OfficialFragment): TemplateProgress | undefined => {
   const state = progressStore?.copyState(fragment)
   if (
-    !record(state) ||
+    !isRecord(state) ||
     !Number.isSafeInteger(state.paintedPixels) ||
     !Number.isSafeInteger(state.totalPixels)
   )
@@ -112,19 +111,19 @@ const readEvent = (module: Record<string, unknown>): OfficialEvent | null => {
   const exports = Object.values(module)
   const info = exports.find(
     (value): value is { id: string; titleEn: string } =>
-      record(value) && typeof value.id === 'string' && typeof value.titleEn === 'string',
+      isRecord(value) && typeof value.id === 'string' && typeof value.titleEn === 'string',
   )
   const copies = exports.find(
     (value): value is unknown[] =>
       Array.isArray(value) &&
       value.length > 0 &&
-      value.every((item) => record(item) && 'bounds' in item),
+      value.every((item) => isRecord(item) && 'bounds' in item),
   )
   if (info === undefined || copies === undefined) return null
   const groups = new Map<number, OfficialGroup>()
   const fragments: OfficialFragment[] = []
   for (const copy of copies) {
-    if (!record(copy) || !record(copy.bounds) || !record(copy.seal)) return null
+    if (!isRecord(copy) || !isRecord(copy.bounds) || !isRecord(copy.seal)) return null
     const { index, number, opensAt } = copy
     const { x, y, width, height } = copy.bounds
     const { index: sealIndex, numeral } = copy.seal
@@ -156,6 +155,7 @@ const readEvent = (module: Record<string, unknown>): OfficialEvent | null => {
 
 /** Load the current event from Wplace, then keep its openings and progress current. */
 export const installOfficialEvents = async (): Promise<void> => {
+  onMapAttached(syncOfficialOverlays)
   try {
     const found = await findWplaceModules({
       event: (source) => source.includes('/img/seven-seals/') && source.includes('titleEn'),
@@ -166,18 +166,18 @@ export const installOfficialEvents = async (): Promise<void> => {
     progressStore =
       (Object.values(found.progress?.module ?? {}).find(
         (value) =>
-          record(value) &&
+          isRecord(value) &&
           typeof value.copyState === 'function' &&
           typeof value.refresh === 'function',
       ) as ProgressStore | undefined) ?? null
-    rememberNodes(OFFICIAL_OVERLAY_OWNER, [
+    rememberWplaceOwnedNodes(WPLACE_OWNER_URL.event, [
       { id: event.id, parentId: null },
       ...event.groups.map((group) => ({ id: group.id, parentId: event?.id ?? null })),
     ])
     for (const map of watched) sync(map)
     notify()
   } catch (error) {
-    warn('install', 'official events unavailable', String(error))
+    warn('official events unavailable', String(error))
     return
   }
   const scheduleOpening = (): void => {
@@ -195,9 +195,7 @@ export const installOfficialEvents = async (): Promise<void> => {
   const refresh = (): void => {
     void progressStore
       ?.refresh()
-      .then(notify, (error) =>
-        warn('install', 'official event progress unavailable', String(error)),
-      )
+      .then(notify, (error) => warn('official event progress unavailable', String(error)))
   }
   refresh()
   setInterval(refresh, REFRESH_MS)
@@ -221,7 +219,7 @@ interface OverlayMap {
 }
 
 const isOverlayMap = (map: unknown): map is OverlayMap =>
-  record(map) &&
+  isRecord(map) &&
   ['getLayersOrder', 'getLayer', 'getLayoutProperty', 'setLayoutProperty', 'on'].every(
     (method) => typeof map[method] === 'function',
   )
@@ -235,9 +233,7 @@ const mirrored = new Map<string, string>()
 let tail: Promise<void> = Promise.resolve()
 
 const queue = (task: () => Promise<void>): void => {
-  tail = tail
-    .then(task)
-    .catch((error) => warn('install', 'official overlay unavailable', String(error)))
+  tail = tail.then(task).catch((error) => warn('official overlay unavailable', String(error)))
 }
 
 const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<void> => {
@@ -253,8 +249,8 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
   const version = `${originX},${originY},${pixels.width}x${pixels.height},${fragment?.group.id}`
   const id = templateIdOf(index)
   if (mirrored.get(layerId) === version) return
-  if (!hasRoomForServerTemplate(id, pixels.width * pixels.height)) {
-    warn('install', 'official overlay over the template memory budget', layerId)
+  if (!hasRoomForCopy(id, pixels.width * pixels.height)) {
+    warn('official overlay over the template memory budget', layerId)
     return
   }
   let art = decoded.get(pixels)
@@ -262,7 +258,7 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
     art = paletteIndices(pixels)
     decoded.set(pixels, art)
   }
-  const stored = await putServerTemplate(
+  const stored = await putTemplateCopy(
     {
       id,
       name: fragment?.name ?? `Official overlay ${index}`,
@@ -273,10 +269,11 @@ const mirror = async (map: OverlayMap, layerId: string, index: number): Promise<
       height: pixels.height,
       ...art,
       moved: 0,
-      serverUrl: OFFICIAL_OVERLAY_OWNER,
-      serverTemplateId: layerId,
-      serverNodeId: fragment?.group.id ?? null,
-      serverVersion: version,
+      surface: WORLD_TEMPLATE_SURFACE,
+      origin: 'wplace',
+      owner: 'event',
+      nodeId: fragment?.group.id ?? null,
+      version,
     },
     () => map.getLayer(layerId) !== undefined,
   )
@@ -318,7 +315,7 @@ const sync = (map: OverlayMap): void => {
     if (present.has(layerId) || match === null) continue
     // Forget in queue order: a mirror queued before the removal may still re-mark it as mirrored.
     queue(async () => {
-      if (mirrored.delete(layerId)) await forgetServerTemplate(templateIdOf(Number(match[1])))
+      if (mirrored.delete(layerId)) await forgetTemplateCopy(templateIdOf(Number(match[1])))
     })
   }
 }

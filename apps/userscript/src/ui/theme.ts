@@ -2,7 +2,7 @@ import { useIconSet } from '@caelestis/ui/elements'
 import { applyThemeTokens, type CaelestisThemeTokens } from '@caelestis/ui/theme'
 import { SURFACE_RADIUS } from './metrics.js'
 
-export type CaelestisStyle = 'pixel' | 'classic'
+type CaelestisStyle = 'pixel' | 'classic'
 
 const MUTED_TEXT = 'color-mix(in oklch, var(--color-base-content, currentColor) 62%, transparent)'
 

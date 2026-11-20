@@ -1,137 +1,79 @@
 import {
-  type AlarmKind,
   type ColourProgress,
+  defaultTemplateSort,
   type Progress,
-  sameTemplateSurface,
-  type TemplateSurface,
   templateFilterCount,
-  WORLD_PIXELS,
-  WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import type {
-  FavouritesModel,
-  TemplateTreeIntent,
   TemplateTreeModel,
   TreeActionModel,
   TreeEntryModel,
   TreeRowModel,
 } from '@caelestis/ui/elements'
-import { allianceBounds } from '../alliance-coordinates.js'
-import { refreshAllianceManifest } from '../alliance-server-sync.js'
-import { activeAllianceSurface } from '../alliance-surface.js'
-import { goToLocalTemplate, goToServerTemplate } from '../application/tree-navigation.js'
-import {
-  hasRefreshedServer,
-  isSameServerPlacement,
-  isServerRefreshing,
-  nodeTreeKey,
-  refreshServerSnapshot,
-  renderedParent,
-  rowsForSurface,
-  serverSnapshotError,
-  serverTemplateTreeKey,
-} from '../application/tree-server-state.js'
-import { artboardColourProgress, artboardTemplateProgress } from '../gl/artboard-markers.js'
-import { NO_ARTBOARD_PIXELS, readArtboardPixels } from '../gl/artboard-pixels.js'
-import {
-  localFolderChainVisible,
-  moveLocalFolder,
-  renameLocalFolder,
-  setLocalFolderVisible,
-} from '../local-folders.js'
+import { isSameServerPlacement } from '../application/tree-server-state.js'
 import { measureProfileDetail } from '../profile.js'
-import type { ServerTemplate } from '../server-cache.js'
-import {
-  type ConnectedServer,
-  getState,
-  isScopeVisible,
-  patchTemplate,
-  renameNode as renameNodeOnServer,
-  renameServer as renameServerOnServer,
-  setScopeVisible,
-  setState,
-} from '../state.js'
-import {
-  serverAlarmFor,
-  serverAlarmKindFor,
-  serverColourProgressFor,
-  serverProgressFor,
-} from '../telemetry.js'
-import {
-  isServerTemplate,
-  isTemplateVisible,
-  localTemplates,
-  type PlacedTemplate,
-  renameLocalTemplate,
-  setLocalVisible,
-  setTemplateFolder,
-  type TemplateArtwork,
-} from '../templates/local-store.js'
-import {
-  pixelAccounting,
-  type TemplateColourProgress,
-  type TemplateProgress,
-} from '../templates/mismatch.js'
-import { copyWplaceTemplate, NATIVE_ALLIANCE_TREE_KEY } from '../templates/native-alliance.js'
-import { centreOf, navigateTo } from '../templates/navigate.js'
-import {
-  OFFICIAL_EVENTS_TREE_KEY,
-  officialEvent,
-  officialProgress,
-} from '../templates/official-overlays.js'
-import { nodeChainVisible, nodeScopeKey } from '../templates/server-nodes.js'
-import { serverTemplateKey } from '../templates/server-sync.js'
-import { localFolderTags, localTagCatalog, localTemplateTags } from '../templates/tags.js'
-import { loadTemplateThumbnail, templateThumbnail } from '../templates/thumbnail.js'
-import { NATIVE_ALLIANCE_OWNER, OFFICIAL_OVERLAY_OWNER } from '../templates/wplace-owned.js'
+import { manifestRows } from '../server-manifests.js'
+import { getState, setState } from '../settings.js'
+import { localTagCatalog } from '../templates/tags.js'
+import { LOCAL_ROOT_KEY, serverScopeKey } from '../tree-keys.js'
 import { templateDisplayMode } from './display-mode.js'
-import {
-  emptyProgress,
-  freshestColourProgress,
-  freshestProgress,
-  sumColourProgress,
-  sumProgress,
-} from './progress.js'
-import { DEFAULT_SORT, isReorderable } from './sort.js'
-import { toast } from './toast.js'
-import {
-  MAX_RENDERED_ROWS,
-  orderedTreeItems as orderedItems,
-  placeTreeKey as placeAmongVisibleSiblings,
-} from './tree-order.js'
-import {
-  groupedTreeSource as groupedSource,
-  treeMatcher as matcherFor,
-  type TreeItem,
-  type TreeSource,
-  type VisibilitySwitch,
-} from './tree-source.js'
-import {
-  currentRenamingKey,
-  finishRenaming,
-  isTreeExpanded as isExpanded,
-  type RowAction,
-  type SiblingLevel,
-  type TreeRowOptions,
-} from './tree-state.js'
+import type {
+  SiblingLevel,
+  TemplateTreeAdapter,
+  TreeCallbacks,
+  TreeContext,
+  TreeOptions,
+  TreeOutput,
+  TreeRowOptions,
+} from './tree-context.js'
+import { treeFacts } from './tree-facts.js'
+import { renderLocalCategory } from './tree-local-rows.js'
+import { MAX_RENDERED_ROWS, orderedTreeItems, placeTreeKey } from './tree-order.js'
+import { isTreeExpanded } from './tree-rows.js'
+import { renderServerCategory } from './tree-server-rows.js'
+import type { RowAction } from './tree-source.js'
+import { currentRenamingKey, finishRenaming, setTreeDragActive } from './tree-view-state.js'
+import { renderEventRows, renderNativeRows } from './tree-wplace-rows.js'
 
-export { startRenaming } from './tree-state.js'
-
-let modelTreeDragActive = false
-export const isTreeDragActive = (): boolean => modelTreeDragActive
-
-/** Resolve a drawn template to the stable key used by its main-menu row. */
-export const templateTreeKeyFor = (
-  template: Pick<PlacedTemplate, 'id' | 'serverUrl' | 'serverTemplateId'> | null,
-  servers: readonly ConnectedServer[],
-): string | undefined => {
-  if (template === null) return undefined
-  if (template.serverUrl === OFFICIAL_OVERLAY_OWNER) return `event:${template.id}`
-  if (template.serverUrl === NATIVE_ALLIANCE_OWNER) return `native:${template.id}`
-  if (template.serverUrl === undefined) return `local:${template.id}`
-  if (template.serverTemplateId === undefined) return undefined
-  const server = servers.find((candidate) => candidate.url === template.serverUrl)
-  return server === undefined ? undefined : serverTemplateTreeKey(server, template.serverTemplateId)
+/** One build's context: what was asked for, read once, with the facts every row builder shares. */
+const treeContext = (
+  output: TreeOutput,
+  callbacks: TreeCallbacks,
+  rerender: () => void,
+  { surface, query = '', includeCollapsed = false, templateKeys, claims }: TreeOptions,
+): TreeContext => {
+  const facts = treeFacts(surface, templateKeys)
+  const { customOrder, filters } = getState()
+  const rank = new Map(customOrder.map((key, index) => [key, index]))
+  const servers = facts.servers.map((server) => ({
+    key: serverScopeKey(server.url),
+    name: server.info?.name ?? server.url,
+  }))
+  const needle = query.trim().toLocaleLowerCase()
+  const filtering = templateFilterCount(filters) > 0
+  return {
+    output,
+    callbacks,
+    rerender,
+    surface,
+    needle,
+    filters,
+    filtering,
+    reveal: needle !== '' || filtering,
+    includeCollapsed,
+    templateKeys,
+    claims,
+    categories: [
+      LOCAL_ROOT_KEY,
+      ...orderedTreeItems(servers, rank, undefined, defaultTemplateSort('custom')).map(
+        (item) => item.key,
+      ),
+    ],
+    rank,
+    budget: { remaining: MAX_RENDERED_ROWS, truncated: false },
+    siblingLevels: new Map<string, SiblingLevel>(),
+    facts,
+  }
 }
 
 /**
@@ -146,1352 +88,33 @@ export const templateTreeKeyFor = (
  * The whole row is the expand target — a caret is a 24px hit area on a 300px row, and everything
  * between them is dead space otherwise.
  */
-
-export interface TreeTarget {
-  readonly server: ConnectedServer | null
-  /** Canvas whose manifest or local catalog produced this row. */
-  readonly surface?: TemplateSurface
-  readonly nodeId: string | null
-  readonly key: string
-  readonly name: string
-  /**
-   * Set when the row is a template published on a server, rather than a folder.
-   *
-   * The two need telling apart because every action means something different on each: renaming a
-   * folder rewrites the paths of everything beneath it, renaming a template is one column. Before
-   * this, `server !== null` was enough to mean "a folder on a server", and adding template rows is
-   * what stopped that being true.
-   */
-  readonly templateId?: string
-  /** Revision shown when this destructive action became available. */
-  readonly templateVersion?: string
-  readonly templateUpdatedAt?: number
-  /** Present on a template row listed in its folder: make it the only one that folder draws. */
-  readonly showOnly?: () => Promise<boolean>
-}
-
-export interface TreeCallbacks {
-  readonly onAddServer: () => void
-  readonly onCreateFolder: (target: TreeTarget) => void
-  readonly onImportTemplate: (target: TreeTarget) => void
-  /** Select committed art on the map and add it as a template here, or download it. */
-  readonly onCaptureTemplate: (target: TreeTarget) => void
-  readonly onContextMenu: (target: TreeTarget, event: MouseEvent) => void
-  readonly onCopyToServer: (templateId: string) => void
-  /** Move one server-owned row into a Local folder. Local reparenting stays inside the tree. */
-  readonly onDropInLocal: (draggedKey: string, folderId: string | null) => Promise<string | null>
-  /**
-   * Something was dropped at a place in a server's tree: which folder, and what it lands before.
-   *
-   * One callback for every journey, because they are one gesture. What happens comes from the
-   * dragged key rather than from the caller: a Local template lands as an upload, a template
-   * already here is refiled, one from elsewhere crosses over, a folder is re-parented. `null` for
-   * the folder means the server's top level, which only a folder may occupy.
-   */
-  readonly onDropInServer: (
-    server: ConnectedServer,
-    nodeId: string | null,
-    draggedKey: string,
-    beforeKey: string | null,
-  ) => Promise<string | null>
-}
-
-const reportTreeError = (message: string): void => toast(message, 'error')
-
-/** A row's preview art: the cached thumbnail, or a loader for one scrolled into view. */
-const previewArt = (template: PlacedTemplate) => ({
-  art: templateThumbnail(template),
-  loadArt: () => loadTemplateThumbnail(template),
-})
-
-/** Alliance progress last counted per artwork, shown while that template's pixels are evicted. */
-const lastAllianceProgress = new WeakMap<
-  TemplateArtwork,
-  { progress: TemplateProgress; colours: readonly TemplateColourProgress[] }
->()
-
-const openServerDetails = (server: ConnectedServer, rerender: () => void): void => {
-  void import('./server-details.js')
-    .then((editor) => editor.openServerDetails(server, rerender))
-    .catch((error: unknown) => reportTreeError(String(error)))
-}
-
-const openTagManager = (target: TreeTarget, rerender: () => void): void => {
-  void import('./tags.js')
-    .then((editor) => editor.openTagManager(target, rerender))
-    .catch((error) => reportTreeError(`Could not open tags: ${String(error)}`))
-}
-
-const localTemplateId = (target: TreeTarget): string | null =>
-  target.key.startsWith('local:') ? target.key.slice('local:'.length) : null
-
-const localFolderId = (target: TreeTarget): string | null =>
-  target.server === null && target.key.startsWith('lf:') ? target.key.slice('lf:'.length) : null
-
-const refreshCurrentSnapshot = async (
-  server: ConnectedServer,
-  rerender: () => void,
-  surface: TemplateSurface,
-): Promise<void> => {
-  if (surface.kind !== 'world') {
-    await refreshAllianceManifest(server, surface)
-    rerender()
-    return
-  }
-  let current = getState().servers.find((candidate) => candidate.url === server.url)
-  if (current === undefined) return
-  let result = await refreshServerSnapshot(current, rerender, true)
-  while (result.status === 'superseded') {
-    current = getState().servers.find((candidate) => candidate.url === server.url)
-    if (current === undefined) return
-    result = await refreshServerSnapshot(current, rerender)
-  }
-}
-
-const renameTarget = async (
-  target: TreeTarget,
-  name: string,
-  rerender: () => void,
-  surface: TemplateSurface,
-): Promise<void> => {
-  const templateId = localTemplateId(target)
-  if (templateId !== null) {
-    if (!(await renameLocalTemplate(templateId, name))) {
-      reportTreeError('Could not save that name. The old one is still there.')
-    }
-    rerender()
-    return
-  }
-  const folderId = localFolderId(target)
-  if (folderId !== null) {
-    if (!renameLocalFolder(folderId, name)) {
-      reportTreeError('Could not save that folder name. Use between 1 and 256 characters.')
-    }
-    rerender()
-    return
-  }
-  if (target.server !== null && target.templateId !== undefined) {
-    const result = await patchTemplate(target.server, target.templateId, { name })
-    if (!result.ok) reportTreeError(result.message)
-    await refreshCurrentSnapshot(target.server, rerender, surface)
-    return
-  }
-  if (target.server !== null && target.nodeId === null) {
-    const result = await renameServerOnServer(target.server, name)
-    if (!result.ok) reportTreeError(result.message)
-    rerender()
-    return
-  }
-  if (target.server === null || target.nodeId === null) {
-    toast('There is nothing to rename here.', 'warning')
-    rerender()
-    return
-  }
-  const result = await renameNodeOnServer(target.server, target.nodeId, name)
-  if (!result.ok) reportTreeError(result.message)
-  await refreshCurrentSnapshot(target.server, rerender, surface)
-}
-
-interface RenderBudget {
-  remaining: number
-  truncated: boolean
-}
-
-interface TreeOutput<Result> {
-  readonly row: (options: TreeRowOptions) => void
-  readonly notice: (
-    text: string,
-    depth: number,
-    branches?: readonly boolean[],
-    action?: { readonly label: string; readonly run: () => void },
-  ) => void
-  readonly action: (
-    key: string,
-    depth: number,
-    label: string,
-    title: string,
-    run: () => void,
-  ) => void
-  readonly finish: () => Result
-}
-
-/**
- * One level of a tree, and every level below it.
- *
- * Ordered and interleaved: folders and templates go into one list and come out in whatever order
- * the user dragged them into. Not folders-first — sorting by kind means a template can never be put
- * above a folder, and a rule that quietly overrides a custom order makes the drag look broken
- * rather than constrained. This used to be true of Local only.
- */
-const renderLevel = (
-  output: TreeOutput<unknown>,
-  source: TreeSource,
-  parentId: string | null,
-  depth: number,
-  parentKey: string,
-  ancestorBranches: readonly boolean[],
-  rerender: () => void,
-  reveal: boolean,
-  rank: ReadonlyMap<string, number>,
-  matches: (item: TreeItem) => boolean,
-  budget: RenderBudget,
-  onError: (message: string) => void,
-  siblingLevels: Map<string, SiblingLevel>,
-  includeCollapsed = false,
-): void => {
-  const allSiblings = source.children(parentId)
-  const matching = allSiblings.filter(matches)
-  const items = orderedItems(matching, rank, budget.remaining)
-  if (items.length < matching.length) budget.truncated = true
-  const keys = items.map((item) => item.key)
-  siblingLevels.set(parentKey, {
-    visible: keys,
-    all: () => orderedItems(allSiblings, rank).map((sibling) => sibling.key),
-  })
-
-  for (const [index, item] of items.entries()) {
-    if (budget.remaining <= 0) {
-      budget.truncated = true
-      break
-    }
-    const key = item.key
-    const branches = [...ancestorBranches, index < items.length - 1]
-    output.row({
-      key,
-      name: item.name,
-      kind: item.kind,
-      depth,
-      branches,
-      container: item.childrenOf !== null,
-      siblings: keys,
-      orderingSiblings: () => orderedItems(allSiblings, rank).map((sibling) => sibling.key),
-      destinationSiblings: (destinationParentKey) =>
-        destinationParentKey === null ? undefined : siblingLevels.get(destinationParentKey),
-      parentKey,
-      canReparent: item.canReparent,
-      forceExpanded: reveal,
-      rerender,
-      onError,
-      checked: item.visible,
-      onToggleChecked: (on) => {
-        void Promise.resolve(item.setVisible(on)).then(
-          (changed) => {
-            if (!changed) onError(`Could not change visibility for “${item.name}”.`)
-            rerender()
-          },
-          (error: unknown) => {
-            onError(`Could not change visibility for “${item.name}”. ${String(error)}`)
-            rerender()
-          },
-        )
-      },
-      ...(item.meta === undefined ? {} : { meta: item.meta }),
-      ...(item.preview === undefined ? {} : { preview: item.preview }),
-      descendantAlarmKind: item.descendantAlarmKind,
-      ...(item.lifecycle === undefined ? {} : { lifecycle: item.lifecycle }),
-      ...(item.progress === undefined ? {} : { progress: item.progress }),
-      ...(item.progressReader === undefined ? {} : { progressReader: item.progressReader }),
-      ...(item.colourProgress === undefined ? {} : { colourProgress: item.colourProgress }),
-      ...(item.leadingActions === undefined ? {} : { leadingActions: item.leadingActions }),
-      ...(item.muted === undefined ? {} : { muted: item.muted }),
-      ...(item.actions === undefined ? {} : { actions: item.actions }),
-      ...(item.onRename === undefined ? {} : { onRename: item.onRename }),
-      ...(item.onContextMenu === undefined ? {} : { onContextMenu: item.onContextMenu }),
-      ...(item.onDropAt === undefined ? {} : { onDropAt: item.onDropAt }),
-    })
-    budget.remaining--
-    if (item.childrenOf === null) continue
-    if (!includeCollapsed && !reveal && !isExpanded(key)) {
-      const childSiblings = source.children(item.childrenOf)
-      const visibleChildren = orderedItems(childSiblings.filter(matches), rank).map(
-        (child) => child.key,
-      )
-      siblingLevels.set(key, {
-        visible: visibleChildren,
-        all: () => orderedItems(childSiblings, rank).map((child) => child.key),
-      })
-      continue
-    }
-    renderLevel(
-      output,
-      source,
-      item.childrenOf,
-      depth + 1,
-      key,
-      branches,
-      rerender,
-      reveal,
-      rank,
-      matches,
-      budget,
-      onError,
-      siblingLevels,
-      includeCollapsed,
-    )
-  }
-
-  // Only inside something. "Nothing here" is worth saying about a folder you have just opened; at
-  // the top of a source it is the source's own empty state, which says more than this can.
-  if (parentId !== null && matching.length === 0) {
-    output.notice('Empty.', depth, [...ancestorBranches, false])
-  }
-}
-
-const buildTree = <Result>(
-  output: TreeOutput<Result>,
-  callbacks: TreeCallbacks,
-  rerender: () => void,
-  query = '',
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-  includeCollapsed = false,
-  templateKeys?: ReadonlySet<string>,
-  claims?: ReadonlyMap<string, FavouritesModel>,
-): Result => {
-  const claimFacts = (key: string) => {
-    const claim = claims?.get(key)
-    return claim === undefined || claim.known === false
-      ? undefined
-      : { mine: claim.mine, claimed: claim.people.length > 0 }
-  }
-  // Capture selects with the claim editor, which only works over the world canvas.
-  const captureActions = (target: TreeTarget) =>
-    surface.kind === 'world'
-      ? [
-          {
-            icon: 'fitScreen' as const,
-            label: 'Capture from canvas',
-            returnToCanvas: true,
-            run: () => callbacks.onCaptureTemplate(target),
-          },
-        ]
-      : []
-  const dropInLocal = async (
-    draggedKey: string,
-    parentKey: string | null,
-    _beforeKey: string | null,
-  ): Promise<string | null> => {
-    const folderId = parentKey?.startsWith('lf:') === true ? parentKey.slice('lf:'.length) : null
-    if (draggedKey.startsWith('node:') || draggedKey.startsWith('st:')) {
-      return await callbacks.onDropInLocal(draggedKey, folderId)
-    }
-    if (draggedKey.startsWith('local:')) {
-      if (!(await setTemplateFolder(draggedKey.slice('local:'.length), folderId))) {
-        reportTreeError('Could not move that template into the folder.')
-        rerender()
-        return null
-      }
-      rerender()
-      return draggedKey
-    }
-    if (draggedKey.startsWith('lf:')) {
-      if (!moveLocalFolder(draggedKey.slice('lf:'.length), folderId)) {
-        reportTreeError('Could not save that folder move.')
-        return null
-      }
-      return draggedKey
-    }
-    return null
-  }
-  const servers = getState().servers
-  const drawnTemplates = localTemplates().filter(
-    (template) =>
-      template.staged === undefined &&
-      sameTemplateSurface(template.surface ?? WORLD_TEMPLATE_SURFACE, surface) &&
-      (templateKeys === undefined || templateKeys.has(templateTreeKeyFor(template, servers) ?? '')),
-  )
-  const allianceProgress = new Map<
-    string,
-    { progress: TemplateProgress; colours: readonly TemplateColourProgress[] }
-  >()
-  if (surface.kind !== 'world' && drawnTemplates.length > 0) {
-    const active = activeAllianceSurface()
-    const bounds = active === null ? null : allianceBounds(active)
-    const regions =
-      active !== null && bounds !== null && sameTemplateSurface(active.surface, surface)
-        ? readArtboardPixels(active, {
-            originX: bounds.minX,
-            originY: bounds.minY,
-            width: bounds.maxX - bounds.minX,
-            height: bounds.maxY - bounds.minY,
-          })
-        : NO_ARTBOARD_PIXELS
-    for (const template of drawnTemplates) {
-      const pixels = template.artwork.pixels
-      const colours =
-        pixels === null ? null : artboardColourProgress({ ...template, pixels }, regions)
-      // An evicted template keeps the counts it had when its pixels were last in memory.
-      const counts =
-        colours === null
-          ? lastAllianceProgress.get(template.artwork)
-          : { progress: artboardTemplateProgress(colours), colours }
-      if (counts === undefined) continue
-      lastAllianceProgress.set(template.artwork, counts)
-      allianceProgress.set(template.id, counts)
-    }
-  }
-  const drawnProgress = (template: PlacedTemplate): TemplateProgress =>
-    surface.kind === 'world'
-      ? pixelAccounting.read(template).progress
-      : (allianceProgress.get(template.id)?.progress ?? emptyProgress(0))
-  const drawnColourProgress = (template: PlacedTemplate): readonly TemplateColourProgress[] =>
-    surface.kind === 'world'
-      ? pixelAccounting.read(template).colours
-      : (allianceProgress.get(template.id)?.colours ?? [])
-  const scopedRowsFor = (server: ConnectedServer) => {
-    const rows = rowsForSurface(server, surface)
-    if (rows === undefined || templateKeys === undefined) return rows
-    return {
-      nodes: [],
-      templates: rows.templates.filter((template) =>
-        templateKeys.has(serverTemplateTreeKey(server, template.id)),
-      ),
-    }
-  }
-  const localOnly = drawnTemplates.filter((template) => !isServerTemplate(template))
-  const drawnByServer = new Map<string, Map<string, PlacedTemplate>>()
-  for (const template of drawnTemplates) {
-    if (template.serverUrl === undefined || template.serverTemplateId === undefined) continue
-    const templates = drawnByServer.get(template.serverUrl) ?? new Map<string, PlacedTemplate>()
-    templates.set(template.serverTemplateId, template)
-    drawnByServer.set(template.serverUrl, templates)
-  }
-  const serverTemplateProgress = (
-    server: ConnectedServer,
-    template: ServerTemplate,
-  ): TemplateProgress => {
-    const serverProgress = serverProgressFor(server, template)
-    const baseline = serverProgress ?? emptyProgress(template.totalPixels ?? 0)
-    const drawn = drawnByServer.get(server.url)?.get(template.id)
-    if (drawn === undefined) return baseline
-    if (surface.kind !== 'world') return drawnProgress(drawn)
-    const serverColours = serverColourProgressFor(server, template)
-    if (serverColours !== null) {
-      return (
-        sumProgress(freshestColourProgress(serverColours, pixelAccounting.read(drawn).colours)) ??
-        baseline
-      )
-    }
-    return freshestProgress(baseline, pixelAccounting.read(drawn).progress)
-  }
-  const serverTemplateColourProgress = (
-    server: ConnectedServer,
-    template: ServerTemplate,
-  ): readonly TemplateColourProgress[] | undefined => {
-    if (surface.kind !== 'world') {
-      const drawn = drawnByServer.get(server.url)?.get(template.id)
-      return drawn === undefined ? undefined : drawnColourProgress(drawn)
-    }
-    const serverProgress = serverColourProgressFor(server, template)
-    if (serverProgress === null) return undefined
-    const drawn = drawnByServer.get(server.url)?.get(template.id)
-    return drawn === undefined
-      ? serverProgress
-      : freshestColourProgress(serverProgress, pixelAccounting.read(drawn).colours)
-  }
-  const completeColourProgress = (
-    overall: TemplateProgress | undefined,
-    groups: ReadonlyArray<readonly TemplateColourProgress[]>,
-  ): readonly TemplateColourProgress[] | undefined => {
-    const colours = sumColourProgress(groups)
-    return colours !== undefined &&
-      overall !== undefined &&
-      colours.reduce((sum, entry) => sum + entry.total, 0) === overall.total
-      ? colours
-      : undefined
-  }
-  const rank = new Map(getState().customOrder.map((key, index) => [key, index]))
-  const categories = [
-    { key: 'local', name: 'Local' },
-    ...servers.map((server) => ({
-      key: `server:${server.url}`,
-      name: server.info?.name ?? server.url,
-    })),
-  ]
-  const keys = categories.map((item) => item.key)
-  const ordered = [
-    'local',
-    ...orderedItems(
-      categories.filter((item) => item.key !== 'local'),
-      rank,
-      undefined,
-      DEFAULT_SORT,
-    ).map((item) => item.key),
-  ]
-  const needle = query.trim().toLocaleLowerCase()
-  const filters = getState().filters
-  const filtering = templateFilterCount(filters) > 0
-  const reveal = needle !== '' || filtering
-  let hasFilteredMatches = false
-  const budget: RenderBudget = {
-    remaining: MAX_RENDERED_ROWS,
-    truncated: false,
-  }
-  const siblingLevels = new Map<string, SiblingLevel>()
-
-  for (const key of ordered) {
-    const server = servers.find((candidate) => `server:${candidate.url}` === key)
-    const isLocal = key === 'local'
+const buildTree = (ctx: TreeContext): void => {
+  const { output, filters, facts } = ctx
+  let matched = false
+  for (const key of ctx.categories) {
+    const isLocal = key === LOCAL_ROOT_KEY
+    const server = facts.servers.find((candidate) => serverScopeKey(candidate.url) === key)
     if (!isLocal && server === undefined) continue
     if (filters.source.length > 0 && !filters.source.includes(isLocal ? 'local' : 'server'))
       continue
-
-    const target: TreeTarget = {
-      server: server ?? null,
-      surface,
-      nodeId: null,
-      key,
-      name: isLocal ? 'Local' : (server?.info?.name ?? server?.url ?? ''),
-    }
-    const rootSwitch: VisibilitySwitch = {
-      visible: isScopeVisible(key),
-      setVisible: (on) => setScopeVisible(key, on),
-    }
-    // Only where the code can actually act. Offering create to someone who will only ever get a
-    // 403 is worse than not offering it — Local always can, since nothing gates it.
-    const canCreate = isLocal || (server?.isAdmin ?? false)
-    const canRearrange = canCreate
-    // Published only, same as every folder rollup below: an admin's unpublished drafts are listed
-    // and metered individually, but never counted into the server's aggregate.
-    const serverRows = server === undefined ? undefined : scopedRowsFor(server)
-    const serverTemplates = (serverRows?.templates ?? []).filter((template) => template.published)
-    // Walk the full hierarchy before filtering or collapsing rows, including pending moves.
-    const nodeAlarms = new Map<string | null, AlarmKind>()
-    if (server !== undefined) {
-      const parents = new Map(
-        (serverRows?.nodes ?? []).map((node) => [
-          node.id,
-          renderedParent(nodeTreeKey(server, node.id), node.parentId),
-        ]),
-      )
-      for (const template of serverRows?.templates ?? []) {
-        const alarm = serverAlarmFor(server, template)
-        if (alarm === null) continue
-        let parentId = renderedParent(serverTemplateTreeKey(server, template.id), template.nodeId)
-        while (
-          nodeAlarms.get(parentId) !== 'sustained-griefing' &&
-          nodeAlarms.get(parentId) !== alarm.kind
-        ) {
-          nodeAlarms.set(parentId, alarm.kind)
-          if (parentId === null) break
-          parentId = parents.get(parentId) ?? null
-        }
-      }
-    }
-    const readParentProgress = (): TemplateProgress | undefined =>
-      isLocal
-        ? sumProgress(localOnly.map(drawnProgress))
-        : server === undefined
-          ? undefined
-          : sumProgress(serverTemplates.map((template) => serverTemplateProgress(server, template)))
-    const parentProgress = readParentProgress()
-    const parentColourProgress: (() => readonly TemplateColourProgress[] | undefined) | undefined =
-      isLocal
-        ? localOnly.length === 0
-          ? undefined
-          : () => completeColourProgress(readParentProgress(), localOnly.map(drawnColourProgress))
-        : server === undefined ||
-            serverTemplates.length === 0 ||
-            !serverTemplates.every(
-              (template) => serverTemplateColourProgress(server, template) !== undefined,
-            )
-          ? undefined
-          : () =>
-              completeColourProgress(
-                readParentProgress(),
-                serverTemplates.flatMap((template) => {
-                  const colours = serverTemplateColourProgress(server, template)
-                  return colours === undefined ? [] : [colours]
-                }),
-              )
-
-    const rootRow: TreeRowOptions = {
-      key,
-      name: target.name,
-      // A rack and a folder are different things and read differently at a glance.
-      kind: isLocal ? 'folder' : 'server',
-      descendantAlarmKind: nodeAlarms.get(null),
-      depth: 0,
-      container: true,
-      forceExpanded: reveal,
-      siblings: isLocal ? [] : ordered.filter((key) => key !== 'local'),
-      orderingSiblings: () => ordered.filter((key) => key !== 'local'),
-      destinationSiblings: (destinationParentKey) =>
-        destinationParentKey === null ? undefined : siblingLevels.get(destinationParentKey),
-      parentKey: null,
-      ...(parentProgress === undefined ? {} : { progress: parentProgress }),
-      ...(parentProgress === undefined
-        ? {}
-        : { progressReader: () => readParentProgress() ?? parentProgress }),
-      ...(parentColourProgress === undefined ? {} : { colourProgress: parentColourProgress }),
-      rerender,
-      onError: reportTreeError,
-      /**
-       * Categories reorder among themselves, and only among themselves.
-       *
-       * Without a position handler a category could only be dropped *onto* another row, so the
-       * one place you cannot aim — the gap above the first row — was the only way to reach first
-       * place, and it silently did nothing. Reordering was therefore one-way: a category could be
-       * moved down past its neighbour and never brought back up.
-       *
-       * `canReparent` stays off, so nothing can be filed *inside* a category by dragging.
-       */
-      onDropAt: async (draggedKey, parentKey, beforeKey) => {
-        // Another category, reordering among its own kind.
-        if (parentKey === null && keys.includes(draggedKey)) {
-          return null
-        }
-        // Landing just under a server's own row means its top level, which is otherwise
-        // unreachable: every other destination is a folder, and "no folder" has no other row.
-        if (parentKey === key && server !== undefined && canRearrange) {
-          return await callbacks.onDropInServer(server, null, draggedKey, beforeKey)
-        }
-        return null
-      },
-      canReparent: canRearrange && !isLocal,
-      // A category is a group like a folder is: switching it off takes everything under it off
-      // the canvas, and leaves every row inside saying exactly what it said before.
-      checked: isScopeVisible(key),
-      onToggleChecked: (on) => {
-        if (!setScopeVisible(key, on)) {
-          reportTreeError(`Could not change visibility for “${target.name}”.`)
-        }
-        rerender()
-      },
-      onContextMenu:
-        canRearrange || server !== undefined
-          ? (event) => callbacks.onContextMenu(target, event)
-          : undefined,
-      onRename: canRearrange
-        ? (value) => void renameTarget(target, value, rerender, surface)
-        : undefined,
-      actions: canCreate
-        ? [
-            // Beside rename, because rename is the one server-level edit that already exists and
-            // this is where the rest of the public presentation lives.
-            ...(server === undefined
-              ? []
-              : [
-                  {
-                    icon: 'tune' as const,
-                    label: 'Edit server details',
-                    run: () => openServerDetails(server, rerender),
-                  },
-                ]),
-            { icon: 'tag', label: 'Manage tags', run: () => openTagManager(target, rerender) },
-            {
-              icon: 'createFolder',
-              label: 'New folder',
-              run: () => callbacks.onCreateFolder(target),
-            },
-            {
-              icon: 'uploadFile',
-              label: 'Import template',
-              returnToCanvas: true,
-              run: () => callbacks.onImportTemplate(target),
-            },
-            ...captureActions(target),
-          ]
-        : undefined,
-    }
-    const renderRoot = (): void => output.row(rootRow)
-    if (!filtering) renderRoot()
-    if (!includeCollapsed && !isExpanded(key) && !reveal) continue
-
-    if (server !== undefined) {
-      const rows = serverRows
-      if (rows === undefined && server.status === 'connected') {
-        if (filtering) renderRoot()
-        if (!hasRefreshedServer(server)) {
-          // Exactly one automatic attempt per verified connection. A failed request records an
-          // error and waits for the explicit Retry button instead of scheduling itself forever.
-          if (surface.kind === 'world') void refreshServerSnapshot(server, rerender)
-        }
-        if (isServerRefreshing(server)) {
-          output.notice(surface.kind === 'world' ? 'Loading folders…' : 'Loading templates…', 1)
-        } else {
-          if (surface.kind === 'world') {
-            const message = serverSnapshotError(server) ?? 'Could not load this server.'
-            output.notice(message, 1, [], {
-              label: 'Retry',
-              run: () => void refreshServerSnapshot(server, rerender, true),
-            })
-          }
-        }
-        continue
-      } else if (rows !== undefined) {
-        const { nodes: known, templates: published } = rows
-
-        /**
-         * A drop anywhere in this server's tree, resolved to a folder.
-         *
-         * One handler for folder rows and template rows alike. Both used to carry their own, and
-         * they disagreed: the template one refused a drop at the server's top level, which is a rule
-         * about the thing being *dragged* rather than about the row it landed near. `dropOnServerNode`
-         * already enforces it from the dragged key, which is the only place that knows.
-         */
-        const intoServer = (
-          draggedKey: string,
-          dropParent: string | null,
-          beforeKey: string | null,
-        ): Promise<string | null> => {
-          const into =
-            dropParent === null || dropParent === key
-              ? null
-              : known.find((node) => nodeTreeKey(server, node.id) === dropParent)?.id
-          if (into === undefined) return Promise.resolve(null)
-          return callbacks.onDropInServer(server, into, draggedKey, beforeKey)
-        }
-
-        /**
-         * A server's folders and the templates hanging off them.
-         *
-         * The three things that make this different from Local live here and nowhere else: renaming
-         * and re-parenting go over HTTP and are refused without admin scope, a template row is drawn
-         * from the manifest before its pixels have finished downloading, and the switch is this
-         * browser's own record rather than anything the server said.
-         */
-        const entries: Array<{ parentId: string | null; item: TreeItem }> = []
-        for (const node of known) {
-          const nodeKey = nodeTreeKey(server, node.id)
-          const nodeTarget: TreeTarget = {
-            server,
-            surface,
-            nodeId: node.id,
-            key: nodeKey,
-            name: node.name,
-          }
-          entries.push({
-            parentId: renderedParent(nodeKey, node.parentId),
-            item: {
-              key: nodeKey,
-              name: node.name,
-              tagNames: node.tags?.map((tag) => tag.name) ?? [],
-              filterFacts: {
-                source: 'server',
-                visible:
-                  isScopeVisible(`server:${server.url}`) &&
-                  nodeChainVisible(server.url, node.id, surface),
-                tags: node.tags?.map((tag) => tag.id) ?? [],
-              },
-              kind: 'folder',
-              childrenOf: node.id,
-              descendantAlarmKind: nodeAlarms.get(node.id),
-              createdAt: node.createdAt,
-              visible: isScopeVisible(nodeScopeKey(server.url, node.id)),
-              setVisible: (on) => setScopeVisible(nodeScopeKey(server.url, node.id), on),
-              canReparent: canRearrange,
-              ...(canRearrange ? { onDropAt: intoServer } : {}),
-              onContextMenu: (event: MouseEvent) => callbacks.onContextMenu(nodeTarget, event),
-              ...(canCreate
-                ? {
-                    onRename: (value: string) =>
-                      void renameTarget(nodeTarget, value, rerender, surface),
-                  }
-                : {}),
-              ...(canCreate
-                ? {
-                    actions: [
-                      {
-                        icon: 'tag' as const,
-                        label: 'Edit tags',
-                        run: () => openTagManager(nodeTarget, rerender),
-                      },
-                      {
-                        icon: 'createFolder' as const,
-                        label: 'New folder',
-                        run: () => callbacks.onCreateFolder(nodeTarget),
-                      },
-                      {
-                        icon: 'uploadFile' as const,
-                        label: 'Import template',
-                        returnToCanvas: true,
-                        run: () => callbacks.onImportTemplate(nodeTarget),
-                      },
-                      ...captureActions(nodeTarget),
-                    ],
-                  }
-                : {}),
-            },
-          })
-        }
-        const drawnById = drawnByServer.get(server.url) ?? new Map<string, PlacedTemplate>()
-        for (const template of published) {
-          const templateKey = serverTemplateTreeKey(server, template.id)
-          const drawn = drawnById.get(template.id)
-          const colourProgress = serverTemplateColourProgress(server, template)
-          const progress = serverTemplateProgress(server, template)
-          const visibilityKey = serverTemplateKey(server.url, template.id, surface)
-          const alarm = serverAlarmFor(server, template)
-          const alarmKind =
-            surface.kind === 'world' ? serverAlarmKindFor(server, template) : undefined
-          const templateTarget: TreeTarget = {
-            server,
-            surface,
-            nodeId: template.nodeId,
-            key: templateKey,
-            name: template.name,
-            templateId: template.id,
-            templateVersion: template.version,
-            templateUpdatedAt: template.updatedAt,
-            // The claimed list is flat, so its rows have no folder to show them alone in.
-            ...(templateKeys === undefined
-              ? { showOnly: () => source.showOnly(templateKey, rootSwitch) }
-              : {}),
-          }
-          entries.push({
-            parentId:
-              templateKeys === undefined ? renderedParent(templateKey, template.nodeId) : null,
-            item: {
-              key: templateKey,
-              name: template.name,
-              tagNames: template.tags?.map((tag) => tag.name) ?? [],
-              actions: canCreate
-                ? [
-                    {
-                      icon: 'tag',
-                      label: 'Edit tags',
-                      run: () => openTagManager(templateTarget, rerender),
-                    },
-                  ]
-                : undefined,
-              kind: 'image',
-              childrenOf: null,
-              preview: {
-                width:
-                  template.bbox.maxX > template.bbox.minX
-                    ? template.bbox.maxX - template.bbox.minX
-                    : WORLD_PIXELS - template.bbox.minX + template.bbox.maxX,
-                height: template.bbox.maxY - template.bbox.minY,
-                ...(drawn?.serverVersion === template.version ? previewArt(drawn) : {}),
-                ownership: `Server · ${server.info?.name ?? server.url}`,
-              },
-              createdAt: template.updatedAt,
-              updatedAt: template.updatedAt,
-              totalPixels: template.totalPixels,
-              mismatched:
-                surface.kind === 'world'
-                  ? serverProgressFor(server, template)?.mismatched
-                  : drawn === undefined || progress.known === 0
-                    ? undefined
-                    : progress.mismatched,
-              muted: !template.published,
-              ...(template.published ? {} : { excludeFromRollup: true as const }),
-              ...(progress === undefined ? {} : { progress }),
-              ...(progress === undefined
-                ? {}
-                : { progressReader: () => serverTemplateProgress(server, template) }),
-              lifecycle: {
-                finished: template.finished === true,
-                frozen: template.timelapseFrozen === true,
-                griefed: alarm?.kind === 'sustained-griefing',
-                ...(alarm === null ? {} : { alarmKind: alarm.kind, pixelsLost: alarm.pixelsLost }),
-              },
-              filterFacts: {
-                source: 'server',
-                tags: template.tags?.map((tag) => tag.id) ?? [],
-                claims: claimFacts(templateKey),
-                visible:
-                  drawn === undefined
-                    ? isScopeVisible(`server:${server.url}`) &&
-                      isScopeVisible(visibilityKey) &&
-                      nodeChainVisible(server.url, template.nodeId, surface)
-                    : isTemplateVisible(drawn),
-                lifecycle: {
-                  finished: template.finished === true,
-                  frozen: template.timelapseFrozen === true,
-                },
-                ...(alarmKind === undefined ? {} : { alarm: alarmKind }),
-              },
-              ...(colourProgress === undefined
-                ? {}
-                : {
-                    colourProgress: () =>
-                      serverTemplateColourProgress(server, template) ?? colourProgress,
-                  }),
-              leadingActions: [
-                {
-                  icon: 'search' as const,
-                  label: 'Go to',
-                  returnToCanvas: true,
-                  run: () => goToServerTemplate(template.bbox, surface),
-                },
-              ],
-              visible: drawn?.visible ?? isScopeVisible(visibilityKey),
-              setVisible: async (on) => {
-                // A drawn server row owns the dual commit: live bitmaps and the durable scope either
-                // both move or neither does. Before its pixels arrive there is only the scope.
-                return drawn === undefined
-                  ? setScopeVisible(visibilityKey, on)
-                  : await setLocalVisible(drawn.id, on)
-              },
-              canReparent: canRearrange,
-              ...(canRearrange ? { onDropAt: intoServer } : {}),
-              onContextMenu: (event: MouseEvent) => callbacks.onContextMenu(templateTarget, event),
-              ...(canCreate
-                ? {
-                    onRename: (value: string) =>
-                      void renameTarget(templateTarget, value, rerender, surface),
-                  }
-                : {}),
-            },
-          })
-        }
-        const source = groupedSource(entries)
-        const matches = matcherFor(source, needle, filters)
-        const hasMatches = source.children(null).some(matches)
-        if (filtering && !hasMatches) continue
-        if (filtering) {
-          renderRoot()
-          hasFilteredMatches = true
-        }
-        renderLevel(
-          output,
-          source,
-          null,
-          1,
-          key,
-          [],
-          rerender,
-          reveal,
-          rank,
-          matches,
-          budget,
-          reportTreeError,
-          siblingLevels,
-          includeCollapsed,
-        )
-        if (needle !== '' && !hasMatches) output.notice('No matches.', 1)
-        else if (known.length === 0 && published.length === 0)
-          output.notice('No templates published yet.', 1)
-        const refreshError = serverSnapshotError(server)
-        if (server.status === 'connected' && refreshError !== undefined) {
-          output.notice(refreshError, 1, [], {
-            label: 'Retry',
-            run: () => void refreshServerSnapshot(server, rerender, true),
-          })
-        }
-        if (server.status === 'unreachable') {
-          output.notice(`Could not be reached. ${server.error ?? ''}`.trim(), 1)
-        } else if (server.status === 'needs-token') {
-          output.notice('Needs an access token — add it in settings.', 1)
-        }
-        continue
-      }
-    }
-
-    if (isLocal) {
-      // Local means "only in this browser". Server templates share the store — everything that
-      // draws them takes a `PlacedTemplate` and does not care where it came from — but they are
-      // listed under the server publishing them, not here.
-      const mine = localOnly
-      const entries: Array<{ parentId: string | null; item: TreeItem }> = []
-      for (const folder of getState().localFolders.filter(
-        (candidate) =>
-          templateKeys === undefined &&
-          sameTemplateSurface(candidate.surface ?? WORLD_TEMPLATE_SURFACE, surface),
-      )) {
-        const folderTarget: TreeTarget = {
-          server: null,
-          surface,
-          nodeId: null,
-          key: `lf:${folder.id}`,
-          name: folder.name,
-        }
-        entries.push({
-          parentId: folder.parentId,
-          item: {
-            key: `lf:${folder.id}`,
-            name: folder.name,
-            tagNames: localFolderTags(folder.id).map((tag) => tag.name),
-            filterFacts: {
-              source: 'local',
-              visible: localFolderChainVisible(folder.id),
-              tags: localFolderTags(folder.id).map((tag) => tag.id),
-            },
-            kind: 'folder',
-            childrenOf: folder.id,
-            ...(folder.createdAt === undefined ? {} : { createdAt: folder.createdAt }),
-            visible: folder.visible,
-            setVisible: (on) => setLocalFolderVisible(folder.id, on),
-            canReparent: true,
-            onDropAt: dropInLocal,
-            onContextMenu: (event) => callbacks.onContextMenu(folderTarget, event),
-            onRename: (value) => void renameTarget(folderTarget, value, rerender, surface),
-            actions: [
-              {
-                icon: 'tag',
-                label: 'Edit tags',
-                run: () => openTagManager(folderTarget, rerender),
-              },
-              {
-                icon: 'createFolder',
-                label: 'New folder',
-                run: () => callbacks.onCreateFolder(folderTarget),
-              },
-              {
-                icon: 'uploadFile',
-                label: 'Import template',
-                returnToCanvas: true,
-                run: () => callbacks.onImportTemplate(folderTarget),
-              },
-              ...captureActions(folderTarget),
-            ],
-          },
-        })
-      }
-      for (const template of mine) {
-        const templateTarget: TreeTarget = {
-          server: null,
-          surface,
-          nodeId: null,
-          key: `local:${template.id}`,
-          name: template.name,
-          ...(templateKeys === undefined
-            ? { showOnly: () => source.showOnly(`local:${template.id}`, rootSwitch) }
-            : {}),
-        }
-        entries.push({
-          parentId: templateKeys === undefined ? (template.folderId ?? null) : null,
-          item: {
-            key: `local:${template.id}`,
-            name: template.name,
-            tagNames: localTemplateTags(template.id).map((tag) => tag.name),
-            kind: 'image',
-            childrenOf: null,
-            meta: `${template.width}×${template.height}`,
-            preview: {
-              width: template.width,
-              height: template.height,
-              ...previewArt(template),
-              ownership: 'Local',
-            },
-            filterFacts: {
-              source: 'local',
-              visible: isTemplateVisible(template),
-              tags: localTemplateTags(template.id).map((tag) => tag.id),
-              claims: claimFacts(`local:${template.id}`),
-            },
-            updatedAt: template.updatedAt,
-            totalPixels: template.opaque,
-            mismatched: drawnProgress(template).mismatched,
-            progress: drawnProgress(template),
-            progressReader: () => drawnProgress(template),
-            colourProgress: () => drawnColourProgress(template),
-            visible: template.visible,
-            setVisible: (on) => setLocalVisible(template.id, on),
-            canReparent: true,
-            onDropAt: dropInLocal,
-            onContextMenu: (event: MouseEvent) => callbacks.onContextMenu(templateTarget, event),
-            onRename: (value: string) =>
-              void renameTarget(templateTarget, value, rerender, surface),
-            leadingActions: [
-              {
-                icon: 'search' as const,
-                label: 'Go to',
-                returnToCanvas: true,
-                run: () => goToLocalTemplate(template.id),
-              },
-            ],
-            actions: [
-              {
-                icon: 'tag',
-                label: 'Edit tags',
-                run: () => openTagManager(templateTarget, rerender),
-              },
-              {
-                icon: 'uploadFile' as const,
-                label: 'Copy to a server',
-                run: () => callbacks.onCopyToServer(template.id),
-              },
-            ],
-          },
-        })
-      }
-      const source = groupedSource(entries)
-      const matches = matcherFor(source, needle, filters)
-      const hasMatches = source.children(null).some(matches)
-      if (filtering && !hasMatches) continue
-      if (filtering) {
-        renderRoot()
-        hasFilteredMatches = true
-      }
-      renderLevel(
-        output,
-        source,
-        null,
-        1,
-        'local',
-        [],
-        rerender,
-        reveal,
-        rank,
-        matches,
-        budget,
-        reportTreeError,
-        siblingLevels,
-        includeCollapsed,
-      )
-      if (needle !== '' && !hasMatches) output.notice('No matches.', 1)
-      else if (mine.length === 0) output.notice('No local templates yet.', 1)
-      // The hover action exists too, but an empty state is where someone is actually looking for
-      // the way in, so it gets a visible button.
-      output.action(
-        'local-import',
-        1,
-        'Import a template',
-        surface.kind === 'world' ? 'A .wplace file, a Blue Marble export, or an image' : 'An image',
-        () =>
-          callbacks.onImportTemplate({
-            server: null,
-            nodeId: null,
-            key: 'local',
-            name: 'Local',
-          }),
-      )
-      continue
-    }
-    if (server === undefined) continue
-    if (filtering) renderRoot()
-    // No badge for a healthy server: if it is in the list at all, it is connected. Only trouble
-    // needs saying, and it says it in words where there is room for them.
-    if (server.status === 'connected') {
-      output.notice('No templates published yet.', 1)
-    } else if (server.status === 'needs-token') {
-      output.notice('Needs an access token — add it in settings.', 1)
-    } else {
-      output.notice(`Could not be reached. ${server.error ?? ''}`.trim(), 1)
-    }
+    const listed =
+      server === undefined ? renderLocalCategory(ctx) : renderServerCategory(ctx, server)
+    matched = listed || matched
   }
+  matched = renderEventRows(ctx) || matched
+  matched = renderNativeRows(ctx) || matched
 
-  /** A root whose contents Wplace owns: no rename, reorder, import, or folder creation. */
-  const renderReadOnlyRoot = (
-    key: string,
-    name: string,
-    scope: string,
-    source: ReturnType<typeof groupedSource>,
-  ): void => {
-    const matches = matcherFor(source, needle, filters)
-    if (!source.children(null).some(matches)) return
-    hasFilteredMatches = true
-    output.row({
-      key,
-      name,
-      kind: 'server',
-      depth: 0,
-      container: true,
-      forceExpanded: reveal,
-      siblings: [],
-      parentKey: null,
-      canReparent: false,
-      rerender,
-      onError: reportTreeError,
-      checked: isScopeVisible(scope),
-      onToggleChecked: (on) => {
-        setScopeVisible(scope, on)
-        rerender()
-      },
-    })
-    if (includeCollapsed || reveal || isExpanded(key))
-      renderLevel(
-        output,
-        source,
-        null,
-        1,
-        key,
-        [],
-        rerender,
-        reveal,
-        rank,
-        matches,
-        budget,
-        reportTreeError,
-        siblingLevels,
-        includeCollapsed,
-      )
-  }
-
-  const copyAction = (id: string): RowAction => ({
-    icon: 'download',
-    label: 'Copy to Local',
-    run: () => {
-      void copyWplaceTemplate(id).then(rerender, (error) => reportTreeError(String(error)))
-    },
-  })
-
-  const events = surface.kind === 'world' ? officialEvent() : null
-  if (events !== null && events.fragments.length > 0) {
-    const folder = (id: string, name: string, parentId: string | null) => {
-      const scope = nodeScopeKey(OFFICIAL_OVERLAY_OWNER, id)
-      return {
-        parentId,
-        item: {
-          key: `event:${id}`,
-          name,
-          kind: 'folder',
-          childrenOf: id,
-          filterFacts: {
-            source: 'server',
-            visible: nodeChainVisible(OFFICIAL_OVERLAY_OWNER, id),
-            tags: [],
-          },
-          visible: isScopeVisible(scope),
-          setVisible: (on: boolean) => setScopeVisible(scope, on),
-          canReparent: false,
-        } satisfies TreeItem,
-      }
-    }
-    const opened = new Set(events.fragments.map((fragment) => fragment.group.id))
-    const source = groupedSource([
-      folder(events.id, events.name, null),
-      ...events.groups
-        .filter((group) => opened.has(group.id))
-        .map((group) => folder(group.id, group.name, events.id)),
-      ...events.fragments.map((fragment) => {
-        // Pixels exist only while Wplace draws the fragment nearby; the row exists regardless.
-        const mirror = drawnTemplates.find((template) => template.id === fragment.templateId)
-        const visible = mirror?.visible ?? isScopeVisible(fragment.templateId)
-        const readProgress = (): TemplateProgress | undefined =>
-          officialProgress(fragment) ?? (mirror === undefined ? undefined : drawnProgress(mirror))
-        const progress = readProgress()
-        return {
-          parentId: fragment.group.id,
-          item: {
-            key: `event:${fragment.templateId}`,
-            name: fragment.shortName,
-            kind: 'image',
-            childrenOf: null,
-            meta: `${fragment.width}×${fragment.height}`,
-            ...(mirror === undefined
-              ? {}
-              : {
-                  preview: {
-                    width: mirror.width,
-                    height: mirror.height,
-                    ...previewArt(mirror),
-                    ownership: 'Wplace',
-                  },
-                  colourProgress: () => drawnColourProgress(mirror),
-                }),
-            filterFacts: {
-              source: 'server',
-              visible:
-                visible &&
-                isScopeVisible(`server:${OFFICIAL_OVERLAY_OWNER}`) &&
-                nodeChainVisible(OFFICIAL_OVERLAY_OWNER, fragment.group.id),
-              tags: [],
-            },
-            ...(progress === undefined
-              ? {}
-              : {
-                  totalPixels: progress.total,
-                  progress,
-                  progressReader: () => readProgress() ?? progress,
-                }),
-            visible,
-            setVisible: (on: boolean) =>
-              mirror === undefined
-                ? setScopeVisible(fragment.templateId, on)
-                : setLocalVisible(mirror.id, on),
-            canReparent: false,
-            leadingActions: [
-              {
-                icon: 'search',
-                label: 'Go to',
-                returnToCanvas: true,
-                run: () =>
-                  navigateTo(centreOf({ ...fragment, originX: fragment.x, originY: fragment.y })),
-              },
-            ],
-            ...(mirror === undefined ? {} : { actions: [copyAction(mirror.id)] }),
-          } satisfies TreeItem,
-        }
-      }),
-    ])
-    renderReadOnlyRoot(
-      OFFICIAL_EVENTS_TREE_KEY,
-      'Events',
-      `server:${OFFICIAL_OVERLAY_OWNER}`,
-      source,
-    )
-  }
-
-  const nativeTemplates = drawnTemplates.filter(
-    (template) => template.serverUrl === NATIVE_ALLIANCE_OWNER,
-  )
-  if (nativeTemplates.length > 0) {
-    const source = groupedSource(
-      nativeTemplates.map((template) => ({
-        parentId: null,
-        item: {
-          key: `native:${template.id}`,
-          name: template.name,
-          kind: 'image',
-          childrenOf: null,
-          meta: `${template.width}×${template.height}`,
-          preview: {
-            width: template.width,
-            height: template.height,
-            ...previewArt(template),
-            ownership: 'Wplace',
-          },
-          filterFacts: { source: 'server', visible: isTemplateVisible(template), tags: [] },
-          totalPixels: template.opaque,
-          progress: drawnProgress(template),
-          progressReader: () => drawnProgress(template),
-          colourProgress: () => drawnColourProgress(template),
-          visible: template.visible,
-          setVisible: (on: boolean) => setLocalVisible(template.id, on),
-          canReparent: false,
-          leadingActions: [
-            {
-              icon: 'search',
-              label: 'Go to',
-              returnToCanvas: true,
-              run: () => goToLocalTemplate(template.id),
-            },
-          ],
-          actions: [copyAction(template.id)],
-        } satisfies TreeItem,
-      })),
-    )
-    renderReadOnlyRoot(
-      NATIVE_ALLIANCE_TREE_KEY,
-      'Wplace',
-      `server:${NATIVE_ALLIANCE_OWNER}`,
-      source,
-    )
-  }
-
-  if (filtering && !hasFilteredMatches)
-    output.notice('No templates match your search and filters.', 0)
-  if (budget.truncated) {
+  if (ctx.filtering && !matched) output.notice('No templates match your search and filters.', 0)
+  if (ctx.budget.truncated) {
     output.notice(
       `Showing the first ${MAX_RENDERED_ROWS.toLocaleString()} rows. Refine the search to see others.`,
       1,
     )
   }
-
-  if (surface.kind === 'world') {
-    output.action(
-      'add-server',
-      0,
-      servers.length === 0 ? 'Add a server' : 'Add another server',
-      servers.length === 0 ? 'Add a server' : 'Add another server',
-      callbacks.onAddServer,
-    )
+  if (ctx.surface.kind === 'world') {
+    const label = facts.servers.length === 0 ? 'Add a server' : 'Add another server'
+    output.action('add-server', 0, label, label, ctx.callbacks.onAddServer)
   }
-
-  return output.finish()
-}
-
-export interface TemplateTreeAdapter {
-  readonly model: TemplateTreeModel
-  readonly handle: (intent: TemplateTreeIntent) => void
-  /**
-   * Re-read every row's pixel progress into `model` without rebuilding the tree's structure.
-   * Rows whose counts are unchanged keep their entry. Returns whether anything changed.
-   */
-  readonly refreshProgress: () => boolean
 }
 
 const sameCounts = (a: Progress | undefined, b: Progress | undefined): boolean =>
@@ -1530,7 +153,7 @@ const treeIcon = (name: TreeRowOptions['kind']): TreeRowModel['icon'] =>
   name === 'folder' || name === 'server' ? name : 'image'
 
 const canReorderRow = (row: TreeRowOptions): boolean =>
-  row.key !== 'local' && (row.kind === 'server' || isReorderable(getState().sort))
+  row.key !== 'local' && (row.kind === 'server' || getState().sort.field === 'custom')
 
 const actionIcon = (name: string): TreeActionModel['icon'] => {
   switch (name) {
@@ -1552,12 +175,9 @@ const actionIcon = (name: string): TreeActionModel['icon'] => {
 export const templateTreeAdapter = (
   callbacks: TreeCallbacks,
   rerender: () => void,
-  query = '',
-  surface: TemplateSurface = WORLD_TEMPLATE_SURFACE,
-  includeCollapsed = false,
-  templateKeys?: ReadonlySet<string>,
-  claims?: ReadonlyMap<string, FavouritesModel>,
+  options: TreeOptions,
 ): TemplateTreeAdapter => {
+  const { surface, query = '', includeCollapsed = false, templateKeys } = options
   const entries: TreeEntryModel[] = []
   const rows = new Map<string, TreeRowOptions>()
   const actions = new Map<string, () => void>()
@@ -1572,7 +192,7 @@ export const templateTreeAdapter = (
     }
   }
 
-  const output: TreeOutput<void> = {
+  const output: TreeOutput = {
     row: (options) => {
       rows.set(options.key, options)
       const navigate = options.leadingActions?.[0]
@@ -1585,7 +205,7 @@ export const templateTreeAdapter = (
         branches: options.branches ?? [],
         parentKey: options.parentKey ?? null,
         container: options.container,
-        expanded: options.forceExpanded === true || isExpanded(options.key),
+        expanded: options.forceExpanded === true || isTreeExpanded(options.key),
         visible: options.checked ?? true,
         ...(options.forceExpanded === true ? { forceExpanded: true } : {}),
         ...(options.muted === true ? { muted: true } : {}),
@@ -1641,21 +261,18 @@ export const templateTreeAdapter = (
         title,
       })
     },
-    finish: () => undefined,
   }
 
-  const build = (): void =>
-    buildTree(output, callbacks, rerender, query, surface, includeCollapsed, templateKeys, claims)
   measureProfileDetail(
     templateKeys === undefined ? 'Template tree build' : 'Claimed tree build',
-    build,
+    () => buildTree(treeContext(output, callbacks, rerender, options)),
   )
 
   const tagOptions = new Map(
     localTagCatalog().map((tag) => [tag.id, { id: tag.id, name: tag.name, owner: 'Local' }]),
   )
   for (const server of getState().servers) {
-    const source = rowsForSurface(server, surface)
+    const source = manifestRows(server, surface)
     for (const row of [...(source?.nodes ?? []), ...(source?.templates ?? [])])
       for (const tag of row.tags ?? [])
         tagOptions.set(tag.id, { ...tag, owner: server.info?.name ?? server.url })
@@ -1674,7 +291,7 @@ export const templateTreeAdapter = (
       (a, b) => a.name.localeCompare(b.name) || a.owner.localeCompare(b.owner),
     ),
     serverFiltersAvailable: getState().servers.some(
-      (server) => (rowsForSurface(server, surface)?.templates.length ?? 0) > 0,
+      (server) => (manifestRows(server, surface)?.templates.length ?? 0) > 0,
     ),
     entries,
     ...(renamingKey === null ? {} : { renamingKey }),
@@ -1718,7 +335,7 @@ export const templateTreeAdapter = (
 
     const previousOrder = getState().customOrder
     let optimisticOrder: readonly string[] | null = null
-    const result = placeAmongVisibleSiblings(
+    const result = placeTreeKey(
       destination.level.visible,
       destination.level.all(),
       dragged.key,
@@ -1757,7 +374,7 @@ export const templateTreeAdapter = (
           return
         }
         if (optimisticOrder === null || destinationKey !== dragged.key) {
-          const placed = placeAmongVisibleSiblings(
+          const placed = placeTreeKey(
             destination.level.visible,
             destination.level.all(),
             destinationKey,
@@ -1804,7 +421,7 @@ export const templateTreeAdapter = (
     },
     handle: (intent) => {
       if (intent.type === 'drag-state') {
-        modelTreeDragActive = intent.active
+        setTreeDragActive(intent.active)
         return
       }
       if (intent.type === 'action') {

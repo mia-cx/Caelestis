@@ -1,96 +1,73 @@
-import { PALETTE_RGB, PALETTE_SIZE, TRANSPARENT_INDEX } from '@caelestis/shared'
-import { activeAllianceEditorStage } from './alliance-surface.js'
+import { TRANSPARENT_INDEX } from '@caelestis/shared'
+import { activeAllianceDialog } from './alliance-editor-dom.js'
 import { log } from './debug.js'
-import { findWplaceLabelled, wplaceLabel } from './wplace-messages.js'
+import { frameQueue } from './frame-queue.js'
+import { notifyListeners } from './listeners.js'
+import { simulatedInputAllowed } from './simulated-input.js'
+import {
+  paintDrawer,
+  paintDrawerCloseButton,
+  paintDrawerCommitButton,
+  paintHistoryButton,
+  paintOpenButton,
+  paintPaletteIndexOf,
+  paintPaletteSwatches,
+  readSelectedColour,
+} from './wplace-dom.js'
 
 /**
- * Which colour wplace currently has selected, and whether its paint drawer is open at all.
+ * Wplace's paint state, and the actions that drive its paint drawer.
  *
- * Read from their rendered swatches rather than from any state of theirs. World swatches use
- * `color-N` and `ring-primary`. Alliance swatches use their inline colour and `aria-pressed`.
- *
- * The drawer existing *is* the signal that painting has started. There is no separate flag to read,
- * and there does not need to be: the swatches are only in the document while it is open.
- *
- * Watched with a MutationObserver because both facts change without navigation — the drawer is
- * mounted and unmounted by Svelte, and selecting a colour only rewrites one class.
+ * The drawer existing *is* the signal that painting has started: Wplace's swatches are only in the
+ * document while it is open. Both facts change without navigation (Svelte mounts and unmounts the
+ * drawer, and selecting a colour rewrites one class), so a MutationObserver watches for them. This
+ * is the only module that tracks them; everything else reads `isPaintOpen` and `selectedColour`.
  */
 
 let selected: number | null = null
 let open = false
-const listeners: Array<() => void> = []
+let swatches: readonly HTMLElement[] = []
+const selectionListeners = new Set<() => void>()
+const swatchListeners = new Set<() => void>()
 
-/** Our palette index of the colour wplace has selected, or null if none is. */
+/** Our palette index of the colour Wplace has selected. Null whenever the drawer is closed. */
 export const selectedColour = (): number | null => selected
 
-/** Whether wplace's paint drawer is currently on screen. */
 export const isPaintOpen = (): boolean => open
+
+/** Notified when the drawer opens or closes, or the selected colour changes. */
+export const onPaintSelectionChange = (listener: () => void): (() => void) => {
+  selectionListeners.add(listener)
+  return () => selectionListeners.delete(listener)
+}
+
+/** Notified when Wplace mounts, replaces or removes its swatch elements. */
+export const onPaintSwatchesChange = (listener: () => void): (() => void) => {
+  swatchListeners.add(listener)
+  return () => swatchListeners.delete(listener)
+}
+
+/** Where Wplace's paint controls live right now: the open alliance editor's dialog, else the page. */
+const activePaintRoot = (): ParentNode => activeAllianceDialog() ?? document
+
+/** Wplace's paint swatches in the active root, read now rather than as of the last frame. */
+export const currentPaintSwatches = (): HTMLElement[] => paintPaletteSwatches(activePaintRoot())
 
 /** Select one of Wplace's own paint swatches without owning a second palette state. */
 export const selectPaintColour = (index: number): boolean => {
   if (!Number.isInteger(index) || index < 0 || index >= TRANSPARENT_INDEX) return false
-  const root = activePaintRoot()
-  const swatch =
-    root.querySelector<HTMLElement>(`#color-${index + 1}`) ??
-    alliancePaletteSwatches(root).find((candidate) => paintPaletteIndexOf(candidate) === index)
-  if (!(swatch instanceof HTMLElement)) return false
+  const swatch = currentPaintSwatches().find(
+    (candidate) => paintPaletteIndexOf(candidate) === index,
+  )
+  if (swatch === undefined) return false
   swatch.click()
   return true
 }
 
-const paintControl = (
-  root: ParentNode,
-  label: 'undo' | 'redo' | 'close',
-): HTMLButtonElement | null => findWplaceLabelled(root, 'button', label)
-
-/** Find the smallest palette ancestor containing native history controls, within the active root. */
-const paintDrawerOf = (swatch: Element, root: ParentNode): HTMLElement | null => {
-  for (let drawer = swatch.parentElement; drawer !== null; drawer = drawer.parentElement) {
-    if (drawer === document.body || drawer === document.documentElement) return null
-    if (paintControl(drawer, 'undo') !== null && paintControl(drawer, 'redo') !== null)
-      return drawer
-    if (drawer === root) return null
-  }
-  return null
-}
-
-/** Prefer native Close labels; retain the unlabeled header control used by older Wplace drawers. */
-const paintDrawerCloseButton = (drawer: HTMLElement): HTMLButtonElement | null => {
-  const close = paintControl(drawer, 'close')
-  if (close !== null) return close
-  const header = Array.from(drawer.children).find((child) => paintControl(child, 'undo') !== null)
-  if (header === undefined) return null
-  const directButtons = Array.from(header.children).filter(
-    (child): child is HTMLButtonElement =>
-      child instanceof HTMLButtonElement &&
-      !child.hasAttribute('title') &&
-      !child.hasAttribute('aria-label') &&
-      child.textContent?.trim() === '',
-  )
-  return directButtons.length === 1 ? (directButtons[0] ?? null) : null
-}
-
-/** A countdown Wplace appends to its Paint label, as in "Paint (0:25)". */
-const PAINT_COUNTDOWN = /^\s*\([^)]*\)$/
-
-/** Match only the drawer's Paint action, including its optional countdown, without layout classes. */
-const paintDrawerCommitButton = (drawer: HTMLElement): HTMLButtonElement | null => {
-  const paint = wplaceLabel('paint').toLowerCase()
-  const candidates = [...drawer.querySelectorAll<HTMLButtonElement>('button')].filter((button) => {
-    const label = (
-      button.getAttribute('aria-label') ??
-      button.getAttribute('title') ??
-      button.textContent ??
-      ''
-    )
-      .trim()
-      .toLowerCase()
-    return (
-      label.startsWith(paint) &&
-      (label === paint || PAINT_COUNTDOWN.test(label.slice(paint.length)))
-    )
-  })
-  return candidates.length === 1 ? (candidates[0] ?? null) : null
+const clickEnabled = (button: HTMLButtonElement | null): boolean => {
+  if (button === null || button.disabled) return false
+  button.click()
+  return true
 }
 
 /**
@@ -101,197 +78,83 @@ const paintDrawerCommitButton = (drawer: HTMLElement): HTMLButtonElement | null 
  * resulting canvas writes then flow through our canonical pixel-accounting interception exactly
  * like a hand-painted pixel.
  */
-const movePaintHistory = (control: 'undo' | 'redo', root: ParentNode): boolean => {
-  const drawer = nativePaintPanel(root)
-  const button = drawer === null ? null : paintControl(drawer, control)
-  if (button === null || button.disabled) return false
-  button.click()
-  return true
+const movePaintHistory = (control: 'undo' | 'redo'): boolean => {
+  const drawer = paintDrawer(activePaintRoot())
+  return clickEnabled(drawer === null ? null : paintHistoryButton(drawer, control))
 }
 
 /** Undo the most recently drafted pixel, if Wplace currently has one. */
-export const undoPaintDraft = (root: ParentNode = document): boolean =>
-  movePaintHistory('undo', root)
+export const undoPaintDraft = (): boolean => movePaintHistory('undo')
 
 /** Redo the most recently undone draft pixel, if Wplace currently has one. */
-export const redoPaintDraft = (root: ParentNode = document): boolean =>
-  movePaintHistory('redo', root)
+export const redoPaintDraft = (): boolean => movePaintHistory('redo')
 
 /**
- * Wplace's bottom-centre Paint button, found by its horizontally centred dock. Wplace translates
- * the label ("Peindre" in French) once its locale loads, so matching the text loses the button
- * a moment after page load for anyone not reading English (issue #624).
+ * Open Wplace's paint mode, or submit through the drawer's own Paint button when it is already
+ * open. Wplace flags a simulated click on that button (`UntrustedPaintSubmit`), so an open drawer
+ * is left alone unless the `paint-commit` switch allows it. A mounted palette whose controls cannot
+ * be identified must not fall through to an unrelated action elsewhere on the page.
  */
-export const paintDockButton = (root: ParentNode = document): HTMLButtonElement | null => {
-  for (const button of root.querySelectorAll<HTMLButtonElement>('button.btn-primary.btn-lg')) {
-    const dock = button.parentElement?.classList
-    if (
-      dock?.contains('absolute') === true &&
-      dock.contains('left-1/2') &&
-      dock.contains('-translate-x-1/2')
-    )
-      return button
-  }
-  return null
-}
-
-/**
- * Open Wplace's paint mode, or, with `submit`, submit through the palette's own panel when it is
- * already open. Wplace flags a simulated click on that Paint button (`UntrustedPaintSubmit`), so
- * an open drawer is left alone unless the painter opted in. Opening is not flagged; it prefers an
- * exact accessible label, then the native dock control. A mounted palette whose controls cannot be
- * identified must not fall through to an unrelated action elsewhere on the page.
- */
-export const performPaintAction = (root: ParentNode = document, submit = false): boolean => {
+export const performPaintAction = (): boolean => {
+  const root = activePaintRoot()
   if (paintPaletteSwatches(root).length > 0) {
-    if (!submit) return false
-    const drawer = nativePaintPanel(root)
-    const commit = drawer === null ? null : paintDrawerCommitButton(drawer)
-    if (commit === null || commit.disabled) return false
-    commit.click()
-    return true
+    if (!simulatedInputAllowed('paint-commit')) return false
+    const drawer = paintDrawer(root)
+    return clickEnabled(drawer === null ? null : paintDrawerCommitButton(drawer))
   }
-  const labels = new Set(
-    [wplaceLabel('paint'), wplaceLabel('paint_pixel')].map((label) => label.toLowerCase()),
-  )
-  for (const button of root.querySelectorAll<HTMLButtonElement>('button')) {
-    const label = (button.getAttribute('aria-label') ?? button.getAttribute('title') ?? '')
-      .trim()
-      .toLowerCase()
-    if (!labels.has(label)) continue
-    button.click()
-    return true
-  }
-  const dockButton = paintDockButton(root)
-  if (dockButton !== null) {
-    dockButton.click()
-    return true
-  }
-  return false
+  const button = paintOpenButton(root)
+  button?.click()
+  return button !== null
 }
 
 /** Discard the current native Wplace draft, leaving unrelated Escape handling alone when closed. */
-export const cancelPaintDraft = (root: ParentNode = document): boolean => {
-  const drawer = nativePaintPanel(root)
-  const close = drawer === null ? null : paintDrawerCloseButton(drawer)
-  if (close === null || close.disabled) return false
-  close.click()
-  return true
+export const cancelPaintDraft = (): boolean => {
+  const drawer = paintDrawer(activePaintRoot())
+  return clickEnabled(drawer === null ? null : paintDrawerCloseButton(drawer))
 }
 
-export const onPaintSelectionChange = (listener: () => void): void => {
-  listeners.push(listener)
-}
-
-/** Alliance swatches paint their colour inline, as `background: rgb(60 60 60)`. */
-const SWATCH_RGB = /rgb\((\d+)[\s,]+(\d+)[\s,]+(\d+)/
-
-/**
- * `color-N` carries their array index, where 0 is Transparent and 1 is our 0. Alliance swatches
- * have no id, and their label is the translated colour name, so their inline colour identifies them.
- *
- * Transparent is deliberately not mapped to a selection. It is paintable for them, but as a
- * template colour it means "may be anything", so "show only the selected colour" has nothing to
- * show for it. Its swatch shows a checkerboard image rather than a colour.
- */
-export const paintPaletteIndexOf = (element: Element): number | null => {
-  const raw = Number(element.id.slice('color-'.length))
-  const rgb = element.getAttribute('style')?.match(SWATCH_RGB)?.slice(1).map(Number)
-  const index =
-    Number.isInteger(raw) && raw > 0
-      ? raw - 1
-      : rgb === undefined
-        ? -1
-        : PALETTE_RGB.findIndex((colour) => colour.every((channel, at) => channel === rgb[at]))
-  if (index < 0 || index >= PALETTE_SIZE || index === TRANSPARENT_INDEX) return null
-  return index
-}
-
-const alliancePaletteSwatches = (root: ParentNode): HTMLButtonElement[] => [
-  ...root.querySelectorAll<HTMLButtonElement>(
-    'button.game-color-swatch[aria-pressed]:not([id^="color-"])',
-  ),
-]
-
-const activePaintRoot = (): ParentNode =>
-  activeAllianceEditorStage()?.closest('dialog[open]') ?? document
-
-/** Wplace's mounted world or alliance paint swatches, in their rendered order. */
-export const paintPaletteSwatches = (root: ParentNode = activePaintRoot()): HTMLElement[] => [
-  ...root.querySelectorAll<HTMLElement>('[id^="color-"]'),
-  ...alliancePaletteSwatches(root),
-]
-
-const nativePaintPanel = (root: ParentNode): HTMLElement | null => {
-  const swatch = paintPaletteSwatches(root)[0]
-  return swatch === undefined ? null : paintDrawerOf(swatch, root)
-}
+const sameElements = (left: readonly Element[], right: readonly Element[]): boolean =>
+  left.length === right.length && left.every((element, index) => element === right[index])
 
 const read = (): void => {
-  const swatches = paintPaletteSwatches()
-  const nextOpen = swatches.length > 0
-  let nextSelected: number | null = null
-  for (const swatch of swatches) {
-    if (
-      !swatch.className.includes('ring-primary') &&
-      swatch.getAttribute('aria-pressed') !== 'true'
-    )
-      continue
-    nextSelected = paintPaletteIndexOf(swatch)
-    break
-  }
-  if (nextOpen === open && nextSelected === selected) return
+  const next = currentPaintSwatches()
+  const nextOpen = next.length > 0
+  const nextSelected = readSelectedColour(next)
+  const remounted = !sameElements(swatches, next)
+  const changed = nextOpen !== open || nextSelected !== selected
+  swatches = next
   open = nextOpen
   selected = nextSelected
-  log('install', 'paint selection changed', { open, selected })
-  for (const listener of listeners) listener()
+  if (remounted) notifyListeners(swatchListeners, 'paint swatch listener failed')
+  if (!changed) return
+  log('paint selection changed', { open, selected })
+  notifyListeners(selectionListeners, 'paint selection listener failed')
 }
 
 /**
  * Once per frame, not once per mutation batch.
  *
- * `read` scans the whole document for `[id^="color-"]`, which is an unindexed attribute-prefix
- * match, and wplace's own app re-renders its chrome continuously — so the unbatched version ran a
- * full-document scan on every one of its mutations. The rail observer in `panel.ts` was fixed the
- * same way for the same actor. Nothing is lost: opening a drawer and picking a colour happen on
- * human timescales, and a frame is far finer than that.
+ * `read` scans the whole document for `[id^="color-"]`, an unindexed attribute-prefix match, and
+ * Wplace re-renders its chrome continuously, so reading per mutation batch scanned the document on
+ * every one of its mutations. Opening a drawer and picking a colour happen on human timescales.
+ * A hidden tab suspends animation frames, but Wplace can still mount the drawer there through
+ * automation or restored state, so a hidden tab reads on the next task instead.
  */
-let queued = false
+const queueRead = frameQueue(read, (callback) => {
+  if (document.hidden) setTimeout(callback, 0)
+  else requestAnimationFrame(callback)
+})
 
-const queueRead = (): void => {
-  if (queued) return
-  queued = true
-  requestAnimationFrame(() => {
-    queued = false
-    read()
-  })
-}
-
-const observe = (): void => {
+/**
+ * Start watching. Observes the document node itself, which exists at `document-start` before
+ * `<html>` does, so this is safe to call from the entry point.
+ */
+export const watchPaintSelection = (): void => {
   read()
-  const observer = new MutationObserver(queueRead)
-  observer.observe(document.documentElement, {
+  new MutationObserver(queueRead).observe(document, {
     subtree: true,
     childList: true,
     attributes: true,
     attributeFilter: ['class', 'aria-pressed'],
   })
-}
-
-/**
- * Start watching, once there is anything to watch.
- *
- * This runs at `document-start`, which is earlier than it sounds: the script is evaluated before the
- * parser has created `<html>`, so **both `document.body` and `document.documentElement` are null**.
- * `observe(null)` throws, and since this is called from `main` the throw took the entry point with
- * it — the rail button simply never appeared, with nothing on screen to say why.
- *
- * Waiting costs nothing here. wplace's paint drawer cannot exist before its own scripts have run.
- */
-export const watchPaintSelection = (): void => {
-  if (document.documentElement !== null) {
-    observe()
-    return
-  }
-  document.addEventListener('DOMContentLoaded', observe, { once: true })
 }

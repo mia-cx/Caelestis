@@ -1,9 +1,6 @@
 import {
-  isPresenceDraft,
-  isPresenceRect,
-  isQuickClaimList,
-  isRegionDocument,
-  isWorkIdentity,
+  decodePresenceServerEvent,
+  liveCredentialProtocol,
   type PainterIdentity,
   PRESENCE_DRAFT_MIN_MS,
   PRESENCE_HEARTBEAT_MS,
@@ -14,17 +11,27 @@ import {
   type PresenceDraft,
   type PresencePeer,
   type PresenceRect,
+  type PresenceServerEvent,
   type RegionClaim,
-  type RegionClaimRequest,
   sameRect,
-  sameTemplateSurface,
-  templateSurface,
   uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import {
+  endLiveClaims,
+  onClaimsChange,
+  pollClaims,
+  receiveClaims,
+  receiveLiveClaims,
+  renewClaims,
+  serverClaims,
+  trackClaims,
+  untrackClaims,
+} from './claim-store.js'
 import { userscriptVersion } from './client-metrics.js'
 import { log, warn } from './debug.js'
-import { draftIn, viewportRectIn } from './presence-geometry.js'
+import { notifyListeners } from './listeners.js'
+import { liveClientId } from './live-identity.js'
 import {
   isProfileEnabled,
   measureProfile,
@@ -33,53 +40,59 @@ import {
   recordProfileMessage,
   recordProfileWorkload,
 } from './profile.js'
-import { liveClientId, liveCredentialProtocol } from './server-sync-coordinator.js'
-import { requestServerMutation, requestServerTree } from './server-transport.js'
-import { serverEndpoint } from './server-url.js'
 import {
   activeServerToken,
-  type ConnectedServer,
-  getState,
   isCurrentServerConnection,
-  onStateChange,
   serverConnectionIdentity,
-} from './state.js'
-import { draftedPixelOffsets, draftedTiles, type TileFrame } from './tile-transform.js'
+} from './server-connections.js'
+import { serverEndpoint } from './server-request.js'
+import { getState, onStateChange, type ServerConnection } from './settings.js'
 import { accountIdentity, loadAccount } from './wplace-account.js'
 
 /**
  * One throttled socket per compatible server. Each may have a distinct audience.
  * Viewports and drafts retain their existing cadence and server-side nearby filtering.
  * A random tab publisher ID identifies copies without sharing credential admission IDs.
+ *
+ * The socket publishes what it is given (`setPresenceViewport`, `setPresenceDraft`,
+ * `setPresenceQuickClaims`), holds the peers the server reports, and feeds its claims to
+ * `claim-store`, which polls snapshots while a server has no session.
  */
 
 const MAX_RECONNECT_MS = 30_000
 const INITIAL_RECONNECT_MS = 1_000
-const CLAIM_SNAPSHOT_MS = 30_000
+const MAX_RECONNECT_ATTEMPTS = 10
+const RECONNECT_JITTER_MS = 500
+
+/** What was last sent on a socket. `undefined` means nothing yet; a new session has no quick claims. */
+interface Sent {
+  viewport: PresenceRect | null | undefined
+  draft: PresenceDraft | null | undefined
+  quickClaims: readonly PresenceRect[]
+  viewportAt: number
+  draftAt: number
+  quickClaimsAt: number
+}
+
+const nothingSent = (): Sent => ({
+  viewport: undefined,
+  draft: undefined,
+  quickClaims: [],
+  viewportAt: Number.NEGATIVE_INFINITY,
+  draftAt: Number.NEGATIVE_INFINITY,
+  quickClaimsAt: Number.NEGATIVE_INFINITY,
+})
 
 interface Connection {
-  readonly server: ConnectedServer
+  readonly server: ServerConnection
   socket: WebSocket | null
   sessionId: string | null
   peers: Map<string, PresencePeer>
-  regions: readonly RegionClaim[]
-  claimsRevision: number
-  ownedRegionIds: readonly string[]
-  canWriteClaims: boolean
-  snapshotTimer: ReturnType<typeof setTimeout> | null
-  snapshotRequest: AbortController | null
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
   flushTimer: ReturnType<typeof setTimeout> | null
-  /** Undefined means nothing has been sent on this socket yet. */
-  sentViewport: PresenceRect | null | undefined
-  sentDraft: PresenceDraft | null | undefined
-  /** A new session starts with none, so there is no undefined state to resend. */
-  sentQuickClaims: readonly PresenceRect[]
-  sentQuickClaimsAt: number
-  sentViewportAt: number
-  sentDraftAt: number
+  sent: Sent
 }
 
 export interface PresenceView {
@@ -92,28 +105,24 @@ export interface PresenceView {
 
 const connections = new Map<object, Connection>()
 const listeners: (() => void)[] = []
-const claimListeners: (() => void)[] = []
 const receivedOrder = new WeakMap<PresencePeer, number>()
 let receivedSequence = 0
+/** Bumped on every change to what `presenceView` reads, so it can reuse its last answer. */
+let revision = 0
 let installed = false
 let identityRequested = false
 const publisherId = uuidV7()
 let hiddenTab = false
-let pendingViewport: PresenceRect | null = null
-let pendingDraft: PresenceDraft | null = null
-let pendingQuickClaims: readonly PresenceRect[] = []
-let draftCheckedAt = Number.NEGATIVE_INFINITY
+/** What this tab would publish if it may: see `effective`. */
+const local: {
+  viewport: PresenceRect | null
+  draft: PresenceDraft | null
+  quickClaims: readonly PresenceRect[]
+} = { viewport: null, draft: null, quickClaims: [] }
 
-const now = (): number => Date.now()
-
-const notify = (): void => {
-  for (const listener of listeners) {
-    try {
-      listener()
-    } catch (error) {
-      warn('install', 'presence listener failed', String(error))
-    }
-  }
+const changed = (): void => {
+  revision++
+  notifyListeners(listeners, 'presence listener failed')
 }
 
 /** Runs after any peer, region, or connection change. */
@@ -121,12 +130,7 @@ export const onPresenceChange = (listener: () => void): void => {
   listeners.push(listener)
 }
 
-/** Observe claim snapshots without reconciling claims for every viewport update. */
-export const onPresenceClaimsChange = (listener: () => void): void => {
-  claimListeners.push(listener)
-}
-
-const eligible = (server: ConnectedServer): boolean =>
+const eligible = (server: ServerConnection): boolean =>
   server.status === 'connected' &&
   server.season !== null &&
   server.info?.presence === 1 &&
@@ -145,47 +149,6 @@ const sameDraft = (left: PresenceDraft | null, right: PresenceDraft | null): boo
 const sameRects = (left: readonly PresenceRect[], right: readonly PresenceRect[]): boolean =>
   left.length === right.length && left.every((rect, index) => sameRect(rect, right[index] ?? null))
 
-const isPeer = (value: unknown): value is PresencePeer => {
-  if (typeof value !== 'object' || value === null) return false
-  const peer = value as PresencePeer
-  return (
-    typeof peer.sessionId === 'string' &&
-    peer.sessionId.length > 0 &&
-    peer.sessionId.length <= 64 &&
-    (peer.publisherId === undefined ||
-      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-        peer.publisherId,
-      )) &&
-    isWorkIdentity(peer.painter) &&
-    (peer.viewport === null || isPresenceRect(peer.viewport)) &&
-    (peer.draft === null || isPresenceDraft(peer.draft)) &&
-    (peer.quickClaims === undefined || isQuickClaimList(peer.quickClaims))
-  )
-}
-
-/** Validate remote and persisted claims before they enter routing or rendering. */
-export const isPresenceRegion = (value: unknown): value is RegionClaim => {
-  if (typeof value !== 'object' || value === null) return false
-  const region = value as RegionClaim
-  return (
-    Number.isSafeInteger(region.season) &&
-    region.season >= 0 &&
-    region.surface != null &&
-    templateSurface(region.surface.kind, region.surface.allianceId) !== null &&
-    (region.expiresAt === undefined || Number.isSafeInteger(region.expiresAt)) &&
-    typeof region.id === 'string' &&
-    region.id.length <= 64 &&
-    (region.templateId === null ||
-      (typeof region.templateId === 'string' && region.templateId.length <= 128)) &&
-    isWorkIdentity(region.claimant) &&
-    isRegionDocument(region.document) &&
-    isPresenceRect(region.rect) &&
-    typeof region.label === 'string' &&
-    region.label.length <= 64 &&
-    Number.isSafeInteger(region.createdAt)
-  )
-}
-
 const send = (connection: Connection, event: PresenceClientEvent): boolean => {
   const socket = connection.socket
   if (socket === null || socket.readyState !== WebSocket.OPEN) return false
@@ -196,31 +159,11 @@ const send = (connection: Connection, event: PresenceClientEvent): boolean => {
       recordProfileMessage('Presence sent', payload)
     })
   } catch (error) {
-    warn('install', 'presence send failed', String(error))
+    warn('presence send failed', String(error))
     return false
   }
   armHeartbeat(connection)
   return true
-}
-
-/** Retain unchanged claims and geometry across snapshots while accepting fresh metadata. */
-const receivedRegions = (connection: Connection, incoming: readonly unknown[]): RegionClaim[] => {
-  const previous = new Map(connection.regions.map((region) => [region.id, region]))
-  return incoming
-    .filter(isPresenceRegion)
-    .filter(
-      (region) =>
-        region.season === connection.server.season &&
-        sameTemplateSurface(region.surface, WORLD_TEMPLATE_SURFACE),
-    )
-    .map((region) => {
-      const held = previous.get(region.id)
-      if (held === undefined) return region
-      // Display unions key their cache by claim identity, while metadata changes must still arrive.
-      if (JSON.stringify(held) === JSON.stringify(region)) return held
-      if (JSON.stringify(held.document) !== JSON.stringify(region.document)) return region
-      return { ...region, document: held.document }
-    })
 }
 
 const armHeartbeat = (connection: Connection): void => {
@@ -229,100 +172,98 @@ const armHeartbeat = (connection: Connection): void => {
     connection.heartbeatTimer = null
     // The full state goes with the heartbeat, so a server that hibernated and lost this session's
     // draft mask gets it back without any extra message.
-    const draft = canPublish() ? (connection.sentDraft ?? null) : null
+    const draft = canPublish() ? (connection.sent.draft ?? null) : null
     if (draft === null) send(connection, { type: 'presence-heartbeat' })
-    else {
+    else
       send(connection, {
         type: 'presence-update',
-        viewport: connection.sentViewport ?? null,
+        viewport: connection.sent.viewport ?? null,
         draft,
       })
-    }
   }, PRESENCE_HEARTBEAT_MS)
 }
 
-/** What this tab is willing to publish right now: the pending state, or nothing at all. */
-const effective = (): {
-  readonly viewport: PresenceRect | null
-  readonly draft: PresenceDraft | null
-  readonly quickClaims: readonly PresenceRect[]
-} => ({
-  ...(canPublish()
-    ? { viewport: pendingViewport, draft: pendingDraft }
-    : { viewport: null, draft: null }),
+/** What this tab is willing to publish right now: the local state, or nothing at all. */
+const effective = (): typeof local => ({
+  ...(canPublish() ? local : { viewport: null, draft: null }),
   // A hidden tab is still painting; its quick claims end with the paint session or the tab.
-  quickClaims: getState().sharePresence ? pendingQuickClaims : [],
+  quickClaims: getState().sharePresence ? local.quickClaims : [],
 })
+
+/**
+ * Per channel: what to publish, whether it differs from what was sent, and how long until it may
+ * go. Clearing never waits, so peers lose a stale rect straight away; quick claims coalesce,
+ * clears included, so a burst of rectangles sends only the latest list and stays under the
+ * server's per-second limit.
+ */
+const channels = (connection: Connection, at: number) => {
+  const { viewport, draft, quickClaims } = effective()
+  const { sent } = connection
+  return {
+    viewport: {
+      value: viewport,
+      dirty: sent.viewport === undefined || !sameRect(sent.viewport, viewport),
+      wait: viewport === null ? 0 : Math.max(0, sent.viewportAt + PRESENCE_VIEWPORT_MIN_MS - at),
+    },
+    draft: {
+      value: draft,
+      dirty: sent.draft === undefined || !sameDraft(sent.draft, draft),
+      wait: draft === null ? 0 : Math.max(0, sent.draftAt + PRESENCE_DRAFT_MIN_MS - at),
+    },
+    quickClaims: {
+      value: quickClaims,
+      dirty: !sameRects(sent.quickClaims, quickClaims),
+      wait: Math.max(0, sent.quickClaimsAt + PRESENCE_QUICK_CLAIMS_MIN_MS - at),
+    },
+  }
+}
 
 /** Send whatever changed and is due; wait for whatever changed but is not due yet. */
 const flush = (connection: Connection): void => {
   connection.flushTimer = null
   if (connection.socket?.readyState !== WebSocket.OPEN) return
-  const { viewport, draft, quickClaims } = effective()
-  const at = now()
-  const viewportDirty =
-    connection.sentViewport === undefined || !sameRect(connection.sentViewport, viewport)
-  const draftDirty = connection.sentDraft === undefined || !sameDraft(connection.sentDraft, draft)
-  const quickClaimsDirty = !sameRects(connection.sentQuickClaims, quickClaims)
-  if (!viewportDirty && !draftDirty && !quickClaimsDirty) return
-  const viewportDue = at - connection.sentViewportAt >= PRESENCE_VIEWPORT_MIN_MS
-  const draftDue = at - connection.sentDraftAt >= PRESENCE_DRAFT_MIN_MS
-  // Clearing is always due: a closed tab or a cancelled draft should vanish for peers at once.
-  const sendViewport = viewportDirty && (viewportDue || viewport === null)
-  const sendDraft = draftDirty && (draftDue || draft === null)
-  // Quick claims coalesce, clears included: a burst of rectangles sends the latest list only, so
-  // the socket stays under the server's per-second limit and is not closed for drawing fast.
-  const sendQuickClaims =
-    quickClaimsDirty && at - connection.sentQuickClaimsAt >= PRESENCE_QUICK_CLAIMS_MIN_MS
-  if (sendViewport || sendDraft || sendQuickClaims) {
-    const event: PresenceClientEvent = {
+  const at = Date.now()
+  const { viewport, draft, quickClaims } = channels(connection, at)
+  const sendViewport = viewport.dirty && viewport.wait === 0
+  const sendDraft = draft.dirty && draft.wait === 0
+  const sendQuickClaims = quickClaims.dirty && quickClaims.wait === 0
+  if (
+    (sendViewport || sendDraft || sendQuickClaims) &&
+    send(connection, {
       type: 'presence-update',
-      ...(sendViewport ? { viewport } : {}),
-      ...(sendDraft ? { draft } : {}),
-      ...(sendQuickClaims ? { quickClaims } : {}),
+      ...(sendViewport ? { viewport: viewport.value } : {}),
+      ...(sendDraft ? { draft: draft.value } : {}),
+      ...(sendQuickClaims ? { quickClaims: quickClaims.value } : {}),
+    })
+  ) {
+    const { sent } = connection
+    if (sendViewport) {
+      sent.viewport = viewport.value
+      sent.viewportAt = at
     }
-    if (send(connection, event)) {
-      if (sendViewport) {
-        connection.sentViewport = viewport
-        connection.sentViewportAt = at
-      }
-      if (sendDraft) {
-        connection.sentDraft = draft
-        connection.sentDraftAt = at
-      }
-      if (sendQuickClaims) {
-        connection.sentQuickClaims = quickClaims
-        connection.sentQuickClaimsAt = at
-      }
+    if (sendDraft) {
+      sent.draft = draft.value
+      sent.draftAt = at
+    }
+    if (sendQuickClaims) {
+      sent.quickClaims = quickClaims.value
+      sent.quickClaimsAt = at
     }
   }
   if (
-    (viewportDirty && !sendViewport) ||
-    (draftDirty && !sendDraft) ||
-    (quickClaimsDirty && !sendQuickClaims)
+    (viewport.dirty && !sendViewport) ||
+    (draft.dirty && !sendDraft) ||
+    (quickClaims.dirty && !sendQuickClaims)
   )
     scheduleFlush(connection)
 }
 
 const scheduleFlush = (connection: Connection): void => {
   if (connection.flushTimer !== null) return
-  const at = now()
-  const { viewport, draft, quickClaims } = effective()
-  const quickClaimsWait = sameRects(connection.sentQuickClaims, quickClaims)
-    ? Number.POSITIVE_INFINITY
-    : Math.max(0, connection.sentQuickClaimsAt + PRESENCE_QUICK_CLAIMS_MIN_MS - at)
-  // Clearing never waits, matching `flush`: peers should lose a stale rect straight away.
-  const viewportWait =
-    viewport === null ? 0 : Math.max(0, connection.sentViewportAt + PRESENCE_VIEWPORT_MIN_MS - at)
-  const draftWait =
-    draft === null ? 0 : Math.max(0, connection.sentDraftAt + PRESENCE_DRAFT_MIN_MS - at)
-  const viewportDirty =
-    connection.sentViewport === undefined || !sameRect(connection.sentViewport, viewport)
-  const draftDirty = connection.sentDraft === undefined || !sameDraft(connection.sentDraft, draft)
   const wait = Math.min(
-    viewportDirty ? viewportWait : Number.POSITIVE_INFINITY,
-    draftDirty ? draftWait : Number.POSITIVE_INFINITY,
-    quickClaimsWait,
+    ...Object.values(channels(connection, Date.now())).map((channel) =>
+      channel.dirty ? channel.wait : Number.POSITIVE_INFINITY,
+    ),
   )
   if (!Number.isFinite(wait)) return
   connection.flushTimer = setTimeout(() => flush(connection), wait)
@@ -332,70 +273,38 @@ const scheduleAll = (): void => {
   for (const connection of connections.values()) scheduleFlush(connection)
 }
 
-const applyServerEvent = (connection: Connection, value: unknown): boolean => {
-  if (typeof value !== 'object' || value === null) return false
-  const event = value as Record<string, unknown>
-  if (event.type === 'presence-ready') {
-    if (
-      typeof event.sessionId !== 'string' ||
-      !Number.isSafeInteger(event.online) ||
-      !Array.isArray(event.peers) ||
-      !Array.isArray(event.regions)
-    )
+const receivePeer = (connection: Connection, peer: PresencePeer): void => {
+  receivedOrder.set(peer, ++receivedSequence)
+  connection.peers.set(peer.sessionId, peer)
+}
+
+/**
+ * Apply one server event. True when it changed the claims, whose store has then told every
+ * listener already.
+ */
+const applyServerEvent = (connection: Connection, event: PresenceServerEvent): boolean => {
+  const { server } = connection
+  switch (event.type) {
+    case 'presence-ready':
+      connection.sessionId = event.sessionId
+      // A server that completes the handshake and then misbehaves keeps its backoff; only a
+      // healthy exchange resets it.
+      connection.attempts = 0
+      connection.peers = new Map()
+      for (const peer of event.peers) receivePeer(connection, peer)
+      receiveLiveClaims(server, event.regions, event.ownedRegionIds, event.canWrite === true)
+      return true
+    case 'presence-delta':
+      for (const id of event.remove) connection.peers.delete(id)
+      for (const peer of event.upsert) receivePeer(connection, peer)
       return false
-    connection.sessionId = event.sessionId
-    // A server that completes the handshake and then misbehaves keeps its backoff; only a
-    // healthy exchange resets it.
-    connection.attempts = 0
-    connection.peers = new Map(
-      event.peers.filter(isPeer).map((peer) => {
-        receivedOrder.set(peer, ++receivedSequence)
-        return [peer.sessionId, peer] as const
-      }),
-    )
-    connection.regions = receivedRegions(connection, event.regions)
-    connection.claimsRevision++
-    connection.ownedRegionIds = regionIds(event.ownedRegionIds)
-    connection.canWriteClaims = event.canWrite === true
-    stopSnapshots(connection)
-    for (const listener of claimListeners) listener()
-    return true
+    case 'regions':
+      receiveClaims(server, event.regions, event.ownedRegionIds)
+      return true
+    case 'claims-renewed':
+      renewClaims(server, event.ids, event.expiresAt)
+      return true
   }
-  if (event.type === 'presence-delta') {
-    if (
-      !Number.isSafeInteger(event.online) ||
-      !Array.isArray(event.upsert) ||
-      !Array.isArray(event.remove)
-    )
-      return false
-    for (const id of event.remove) if (typeof id === 'string') connection.peers.delete(id)
-    for (const peer of event.upsert)
-      if (isPeer(peer)) {
-        receivedOrder.set(peer, ++receivedSequence)
-        connection.peers.set(peer.sessionId, peer)
-      }
-    return true
-  }
-  if (event.type === 'regions') {
-    if (!Array.isArray(event.regions)) return false
-    connection.regions = receivedRegions(connection, event.regions)
-    connection.claimsRevision++
-    connection.ownedRegionIds = regionIds(event.ownedRegionIds)
-    for (const listener of claimListeners) listener()
-    return true
-  }
-  if (event.type === 'claims-renewed') {
-    if (!Number.isSafeInteger(event.expiresAt)) return false
-    const expiresAt = Number(event.expiresAt)
-    const ids = new Set(regionIds(event.ids))
-    connection.regions = connection.regions.map((region) =>
-      ids.has(region.id) ? { ...region, expiresAt } : region,
-    )
-    for (const listener of claimListeners) listener()
-    return true
-  }
-  // Unknown events belong to a newer server; they are not a reason to drop the socket.
-  return true
 }
 
 const clearTimers = (connection: Connection): void => {
@@ -407,80 +316,13 @@ const clearTimers = (connection: Connection): void => {
   connection.flushTimer = null
 }
 
-const regionIds = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
-
-const stopSnapshots = (connection: Connection): void => {
-  if (connection.snapshotTimer !== null) clearTimeout(connection.snapshotTimer)
-  connection.snapshotTimer = null
-  connection.snapshotRequest?.abort()
-  connection.snapshotRequest = null
-}
-
-/** Keep persisted claims readable when admission limits or network failures prevent a socket. */
-const startSnapshots = (connection: Connection): void => {
-  if (
-    connection.sessionId !== null ||
-    connection.snapshotRequest !== null ||
-    connection.snapshotTimer !== null
-  )
-    return
-  const controller = new AbortController()
-  connection.snapshotRequest = controller
-  const { server } = connection
-  const endpoint = scopedEndpoint(server, '/work/regions')
-  const actor = accountIdentity()
-  if (actor !== null) endpoint.searchParams.set('painterId', String(actor.wplaceUserId))
-  const token = activeServerToken(server)
-  void requestServerTree(endpoint.toString(), {
-    signal: controller.signal,
-    headers: token === null ? {} : { authorization: `Bearer ${token}` },
-  })
-    .then(({ response, body }) => {
-      if (
-        controller.signal.aborted ||
-        !isCurrentServerConnection(server) ||
-        connection.sessionId !== null
-      )
-        return
-      if (!response.ok || typeof body !== 'object' || body === null || !('regions' in body)) return
-      if (!applyServerEvent(connection, { ...body, type: 'regions' })) return
-      connection.canWriteClaims = 'canWrite' in body && body.canWrite === true
-      for (const listener of claimListeners) listener()
-      notify()
-    })
-    .catch((error: unknown) => {
-      if (!controller.signal.aborted) warn('install', 'claim snapshot failed', String(error))
-    })
-    .finally(() => {
-      if (connection.snapshotRequest !== controller) return
-      connection.snapshotRequest = null
-      if (
-        controller.signal.aborted ||
-        !isCurrentServerConnection(server) ||
-        connection.sessionId !== null
-      )
-        return
-      connection.snapshotTimer = setTimeout(() => {
-        connection.snapshotTimer = null
-        startSnapshots(connection)
-      }, CLAIM_SNAPSHOT_MS)
-    })
-}
-
-const scopedEndpoint = (server: ConnectedServer, path: string): URL => {
-  const endpoint = new URL(serverEndpoint(server.url, path))
-  endpoint.searchParams.set('season', String(server.season))
-  endpoint.searchParams.set('surface', WORLD_TEMPLATE_SURFACE.kind)
-  return endpoint
-}
-
 const closeConnection = (connection: Connection): void => {
-  stopSnapshots(connection)
+  endLiveClaims(connection.server)
   clearTimers(connection)
   const socket = connection.socket
   connection.socket = null
   connection.sessionId = null
+  revision++
   if (socket !== null && socket.readyState < WebSocket.CLOSING) {
     try {
       socket.close(1000, 'presence retired')
@@ -490,21 +332,53 @@ const closeConnection = (connection: Connection): void => {
   }
   if (connection.peers.size > 0) {
     connection.peers = new Map()
-    notify()
+    changed()
   }
 }
 
 const scheduleReconnect = (connection: Connection): void => {
-  startSnapshots(connection)
+  pollClaims(connection.server)
   if (connection.reconnectTimer !== null) return
   const delay = Math.min(MAX_RECONNECT_MS, INITIAL_RECONNECT_MS * 2 ** connection.attempts)
-  connection.attempts = Math.min(connection.attempts + 1, 10)
+  connection.attempts = Math.min(connection.attempts + 1, MAX_RECONNECT_ATTEMPTS)
   connection.reconnectTimer = setTimeout(
     () => {
       connection.reconnectTimer = null
       open(connection)
     },
-    delay + Math.random() * 500,
+    delay + Math.random() * RECONNECT_JITTER_MS,
+  )
+}
+
+const onMessage = (connection: Connection, socket: WebSocket, data: string): void => {
+  recordProfileMessage('Presence received', data)
+  if (data === 'pong') return
+  let event: ReturnType<typeof decodePresenceServerEvent>
+  try {
+    event = measureProfile('Presence parse', () => decodePresenceServerEvent(JSON.parse(data)))
+  } catch {
+    event = null
+  }
+  if (event === null) {
+    recordProfileCounter('Presence invalid messages')
+    socket.close(4002, 'invalid presence event')
+    return
+  }
+  const claims =
+    event !== 'unknown' &&
+    measureProfile('Presence state update', () => applyServerEvent(connection, event))
+  if (!claims) measureProfileDetail('Presence notify', changed)
+  if (!isProfileEnabled()) return
+  const { regions } = serverClaims(connection.server)
+  recordProfileWorkload('Presence peers', connection.peers.size)
+  recordProfileWorkload('Presence regions', regions.length)
+  recordProfileWorkload(
+    'Presence region shapes',
+    regions.reduce((sum, region) => sum + region.document.items.length, 0),
+  )
+  recordProfileWorkload(
+    'Presence region bounding pixels',
+    regions.reduce((sum, region) => sum + region.rect.w * region.rect.h, 0),
   )
 }
 
@@ -520,7 +394,7 @@ const open = (connection: Connection): void => {
     identity === null
   )
     return
-  const endpoint = new URL(serverEndpoint(server.url, '/telemetry/presence'))
+  const endpoint = new URL(serverEndpoint(server, '/telemetry/presence'))
   endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
   endpoint.searchParams.set('season', String(server.season))
   endpoint.searchParams.set('surface', WORLD_TEMPLATE_SURFACE.kind)
@@ -539,7 +413,7 @@ const open = (connection: Connection): void => {
   try {
     socket = new WebSocket(endpoint, protocols)
   } catch (error) {
-    warn('install', 'presence socket could not open', String(error))
+    warn('presence socket could not open', String(error))
     scheduleReconnect(connection)
     return
   }
@@ -551,63 +425,32 @@ const open = (connection: Connection): void => {
       socket.close(4002, 'presence protocol not negotiated')
       return
     }
-    connection.sentViewport = undefined
-    connection.sentDraft = undefined
-    connection.sentQuickClaims = []
-    connection.sentQuickClaimsAt = Number.NEGATIVE_INFINITY
-    connection.sentViewportAt = Number.NEGATIVE_INFINITY
-    connection.sentDraftAt = Number.NEGATIVE_INFINITY
-    log('install', 'presence connected', { server: server.url })
+    connection.sent = nothingSent()
+    log('presence connected', { server: server.url })
     armHeartbeat(connection)
     scheduleFlush(connection)
-    notify()
+    changed()
   })
   socket.addEventListener('message', (message) => {
-    if (connection.socket !== socket || typeof message.data !== 'string') return
-    recordProfileMessage('Presence received', message.data)
-    if (message.data === 'pong') return
-    let parsed: unknown
-    try {
-      parsed = measureProfile('Presence parse', () => JSON.parse(message.data))
-    } catch {
-      socket.close(4002, 'invalid presence event')
-      return
-    }
-    if (!measureProfile('Presence state update', () => applyServerEvent(connection, parsed))) {
-      recordProfileCounter('Presence invalid messages')
-      socket.close(4002, 'invalid presence event')
-      return
-    }
-    measureProfileDetail('Presence notify', notify)
-    if (isProfileEnabled()) {
-      recordProfileWorkload('Presence peers', connection.peers.size)
-      recordProfileWorkload('Presence regions', connection.regions.length)
-      recordProfileWorkload(
-        'Presence region shapes',
-        connection.regions.reduce((sum, region) => sum + region.document.items.length, 0),
-      )
-      recordProfileWorkload(
-        'Presence region bounding pixels',
-        connection.regions.reduce((sum, region) => sum + region.rect.w * region.rect.h, 0),
-      )
-    }
+    if (connection.socket === socket && typeof message.data === 'string')
+      onMessage(connection, socket, message.data)
   })
   socket.addEventListener('error', () => socket.close())
   socket.addEventListener('close', () => {
     if (connection.socket !== socket) return
     connection.socket = null
     connection.sessionId = null
+    endLiveClaims(server)
     clearTimers(connection)
     connection.peers = new Map()
-    notify()
+    changed()
     if (isCurrentServerConnection(server) && eligible(server)) scheduleReconnect(connection)
   })
 }
 
 const reconcile = (): void => {
   const retained = new Set<object>()
-  const identity = accountIdentity()
-  if (identity === null && !identityRequested) {
+  if (accountIdentity() === null && !identityRequested) {
     identityRequested = true
     void loadAccount()
       .catch(() => undefined)
@@ -620,105 +463,55 @@ const reconcile = (): void => {
     if (!eligible(server)) continue
     const owner = serverConnectionIdentity(server)
     retained.add(owner)
-    let connection = connections.get(owner)
-    if (connection === undefined) {
-      connection = {
-        server,
-        socket: null,
-        sessionId: null,
-        peers: new Map(),
-        regions: [],
-        claimsRevision: 0,
-        ownedRegionIds: [],
-        canWriteClaims: false,
-        snapshotTimer: null,
-        snapshotRequest: null,
-        attempts: 0,
-        reconnectTimer: null,
-        heartbeatTimer: null,
-        flushTimer: null,
-        sentViewport: undefined,
-        sentDraft: undefined,
-        sentQuickClaims: [],
-        sentQuickClaimsAt: Number.NEGATIVE_INFINITY,
-        sentViewportAt: Number.NEGATIVE_INFINITY,
-        sentDraftAt: Number.NEGATIVE_INFINITY,
-      }
-      connections.set(owner, connection)
-    }
+    if (connections.has(owner)) continue
+    trackClaims(server)
+    connections.set(owner, {
+      server,
+      socket: null,
+      sessionId: null,
+      peers: new Map(),
+      attempts: 0,
+      reconnectTimer: null,
+      heartbeatTimer: null,
+      flushTimer: null,
+      sent: nothingSent(),
+    })
+    revision++
   }
   for (const [owner, connection] of connections) {
     if (retained.has(owner)) continue
     closeConnection(connection)
+    untrackClaims(connection.server)
     connections.delete(owner)
   }
   for (const connection of connections.values()) {
     open(connection)
-    startSnapshots(connection)
+    pollClaims(connection.server)
   }
 }
 
-/** Rescan the local draft; true when it differs from what is pending. */
-const checkDraft = (at: number): boolean => {
-  draftCheckedAt = at
-  const tiles = draftedTiles()
-  const draft =
-    tiles.length === 0
-      ? null
-      : measureProfileDetail('Presence draft scan', () => draftIn(tiles, draftedPixelOffsets))
-  recordProfileWorkload('Presence local draft tiles', tiles.length)
-  recordProfileWorkload('Presence local draft pixels', draft?.pixels ?? 0)
-  if (sameDraft(draft, pendingDraft)) return false
-  pendingDraft = draft
-  return true
-}
+const isOpen = (connection: Connection): boolean => connection.socket?.readyState === WebSocket.OPEN
 
-let trailingDraftCheck: ReturnType<typeof setTimeout> | null = null
+let shared: {
+  readonly revision: number
+  readonly open: readonly boolean[]
+  readonly peers: readonly PresencePeer[]
+  readonly regions: readonly RegionClaim[]
+} | null = null
 
-/**
- * Finish a draft scan that a frame skipped, once the rate limit allows it.
- *
- * Frames alone cannot be trusted to come back. The last frames of a paint session are the burst
- * after Wplace removes its draft layers, and once the map stops rendering while idle nothing follows
- * them. A draft cleared inside the one-second limit would otherwise stay on other painters' screens
- * until this tab's map next moved.
- */
-const scheduleTrailingDraftCheck = (at: number): void => {
-  if (trailingDraftCheck !== null) return
-  trailingDraftCheck = setTimeout(
-    () => {
-      trailingDraftCheck = null
-      if (connections.size === 0) return
-      if (checkDraft(now())) scheduleAll()
-    },
-    Math.max(0, draftCheckedAt + PRESENCE_DRAFT_MIN_MS - at),
+/** Every peer and claim across servers, deduplicated; rebuilt only when presence changed. */
+const merged = (): NonNullable<typeof shared> => {
+  const open = [...connections.values()].map(isOpen)
+  if (
+    shared?.revision === revision &&
+    shared.open.length === open.length &&
+    shared.open.every((held, index) => held === open[index])
   )
-}
-
-/** Feed one tile frame. Cheap on every frame; the draft scan runs at most once a second. */
-export const observePresenceFrame = (frame: TileFrame): void => {
-  if (connections.size === 0) return
-  const viewport = viewportRectIn(frame)
-  let changed = false
-  if (!sameRect(viewport, pendingViewport)) {
-    pendingViewport = viewport
-    changed = true
-  }
-  const at = now()
-  if (at - draftCheckedAt >= PRESENCE_DRAFT_MIN_MS) {
-    if (checkDraft(at)) changed = true
-  } else scheduleTrailingDraftCheck(at)
-  if (changed) scheduleAll()
-}
-
-/** Unique nearby sessions and logical claims across all connected servers. */
-export const presenceView = (): PresenceView => {
+    return shared
   const peers = new Map<string, PresencePeer>()
   const regions = new Map<string, RegionClaim>()
-  let connected = false
   for (const connection of connections.values()) {
-    if (connection.socket?.readyState === WebSocket.OPEN) {
-      connected = true
+    if (isOpen(connection))
       for (const peer of connection.peers.values()) {
         if (peer.sessionId === connection.sessionId || peer.publisherId === publisherId) continue
         const key =
@@ -732,135 +525,55 @@ export const presenceView = (): PresenceView => {
         )
           peers.set(key, peer)
       }
-    }
-    for (const region of connection.regions) {
+    for (const region of serverClaims(connection.server).regions) {
       const key = `${region.season}:${region.surface.kind}:${region.surface.allianceId}:${region.claimant.wplaceUserId}:${region.id}`
       regions.set(key, region)
     }
   }
-  return {
+  shared = {
+    revision,
+    open,
     peers: [...peers].map(([key, peer]) => ({ ...peer, sessionId: key })),
     regions: [...regions.values()],
-    online: peers.size,
-    connected,
+  }
+  return shared
+}
+
+/** Unique nearby sessions and logical claims across all connected servers. */
+export const presenceView = (): PresenceView => {
+  const { peers, regions, open } = merged()
+  return {
+    peers,
+    regions,
+    online: peers.length,
+    connected: open.includes(true),
     me: accountIdentity(),
   }
 }
 
-/** Every connected server supporting presence, including sockets currently reconnecting. */
-export const presenceServers = (): readonly ConnectedServer[] =>
-  [...connections.values()].map((connection) => connection.server)
-
-/** The presence connection of a server, live or not, when the server supports presence. */
-const connectionFor = (server: ConnectedServer): Connection | null =>
-  connections.get(serverConnectionIdentity(server)) ?? null
-
-/** Raw copies and handshake state for claim reconciliation. */
-export const presenceServerClaims = (
-  server: ConnectedServer,
-): {
-  readonly ready: boolean
-  readonly regions: readonly RegionClaim[]
-  readonly revision: number
-  readonly ownedRegionIds: readonly string[]
-} => {
-  const connection = connectionFor(server)
-  return {
-    ready: (connection?.claimsRevision ?? 0) > 0,
-    regions: connection?.regions ?? [],
-    revision: connection?.claimsRevision ?? 0,
-    ownedRegionIds: connection?.ownedRegionIds ?? [],
-  }
+/** Publish this tab's viewport. */
+export const setPresenceViewport = (viewport: PresenceRect | null): void => {
+  if (sameRect(viewport, local.viewport)) return
+  local.viewport = viewport
+  scheduleAll()
 }
 
-/** Claims require report/admin capability from an authenticated server snapshot. */
-export const presenceCanWriteClaims = (server: ConnectedServer): boolean =>
-  activeServerToken(server) !== null && connectionFor(server)?.canWriteClaims === true
-
-/** Authoritative deletion is terminal; other failures remain retryable messages. */
-export type RegionWriteResult = string | null | { readonly deleted: true }
-
-const regionRequest = async (
-  server: ConnectedServer,
-  method: 'PUT' | 'DELETE',
-  id: string,
-  body: unknown,
-  scope?: Pick<RegionClaim, 'season' | 'surface'>,
-  signal?: AbortSignal,
-): Promise<RegionWriteResult> => {
-  if (server.season === null) return 'Server season unknown.'
-  const token = activeServerToken(server)
-  if (token === null) return 'Sign in to this server to claim regions.'
-  const endpoint = scopedEndpoint(server, `/work/regions/${id}`)
-  if (scope !== undefined) {
-    endpoint.searchParams.set('season', String(scope.season))
-    endpoint.searchParams.set('surface', scope.surface.kind)
-    if (scope.surface.allianceId !== null)
-      endpoint.searchParams.set('allianceId', String(scope.surface.allianceId))
-  }
-  try {
-    const { response, body: answer } = await requestServerMutation(endpoint.toString(), {
-      method,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      ...(signal === undefined ? {} : { signal }),
-    })
-    if (response.ok || (method === 'DELETE' && response.status === 404)) {
-      return null
-    }
-    if (response.status === 410) return { deleted: true }
-    const error =
-      typeof answer === 'object' &&
-      answer !== null &&
-      typeof (answer as { error?: unknown }).error === 'string'
-        ? (answer as { error: string }).error
-        : `Server answered ${response.status}.`
-    return error
-  } catch (error) {
-    return error instanceof Error ? error.message : 'Region request failed.'
-  }
+/** Publish this tab's drafted pixels. */
+export const setPresenceDraft = (draft: PresenceDraft | null): void => {
+  if (sameDraft(draft, local.draft)) return
+  local.draft = draft
+  scheduleAll()
 }
-
-/** Persist a claim, distinguishing permanent deletion from a retryable failure. */
-export const claimRegion = async (
-  server: ConnectedServer,
-  id: string,
-  request: RegionClaimRequest,
-  scope?: Pick<RegionClaim, 'season' | 'surface'>,
-  signal?: AbortSignal,
-): Promise<RegionWriteResult> => {
-  if (connectionFor(server) === null) return 'This server does not support region claims.'
-  return regionRequest(server, 'PUT', id, request, scope, signal)
-}
-
-/** Delete a logical claim, or withdraw just this server's replica for later reconnection. */
-export const releaseRegion = async (
-  server: ConnectedServer,
-  id: string,
-  actor: PainterIdentity,
-  scope?: Pick<RegionClaim, 'season' | 'surface'>,
-  signal?: AbortSignal,
-  withdraw = false,
-): Promise<string | null> => {
-  const result = await regionRequest(server, 'DELETE', id, { actor, withdraw }, scope, signal)
-  return typeof result === 'object' ? null : result
-}
-
-/** The current viewport and draft as last observed, for claiming what is on screen. */
-export const presencePending = (): {
-  readonly viewport: PresenceRect | null
-  readonly draft: PresenceDraft | null
-} => ({ viewport: pendingViewport, draft: pendingDraft })
 
 /** This tab's quick claims for the current paint session, newest last. */
-export const presenceQuickClaims = (): readonly PresenceRect[] => pendingQuickClaims
+export const presenceQuickClaims = (): readonly PresenceRect[] => local.quickClaims
 
 /** Replace this tab's quick claims and send them to every server at once. `[]` clears them. */
 export const setPresenceQuickClaims = (rects: readonly PresenceRect[]): void => {
-  if (sameRects(rects, pendingQuickClaims)) return
-  pendingQuickClaims = rects
+  if (sameRects(rects, local.quickClaims)) return
+  local.quickClaims = rects
   scheduleAll()
-  notify()
+  changed()
 }
 
 const onVisibility = (): void => {
@@ -874,6 +587,8 @@ const onVisibility = (): void => {
 export const installPresence = (): void => {
   if (installed) return
   installed = true
+  // The view merges claims too, so every claim change is a presence change.
+  onClaimsChange(changed)
   onStateChange(() => {
     reconcile()
     scheduleAll()

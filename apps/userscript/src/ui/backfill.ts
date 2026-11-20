@@ -1,15 +1,16 @@
 import type { BackfillPreview, BackfillProgress, FolderBackfillPreview } from '@caelestis/shared'
-import {
-  activeServerToken,
-  hasServerAdminToken,
-  isCurrentServerConnection,
-  serverConnectionSignal,
-  serverEndpoint,
-} from '../state.js'
-import { templateAsPng, templateById } from '../templates/local-store.js'
-import { serverTemplateKey } from '../templates/server-sync.js'
+import { errorText } from '../error-text.js'
+import { hasServerAdminToken, isCurrentServerConnection } from '../server-connections.js'
+import { serverRequest } from '../server-request.js'
+import { templateById } from '../templates/catalog.js'
+import { templateAsPng } from '../templates/residency.js'
+import { serverTemplateKey } from '../tree-keys.js'
 import { openModalHost } from './modal-host.js'
-import type { TreeTarget } from './tree.js'
+import type { TreeTarget } from './tree-context.js'
+
+/** Whether a row can offer Backfill history: it is on the world, on a season-0 server. */
+export const canBackfill = (target: TreeTarget): boolean =>
+  target.surface.kind === 'world' && target.server?.season === 0
 
 /**
  * Open an admin form whose background import outlives this userscript tab, for one server
@@ -23,13 +24,7 @@ export const openBackfill = (target: TreeTarget): void => {
       : nodeId !== null
         ? `/admin/backfill/folders/${nodeId}`
         : null
-  if (
-    server === null ||
-    path === null ||
-    !hasServerAdminToken(server) ||
-    server.season !== 0 ||
-    (target.surface?.kind ?? 'world') !== 'world'
-  )
+  if (server === null || path === null || !hasServerAdminToken(server) || !canBackfill(target))
     return
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -38,21 +33,12 @@ export const openBackfill = (target: TreeTarget): void => {
   const request = async <T>(action: string, body?: object): Promise<T> => {
     if (!isCurrentServerConnection(server) || !hasServerAdminToken(server))
       throw new Error('Server connection changed. Close and reopen backfill.')
-    const token = activeServerToken(server)
-    const response = await fetch(serverEndpoint(server.url, `${path}/${action}`), {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.any([
-        controller.signal,
-        serverConnectionSignal(server),
-        AbortSignal.timeout(30_000),
-      ]),
+    const { response, body: value } = await serverRequest(server, `${path}/${action}`, {
+      ...(body === undefined ? {} : { method: 'POST', json: body }),
+      limits: 'interactive',
+      read: 'json',
+      signal: controller.signal,
     })
-    const value: unknown = await response.json()
     if (!response.ok)
       throw new Error(
         value !== null &&
@@ -66,8 +52,6 @@ export const openBackfill = (target: TreeTarget): void => {
       throw new Error('Server connection changed. Close and reopen backfill.')
     return value as T
   }
-  const errorText = (error: unknown): string =>
-    error instanceof Error ? error.message : String(error)
   const poll = (): void => {
     clearTimeout(timer)
     if (dialog.closed || dialog.model.job?.status !== 'running') return

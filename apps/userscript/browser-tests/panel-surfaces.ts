@@ -58,7 +58,7 @@ const removalClock = () => {
     return id
   }) as typeof window.setTimeout
   window.clearTimeout = (id) => {
-    if (id !== undefined) timers.delete(id)
+    if (typeof id === 'number') timers.delete(id)
   }
   return {
     advance(ms: number) {
@@ -121,7 +121,7 @@ const sampleExit = async (node: HTMLElement, label: string, exit: 'fade' | 'morp
   return duration
 }
 
-/** Real custom-element, top-layer, focus-scroll and native-dialog contracts for PR580. */
+/** Real custom-element, top-layer, focus-scroll and native-dialog contracts. */
 export const runPanelSurfaceContracts = async () => {
   registerCaelestisUi()
   const host = document.createElement('caelestis-panel')
@@ -150,9 +150,17 @@ export const runPanelSurfaceContracts = async () => {
       },
     ],
   }
+  const show = () => {
+    host.model = { view: 'tree', width: 320, minWidth: 260, maxWidth: 720, tree }
+  }
   const update = (next: Partial<TemplateTreeModel>) => {
     tree = { ...tree, ...next }
-    host.model = { view: 'tree', width: 320, minWidth: 260, maxWidth: 720, tree }
+    show()
+  }
+  const dismissContextMenu = () => {
+    const { contextMenu: _dismissed, ...rest } = tree
+    tree = rest
+    show()
   }
   let menuSequence = 0
   const actions: string[] = []
@@ -183,10 +191,10 @@ export const runPanelSurfaceContracts = async () => {
           ],
         },
       })
-    if (action.type === 'dismiss-context-menu') update({ contextMenu: undefined })
+    if (action.type === 'dismiss-context-menu') dismissContextMenu()
     if (action.type === 'context-menu-action') {
       actions.push(action.actionId)
-      update({ contextMenu: undefined })
+      dismissContextMenu()
     }
     if (action.type === 'display-mode') update({ displayMode: action.mode })
   })

@@ -1,10 +1,12 @@
+import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { importStateModules } from './state-modules.js'
 
 const serverId = '018f1b8c-7f4e-7a8c-8a01-123456789abc'
 
 const loadState = async () => {
   vi.resetModules()
-  return await import('../src/state.js')
+  return await importStateModules()
 }
 
 afterEach(() => vi.restoreAllMocks())
@@ -54,6 +56,25 @@ describe('saved server state', () => {
     expect(signal.aborted).toBe(true)
   })
 
+  it('gives a reconnected server a new live client id', async () => {
+    const state = await loadState()
+    const { liveClientId } = await import('../src/live-identity.js')
+    const server = {
+      url: 'https://example.test',
+      info: { id: serverId, name: 'Example', auth: 'none' as const },
+      token: null,
+      status: 'connected' as const,
+      isAdmin: false,
+      season: 1,
+    }
+    state.upsertServer(server)
+    const first = liveClientId(server.url)
+    await state.removeServer(server.url)
+    expect(Object.keys(localStorage).some((key) => key.includes('live-client-id'))).toBe(false)
+    state.upsertServer(server)
+    expect(liveClientId(server.url)).not.toBe(first)
+  })
+
   it('notifies nobody when an offline retry finds the server still offline', async () => {
     vi.useFakeTimers({ toFake: ['setInterval'] })
     const state = await loadState()
@@ -67,8 +88,7 @@ describe('saved server state', () => {
       season: null,
     }
     state.upsertServer(offline)
-    const redraw = vi.fn()
-    state.installServerConnectionRetry(redraw)
+    state.installServerConnections()
     // Each retry probes the blocked network, so the server stays unreachable.
     const retry = async () => {
       await vi.advanceTimersByTimeAsync(5_000)
@@ -77,10 +97,8 @@ describe('saved server state', () => {
     await retry()
     const listener = vi.fn()
     state.onStateChange(listener)
-    redraw.mockClear()
     await retry()
     expect(listener).not.toHaveBeenCalled()
-    expect(redraw).not.toHaveBeenCalled()
     const { error: _, ...reachable } = offline
     state.upsertServer({ ...reachable, status: 'connected', season: 1 })
     expect(listener).toHaveBeenCalledTimes(1)
@@ -117,14 +135,18 @@ describe('server manifest admission', () => {
       const fetch = vi.fn(() => response)
       vi.stubGlobal('fetch', fetch)
       window.fetch = fetch
-      const pending = state.listServerContents(server)
+      const pending = state.readManifest(server)
       expect(fetch).toHaveBeenCalledOnce()
       if (replacement === 'newer live manifest') {
-        expect(state.applyLiveServerManifest(server, manifest('0.9.0'))).not.toBeNull()
+        expect(
+          state.applyLiveManifest(server, WORLD_TEMPLATE_SURFACE, manifest('0.9.0')),
+        ).not.toBeNull()
       } else {
         state.removeServer(server.url)
         state.upsertServer({ ...server, info: { ...server.info, version: '0.9.0' } })
-        expect(state.applyLiveServerManifest(server, manifest('0.8.1'))).toBeNull()
+        expect(
+          state.applyLiveManifest(server, WORLD_TEMPLATE_SURFACE, manifest('0.8.1')),
+        ).toBeNull()
       }
       if (respond === undefined) throw new Error('poll response was not initialized')
       respond(Response.json(manifest('0.8.1')))
@@ -132,6 +154,41 @@ describe('server manifest admission', () => {
       expect(state.getState().servers[0]?.info?.version).toBe('0.9.0')
     },
   )
+
+  it('adopts a manifest read that started after live manifests landed', async () => {
+    const state = await loadState()
+    const surface = { kind: 'alliance-banner', allianceId: 7 } as const
+    const server = {
+      url: 'https://example.test',
+      info: { id: serverId, name: 'Example', auth: 'none' as const },
+      token: null,
+      status: 'connected' as const,
+      isAdmin: false,
+      season: 1,
+    }
+    state.upsertServer(server)
+    const manifest = (version: string) => ({
+      version,
+      season: 1,
+      surface,
+      server: server.info,
+      nodes: [],
+      templates: [],
+      tiles: [],
+    })
+    let served = 'first-http'
+    const fetch = vi.fn(async () => Response.json(manifest(served)))
+    vi.stubGlobal('fetch', fetch)
+    window.fetch = fetch
+
+    await state.readManifest(server, { surface })
+    for (const version of ['live-1', 'live-2', 'live-3'])
+      state.applyLiveManifest(server, surface, manifest(version))
+    served = 'fresh-http'
+    await state.readManifest(server, { surface })
+
+    expect(state.manifestRows(server, surface)?.revision).toBe('fresh-http')
+  })
 
   it('rejects duplicate tree paths and accepts valid server identity', async () => {
     const { parseServerInfo, parseTreeNodes } = await import('../src/server-manifest.js')
@@ -174,7 +231,7 @@ describe('server manifest admission', () => {
   ] as const)(
     'flags a server version %s against expectation 0.9.0 only when strictly lower',
     async (advertised, expected) => {
-      const { backendVersionOutdated } = await import('../src/userscript-update.js')
+      const { backendVersionOutdated } = await import('../src/client-metrics.js')
       expect(backendVersionOutdated(advertised, '0.9.0')).toBe(expected)
     },
   )

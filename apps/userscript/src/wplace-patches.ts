@@ -1,5 +1,13 @@
+import { registerDebugEntry } from './console-api.js'
 import { count, log } from './debug.js'
-import { onStoredValueChange, storedValue, storeValue } from './stored-values.js'
+import { getMap, onMapAttached, type PatchableMap } from './map-handle.js'
+import {
+  isWplacePatchEnabled,
+  onWplacePatchChange,
+  setWplacePatchEnabled,
+  type WplacePatch,
+  wplacePatchSettings,
+} from './wplace-switches.js'
 import { patchTileRefresh } from './wplace-tile-refresh.js'
 
 /**
@@ -7,8 +15,8 @@ import { patchTileRefresh } from './wplace-tile-refresh.js'
  *
  * Wplace's map renders every frame while nobody touches it, and it re-downloads tiles that have not
  * changed. None of it is visible: the patches below remove the waste without changing anything a
- * Wplace user can see. Each one has its own switch, so a patch that turns out to break something can
- * be turned off from the console without a new release.
+ * Wplace user can see. Each one has its own switch (`wplace-switches.ts`), so a patch that turns out
+ * to break something can be turned off from the console without a new release.
  *
  * Nothing here touches Wplace's anti-cheat: pawtect, the bot check, the fetch wrapper, the storage
  * sync, and Turnstile run exactly as they would without Caelestis.
@@ -16,143 +24,15 @@ import { patchTileRefresh } from './wplace-tile-refresh.js'
  * Painting input is handled elsewhere. Wplace flags untrusted events reaching its paint handlers
  * on the account, so by default Caelestis only filters the painter's real events (shift-paint,
  * the paint-target guard). Simulating input on Wplace's controls is opt-in, one switch per feature,
- * each naming the flags it trips (`SIMULATED_INPUT_FLAGS` in the shared package).
+ * each naming the flags it trips (`SIMULATED_INPUT` in the shared package).
  */
-export const WPLACE_PATCHES = {
-  'hover-canvas': {
-    label: 'Stop idle redraws',
-    hint: 'Wplace redraws the whole map every frame for its hover crosshair, even when nothing moves. The crosshair still follows the pointer.',
-  },
-  'highlight-order': {
-    label: 'Settle event outlines',
-    hint: "Stops Wplace re-sorting the event outline's layers on every map update, which also kept the map redrawing.",
-  },
-  'tile-refresh': {
-    label: 'Download changed tiles only',
-    hint: 'Every few seconds, checks each visible tile and downloads only the ones that changed. Every tile is still downloaded again about once a minute.',
-  },
-  'draft-refresh': {
-    label: 'Reload drafted tiles only',
-    hint: 'Placing or erasing a draft pixel reloads only the tiles whose drafts changed, not every visible tile.',
-  },
-  'capture-dedupe': {
-    label: 'Skip identical tile reads',
-    hint: "Caelestis skips re-reading a tile's pixels when Wplace downloads an identical copy.",
-  },
-  'marker-animations': {
-    label: 'Pause hidden marker animations',
-    hint: "Stops the event marker's animations while it is hidden, zoomed in.",
-  },
-} as const satisfies Record<string, { readonly label: string; readonly hint: string }>
 
-export type WplacePatch = keyof typeof WPLACE_PATCHES
-
-const STORAGE_KEY = 'caelestis.wplace-patches.v1'
-
-export const isWplacePatch = (value: unknown): value is WplacePatch =>
-  typeof value === 'string' && Object.hasOwn(WPLACE_PATCHES, value)
-
-/** The stored value is the list of patches switched off, so a new patch starts on. */
-const readDisabled = (): Set<WplacePatch> => {
-  try {
-    const parsed: unknown = JSON.parse(storedValue(STORAGE_KEY) ?? '[]')
-    return new Set(Array.isArray(parsed) ? parsed.filter(isWplacePatch) : [])
-  } catch {
-    return new Set()
-  }
-}
-
-const writeDisabled = (disabled: ReadonlySet<WplacePatch>): void => {
-  try {
-    storeValue(STORAGE_KEY, JSON.stringify([...disabled]))
-  } catch {
-    // The switch still applies for this session.
-  }
-}
-
-let disabled: Set<WplacePatch> | null = null
-const listeners = new Set<(patch: WplacePatch, enabled: boolean) => void>()
-
-const disabledPatches = (): Set<WplacePatch> => {
-  disabled ??= readDisabled()
-  return disabled
-}
-
-export const isWplacePatchEnabled = (patch: WplacePatch): boolean => !disabledPatches().has(patch)
-
-const announce = (patch: WplacePatch, enabled: boolean): void => {
-  log('install', `Wplace patch ${patch} ${enabled ? 'on' : 'off'}`)
-  for (const listener of listeners) {
-    try {
-      listener(patch, enabled)
-    } catch {
-      count('wplace-patch:listener failed')
-    }
-  }
-}
-
-export const setWplacePatchEnabled = (patch: WplacePatch, enabled: boolean): void => {
-  const current = disabledPatches()
-  if (current.has(patch) === !enabled) return
-  if (enabled) current.delete(patch)
-  else current.add(patch)
-  writeDisabled(current)
-  announce(patch, enabled)
-}
-
-// Switched in the extension's toolbar popup or another tab: each patch that changed applies or
-// undoes itself here, as if switched in this tab.
-onStoredValueChange((key) => {
-  if (key !== STORAGE_KEY) return
-  const before = disabledPatches()
-  disabled = readDisabled()
-  for (const patch of Object.keys(WPLACE_PATCHES) as WplacePatch[]) {
-    if (before.has(patch) !== disabled.has(patch)) announce(patch, !disabled.has(patch))
-  }
-})
-
-/** Notified when a patch is switched on or off, so it can apply or undo itself immediately. */
-export const onWplacePatchChange = (
-  listener: (patch: WplacePatch, enabled: boolean) => void,
-): (() => void) => {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-
-/** Every patch with its settings copy and current switch, in settings order. */
-export const wplacePatchSettings = (): {
-  readonly id: WplacePatch
-  readonly label: string
-  readonly hint: string
-  readonly enabled: boolean
-}[] =>
-  (Object.keys(WPLACE_PATCHES) as WplacePatch[]).map((id) => ({
-    id,
-    ...WPLACE_PATCHES[id],
-    enabled: isWplacePatchEnabled(id),
-  }))
-
-/** Test seam. */
+/** Test seam: forget which maps and sources these patches touched. */
 export const resetWplacePatches = (): void => {
-  disabled = null
-  listeners.clear()
   patchedMaps = new WeakSet()
   pausedByUs = new WeakSet()
   markerStyle?.remove()
   markerStyle = null
-}
-
-/** The slice of MapLibre's `Map` these patches use. */
-export interface PatchableMap {
-  getCanvas?(): { readonly isConnected: boolean }
-  getSource?(id: string): unknown
-  refreshTiles?(id: string, tiles?: readonly { x: number; y: number; z: number }[]): unknown
-  moveLayer?(id: string, before?: string): unknown
-  on?(type: string, listener: (event: { sourceId?: string }) => void): unknown
-  style?: {
-    _order?: readonly string[]
-    tileManagers?: Record<string, unknown>
-  }
 }
 
 interface CanvasSourceLike {
@@ -302,10 +182,7 @@ const syncMarkerAnimations = (): void => {
   document.head.append(markerStyle)
 }
 
-/**
- * Apply every map patch. Idempotent, and cheap enough for the one-second attach loop, which also
- * catches the hover source being re-created after a theme switch.
- */
+/** Apply every map patch. Idempotent: it runs on each map attach and each patch switch. */
 export const applyWplacePatches = (map: PatchableMap | null): void => {
   syncMarkerAnimations()
   if (map === null) return
@@ -319,4 +196,17 @@ export const applyWplacePatches = (map: PatchableMap | null): void => {
     })
   }
   syncHoverCanvas(map)
+}
+
+/** Keep the patches on whichever map Wplace shows, and in step with their switches. */
+export const installWplacePatches = (): void => {
+  onWplacePatchChange((patch, enabled) => log(`Wplace patch ${patch} ${enabled ? 'on' : 'off'}`))
+  /** Caelestis's performance patches for Wplace's own client, each with its own switch. */
+  registerDebugEntry('wplacePatches', {
+    list: () => wplacePatchSettings(),
+    enable: (patch: WplacePatch) => setWplacePatchEnabled(patch, true),
+    disable: (patch: WplacePatch) => setWplacePatchEnabled(patch, false),
+  })
+  onMapAttached(applyWplacePatches)
+  onWplacePatchChange(() => applyWplacePatches(getMap()))
 }

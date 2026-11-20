@@ -25,9 +25,17 @@ const manager = globalThis as typeof globalThis & {
   GM_setValue?: (key: string, value: string) => void
   GM_deleteValue?: (key: string) => void
   GM_listValues?: () => string[]
+  GM_addValueChangeListener?: (
+    key: string,
+    listener: (key: string, before: unknown, after: unknown, remote: boolean) => void,
+  ) => unknown
 }
 
-const managerValues: StoredValues = {
+/**
+ * The userscript manager's `GM_*` storage, read and written directly. Without any manager storage,
+ * as in a page-world dev harness or a test, `localStorage` stands in.
+ */
+export const managerValues: StoredValues = {
   get(key) {
     if (typeof manager.GM_getValue !== 'function') return localStorage.getItem(key)
     const value = manager.GM_getValue(key, null)
@@ -45,6 +53,20 @@ const managerValues: StoredValues = {
     if (typeof manager.GM_listValues === 'function') return manager.GM_listValues()
     return Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index) ?? '')
   },
+}
+
+/**
+ * Whether the manager's storage can be served over the storage bridge: it needs listing for the
+ * snapshot. `localStorage` always can.
+ */
+export const canServeManagerStorage = (): boolean =>
+  manager.GM_getValue === undefined || manager.GM_listValues !== undefined
+
+/** Run `listener` with each value another tab writes to `key` in the manager's storage. */
+export const watchManagerValue = (key: string, listener: (value: string | null) => void): void => {
+  manager.GM_addValueChangeListener?.(key, (_key, _before, after, remote) => {
+    if (remote) listener(typeof after === 'string' ? after : null)
+  })
 }
 
 let backing = managerValues
@@ -132,6 +154,36 @@ export const storedValue = (key: string): string | null => backing.get(key)
 export const storeValue = (key: string, value: string): void => backing.set(key, value)
 
 export const deleteStoredValue = (key: string): void => backing.delete(key)
+
+/**
+ * A switch stored as `'1'` while on and absent while off. A storage failure reads as off and drops
+ * the write, so callers keep their in-memory value for the session.
+ */
+export const storedFlag = (key: string) => {
+  const get = (): boolean => {
+    try {
+      return storedValue(key) === '1'
+    } catch {
+      return false
+    }
+  }
+  return {
+    get,
+    set(on: boolean): void {
+      try {
+        if (on) storeValue(key, '1')
+        else deleteStoredValue(key)
+      } catch {
+        // Private browsing and the like.
+      }
+    },
+    /** Run `listener` with the new value whenever it is switched in another context. */
+    onChange: (listener: (on: boolean) => void): (() => void) =>
+      onStoredValueChange((changed) => {
+        if (changed === key) listener(get())
+      }),
+  }
+}
 
 /**
  * Keys that stay with one build. Moving settings between the userscript and the extension carries

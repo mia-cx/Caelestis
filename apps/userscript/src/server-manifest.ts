@@ -1,4 +1,5 @@
 import {
+  isRecord,
   logoText,
   parseDiscordInviteUrl,
   parseHomeCopy,
@@ -15,9 +16,8 @@ import {
   WORLD_TEMPLATE_SURFACE,
   WORLD_TILES,
 } from '@caelestis/shared'
-import type { ServerTemplate } from './server-cache.js'
 
-export type ServerAuthMode = 'none' | 'access_token'
+type ServerAuthMode = 'none' | 'access_token'
 
 export interface ServerInfo {
   readonly id: string
@@ -84,6 +84,31 @@ const parseServerPresentation = (
   }
 }
 
+/** One template a server publishes, as its manifest lists it. */
+export interface ServerTemplate {
+  readonly tags?: readonly TemplateTag[]
+  readonly id: string
+  readonly nodeId: string | null
+  readonly name: string
+  readonly version: string
+  /** Zero only for an older persisted cache entry, written before manifests carried it. */
+  readonly totalPixels: number
+  readonly published: boolean
+  readonly finished: boolean
+  readonly finishedAt?: number | null
+  readonly timelapseFrozen?: boolean
+  readonly updatedAt: number
+  readonly bbox: {
+    readonly minX: number
+    readonly minY: number
+    readonly maxX: number
+    readonly maxY: number
+  }
+  readonly chunks: readonly { readonly tile: string; readonly hash: string }[]
+  /** The surface it is drawn on; legacy world manifests and cache entries are read as world. */
+  readonly surface: TemplateSurface
+}
+
 export interface TreeNode {
   readonly tags?: readonly TemplateTag[]
   readonly id: string
@@ -114,9 +139,6 @@ const MAX_EPOCH_MILLISECONDS = 4_102_444_800_000
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const SHA256_HEX = /^[0-9a-f]{64}$/
 const NODE_PATH = /^(\/[\p{L}\p{N}][\p{L}\p{N}\p{M}. -]*)+$/u
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const plausibleMillis = (value: unknown): value is number =>
   typeof value === 'number' &&

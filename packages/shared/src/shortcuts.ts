@@ -1,3 +1,11 @@
+import {
+  DANGEROUS_SETTINGS,
+  type SimulatedInputSwitches,
+  type SimulatedShortcutPart,
+  simulatedInputOn,
+  simulatedPartOf,
+} from './simulated-input.js'
+
 /**
  * Caelestis keyboard actions and the chords that trigger them.
  *
@@ -11,35 +19,6 @@
  * that key even when a shifted or dead-key layout reports a different character. The recorded
  * `key` is kept only for the label.
  */
-export const SHORTCUT_IDS = [
-  'cycle-colour-previous',
-  'cycle-colour-next',
-  'paint-action',
-  'cancel-paint',
-  'fly-to-colour',
-  'peek-overlays',
-  'undo-paint',
-  'redo-paint',
-  'toggle-panel',
-  'toggle-theme',
-  'claim-mode',
-  'toggle-presence',
-  'toggle-rings',
-  'toggle-colour',
-  'toggle-template-menu',
-  'toggle-visibility',
-  'toggle-markers',
-  'toggle-selected-colour-markers',
-  'set-opacity-20',
-  'set-opacity-40',
-  'set-opacity-60',
-  'set-opacity-80',
-  'set-opacity-100',
-  'show-shortcut-help',
-] as const
-
-export type ShortcutId = (typeof SHORTCUT_IDS)[number]
-
 export type ShortcutPlatform = 'mac' | 'windows-linux'
 
 export interface KeyBinding {
@@ -56,12 +35,6 @@ export interface KeyBinding {
   readonly alt: boolean
 }
 
-/** Every chord that triggers an action. Empty means the action has no key. */
-export type ShortcutBindings = Readonly<Record<ShortcutId, readonly KeyBinding[]>>
-
-/** Actions the user changed. Absent actions keep their default chords. */
-export type ShortcutOverrides = Readonly<Partial<Record<ShortcutId, readonly KeyBinding[]>>>
-
 const chord = (
   key: string,
   modifiers: Partial<Omit<KeyBinding, 'key' | 'code'>> = {},
@@ -74,43 +47,156 @@ const physical = (
 ): KeyBinding =>
   Object.freeze({ key: '', code, command: false, shift: false, alt: false, ...modifiers })
 
-export const DEFAULT_SHORTCUT_BINDINGS: ShortcutBindings = Object.freeze({
-  'cycle-colour-previous': [chord('a')],
-  'cycle-colour-next': [chord('d')],
-  'paint-action': [chord('b')],
-  'cancel-paint': [chord('Escape')],
-  'fly-to-colour': [chord('f')],
-  'peek-overlays': [chord('g')],
-  'undo-paint': [chord('z', { command: true })],
-  'redo-paint': [chord('z', { command: true, shift: true })],
-  'toggle-panel': [chord('c')],
-  'toggle-theme': [chord('n')],
-  'claim-mode': [chord('m')],
-  'toggle-presence': [chord('q')],
-  'toggle-rings': [chord('r')],
-  'toggle-colour': [chord('s')],
-  'toggle-template-menu': [chord('t')],
-  'toggle-visibility': [chord('v')],
-  'toggle-markers': [chord('w')],
-  'toggle-selected-colour-markers': [chord('x')],
-  'set-opacity-20': [chord('1')],
-  'set-opacity-40': [chord('2')],
-  'set-opacity-60': [chord('3')],
-  'set-opacity-80': [chord('4')],
-  'set-opacity-100': [chord('5')],
-  // Physical positions: layouts with dead keys report `key: 'Dead'` for `?` and `` ` `` while the
-  // codes still identify the requested keys exactly.
-  'show-shortcut-help': [physical('Backquote'), physical('Slash', { shift: true })],
-})
+export type ShortcutCategory = 'Painting' | 'Overlay'
+
+interface ShortcutRow {
+  readonly category: ShortcutCategory
+  /** How the action is named wherever its key is shown: the reference and the settings. */
+  readonly label: string
+  readonly defaults: readonly KeyBinding[]
+  /** Holding the chord repeats the action. Every other action fires once per press. */
+  readonly repeats?: true
+  /** The focused overlay's opacity the action sets. */
+  readonly opacity?: number
+}
+
+export interface ShortcutDefinition extends ShortcutRow {
+  /**
+   * The part of the action that simulates input on Wplace's controls, behind its own switch.
+   * Declared by the switch's entry in `SIMULATED_INPUT`.
+   */
+  readonly simulated?: SimulatedShortcutPart
+}
+
+const opacityShortcut = (opacity: number, key: string) =>
+  ({
+    category: 'Overlay',
+    label: `Overlay opacity ${Math.round(opacity * 100)}%`,
+    defaults: [chord(key)],
+    opacity,
+  }) as const
+
+/** Every rebindable action, in the order the key map tries them and the reference lists them. */
+const SHORTCUT_TABLE = {
+  'cycle-colour-previous': {
+    category: 'Painting',
+    label: 'Previous unfinished colour',
+    defaults: [chord('a')],
+  },
+  'cycle-colour-next': {
+    category: 'Painting',
+    label: 'Next unfinished colour',
+    defaults: [chord('d')],
+  },
+  'paint-action': {
+    category: 'Painting',
+    label: 'Open or commit paint draft',
+    defaults: [chord('b')],
+  },
+  'cancel-paint': {
+    category: 'Painting',
+    label: 'Cancel paint draft',
+    defaults: [chord('Escape')],
+  },
+  'fly-to-colour': {
+    category: 'Painting',
+    label: 'Jump to selected colour',
+    defaults: [chord('f')],
+  },
+  'peek-overlays': {
+    category: 'Painting',
+    label: 'Hold to peek at the map',
+    defaults: [chord('g')],
+  },
+  'undo-paint': {
+    category: 'Painting',
+    label: 'Undo drafted pixels (hold)',
+    defaults: [chord('z', { command: true })],
+    repeats: true,
+  },
+  'redo-paint': {
+    category: 'Painting',
+    label: 'Redo drafted pixels (hold)',
+    defaults: [chord('z', { command: true, shift: true })],
+    repeats: true,
+  },
+  'toggle-panel': { category: 'Overlay', label: 'Caelestis panel', defaults: [chord('c')] },
+  'toggle-theme': { category: 'Overlay', label: 'Light / dark theme', defaults: [chord('n')] },
+  'claim-mode': { category: 'Overlay', label: 'Claim mode', defaults: [chord('m')] },
+  'toggle-presence': {
+    category: 'Overlay',
+    label: 'Other painters and claims',
+    defaults: [chord('q')],
+  },
+  'toggle-rings': { category: 'Overlay', label: 'Toggle contrast rings', defaults: [chord('r')] },
+  'toggle-colour': { category: 'Overlay', label: 'Selected colour only', defaults: [chord('s')] },
+  'toggle-template-menu': {
+    category: 'Overlay',
+    label: 'Template display menu',
+    defaults: [chord('t')],
+  },
+  'toggle-visibility': {
+    category: 'Overlay',
+    label: 'Template visibility',
+    defaults: [chord('v')],
+  },
+  'toggle-markers': { category: 'Overlay', label: 'Mismatch markers', defaults: [chord('w')] },
+  'toggle-selected-colour-markers': {
+    category: 'Overlay',
+    label: 'Selected-colour markers',
+    defaults: [chord('x')],
+  },
+  'set-opacity-20': opacityShortcut(0.2, '1'),
+  'set-opacity-40': opacityShortcut(0.4, '2'),
+  'set-opacity-60': opacityShortcut(0.6, '3'),
+  'set-opacity-80': opacityShortcut(0.8, '4'),
+  'set-opacity-100': opacityShortcut(1, '5'),
+  'show-shortcut-help': {
+    category: 'Overlay',
+    label: 'Keyboard shortcuts',
+    // Physical positions: layouts with dead keys report `key: 'Dead'` for `?` and `` ` `` while the
+    // codes still identify the requested keys exactly.
+    defaults: [physical('Backquote'), physical('Slash', { shift: true })],
+  },
+} as const satisfies Record<string, ShortcutRow>
+
+export type ShortcutId = keyof typeof SHORTCUT_TABLE
+
+export const SHORTCUT_IDS = Object.keys(SHORTCUT_TABLE) as readonly ShortcutId[]
+
+export const SHORTCUTS: Readonly<Record<ShortcutId, ShortcutDefinition>> = Object.fromEntries(
+  SHORTCUT_IDS.map((id): [ShortcutId, ShortcutDefinition] => {
+    const simulated = simulatedPartOf(id)
+    return [id, simulated === undefined ? SHORTCUT_TABLE[id] : { ...SHORTCUT_TABLE[id], simulated }]
+  }),
+) as Record<ShortcutId, ShortcutDefinition>
+
+/** Every chord that triggers an action. Empty means the action has no key. */
+export type ShortcutBindings = Readonly<Record<ShortcutId, readonly KeyBinding[]>>
+
+/** Actions the user changed. Absent actions keep their default chords. */
+export type ShortcutOverrides = Readonly<Partial<Record<ShortcutId, readonly KeyBinding[]>>>
+
+/**
+ * The reference's note for an action whose simulated part is switched off, or nothing while it
+ * may run.
+ */
+export const simulatedShortcutNote = (
+  id: ShortcutId,
+  switches: SimulatedInputSwitches,
+): string | undefined => {
+  const simulated = SHORTCUTS[id].simulated
+  if (simulated === undefined || simulatedInputOn(switches, simulated.id)) return undefined
+  return 'inert' in simulated
+    ? `Off under ${DANGEROUS_SETTINGS}`
+    : `${simulated.part} is off under ${DANGEROUS_SETTINGS}`
+}
 
 /**
  * Marks the settings control that is recording a replacement binding. A keystroke aimed at it is
  * the new chord, so no shortcut may fire from it.
  */
 export const KEY_CAPTURE_ATTRIBUTE = 'data-caelestis-key-capture'
-
-/** Holding the chord repeats the action. Every other action fires once per press. */
-export const REPEATING_SHORTCUTS: ReadonlySet<ShortcutId> = new Set(['undo-paint', 'redo-paint'])
 
 const MODIFIER_KEYS = new Set([
   'Alt',
@@ -184,14 +270,14 @@ export const keyBindingReleasedBy = (
     : binding.key !== '' && binding.key === normaliseKey(released.key)
 
 /** Whether two bindings would claim the same stroke, so both cannot stay assigned. */
-export const sameKeyBinding = (a: KeyBinding, b: KeyBinding): boolean =>
+const sameKeyBinding = (a: KeyBinding, b: KeyBinding): boolean =>
   sameModifiers(a, b) && ((a.code !== '' && a.code === b.code) || (a.key !== '' && a.key === b.key))
 
 const MAX_KEY_LENGTH = 32
 const CODE_PATTERN = /^[A-Za-z0-9]*$/
 
 /** Accept one stored chord, or nothing when it is not one this version understands. */
-export const normaliseKeyBinding = (value: unknown): KeyBinding | null => {
+const normaliseKeyBinding = (value: unknown): KeyBinding | null => {
   if (typeof value !== 'object' || value === null) return null
   const candidate = value as Record<string, unknown>
   const key = typeof candidate.key === 'string' ? normaliseKey(candidate.key) : ''
@@ -234,7 +320,7 @@ export const normaliseShortcutOverrides = (value: unknown): ShortcutOverrides =>
 
 export const resolveShortcutBindings = (overrides: ShortcutOverrides = {}): ShortcutBindings => {
   const resolved = {} as Record<ShortcutId, readonly KeyBinding[]>
-  for (const id of SHORTCUT_IDS) resolved[id] = overrides[id] ?? DEFAULT_SHORTCUT_BINDINGS[id]
+  for (const id of SHORTCUT_IDS) resolved[id] = overrides[id] ?? SHORTCUTS[id].defaults
   return resolved
 }
 
@@ -270,12 +356,12 @@ export const assignShortcutBinding = (
       const remaining = resolved[other].filter((candidate) => !sameKeyBinding(candidate, binding))
       if (remaining.length === resolved[other].length) continue
       displaced.push(other)
-      if (sameBindingList(remaining, DEFAULT_SHORTCUT_BINDINGS[other])) delete next[other]
+      if (sameBindingList(remaining, SHORTCUTS[other].defaults)) delete next[other]
       else next[other] = remaining
     }
   }
   const bindings = binding === null ? [] : [binding]
-  if (sameBindingList(bindings, DEFAULT_SHORTCUT_BINDINGS[id])) delete next[id]
+  if (sameBindingList(bindings, SHORTCUTS[id].defaults)) delete next[id]
   else next[id] = bindings
   return { overrides: next, displaced }
 }

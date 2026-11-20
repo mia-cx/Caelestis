@@ -1,16 +1,25 @@
 import { parseTileKey, type TileCoord } from '@caelestis/shared'
 import { isPageInstance } from './page-world.js'
 
+/** Wplace's API and tile server. */
+export const BACKEND_ORIGIN = 'https://backend.wplace.live'
+
+/** Wplace's raster layer of painted tiles. */
+export const PIXEL_ART_LAYER = 'pixel-art-layer'
+/** Wplace's selected-pixel crosshair layer. */
+export const CROSSHAIR_LAYER = 'pixel-hover'
+/** Wplace adds one of these per tile being painted, named for the tile: `paint-preview-…-325,1783`. */
+export const isDraftLayer = (id: string): boolean => id.startsWith('paint-preview-')
+
 export type WplaceRasterRole = 'tile' | 'draft' | 'other'
 
 export const wplaceRasterRole = (layerId: string | null): WplaceRasterRole => {
-  if (layerId === 'pixel-art-layer') return 'tile'
-  if (layerId?.startsWith('paint-preview-')) return 'draft'
+  if (layerId === PIXEL_ART_LAYER) return 'tile'
+  if (layerId !== null && isDraftLayer(layerId)) return 'draft'
   return 'other'
 }
 
 const TILE_PATH = /^\/files\/s\d+\/tiles\/(\d+)\/(\d+)\.png$/
-const TILE_ORIGIN = 'https://backend.wplace.live'
 const TRANSPARENT_PNG = new Uint8Array([
   137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 4, 0, 0,
   0, 181, 28, 12, 2, 0, 0, 0, 11, 73, 68, 65, 84, 120, 218, 99, 96, 96, 0, 0, 0, 3, 0, 1, 43, 9, 77,
@@ -21,11 +30,11 @@ const TRANSPARENT_PNG = new Uint8Array([
 export const tileFromUrl = (url: string): TileCoord | null => {
   let parsed: URL
   try {
-    parsed = new URL(url, typeof location === 'undefined' ? TILE_ORIGIN : location.href)
+    parsed = new URL(url, typeof location === 'undefined' ? BACKEND_ORIGIN : location.href)
   } catch {
     return null
   }
-  if (parsed.origin !== TILE_ORIGIN) return null
+  if (parsed.origin !== BACKEND_ORIGIN) return null
   const match = TILE_PATH.exec(parsed.pathname)
   return match === null ? null : parseTileKey(`${match[1]}/${match[2]}`)
 }

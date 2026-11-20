@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import { PALETTE_RGB, TRANSPARENT_INDEX, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveAllianceSurface } from './alliance-surface.js'
 import { installShiftPaint } from './shift-paint.js'
+import { installHeldKeyTracker } from './simulated-input.js'
 
 // Palette index 12 is both the selected swatch (`color-13`) and the template colour.
 const harness = vi.hoisted(() => ({
@@ -18,23 +19,26 @@ const harness = vi.hoisted(() => ({
   alliance: null as ActiveAllianceSurface | null,
 }))
 vi.mock('./templates/move.js', () => ({ isMoving: () => harness.moving }))
-vi.mock('./alliance-surface.js', () => ({ activeAllianceSurface: () => harness.alliance }))
-vi.mock('./state.js', () => ({
+vi.mock('./alliance-editor-dom.js', () => ({
+  activeAllianceEditorStage: () => harness.alliance?.stage ?? null,
+  activeAllianceDialog: () => harness.alliance?.stage?.closest('dialog[open]') ?? null,
+}))
+vi.mock('./alliance-surface.js', () => ({
+  activeAllianceSurface: () => harness.alliance,
+  currentSurface: () => ({ kind: harness.alliance === null ? 'world' : 'alliance-headquarters' }),
+}))
+vi.mock('./settings.js', () => ({
   getState: () => ({ simulatedInput: harness.simulate ? { 'shift-paint': true } : {} }),
 }))
 vi.mock('./map-handle.js', () => ({ getMap: () => ({ getCanvas: () => harness.canvas }) }))
-vi.mock('./wplace-paint.js', () => ({
-  isPaintOpen: () => harness.open,
-  // World swatches carry `color-N`; an alliance swatch here carries its index as `data-index`.
-  paintPaletteSwatches: () => [
-    ...document.querySelectorAll('button[id^="color-"], button[data-index]'),
-  ],
-  paintPaletteIndexOf: (button: Element) =>
-    button.hasAttribute('data-index')
-      ? Number(button.getAttribute('data-index'))
-      : Number(button.id.slice('color-'.length)) - 1,
-}))
-vi.mock('./wplace-picker.js', () => ({
+vi.mock('./wplace-paint.js', async () => {
+  const dom = await vi.importActual<typeof import('./wplace-dom.js')>('./wplace-dom.js')
+  return {
+    isPaintOpen: () => harness.open,
+    currentPaintSwatches: () => dom.paintPaletteSwatches(document),
+  }
+})
+vi.mock('./paint-cell.js', () => ({
   pickerPointAt: (target: Element, x: number, y: number) =>
     target.tagName === 'CANVAS'
       ? { surface: WORLD_TEMPLATE_SURFACE, x, y, alliance: harness.alliance }
@@ -157,6 +161,7 @@ beforeEach(() => {
   simulated = []
   for (const type of ['keydown', 'keyup', 'mousemove', 'pointermove', 'pointerdown', 'click'])
     window.addEventListener(type, (event) => real.has(event) || simulated.push(event), true)
+  teardown.push(installHeldKeyTracker())
   installShiftPaint()
 
   // Wplace's world map: a hold paints its last position, and accepts auto-repeat; held moves paint
@@ -359,7 +364,7 @@ it('simulates on an HQ artboard with its switch off while no world paint panel i
   document.querySelector('button[id^="color-"]')?.remove()
   document.body.insertAdjacentHTML(
     'beforeend',
-    '<button data-index="12" class="ring-primary"></button>',
+    `<button class="game-color-swatch" aria-pressed="true" style="background: rgb(${PALETTE_RGB[12]?.join(' ')})"></button>`,
   )
   move(0)
   key('keydown', 'Space', { shiftKey: true })

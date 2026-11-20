@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import type { PatchableMap } from './map-handle.js'
+import { applyWplacePatches, resetWplacePatches } from './wplace-patches.js'
 import {
-  applyWplacePatches,
   isWplacePatchEnabled,
   onWplacePatchChange,
-  type PatchableMap,
-  resetWplacePatches,
+  resetWplaceSwitches,
   setWplacePatchEnabled,
-} from './wplace-patches.js'
+  wplacePatchSettings,
+} from './wplace-switches.js'
 
 const FILL = 'highlight-area-fill-q86e0q'
 const WHITE = 'highlight-area-line-white-q86e0q'
@@ -51,6 +52,7 @@ const canvasSource = () => {
 }
 
 afterEach(() => {
+  resetWplaceSwitches()
   resetWplacePatches()
 })
 
@@ -154,7 +156,7 @@ describe('switches', () => {
     const seen: string[] = []
     onWplacePatchChange((patch, enabled) => seen.push(`${patch}:${enabled}`))
     setWplacePatchEnabled('tile-refresh', false)
-    resetWplacePatches()
+    resetWplaceSwitches()
     expect(isWplacePatchEnabled('tile-refresh')).toBe(false)
     expect(isWplacePatchEnabled('hover-canvas')).toBe(true)
     expect(seen).toEqual(['tile-refresh:false'])
@@ -163,8 +165,8 @@ describe('switches', () => {
   it('ignores malformed and unknown stored switches', () => {
     localStorage.setItem('caelestis.wplace-patches.v1', JSON.stringify(['nope', 'hover-canvas']))
     expect(isWplacePatchEnabled('hover-canvas')).toBe(false)
-    expect(isWplacePatchEnabled('nope' as never)).toBe(true)
-    resetWplacePatches()
+    expect(wplacePatchSettings().map(({ id }) => id)).not.toContain('nope')
+    resetWplaceSwitches()
     localStorage.setItem('caelestis.wplace-patches.v1', '{not json')
     expect(isWplacePatchEnabled('hover-canvas')).toBe(true)
   })

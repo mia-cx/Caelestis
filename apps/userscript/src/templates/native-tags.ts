@@ -1,6 +1,6 @@
 import { MAX_TEMPLATE_TAGS, type TemplateTag, tagName, tagNameKey, uuidV7 } from '@caelestis/shared'
 import type { NativeMetadataStore, NativeTemplate } from './native-store.js'
-import type { LocalTag } from './tags.js'
+import type { LocalTag } from './tag-schema.js'
 
 const MAX_NATIVE_TAGS = 8
 const MAX_NATIVE_CATALOG = 64
@@ -63,7 +63,8 @@ export const reconcileNativeTags = (
   for (const name of names) {
     let tag = next.find((tag) => same(tag.name, name))
     if (tag === undefined) {
-      if (next.length >= MAX_TEMPLATE_TAGS) throw new Error('The 256-tag limit was reached.')
+      if (next.length >= MAX_TEMPLATE_TAGS)
+        throw new Error(`The ${MAX_TEMPLATE_TAGS}-tag limit was reached.`)
       tag = { id: uuidV7(), name, templateIds: [] }
       next.push(tag)
     }

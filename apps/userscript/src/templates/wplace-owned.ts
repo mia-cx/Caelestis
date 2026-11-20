@@ -1,17 +1,17 @@
-/** Native alliance records stay owned by Wplace. Extra Caelestis records never enter its capped API. */
-export const NATIVE_ALLIANCE_OWNER = 'https://backend.wplace.live'
-/** Wplace's official event overlays, such as the Seven Seals fragments. */
-export const OFFICIAL_OVERLAY_OWNER = 'https://wplace.live'
+import { BACKEND_ORIGIN } from '../wplace-raster.js'
 
 /**
- * Wplace serves these templates itself; Caelestis only mirrors them, read-only.
- *
- * No Caelestis server measures them either, so their progress and markers come from tile pixels,
- * exactly like local art.
+ * Which Wplace feature a mirrored template comes from: a native alliance record, or an official
+ * event overlay such as the Seven Seals fragments. Wplace serves these itself; Caelestis only
+ * mirrors them, read-only.
  */
-export const isWplaceOwned = (serverUrl: string | undefined): boolean =>
-  serverUrl === NATIVE_ALLIANCE_OWNER || serverUrl === OFFICIAL_OVERLAY_OWNER
+export type WplaceOwner = 'alliance' | 'event'
 
-/** Whether Caelestis measures this template from tile pixels rather than a server's reports. */
-export const measuresLocally = (template: { readonly serverUrl?: string | undefined }): boolean =>
-  template.serverUrl === undefined || isWplaceOwned(template.serverUrl)
+/**
+ * The URL each owner's template ids, folders and switches are keyed under, where a server's would
+ * be. Stored switches and tree keys hold these, so they never change.
+ */
+export const WPLACE_OWNER_URL: Readonly<Record<WplaceOwner, string>> = {
+  alliance: BACKEND_ORIGIN,
+  event: 'https://wplace.live',
+}

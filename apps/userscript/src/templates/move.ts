@@ -1,34 +1,27 @@
 import {
   sameTemplateSurface,
   type TemplateSurface,
-  TILE_SIZE,
-  templateSurfaceBounds,
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { activeAllianceSurface } from '../alliance-surface.js'
-import { log, warn } from '../debug.js'
-import {
-  canvasPixelAt,
-  cssPixelsPerCanvasPixel,
-  isMapInteractionTarget,
-  repaint,
-  screenPointFor,
-} from '../main.js'
+import { activeAllianceSurface, allianceSurfaceBounds } from '../alliance-surface.js'
+import { ALLIANCE_PANEL_ID, PANEL_ID } from '../chrome-ids.js'
+import { log, logRender, warn } from '../debug.js'
+import { isMapPress, swallowNextClick } from '../map-pointer.js'
+import { canvasPixelAt, cssPixelsPerCanvasPixel, repaint, screenPointFor } from '../map-view.js'
+import { ANY_DIALOG, MAP_CANVAS } from '../wplace-dom.js'
 import {
   clearLocalPreview,
   isDeletingLocal,
-  isServerTemplate,
   moveTemplateDraft,
-  onLocalReconciliation,
   type PlacedTemplate,
-  placeLocalTemplate,
   previewLocalTemplate,
-  removeLocalTemplate,
   templateById,
   templateDraft,
-} from './local-store.js'
+} from './catalog.js'
 import { horizontalSpans } from './placement.js'
+import { onLocalReconciliation } from './restore.js'
+import { placeLocalTemplate, removeLocalTemplate } from './template-edits.js'
 
 /**
  * Placing a template on the map.
@@ -137,15 +130,11 @@ const sessionTemplate = (): PlacedTemplate | undefined => {
   return draft?.id === session.id ? draft : undefined
 }
 
-/** Where the template currently sits during a move, so the renderer can draw it there. */
-export const movePreviewOrigin = (id: string): { x: number; y: number } | null =>
-  session !== null && session.id === id ? { x: session.x, y: session.y } : null
-
 const isOverTemplate = (clientX: number, clientY: number): boolean => {
   if (session === null) return false
   const template = sessionTemplate()
   if (template === undefined) return false
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   const point = placementPointAt(surface, clientX, clientY)
   if (point === null) return false
   if (surface.kind !== 'world') {
@@ -170,15 +159,15 @@ const boundedOrigin = (
     width: number
     height: number
     wrapX?: boolean
-    surface?: TemplateSurface
+    surface: TemplateSurface
   },
   x: number,
   y: number,
 ): { x: number; y: number } => {
   const roundedX = Math.round(x)
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const { surface } = template
   if (surface.kind !== 'world') {
-    const bounds = placementBounds(surface)
+    const bounds = allianceSurfaceBounds(surface)
     return bounds === null
       ? { x: roundedX, y: Math.round(y) }
       : {
@@ -201,13 +190,6 @@ const matchingAllianceSurface = (surface: TemplateSurface) => {
   return active !== null && sameTemplateSurface(active.surface, surface) ? active : null
 }
 
-const placementBounds = (surface: TemplateSurface) => {
-  const active = matchingAllianceSurface(surface)
-  return surface.kind === 'alliance-headquarters' && active?.bounds !== null
-    ? (active?.bounds ?? templateSurfaceBounds(surface))
-    : templateSurfaceBounds(surface)
-}
-
 const placementPointAt = (
   surface: TemplateSurface,
   clientX: number,
@@ -215,7 +197,7 @@ const placementPointAt = (
 ): { x: number; y: number } | null => {
   if (surface.kind === 'world') return canvasPixelAt(clientX, clientY)
   const active = matchingAllianceSurface(surface)
-  const bounds = placementBounds(surface)
+  const bounds = allianceSurfaceBounds(surface)
   if (active === null || bounds === null) return null
   const rect = active.frame.getBoundingClientRect()
   if (
@@ -242,7 +224,7 @@ export const placementScreenPoint = (
 ): { x: number; y: number } | null => {
   if (surface.kind === 'world') return screenPointFor(x, y)
   const active = matchingAllianceSurface(surface)
-  const bounds = placementBounds(surface)
+  const bounds = allianceSurfaceBounds(surface)
   const scale = placementScale(surface)
   if (active === null || bounds === null || scale === null) return null
   const rect = active.frame.getBoundingClientRect()
@@ -253,7 +235,7 @@ export const placementScreenPoint = (
 export const placementScale = (surface: TemplateSurface): { x: number; y: number } | null => {
   if (surface.kind === 'world') return cssPixelsPerCanvasPixel()
   const active = matchingAllianceSurface(surface)
-  const bounds = placementBounds(surface)
+  const bounds = allianceSurfaceBounds(surface)
   if (active === null || bounds === null) return null
   const rect = active.frame.getBoundingClientRect()
   const width = bounds.maxX - bounds.minX
@@ -274,7 +256,7 @@ const isDirectControl = (target: EventTarget | null): boolean => {
     element.isContentEditable === true ||
     ['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'].includes(element.tagName?.toUpperCase() ?? '') ||
     (element.closest?.(
-      'a,button,input,select,textarea,[contenteditable="true"],[role="button"],[role="link"],#caelestis-panel,#caelestis-alliance-panel',
+      `a,button,input,select,textarea,[contenteditable="true"],[role="button"],[role="link"],#${PANEL_ID},#${ALLIANCE_PANEL_ID}`,
     ) ?? null) !== null
   )
 }
@@ -283,7 +265,8 @@ const isPlacementInteractionTarget = (
   surface: TemplateSurface,
   target: EventTarget | null,
 ): boolean => {
-  if (surface.kind === 'world') return !isPageControl(target) && isMapInteractionTarget(target)
+  // Placement also leaves editable text, links and our own panels to the page, on either surface.
+  if (surface.kind === 'world') return isMapPress(target) && !isDirectControl(target)
   if (isDirectControl(target) || target === null) return false
   const active = matchingAllianceSurface(surface)
   if (active === null) return false
@@ -300,7 +283,7 @@ const setCursor = (shape: string): void => {
   const surface = template?.surface ?? WORLD_TEMPLATE_SURFACE
   const host =
     surface.kind === 'world'
-      ? document.querySelector<HTMLElement>('canvas.maplibregl-canvas')
+      ? document.querySelector<HTMLElement>(MAP_CANVAS)
       : matchingAllianceSurface(surface)?.frame
   if (host !== null && host !== undefined) host.style.cursor = shape
 }
@@ -312,7 +295,7 @@ const onPointerDown = (event: PointerEvent): void => {
   if (session.dragging !== null) return
   const template = sessionTemplate()
   if (template === undefined) return
-  const surface = template.surface ?? WORLD_TEMPLATE_SURFACE
+  const surface = template.surface
   if (!isPlacementInteractionTarget(surface, event.target)) return
   suppressMiddleAuxClickFor = null
   // Middle click: jump, do not drag. A long move should not require dragging the whole way.
@@ -329,7 +312,7 @@ const onPointerDown = (event: PointerEvent): void => {
     session.x = next.x
     session.y = next.y
     previewMove(session.id, session.x, session.y)
-    log('draw', 'template centred on cursor', { x: session.x, y: session.y })
+    logRender('draw', 'template centred on cursor', { x: session.x, y: session.y })
     return
   }
   if (event.button !== 0) return
@@ -379,9 +362,9 @@ const previewMove = (id: string, x: number, y: number): void => {
       if (moveTemplateDraft(x, y)) session.onDraftMove(x, y)
       return
     }
-    if (!previewLocalTemplate(id, x, y)) warn('install', 'template move could not be previewed')
+    if (!previewLocalTemplate(id, x, y)) warn('template move could not be previewed')
   } catch (error) {
-    warn('install', 'template move failed', String(error))
+    warn('template move failed', String(error))
   }
 }
 
@@ -391,7 +374,10 @@ const onPointerUp = (event: PointerEvent): void => {
     setCursor(isOverTemplate(event.clientX, event.clientY) ? 'grab' : '')
     event.preventDefault()
     event.stopPropagation()
-    swallowNextClick()
+    const surface = sessionTemplate()?.surface ?? WORLD_TEMPLATE_SURFACE
+    swallowNextClick((target) =>
+      surface.kind === 'world' ? !isPageControl(target) : !isDirectControl(target),
+    )
   }
   if (suppressMiddleAuxClickFor === event.pointerId) {
     const pointerId = event.pointerId
@@ -399,22 +385,6 @@ const onPointerUp = (event: PointerEvent): void => {
       if (suppressMiddleAuxClickFor === pointerId) suppressMiddleAuxClickFor = null
     }, 0)
   }
-}
-
-const swallowNextClick = (): void => {
-  const clickTarget = window
-  const template = sessionTemplate()
-  const surface = template?.surface ?? WORLD_TEMPLATE_SURFACE
-  const swallow = (event: Event): void => {
-    clickTarget.removeEventListener('click', swallow, true)
-    clearTimeout(timer)
-    if (surface.kind === 'world' ? isPageControl(event.target) : isDirectControl(event.target))
-      return
-    event.preventDefault()
-    event.stopPropagation()
-  }
-  const timer = setTimeout(() => clickTarget.removeEventListener('click', swallow, true), 400)
-  clickTarget.addEventListener('click', swallow, true)
 }
 
 const onPointerCancel = (event: PointerEvent): void => {
@@ -431,7 +401,7 @@ const isPageControl = (target: EventTarget | null): boolean => {
   if (isDirectControl(target) || target === null || typeof target !== 'object')
     return isDirectControl(target)
   const element = target as { closest?: (selector: string) => Element | null }
-  return (element.closest?.('dialog,[role="dialog"]') ?? null) !== null
+  return (element.closest?.(ANY_DIALOG) ?? null) !== null
 }
 
 const isPageControlEvent = (event: Event): boolean => {
@@ -550,7 +520,7 @@ export const beginDraftPlacement = (
   placements += 1
   session = {
     id: draft.id,
-    surface: draft.surface ?? WORLD_TEMPLATE_SURFACE,
+    surface: draft.surface,
     onDraftMove: onMove,
     x: draft.originX,
     y: draft.originY,
@@ -593,13 +563,13 @@ const begin = (
   const template = templateById(id)
   if (
     template === undefined ||
-    (isServerTemplate(template) ? persistRemote === undefined : persistRemote !== undefined)
+    (template.origin === 'local' ? persistRemote !== undefined : persistRemote === undefined)
   )
     return false
   placements += 1
   const nextSession: MoveSession = {
     id,
-    surface: template.surface ?? WORLD_TEMPLATE_SURFACE,
+    surface: template.surface,
     ...(persistRemote === undefined ? {} : { persistRemote }),
     x: restoredOrigin?.x ?? template.originX,
     y: restoredOrigin?.y ?? template.originY,
@@ -614,7 +584,7 @@ const begin = (
       }
     } catch (error) {
       session = null
-      warn('install', 'template placement could not be restored', String(error))
+      warn('template placement could not be restored', String(error))
       return false
     }
   }
@@ -628,9 +598,9 @@ const begin = (
   try {
     repaint()
   } catch (error) {
-    warn('install', 'repaint after starting placement failed', error)
+    warn('repaint after starting placement failed', error)
   }
-  log('install', `move started for ${template.name}`)
+  log(`move started for ${template.name}`)
   return true
 }
 
@@ -648,7 +618,7 @@ const finish = (reserveNext = false): MoveReservation | null => {
   try {
     repaint()
   } catch (error) {
-    warn('install', 'repaint after placement failed', error)
+    warn('repaint after placement failed', error)
   }
   finishing = false
   suppressMiddleAuxClickFor = null
@@ -662,9 +632,7 @@ const finish = (reserveNext = false): MoveReservation | null => {
   } catch (error) {
     // Completion is an observer notification, not part of the durable placement transaction.
     // Never let it reopen capture-phase listeners after teardown.
-    try {
-      warn('install', 'placement completion callback failed', String(error))
-    } catch {}
+    warn('placement completion callback failed', String(error))
   }
   return reservation
 }
@@ -685,7 +653,7 @@ export const stopMoveForDeletion = (
 }
 
 const resumeAfterFailure = (action: string, error?: unknown): void => {
-  warn('install', `${action} could not be saved; placement is still open`, String(error ?? ''))
+  warn(`${action} could not be saved; placement is still open`, String(error ?? ''))
   finishing = false
   listen(true)
   // Resuming is a state change like any other, and `finish` announces its own. Without this a
@@ -694,7 +662,7 @@ const resumeAfterFailure = (action: string, error?: unknown): void => {
   try {
     repaint()
   } catch (error) {
-    warn('install', 'repaint after resuming placement failed', error)
+    warn('repaint after resuming placement failed', error)
   }
 }
 
@@ -730,7 +698,7 @@ export const commit = async (): Promise<void> => {
       resumeAfterFailure('placement')
       return
     }
-    log('install', 'placement applied', { x: current.x, y: current.y })
+    log('placement applied', { x: current.x, y: current.y })
     finish()
   } catch (error) {
     resumeAfterFailure('placement', error)
@@ -784,12 +752,3 @@ export const abortMoveOutsideSurface = async (surface: TemplateSurface | null): 
   if (surface !== null && sameTemplateSurface(session.surface, surface)) return
   await abort()
 }
-
-/** Tile-aligned bounds of the template being moved, for drawing its outline. */
-export const moveOutline = (): { x: number; y: number; w: number; h: number } | null => {
-  const template = sessionTemplate()
-  if (session === null || template === undefined) return null
-  return { x: session.x, y: session.y, w: template.width, h: template.height }
-}
-
-export const TILE = TILE_SIZE

@@ -1,34 +1,18 @@
-import {
-  latLngToCanvasPixel,
-  type TemplateSurface,
-  TILE_SIZE,
-  TRANSPARENT_INDEX,
-  WORLD_PIXELS,
-  WORLD_TEMPLATE_SURFACE,
-} from '@caelestis/shared'
-import { allianceBounds, alliancePointAt } from './alliance-coordinates.js'
-import { type ActiveAllianceSurface, activeAllianceSurface } from './alliance-surface.js'
 import { log } from './debug.js'
-import { readArtboardPixels } from './gl/artboard-pixels.js'
 import { showPickCell } from './gl/pick-cell-layer.js'
-import { canvasPixelAt } from './main.js'
-import { getMap } from './map-handle.js'
-import { nativePixelAt } from './native-pixels.js'
-import { forwardPaintMove, isForwardedPaintKey, isForwardedPaintMove } from './paint-cursor.js'
-import { pickerIndex } from './picker-source.js'
-import { simulatedInputAllowed } from './simulated-input.js'
-import { claimedHiddenFor } from './templates/colour-filter.js'
+import { CLICK_SLOP_PX } from './map-pointer.js'
+import { overlayIndexAt, pickedIndexAt, pickerPointAt } from './paint-cell.js'
 import {
-  appearanceOf,
-  displayTemplatesForSurface,
-  isTemplateVisible,
-} from './templates/local-store.js'
+  forwardPaintMove,
+  heldKeys,
+  installHeldKeyTracker,
+  isForwardedEvent,
+  moveSamples,
+  simulatedInputAllowed,
+} from './simulated-input.js'
 import { isMoving } from './templates/move.js'
-import { sourceXAt } from './templates/placement.js'
-import { pixelAt } from './templates/sparse-pixels.js'
-import { ensureTilePixels } from './tile-transform.js'
-import { worldNativePixels } from './world-native-pixels.js'
-import { findWplaceLabelled, wplaceLabel } from './wplace-messages.js'
+import { activeNativeTool, OPEN_DIALOG } from './wplace-dom.js'
+import { findWplaceLabelled } from './wplace-messages.js'
 import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
 
 /**
@@ -58,10 +42,10 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * pixel. The picker therefore resolves the whole logical cell and never tests the rendered stamp.
  *
  * Follow-the-selection is the exception, and it has to be. Under that mode every colour but the one
- * in hand is out of sight, so answering only for what is drawn meant the picker could only ever hand
- * back the colour already selected — it could not be used to *change* colour, which is the whole of
- * what it is for. The mode is a way of looking at one colour at a time, not a claim that the rest of
- * the template is not there, so the pick reads through it.
+ * in hand is out of sight, so answering only for what is drawn would mean the picker could only
+ * ever hand back the colour already selected — it could not be used to *change* colour, which is
+ * the whole of what it is for. The mode is a way of looking at one colour at a time, not a claim
+ * that the rest of the template is not there, so the pick reads through it.
  *
  * Every answer selects its colour by clicking a Wplace swatch. On the world map Wplace flags an
  * untrusted swatch click on the account, so each gesture there has its own simulated-input switch:
@@ -73,146 +57,16 @@ import { isPaintOpen, selectPaintColour } from './wplace-paint.js'
  * template.
  */
 
-/**
- * What counts as "on the map".
- *
- * The container as well as the canvas: MapLibre puts markers and their own overlays inside it, and a
- * middle click that lands on one of those is still a click on the map. Our own panel and menus are
- * outside it, which is the distinction being drawn.
- */
-const MAP_SURFACE = '.maplibregl-canvas-container, canvas.maplibregl-canvas'
 const MIDDLE_BUTTON_MASK = 4
-
-/** The palette index our overlay claims at a logical canvas pixel, or null if it claims none. */
-export const overlayIndexAt = (surface: TemplateSurface, x: number, y: number): number | null => {
-  // Last match wins: the layer draws templates in this order, so the last one drawn is the one on
-  // top, and the one on top is the one being pointed at.
-  let found: number | null = null
-  for (const template of displayTemplatesForSurface(surface)) {
-    if (!isTemplateVisible(template)) continue
-    const localX = sourceXAt(template, x)
-    const localY = y - template.originY
-    if (localX === null || localY < 0 || localY >= template.height) continue
-    const cellX = Math.floor(localX)
-    const cellY = Math.floor(localY)
-    // A visible template under the pointer is resident; one still loading has nothing to pick.
-    const pixels = template.artwork.pixels
-    if (pixels === null) continue
-    const index = pixelAt(pixels, cellX, cellY)
-    if (index === TRANSPARENT_INDEX) continue
-    if (claimedHiddenFor(appearanceOf(template)).includes(index)) continue
-    found = index
-  }
-  return found
-}
-
-/** The exact base tile index. A cache miss starts a fetch and returns no colour for Wplace to pick. */
-const placedIndexAt = (x: number, y: number, includeDraft = false): number | null => {
-  const column = Math.floor(x)
-  const row = Math.floor(y)
-  const tile = {
-    x: Math.floor(column / TILE_SIZE),
-    y: Math.floor(row / TILE_SIZE),
-  }
-  ensureTilePixels(tile)
-  return nativePixelAt(worldNativePixels(tile), column, row, includeDraft)?.index ?? null
-}
-
-/** The colour the picker is allowed to offer at one canvas pixel. */
-interface PickerPoint {
-  readonly surface: TemplateSurface
-  readonly x: number
-  readonly y: number
-  readonly alliance: ActiveAllianceSurface | null
-}
-
-/** Resolve the logical paint cell using the native surface's projection. */
-export const pickerPointAt = (
-  target: Element,
-  clientX: number,
-  clientY: number,
-): PickerPoint | null => {
-  const alliance = activeAllianceSurface()
-  if (alliance?.frame.contains(target)) {
-    const point = alliancePointAt(alliance, clientX, clientY)
-    return point === null ? null : { surface: alliance.surface, ...point, alliance }
-  }
-  if (target.closest(MAP_SURFACE) === null) return null
-  // Rendered tile bounds can be rounded by half a screen pixel. Use the same projection as
-  // Wplace's paint listener so a boundary never picks the next row or column prematurely.
-  const map = getMap()
-  const point =
-    map === null
-      ? canvasPixelAt(clientX, clientY)
-      : latLngToCanvasPixel(map.unproject([clientX, clientY]))
-  return point === null ? null : { surface: WORLD_TEMPLATE_SURFACE, ...point, alliance: null }
-}
-
-/** The alliance surface's exact native pixel, or null while it is unknown. */
-const allianceIndexAt = (
-  alliance: ActiveAllianceSurface,
-  x: number,
-  y: number,
-  includeDraft: boolean,
-): number | null => {
-  const bounds = allianceBounds(alliance)
-  if (bounds === null) return null
-  const regions = readArtboardPixels(alliance, {
-    originX: bounds.minX,
-    originY: bounds.minY,
-    width: bounds.maxX - bounds.minX,
-    height: bounds.maxY - bounds.minY,
-  })
-  return nativePixelAt(regions, x, y, includeDraft)?.index ?? null
-}
-
-const pickedIndexAt = ({ surface, x, y, alliance }: PickerPoint): number | null => {
-  const template = overlayIndexAt(surface, x, y)
-  const pixelArt = alliance === null ? placedIndexAt(x, y) : allianceIndexAt(alliance, x, y, false)
-  return pickerIndex({ template, pixelArt })
-}
-
-/** Uncomposited colour under the brush on either surface, including the current native draft. */
-export const paintIndexAt = ({ x, y, alliance }: PickerPoint): number | null =>
-  alliance === null ? placedIndexAt(x, y, true) : allianceIndexAt(alliance, x, y, true)
-
-/**
- * Wplace exposes no picker state, but its rendered control does: the active tool is `btn-primary`.
- * Prefer the visible tooltip label; both native icon themes identify the tool when Wplace
- * translates that label. Legacy UI uses the pixel icon instead of the material-symbol icon.
- */
-const PICKER_ICON_PREFIXES = ['M120-120v-190', 'M3 21h2v2H1v-4h2v2Z']
-
-const nativePickerButton = (): HTMLButtonElement | null => {
-  const labelled = findWplaceLabelled(document, 'button', 'color_picker')
-  if (labelled !== null) return labelled
-  const picker = wplaceLabel('color_picker')
-  for (const tooltip of document.querySelectorAll('.tooltip')) {
-    const label = tooltip.querySelector('.tooltip-content')?.textContent ?? ''
-    if (!label.includes(picker)) continue
-    const button = tooltip.querySelector('button')
-    if (button instanceof HTMLButtonElement) return button
-  }
-  for (const path of document.querySelectorAll('button path')) {
-    const outline = path.getAttribute('d')
-    if (!PICKER_ICON_PREFIXES.some((prefix) => outline?.startsWith(prefix))) continue
-    const button = path.closest('button')
-    if (button instanceof HTMLButtonElement) return button
-  }
-  return null
-}
-
-const nativePickerIsActive = (): boolean =>
-  nativePickerButton()?.classList.contains('btn-primary') ?? false
 
 const exitNativePicker = (): void => {
   // World painting exits the picker when its swatch changes. Alliance painting does not, and its
   // picker button is not a toggle. Toggling the native eraser on and back off is the public route
   // to the neutral brush tool, so use it only if Wplace still has the picker active after rendering.
   requestAnimationFrame(() => {
-    const button = nativePickerButton()
-    if (!button?.classList.contains('btn-primary')) return
-    const root = button.closest('dialog[open]') ?? document
+    const button = activeNativeTool('color_picker')
+    if (button === null) return
+    const root = button.closest(OPEN_DIALOG) ?? document
     const eraser = findWplaceLabelled(root, 'button', 'eraser')
     if (eraser === null) return
     eraser.click()
@@ -228,6 +82,7 @@ const exitNativePicker = (): void => {
  * reads its switches when it starts, so a gesture already under way finishes as it began.
  */
 export const installColourPicker = (): void => {
+  installHeldKeyTracker()
   type MiddlePick = {
     readonly pointerId: number
     readonly target: Element
@@ -238,27 +93,6 @@ export const installColourPicker = (): void => {
   }
   let middlePick: MiddlePick | null = null
   let pendingMiddleClick: MiddlePick | null = null
-  let spaceHeld = false
-  window.addEventListener(
-    'keydown',
-    (event) => {
-      if (isForwardedPaintKey(event)) return
-      if (event.code === 'Space') spaceHeld = true
-    },
-    { capture: true },
-  )
-  window.addEventListener(
-    'keyup',
-    (event) => {
-      if (isForwardedPaintKey(event)) return
-      if (event.code === 'Space') spaceHeld = false
-    },
-    { capture: true },
-  )
-  window.addEventListener('blur', () => {
-    spaceHeld = false
-  })
-
   const endMiddlePick = (released = false): void => {
     const pick = middlePick
     if (pick === null) return
@@ -287,8 +121,8 @@ export const installColourPicker = (): void => {
   /**
    * Replace Wplace's left-click pipette before Wplace handles the pointer sequence.
    *
-   * Wplace now ends picker mode during pointer handling, before the later `click` reaches our old
-   * capture listener. Capturing `pointerdown` on `window` preserves the active-tool signal and wins
+   * Wplace ends picker mode during pointer handling, before a `click` listener would see it.
+   * Capturing `pointerdown` on `window` preserves the active-tool signal and wins
    * without patching a Svelte store. The matching click is swallowed below so Wplace cannot run its
    * composited fallback after we have answered from source pixels.
    */
@@ -297,12 +131,12 @@ export const installColourPicker = (): void => {
     (event) => {
       // A new pointer sequence supersedes any pick that never produced its click.
       pendingLeftPick = null
-      if (event.button !== 0 || !isPaintOpen() || !nativePickerIsActive()) return
+      if (event.button !== 0 || !isPaintOpen() || activeNativeTool('color_picker') === null) return
       const target = event.target
       if (!(target instanceof Element)) return
       const point = pickerPointAt(target, event.clientX, event.clientY)
       if (point === null) return
-      if (!simulatedInputAllowed('picker-reads-templates', point.alliance !== null)) {
+      if (!simulatedInputAllowed('picker-reads-templates')) {
         // Only the world map gets here. Wplace's picker answers this click itself from the rendered
         // map, and showing it the template cell solid lets it pick the template colour unflagged.
         const index = overlayIndexAt(point.surface, point.x, point.y)
@@ -316,7 +150,7 @@ export const installColourPicker = (): void => {
       const { x, y } = point
       const index = pickedIndexAt(point)
       if (index === null || !selectPaintColour(index)) {
-        log('install', 'picker source has no colour here; Wplace picks', { x, y })
+        log('picker source has no colour here; Wplace picks', { x, y })
         return
       }
       event.preventDefault()
@@ -332,7 +166,7 @@ export const installColourPicker = (): void => {
       // Wplace's swatch normally exits this one-shot tool itself. Check after its render and only
       // use the picker button as a fallback if that state change did not happen.
       exitNativePicker()
-      log('install', 'picked a colour from source pixels', { x, y, index })
+      log('picked a colour from source pixels', { x, y, index })
     },
     { capture: true },
   )
@@ -369,8 +203,8 @@ export const installColourPicker = (): void => {
         event.button !== 0 ||
         event.target !== pending.target ||
         performance.now() > pending.until ||
-        Math.abs(event.clientX - pending.x) > 4 ||
-        Math.abs(event.clientY - pending.y) > 4
+        Math.abs(event.clientX - pending.x) > CLICK_SLOP_PX ||
+        Math.abs(event.clientY - pending.y) > CLICK_SLOP_PX
       )
         return
       event.preventDefault()
@@ -403,7 +237,7 @@ export const installColourPicker = (): void => {
 
       const index = overlayIndexAt(point.surface, point.x, point.y)
       if (index === null) return
-      if (!simulatedInputAllowed('middle-click-pick', point.alliance !== null)) {
+      if (!simulatedInputAllowed('middle-click-pick')) {
         // Only the world map gets here. Wplace's own middle-click pick reads the rendered map, and
         // showing it the template cell solid lets it pick the template colour unflagged.
         showPickCell(point.x, point.y, index)
@@ -418,7 +252,7 @@ export const installColourPicker = (): void => {
       // A drag pick forwards its own moves, so it cancels the press. A single pick leaves it
       // uncancelled, so the real `mousemove`s Wplace paints from keep coming, and the `mousedown`
       // listener below cancels the press there instead.
-      const drags = simulatedInputAllowed('drag-pick', point.alliance !== null)
+      const drags = simulatedInputAllowed('drag-pick')
       if (drags) event.preventDefault()
       event.stopImmediatePropagation()
       middlePick = {
@@ -430,7 +264,7 @@ export const installColourPicker = (): void => {
       }
       pendingMiddleClick = middlePick
       target.setPointerCapture(event.pointerId)
-      log('install', 'picked a colour from the overlay', { x: point.x, y: point.y, index })
+      log('picked a colour from the overlay', { x: point.x, y: point.y, index })
     },
     { capture: true },
   )
@@ -438,7 +272,7 @@ export const installColourPicker = (): void => {
   window.addEventListener(
     'pointermove',
     (event) => {
-      if (isForwardedPaintMove(event)) return
+      if (isForwardedEvent(event)) return
       const pick = middlePick
       if (pick === null || pick.pointerId !== event.pointerId) return
       if ((event.buttons & MIDDLE_BUTTON_MASK) === 0 || !isPaintOpen() || isMoving()) {
@@ -459,22 +293,14 @@ export const installColourPicker = (): void => {
       const movement = point.alliance === null ? 'mousemove' : 'pointermove'
       const from = pick.lastPosition
       pick.lastPosition = { clientX: event.clientX, clientY: event.clientY }
-      const start = pickerPointAt(target, from.clientX, from.clientY)
-      let steps = 1
-      if (spaceHeld && start !== null) {
-        const dx = Math.abs(point.x - start.x)
-        const width = point.alliance === null ? Math.min(dx, WORLD_PIXELS - dx) : dx
-        // Native painting fills between events. Sample at most one logical pixel apart so fast
-        // movement cannot fill an unsampled colour run with the previous run's colour.
-        steps = Math.max(1, Math.ceil(Math.max(width, Math.abs(point.y - start.y))))
-      }
-      for (let step = 1; step <= steps; step++) {
-        const client = {
-          clientX: from.clientX + ((event.clientX - from.clientX) * step) / steps,
-          clientY: from.clientY + ((event.clientY - from.clientY) * step) / steps,
-        }
+      // Only a held Space paints between events, so only then does every crossed cell need a pick.
+      const start = heldKeys().space ? pickerPointAt(target, from.clientX, from.clientY) : null
+      const samples = moveSamples(from, event, start, point)
+      for (const [step, client] of samples.entries()) {
         const sample =
-          step === steps ? point : pickerPointAt(target, client.clientX, client.clientY)
+          step === samples.length - 1
+            ? point
+            : pickerPointAt(target, client.clientX, client.clientY)
         if (sample === null) continue
         // Advance with the old colour before changing the swatch: native lines include their
         // previous pixel. Then repaint only the new endpoint with its newly picked colour.
@@ -508,7 +334,7 @@ export const installColourPicker = (): void => {
     window.addEventListener(
       type,
       (event) => {
-        if (isForwardedPaintMove(event)) return
+        if (isForwardedEvent(event)) return
         const claimed =
           type === 'mousemove'
             ? middlePick?.drags === true

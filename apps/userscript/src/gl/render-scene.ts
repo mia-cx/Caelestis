@@ -4,17 +4,17 @@ import {
   TRANSPARENT_INDEX,
   WPLACE_PALETTE,
 } from '@caelestis/shared'
-import { getState, getSurfaceAppearance, type State } from '../state.js'
+import { getState, getSurfaceAppearance, type State } from '../settings.js'
 import { type Appearance, isColourHidden } from '../templates/appearance.js'
 import {
   appearancePreviewRevision,
   appearanceWithPreview,
   hasAppearancePreview,
 } from '../templates/appearance-preview.js'
+import { appearanceOf, isTemplateVisible, type PlacedTemplate } from '../templates/catalog.js'
 import { hiddenColoursFor } from '../templates/colour-filter.js'
-import { appearanceOf, isTemplateVisible, type PlacedTemplate } from '../templates/local-store.js'
 import { serverNodesRevision } from '../templates/server-nodes.js'
-import { isPaintOpen, selectedColour } from '../wplace-paint.js'
+import { selectedColour } from '../wplace-paint.js'
 import { appearanceTransitionSet } from './appearance-transition.js'
 import { ramps } from './fade.js'
 
@@ -47,7 +47,6 @@ interface RetainedTemplate {
   readonly visible: boolean
   readonly target: Appearance
   readonly hidden: readonly number[]
-  readonly reducedMotion: boolean
   readonly interactive: boolean
   readonly rendered: SceneTemplate
   readonly done: boolean
@@ -84,7 +83,7 @@ interface SceneInputs {
   readonly inherited: Appearance
   readonly previews: number
   readonly nodes: number
-  readonly paintOpen: boolean
+  /** Null while the paint drawer is closed. */
   readonly paintColour: number | null
 }
 
@@ -93,7 +92,6 @@ const sceneInputs = (surface: TemplateSurface): SceneInputs => ({
   inherited: getSurfaceAppearance(surface),
   previews: appearancePreviewRevision(),
   nodes: serverNodesRevision(),
-  paintOpen: isPaintOpen(),
   paintColour: selectedColour(),
 })
 
@@ -102,7 +100,6 @@ const sameInputs = (left: SceneInputs, right: SceneInputs): boolean =>
   left.inherited === right.inherited &&
   left.previews === right.previews &&
   left.nodes === right.nodes &&
-  left.paintOpen === right.paintOpen &&
   left.paintColour === right.paintColour
 
 /**
@@ -116,7 +113,6 @@ export class RenderScene {
     readonly key: object | undefined
     readonly templates: readonly PlacedTemplate[]
     readonly surface: TemplateSurface
-    readonly reducedMotion: boolean
     readonly inputs: SceneInputs
     readonly result: SceneTemplates
   } | null = null
@@ -169,7 +165,6 @@ export class RenderScene {
     templates: readonly PlacedTemplate[],
     surface: TemplateSurface,
     now: number,
-    reducedMotion: boolean,
     frame?: object,
   ): SceneTemplates {
     const inputs = sceneInputs(surface)
@@ -178,7 +173,6 @@ export class RenderScene {
       prepared !== null &&
       ((frame !== undefined && prepared.key === frame) || !prepared.result.animating) &&
       prepared.surface === surface &&
-      prepared.reducedMotion === reducedMotion &&
       sameInputs(prepared.inputs, inputs) &&
       // Hosts pass a list that keeps its identity while nothing changes; a fresh copy is compared.
       (prepared.templates === templates ||
@@ -212,7 +206,6 @@ export class RenderScene {
         held?.done &&
         held.rendered.template === template &&
         held.visible === visible &&
-        held.reducedMotion === reducedMotion &&
         held.interactive === interactive &&
         sameAppearance(held.target, target) &&
         sameNumbers(held.hidden, hidden)
@@ -220,13 +213,7 @@ export class RenderScene {
         return held.rendered
 
       const fade = this.templateFades.advance(template.id, visible ? 1 : 0, now)
-      const transitioned = this.appearances.advance(
-        template.id,
-        target,
-        now,
-        reducedMotion,
-        interactive,
-      )
+      const transitioned = this.appearances.advance(template.id, target, now, interactive)
       const outline = this.outlineFades.advance(
         template.id,
         transitioned.appearance.contrastOutline ? 1 : 0,
@@ -250,7 +237,6 @@ export class RenderScene {
         visible,
         target,
         hidden: hidden.slice(),
-        reducedMotion,
         interactive,
         rendered,
         done,
@@ -260,7 +246,7 @@ export class RenderScene {
     const result = { templates: rendered, animating }
     // The world passes its current quad array, replaced at every captured map frame. Other hosts
     // may omit the key. Each host owns its scene, so nothing prepared crosses a host.
-    this.prepared = { key: frame, templates, surface, reducedMotion, inputs, result }
+    this.prepared = { key: frame, templates, surface, inputs, result }
     return result
   }
 

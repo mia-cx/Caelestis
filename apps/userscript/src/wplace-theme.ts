@@ -1,5 +1,6 @@
 import { log, warn } from './debug.js'
 import { getMap } from './map-handle.js'
+import { OPEN_DIALOG } from './wplace-dom.js'
 import { getWplaceState } from './wplace-state.js'
 
 /**
@@ -8,11 +9,8 @@ import { getWplaceState } from './wplace-state.js'
  * Wplace keeps the theme in three places: a `theme` key in localStorage, a `data-theme` attribute
  * on the document element (DaisyUI reads that), and a Svelte state that swaps the map basemap
  * between the `liberty` and `fiord` styles. Only their own setter touches all three, and the only
- * thing that calls it is a pair of buttons inside the settings dialog. The old shortcut looked for
- * those buttons by `aria-label`, and when Wplace moved the label into the button text the key went
- * quietly dead.
- *
- * So this no longer depends on one selector. In order:
+ * thing that calls it is a pair of buttons inside the settings dialog, whose markup Wplace changes
+ * without notice. So this does not depend on one selector. In order:
  *
  * 0. Call their setter. `wplace-state.ts` catches the state object as it is built, and assigning
  *    its `theme` is exactly what their button does. This is the normal path.
@@ -45,7 +43,7 @@ let syncing = false
 const root = (): HTMLElement => document.documentElement
 
 /** The theme Wplace currently applies, from the attribute first and storage second. */
-export const currentWplaceTheme = (): string => {
+const currentWplaceTheme = (): string => {
   const applied = root().getAttribute('data-theme')
   let theme = applied !== null && applied !== '' ? applied : null
   if (theme === null) {
@@ -60,7 +58,7 @@ export const currentWplaceTheme = (): string => {
   return resolved
 }
 
-export const isWplaceDarkTheme = (): boolean => currentWplaceTheme() === DARK_THEME
+const isWplaceDarkTheme = (): boolean => currentWplaceTheme() === DARK_THEME
 
 const nextTheme = (): string => (isWplaceDarkTheme() ? rememberedLight : DARK_THEME)
 
@@ -101,7 +99,7 @@ const isEnabled = (element: HTMLElement): boolean =>
   !(element as HTMLButtonElement).disabled && element.getAttribute('aria-disabled') !== 'true'
 
 const openDialogs = (): HTMLDialogElement[] => [
-  ...document.querySelectorAll<HTMLDialogElement>('dialog[open]'),
+  ...document.querySelectorAll<HTMLDialogElement>(OPEN_DIALOG),
 ]
 
 const settingsOpener = (): HTMLElement | null => {
@@ -133,7 +131,7 @@ const styleUrlFor = (theme: string): string | null => {
   return last.replace(/\/styles\/[^/?#]+(\/?)$/, `/styles/${wanted}$1`)
 }
 
-/** Steps 3: apply the theme without Wplace's help. */
+/** Step 3: apply the theme without Wplace's help. */
 const applyDirectly = (theme: string): void => {
   root().setAttribute('data-theme', theme)
   try {
@@ -141,16 +139,16 @@ const applyDirectly = (theme: string): void => {
   } catch {
     // Storage can be unavailable; the attribute is what the page reads.
   }
-  const map = getMap() as { setStyle?: (style: string) => unknown } | null
+  const map = getMap()
   const style = styleUrlFor(theme)
-  if (map?.setStyle !== undefined && style !== null) {
+  if (map !== null && style !== null) {
     try {
       map.setStyle(style)
     } catch (error) {
-      warn('install', 'could not swap the map style for the theme', String(error))
+      warn('could not swap the map style for the theme', String(error))
     }
   }
-  log('install', 'theme applied directly', { theme, style })
+  log('theme applied directly', { theme, style })
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -191,7 +189,7 @@ const syncThroughSettings = async (theme: string): Promise<boolean> => {
     dialog?.close()
     return currentWplaceTheme() === theme
   } catch (error) {
-    warn('install', 'theme sync through settings failed', String(error))
+    warn('theme sync through settings failed', String(error))
     return false
   } finally {
     hide.remove()
@@ -222,7 +220,7 @@ export const toggleWplaceTheme = (): boolean => {
       state.theme = theme
       if (currentWplaceTheme() === theme) return true
     } catch (error) {
-      warn('install', 'Wplace theme setter failed; falling back', String(error))
+      warn('Wplace theme setter failed; falling back', String(error))
     }
   }
   const visible = nativeControlFor(theme)

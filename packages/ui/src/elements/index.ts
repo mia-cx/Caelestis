@@ -15,6 +15,12 @@ import TemplateStudioElement from './TemplateStudio.element.svelte'
 export type * from '../appearance/model.js'
 export type * from '../backfill/model.js'
 export type * from '../claim/model.js'
+export {
+  CLAIM_TOOL_GROUPS,
+  claimToolEntry,
+  claimToolForKey,
+  clampClaimOption,
+} from '../claim/model.js'
 // The userscript bundles this entry as a separate module instance, so it needs its own export.
 export { type IconSet, useIconSet } from '../foundations/icons.svelte.js'
 export type * from '../notifications/model.js'

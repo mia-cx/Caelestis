@@ -1,8 +1,9 @@
+import type { ShortcutPlatform } from '@caelestis/shared'
 import type { CaelestisElement } from '@caelestis/ui/elements'
-import { activeShortcutBindings } from '../shortcut-bindings.js'
-import { currentShortcutPlatform, type ShortcutPlatform } from '../shortcuts.js'
-import { getState } from '../state.js'
+import { getState } from '../settings.js'
+import { activeShortcutBindings, currentShortcutPlatform } from '../shortcuts.js'
 import { closeDialogHost } from './dialog.js'
+import { deepActiveElement } from './focus.js'
 import { applyWplaceTheme } from './theme.js'
 
 type ShortcutHelp = CaelestisElement<'caelestis-shortcut-help'>
@@ -37,10 +38,7 @@ export const toggleShortcutHelp = (
   }
   help.setAttribute('data-caelestis-shortcut-help', '')
   applyWplaceTheme(help)
-  restoreTargets.set(
-    help,
-    document.activeElement instanceof HTMLElement ? document.activeElement : null,
-  )
+  restoreTargets.set(help, deepActiveElement())
   help.addEventListener('caelestis-shortcut-help-intent', (event) => {
     if (event.detail.type === 'close') dismiss(help)
   })

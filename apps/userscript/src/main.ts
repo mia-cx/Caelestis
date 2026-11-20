@@ -1,302 +1,65 @@
-import { latLngToCanvasPixel, TILE_SIZE } from '@caelestis/shared'
+import { TILE_SIZE } from '@caelestis/shared'
 import { registerCaelestisUi } from '@caelestis/ui/elements'
 import { installAlarmNotifications } from './alarms.js'
-import { installAllianceServerSync, selectedAllianceManifestScope } from './alliance-server-sync.js'
-import { activeAllianceSurface, installAllianceSurfaceObserver } from './alliance-surface.js'
-import {
-  claimEditorTool,
-  isClaimModeActive,
-  onClaimEditorChange,
-  startClaimMode,
-  stopClaimMode,
-  syncClaimEditorFrame,
-} from './claim-editor.js'
-import { installClaimRouting } from './claim-routing.js'
-import {
-  canvasPixelAtIn,
-  createScreenProjectionCache,
-  cssPixelsPerCanvasPixelIn,
-  type ScreenProjection,
-  screenPointForIn,
-  viewportCentreIn,
-} from './coordinates.js'
+import { installAllianceServerSync } from './alliance-server-sync.js'
+import { installAllianceSurfaceObserver } from './alliance-surface.js'
+import { installTransfers } from './application/transfer.js'
+import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
-import {
-  allianceOverlayGpuMemoryBytes,
-  installAllianceOverlayLayer,
-  repaintAllianceOverlayLayer,
-} from './gl/artboard-layer.js'
-import { onMapThemeChange } from './gl/contrast-outline.js'
-import {
-  installOverlayLayer,
-  overlayGpuMemoryBytes,
-  overlayStagingMemoryBytes,
-  setNudge,
-} from './gl/layer.js'
-import {
-  keepMarkersAboveDrafts,
-  markerDensityMemoryBytes,
-  markerGpuMemoryBytes,
-} from './gl/markers.js'
-import { installPickCellLayer } from './gl/pick-cell-layer.js'
-import { installPresenceLayer, repaintPresence } from './gl/presence-layer.js'
+import { installDraftPixels } from './draft-pixels.js'
+import { installAllianceOverlayLayer } from './gl/artboard-layer.js'
+import { installOverlayLayers } from './gl/overlay-layers.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
-import { getMap, installMapCapture, releaseMapCapture } from './map-handle.js'
-import { installPaintTargetGuard, syncPaintTargetMap } from './paint-cursor.js'
-import {
-  installPaintPaletteProgress,
-  paintPaletteProgress,
-  refreshPaintPaletteFocus,
-} from './paint-palette.js'
-import { installPresence, observePresenceFrame, onPresenceChange } from './presence-client.js'
-import { onPresenceHoverChange } from './presence-hover.js'
-import { renderPresenceLabels } from './presence-labels.js'
-import {
-  configureProfileRun,
-  installProfile,
-  measureProfile,
-  profileReport,
-  profileSnapshot,
-  recordProfileAction,
-  registerProfileContextSource,
-  registerProfileMemorySource,
-  resetProfile,
-} from './profile.js'
+import { installMapCapture } from './map-handle.js'
+import { installMapView } from './map-view.js'
+import { install as installTileCapture } from './page-taps.js'
+import { installPaintTargetGuard } from './paint-target-guard.js'
+import { installPaintPaletteProgress } from './palette-decoration.js'
+import { installPresenceFeatures } from './presence.js'
+import { installProfile, registerProfileContextSource } from './profile.js'
 import { readProfileContext } from './profile-context.js'
-import { installQuickClaims, onQuickClaimPreviewChange } from './quick-claims.js'
-import { serverMismatchMemoryBytes } from './server-mismatch.js'
+import { installServerConnections } from './server-connections.js'
 import { installServerSyncCoordinator } from './server-sync-coordinator.js'
+import { loadState } from './settings.js'
 import { installShiftPaint } from './shift-paint.js'
-import { getState, loadState, onStateChange } from './state.js'
 import { installTelemetry } from './telemetry.js'
-import {
-  isTemplateVisible,
-  localTemplates,
-  onLocalChange,
-  onLocalPreviewChange,
-  templateIndexMemoryBytes,
-} from './templates/local-store.js'
-import { pixelAccounting } from './templates/mismatch.js'
-import { mismatchWorkerMemoryBytes } from './templates/mismatch-worker.js'
-import { installOfficialEvents, syncOfficialOverlays } from './templates/official-overlays.js'
+import { installMismatchAccounting } from './templates/mismatch.js'
+import { installOfficialEvents } from './templates/official-overlays.js'
 import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
-import { syncStudioFrame } from './templates/studio-frame.js'
-import {
-  capturedPixelMemoryBytes,
-  captureTilePixels,
-  clearDraftPixels,
-  install,
-  onTileFrame,
-  reconcileDrafts,
-  reloadTiles,
-  type TileFrame,
-} from './tile-transform.js'
+import { installStudioFrame } from './templates/studio-frame.js'
+import { installTilePixelCapture } from './tile-capture-scope.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
-import { renderOverlayControls } from './ui/overlay-menu.js'
-import { installPanel, openInviteFromLocation, refreshTemplateTreeFocus } from './ui/panel.js'
-import { installClaimToolHost } from './ui/presence-actions.js'
+import { installOverlayControls, showAllianceOverlayControls } from './ui/overlay-menu.js'
+import { installPanel } from './ui/panel.js'
+import { openInviteFromLocation } from './ui/settings-controller.js'
+import { installTreeCopy } from './ui/tree-copy.js'
 import { installUserscriptUpdateCheck } from './userscript-update.js'
-import { loadAccount } from './wplace-account.js'
+import { loadAccount, observeAccountReads } from './wplace-account.js'
+import { installChargeSpending } from './wplace-charges.js'
 import { installWplaceCursors } from './wplace-cursors.js'
 import { installWplaceFont } from './wplace-font.js'
-import { installWplaceMessages } from './wplace-messages.js'
-import { isPaintOpen, onPaintSelectionChange, watchPaintSelection } from './wplace-paint.js'
-import {
-  applyWplacePatches,
-  onWplacePatchChange,
-  type PatchableMap,
-  setWplacePatchEnabled,
-  type WplacePatch,
-  wplacePatchSettings,
-} from './wplace-patches.js'
+import { installWplaceMessages } from './wplace-modules.js'
+import { watchPaintSelection } from './wplace-paint.js'
+import { installWplacePatches } from './wplace-patches.js'
 import { installColourPicker } from './wplace-picker.js'
 import { installWplaceSettings } from './wplace-settings.js'
-import { getWplaceState, installWplaceStateCapture } from './wplace-state.js'
-import { installServiceWorkerTap, watchCaptureScope } from './wplace-tile-refresh.js'
-
-/**
- * Entry point.
- *
- * Templates are drawn by the GL layer, inside wplace's own canvas. There is no canvas of ours any
- * more: the 2D overlay this module used to own was the last remnant of rasterising into a surface
- * stacked over theirs, which is what every alignment bug came out of.
- *
- * What is left is bookkeeping. Each frame carries the rects wplace drew its tiles at, and those are
- * the only reference anything needs to turn a canvas pixel into a screen position or back — which is
- * how the per-overlay buttons follow their template and how an imported image lands where the view
- * is centred.
- */
-
-let lastFrame: TileFrame | null = null
-
-/** Run on every frame that carries tiles, after the frame has been recorded. */
-export type FrameHook = (frame: TileFrame) => void
-
-interface RegisteredFrameHook {
-  readonly hook: FrameHook
-  readonly name: string
-}
-
-const hooks: RegisteredFrameHook[] = []
-
-let lastTreeFocusCentre: { readonly x: number; readonly y: number } | null | undefined
-
-const refreshWorldTemplateTreeFocus = (frame: TileFrame): void => {
-  if (activeAllianceSurface() !== null) return
-  const centre = viewportCentreIn(frame)
-  if (
-    lastTreeFocusCentre !== undefined &&
-    (centre === null
-      ? lastTreeFocusCentre === null
-      : lastTreeFocusCentre !== null &&
-        lastTreeFocusCentre.x === centre.x &&
-        lastTreeFocusCentre.y === centre.y)
-  )
-    return
-  lastTreeFocusCentre = centre
-  refreshTemplateTreeFocus()
-}
-
-/** Register something to run per frame, in registration order. */
-export const onFrame = (hook: FrameHook, name = 'Frame hook'): void => {
-  hooks.push({ hook, name })
-}
-
-/** Re-run the hooks against the last frame — for when our own state changed, not the map's. */
-export const repaint = (): void => {
-  if (lastFrame !== null) draw(lastFrame)
-}
-
-/** Ask MapLibre to repaint custom GL layers without rerunning screen-space controls immediately. */
-const repaintMap = (): void => {
-  const map = getMap() as { triggerRepaint?: () => void } | null
-  map?.triggerRepaint?.()
-}
-
-/**
- * Redraw everything after a change of ours: our coordinate-backed controls, and wplace's GL layer.
- */
-export const redraw = (): void => {
-  repaint()
-  repaintMap()
-  repaintAllianceOverlayLayer()
-}
-
-/** Keep the GL layer attached across delayed map creation, style reloads, and SPA map replacement. */
-const attachOverlayLayer = (): void => {
-  const attach = (): void => {
-    const map = getMap()
-    if (map !== null) {
-      try {
-        if (!map.getCanvas().isConnected) releaseMapCapture()
-      } catch {
-        releaseMapCapture()
-      }
-    }
-    if (getMap() === null) installMapCapture()
-    installOverlayLayer()
-    installPresenceLayer()
-    installPickCellLayer()
-    syncPaintTargetMap(getMap())
-    syncOfficialOverlays(getMap())
-    applyWplacePatches(getMap() as PatchableMap | null)
-  }
-  onWplacePatchChange(() => applyWplacePatches(getMap() as PatchableMap | null))
-  attach()
-  setInterval(attach, 1_000)
-}
-
-/** A draw is on the stack; synchronous repaint requests become a later pass, never recursion. */
-let drawing = false
-let drawAgain = false
-const MAX_DRAW_PASSES = 3
-
-const draw = (frame: TileFrame): void => {
-  if (drawing) {
-    drawAgain = true
-    return
-  }
-  drawing = true
-  try {
-    let passes = 0
-    do {
-      drawAgain = false
-      paintOnce(frame)
-      passes++
-    } while (drawAgain && passes < MAX_DRAW_PASSES)
-  } finally {
-    drawing = false
-    drawAgain = false
-  }
-}
-
-const paintOnce = (frame: TileFrame): void => {
-  lastFrame = frame
-
-  for (const { hook, name } of hooks) {
-    try {
-      measureProfile(name, () => hook(frame))
-    } catch (error) {
-      warn('install', 'frame hook failed', String(error))
-    }
-  }
-}
-
-/**
- * Where the middle of the viewport is, in canvas pixels — used to place an image on import. Zoomed
- * out past Wplace's pixels no tile frame measures the view, so the map's own centre answers.
- */
-export const viewportCentre = (): { x: number; y: number } | null => {
-  const measured = lastFrame === null ? null : viewportCentreIn(lastFrame)
-  if (measured !== null) return measured
-  const map = getMap()
-  return map === null ? null : latLngToCanvasPixel(map.getCenter())
-}
-
-/** Canvas pixel under a screen point, for centring something on the cursor. */
-export const canvasPixelAt = (
-  clientX: number,
-  clientY: number,
-): { x: number; y: number } | null => {
-  return lastFrame === null ? null : canvasPixelAtIn(lastFrame, clientX, clientY)
-}
-
-/** Whether a captured page event actually originated inside the active map surface. */
-export const isMapInteractionTarget = (target: EventTarget | null): boolean => {
-  if (lastFrame === null || target === null) return false
-  const mapCanvas = lastFrame.canvas
-  const mapContainer = mapCanvas.parentElement
-  if (target === mapCanvas || target === mapContainer) return true
-  if (mapContainer === null) return false
-  try {
-    return mapContainer.contains(target as Node)
-  } catch {
-    return false
-  }
-}
-
-/** Where a canvas pixel currently sits on screen, in client coordinates. */
-export const screenPointFor = (x: number, y: number): { x: number; y: number } | null => {
-  return lastFrame === null ? null : screenPointForIn(lastFrame, x, y)
-}
-
-/** Screen scale: how many CSS pixels one canvas pixel currently occupies. */
-export const cssPixelsPerCanvasPixel = (): { x: number; y: number } => {
-  return cssPixelsPerCanvasPixelIn(lastFrame)
-}
-
-/** One cached canvas-layout measurement shared by every map-following control. */
-const overlayProjection = createScreenProjectionCache()
-export const screenProjection = (): ScreenProjection | null => overlayProjection.project(lastFrame)
+import { installWplaceStateCapture } from './wplace-state.js'
+import { installServiceWorkerTap } from './wplace-tile-refresh.js'
 
 /** Run one independent piece of start-up without letting its failure cancel the rest. */
 const step = (what: string, run: () => void): void => {
   try {
     run()
   } catch (error) {
-    warn('install', `${what} failed to start`, String(error))
+    warn(`${what} failed to start`, String(error))
   }
+}
+
+/** Install the userscript in the world it was started in, with the manager's storage at hand. */
+export const startUserscript = (): void => {
+  installPageHooks()
+  installUserscriptFeatures()
 }
 
 /** The userscript's features, once its stored values are readable. */
@@ -306,12 +69,6 @@ export const installUserscriptFeatures = (): void => {
   step('userscript update check', installUserscriptUpdateCheck)
 }
 
-/** Install the userscript in the world it was started in, with the manager's storage at hand. */
-export const startUserscript = (): void => {
-  installPageHooks()
-  installUserscriptFeatures()
-}
-
 /**
  * Everything that must be in place before Wplace's own modules evaluate: the traps on its fetches,
  * state and map. Nothing here needs stored values; the debug flag read here is read again once they
@@ -319,120 +76,34 @@ export const startUserscript = (): void => {
  * document start.
  */
 export const installPageHooks = (): void => {
+  step('debug API', installDebugApi)
   step('shared UI', registerCaelestisUi)
   step('FalseType font', installWplaceFont)
   step('Caelestis cursors', installWplaceCursors)
   registerProfileContextSource(readProfileContext)
-  registerProfileMemorySource('Template pixels', templateIndexMemoryBytes)
-  registerProfileMemorySource('Captured tile pixels', capturedPixelMemoryBytes)
-  registerProfileMemorySource('Mismatch cache', pixelAccounting.memoryBytes)
-  registerProfileMemorySource('Server mismatch masks', serverMismatchMemoryBytes)
-  registerProfileMemorySource('Mismatch worker copy', mismatchWorkerMemoryBytes)
-  registerProfileMemorySource('Overlay GPU buffers', overlayGpuMemoryBytes)
-  registerProfileMemorySource('Alliance overlay GPU buffers', allianceOverlayGpuMemoryBytes)
-  registerProfileMemorySource('Overlay index staging', overlayStagingMemoryBytes)
-  registerProfileMemorySource('Marker density buffers', markerDensityMemoryBytes)
-  registerProfileMemorySource('Marker GPU buffers', markerGpuMemoryBytes)
   // These traps must be armed before Wplace's modules evaluate or MapLibre constructs its Map.
   step('service-worker tile refresh tap', () => installServiceWorkerTap())
   step('wplace state capture', installWplaceStateCapture)
   step('Wplace messages', () => void installWplaceMessages())
   step('map capture', installMapCapture)
+  step('tile capture', installTileCapture)
+  // After the request observer, so its startup read of the alliance is observed too.
   step('alliance surface observer', installAllianceSurfaceObserver)
-  step('debug API', () => {
-    installDebugApi({
-      /** The captured MapLibre Map, for poking at its style and layers from the console. */
-      map: () => getMap(),
-      /** Wplace's captured global state object, whose setters drive theme and dialogs. */
-      wplaceState: () => getWplaceState(),
-      /** Claim mode, openable here without a presence server for pointer testing. */
-      claimTool: {
-        active: () => isClaimModeActive(),
-        tool: () => claimEditorTool(),
-        start: (tool?: Parameters<typeof startClaimMode>[0]) => startClaimMode(tool),
-        stop: () => stopClaimMode(),
-      },
-      /** Each template's own switch beside the renderer's effective visibility decision. */
-      templates: () =>
-        localTemplates().map((template) => ({
-          id: template.id,
-          name: template.name,
-          visible: template.visible,
-          drawing: isTemplateVisible(template),
-          folderId: template.folderId,
-          server: template.serverUrl ?? null,
-          serverTemplateId: template.serverTemplateId ?? null,
-          opaque: template.opaque,
-        })),
-      /** The active Wplace artboard and exact backend manifest scope selected for it. */
-      allianceSurface: () => ({
-        active: activeAllianceSurface()?.surface ?? null,
-        manifest: selectedAllianceManifestScope(),
-        servers: getState().servers.map((server) => ({
-          url: server.url,
-          status: server.status,
-          identified: server.info !== null,
-          season: server.season,
-        })),
-      }),
-      /** The panel's Reload tiles: visible tiles through the map, kept tiles off screen re-read. */
-      reloadTiles: () => reloadTiles(),
-      /** Caelestis's performance patches for Wplace's own client, each with its own switch. */
-      wplacePatches: {
-        list: () => wplacePatchSettings(),
-        enable: (patch: WplacePatch) => setWplacePatchEnabled(patch, true),
-        disable: (patch: WplacePatch) => setWplacePatchEnabled(patch, false),
-      },
-      /** The exact focused-template counts currently decorating Wplace's native paint palette. */
-      paletteProgress: () => paintPaletteProgress(),
-      /** A live performance snapshot. Enable profiling in Settings first. */
-      profile: () => profileSnapshot(),
-      /** Clear the current sample window without disabling profiling. */
-      profileReset: () => {
-        resetProfile()
-        return profileSnapshot()
-      },
-      /** Copyable JSON for comparing a Caelestis run with a clean Wplace run. */
-      profileReport: () => profileReport(),
-      /** Name the scenario and supply actual browser zoom after resetting a profile. */
-      profileConfigure: configureProfileRun,
-      /** Add a timestamped scenario marker to the current profile. */
-      profileMark: recordProfileAction,
-      /** The tiles wplace drew on the last frame, and where. How much work a frame actually is. */
-      quads: () =>
-        lastFrame === null
-          ? null
-          : {
-              count: lastFrame.quads.length,
-              canvas: `${lastFrame.canvas.width}x${lastFrame.canvas.height}`,
-              cellPixels: (lastFrame.quads[0]?.width ?? 0) / TILE_SIZE,
-              tiles: lastFrame.quads.map((quad) => `${quad.tile.x}/${quad.tile.y}`),
-            },
-      /** Shift every template by fractional canvas pixels for alignment diagnostics. */
-      nudge(x = 0, y = 0) {
-        const applied = setNudge(x, y)
-        redraw()
-        return `[caelestis] overlay nudged by ${applied.x}, ${applied.y} canvas px — __caelestis.nudge() to clear`
-      },
-    })
-  })
-  step('tile capture', install)
+  step('account reads', observeAccountReads)
 }
 
-/** Everything that reads stored values, which runs once they are loaded. */
+/**
+ * Everything that reads stored values, which runs once they are loaded. Settings load first. Frame
+ * followers run in the order their features install, and the map view goes after all of them.
+ */
 export const installFeatures = (): void => {
   step('debug logging', loadDebugSetting)
   step('performance profile', installProfile)
   step('Wplace settings', installWplaceSettings)
-  /**
-   * Settings and connected servers, before anything reads either.
-   *
-   * This used to happen as a side effect of the panel installing, which is late and in the wrong
-   * place: everything before it — the appearance defaults, the colour filter, the list of servers to
-   * fetch from — was reading the defaults instead of what was stored. Loading it here makes the rest
-   * of this sequence mean what it says.
-   */
   step('settings', () => void loadState())
+  step('server connections', installServerConnections)
+  step('server transfers', installTransfers)
+  step('mismatch accounting', installMismatchAccounting)
   // Templates outlive a page load, which is what makes navigating to one survivable at all.
   step('local templates', () => void installPersonalTemplates())
   // Wplace's own event overlays, such as the Seven Seals, listed read-only under Events.
@@ -445,137 +116,45 @@ export const installFeatures = (): void => {
   step('server sync coordinator', installServerSyncCoordinator)
   step('alarm notifications', installAlarmNotifications)
   step('wplace account', () => void loadAccount())
+  step('charge spending', installChargeSpending)
   step('charge forecast', installChargeForecast)
-  step('paint watcher', () => {
-    watchPaintSelection()
-    // The selected-colour marker lives in MapLibre's custom layer. Returning from Eraser to Pencil
-    // changes the selected swatch without moving the map, so repainting only the retained
-    // screen-space frame leaves that marker stale until some unrelated map animation happens.
-    onPaintSelectionChange(() => {
-      recordProfileAction(isPaintOpen() ? 'paint selection changed' : 'paint drawer closed')
-      if (!isPaintOpen()) clearDraftPixels()
-      redraw()
-    })
-  })
+  step('paint watcher', watchPaintSelection)
+  step('draft pixels', installDraftPixels)
   step('paint palette progress', installPaintPaletteProgress)
-  onFrame(refreshPaintPaletteFocus, 'Paint palette focus')
-  onFrame(refreshWorldTemplateTreeFocus, 'Template tree focus')
-  // Middle-click picking, answered from the template when the template is what you can see.
   step('paint target guard', installPaintTargetGuard)
+  // Middle-click picking, answered from the template when the template is what you can see.
   step('colour picker', installColourPicker)
   step('shift paint', installShiftPaint)
-  step('keyboard shortcuts', () => {
-    installKeyboardShortcuts(redraw)
-  })
-  // Painting is not a map movement, so nothing would otherwise ask for the frame that shows a
-  // marker going away.
-  // A completed scan changes marker buffers and progress only. Progress has its own DOM listeners;
-  // rerunning every screen-space overlay control here duplicates the MapLibre frame requested next.
-  step('mismatch repaint', () => pixelAccounting.onChange(repaintMap))
-  // wplace add a layer per tile being painted, above anything of ours added earlier, so a placed
-  // pixel would otherwise cover the marker it just cleared.
-  step('marker order', () => onFrame(keepMarkersAboveDrafts, 'Keep marker layer above drafts'))
-  // Drafting Transparent writes nothing a canvas hook can see, so the only place it shows up is
-  // wplace's crosshairs. Throttled inside; with nothing drafted there is nothing to read.
-  step('drafted pixels', () => onFrame(reconcileDrafts, 'Reconcile drafted pixels'))
-  // Where this tab is looking and drafting, for the other painters; and their tags for us. The
-  // socket itself is throttled inside, so feeding it every frame costs a rect comparison.
-  step('presence', () => {
-    installPresence()
-    installClaimRouting()
-    // MapLibre coalesces message bursts into one frame, which also refreshes the screen controls.
-    onPresenceChange(repaintPresence)
-    onClaimEditorChange(repaintPresence)
-    onPresenceHoverChange(repaintPresence)
-    onQuickClaimPreviewChange(repaintPresence)
-    installQuickClaims()
-    installClaimToolHost()
-    onFrame(observePresenceFrame, 'Presence viewport')
-    onFrame(syncClaimEditorFrame, 'Claim editor overlay')
-    onFrame(syncStudioFrame, 'Template studio handles')
-    onFrame((frame) => {
-      if (activeAllianceSurface() === null)
-        renderPresenceLabels(frame, overlayProjection.project(frame))
-    }, 'Presence labels')
-  })
-  /**
-   * Start capturing before the first frame, not on it.
-   *
-   * A tile can only be caught as it is decoded, and the tiles filling the viewport on a page load
-   * are decoded during the load — before any layer of ours has drawn. Deciding whether to capture at
-   * draw time meant missing every one of them, and each then waited on wplace re-fetching it, which
-   * is why a tile panned to answered in under a second while the ones already on screen took ten.
-   */
-  step('tile pixel capture', () => {
-    // The pipette fallback reads the exact pixel-art tile, so Paint itself is a pixel consumer even
-    // when mismatch markers are off. Starting at drawer-open gives visible tiles time to populate
-    // before the one-shot picker click; a miss is also chased on demand by `placedIndexAt`.
-    const interest = (tile: { readonly x: number; readonly y: number }): boolean =>
-      isPaintOpen() || pixelAccounting.wantsTilePixels(tile)
-    const captureScope = watchCaptureScope()
-    const sync = (): void => {
-      // The scope holds a tile exactly when `wantsTilePixels()` would answer yes, and unlike it,
-      // costs nothing on a frame where nothing changed.
-      const scope = pixelAccounting.captureScopeTiles()
-      captureTilePixels(scope.size > 0 || isPaintOpen(), interest)
-      // Pixels kept while capture was off may be stale, and tiles are no longer re-downloaded on a
-      // timer to correct them. When capture starts caring about a tile, re-read it.
-      captureScope(isPaintOpen(), scope)
-    }
-    sync()
-    onStateChange(sync)
-    onLocalChange(sync)
-    // Hidden-template progress widens the scope without a frame, and its idle scan can run first.
-    pixelAccounting.onCaptureScopeChange(sync)
-    onPaintSelectionChange(sync)
-    // And on every frame that carries tiles. The four above are the events that *should* cover it,
-    // and between them they missed the only one that mattered: at start-up nothing is restored yet,
-    // so the first call answers "nothing wants this" and the restore that follows does not
-    // necessarily announce itself. Asking again per frame costs a comparison and cannot be wrong.
-    onFrame(sync, 'Tile pixel capture state')
-  })
-  // Templates are drawn by the GL layer inside wplace's own canvas. Nothing of ours rasterises to a
-  // canvas of its own any more; the tile frames are kept only as the coordinate reference that the
-  // overlay controls and the import placement read.
-  step('overlay layer', attachOverlayLayer)
-  // The world map's frames never run while an alliance editor pans, so its handles follow here.
-  step('alliance overlay layer', () =>
-    installAllianceOverlayLayer(() => {
-      refreshTemplateTreeFocus()
-      syncStudioFrame()
-    }),
-  )
-  onFrame((frame) => {
-    if (activeAllianceSurface() === null) renderOverlayControls(repaint, frame.canvas)
-  }, 'Overlay controls')
-  onTileFrame(draw)
-  onLocalChange(redraw)
-  onLocalPreviewChange(redraw)
-  onStateChange(redraw)
-  onMapThemeChange(redraw)
-  step('panel', () => {
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', installPanel, { once: true })
-    } else {
-      installPanel()
-    }
-  })
+  step('keyboard shortcuts', () => installKeyboardShortcuts())
+  step('presence', installPresenceFeatures)
+  step('claims', installClaims)
+  step('template studio handles', installStudioFrame)
+  step('tile pixel capture', installTilePixelCapture)
+  step('overlay layers', installOverlayLayers)
+  step('Wplace patches', installWplacePatches)
+  step('alliance overlay layer', () => installAllianceOverlayLayer(showAllianceOverlayControls))
+  step('overlay controls', installOverlayControls)
+  step('map view', installMapView)
+  step('tree copy', installTreeCopy)
+  step('panel', () => afterDocumentLoads(installPanel))
   // Invite links ride in the fragment. Consume one only once the panel exists — its toast is how
-  // the outcome is reported — and again whenever the fragment changes in an open tab. Registering
-  // after the panel's own DOMContentLoaded hook keeps that ordering when the page is still loading.
+  // the outcome is reported — and again whenever the fragment changes in an open tab.
   step('invite links', () => {
     window.addEventListener('hashchange', () => void openInviteFromLocation())
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => void openInviteFromLocation(), {
-        once: true,
-      })
-    } else {
-      void openInviteFromLocation()
-    }
+    afterDocumentLoads(() => void openInviteFromLocation())
   })
   try {
     console.info(`[caelestis] loaded — tile size ${TILE_SIZE}`)
   } catch {
     // A replaced console is not part of the render path.
+  }
+}
+
+/** Runs now, or at `DOMContentLoaded` in registration order while the page is still loading. */
+const afterDocumentLoads = (run: () => void): void => {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run, { once: true })
+  } else {
+    run()
   }
 }

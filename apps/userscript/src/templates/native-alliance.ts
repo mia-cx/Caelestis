@@ -1,20 +1,19 @@
-import { MAX_TEMPLATE_PIXELS, type PixelBounds, sameTemplateSurface } from '@caelestis/shared'
-import { allianceBounds } from '../alliance-coordinates.js'
+import {
+  isRecord,
+  MAX_TEMPLATE_PIXELS,
+  type PixelBounds,
+  sameTemplateSurface,
+} from '@caelestis/shared'
 import {
   type ActiveAllianceSurface,
   activeAllianceSurface,
   onActiveAllianceSurfaceChange,
 } from '../alliance-surface.js'
 import { warn } from '../debug.js'
-import {
-  addLocalTemplate,
-  forgetServerTemplate,
-  forgetServerTemplates,
-  hasRoomForServerTemplate,
-  localTemplates,
-  putServerTemplate,
-  templatePixels,
-} from './local-store.js'
+import { serverTemplateKey } from '../tree-keys.js'
+import { BACKEND_ORIGIN } from '../wplace-raster.js'
+import { localTemplates, type PlacedTemplate } from './catalog.js'
+import { newTemplateId } from './import.js'
 import {
   type NativeAllianceTarget,
   type NativeTemplate,
@@ -22,9 +21,21 @@ import {
   nativeLocalId,
   nativeMetadata,
 } from './native-store.js'
-import { isWplaceOwned, NATIVE_ALLIANCE_OWNER } from './wplace-owned.js'
+import { templatePixels } from './residency.js'
+import {
+  forgetTemplateCopies,
+  forgetTemplateCopy,
+  hasRoomForCopy,
+  putTemplateCopy,
+} from './template-copies.js'
+import { addLocalTemplate } from './template-edits.js'
+import { MAX_IMAGE_BYTES } from './template-record.js'
+import { WPLACE_OWNER_URL } from './wplace-owned.js'
 
 export const NATIVE_ALLIANCE_TREE_KEY = 'native-alliance'
+
+const isAllianceCopy = (template: PlacedTemplate): boolean =>
+  template.origin === 'wplace' && template.owner === 'alliance'
 
 interface AlliancePlacement {
   readonly id: string
@@ -41,9 +52,6 @@ interface AlliancePlacement {
   readonly dithering: boolean
   readonly colorPaletteMode: NonNullable<NativeTemplate['colorPaletteMode']>
 }
-
-const record = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value)
 
 export const nativeAllianceTarget = (active: ActiveAllianceSurface): NativeAllianceTarget | null =>
   active.surface.kind === 'alliance-headquarters'
@@ -62,16 +70,16 @@ export const nativeAlliancePlacements = (
   target: NativeAllianceTarget,
   bounds: PixelBounds | null,
 ): readonly AlliancePlacement[] => {
-  if (!record(body) || !Array.isArray(body.templates))
+  if (!isRecord(body) || !Array.isArray(body.templates))
     throw new Error('Invalid Wplace alliance templates')
   if (bounds === null) return []
   return body.templates
     .map((value): AlliancePlacement | null => {
-      if (!record(value) || !Array.isArray(value.locations))
+      if (!isRecord(value) || !Array.isArray(value.locations))
         throw new Error('Invalid Wplace alliance template')
       const location = value.locations.find(
         (item): item is Record<string, unknown> =>
-          record(item) &&
+          isRecord(item) &&
           item.target === target.target &&
           (target.target !== 'draft' || item.draftId === target.draftId),
       )
@@ -182,24 +190,29 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
     sequence: number,
   ): Promise<void> => {
     if (!current(active, epoch) || sequence !== requestSequence) return
-    const placements = nativeAlliancePlacements(body, target, allianceBounds(active))
+    const placements = nativeAlliancePlacements(body, target, active.bounds)
     const admitted = new Set<string>()
     const signal = controller.signal
     for (const placement of placements) {
-      const id = `srv:${encodeURIComponent(NATIVE_ALLIANCE_OWNER)}:${await nativeLocalId(`${active.surface.allianceId}:${target.target}:${target.draftId ?? ''}:${placement.id}`)}`
+      const id = serverTemplateKey(
+        WPLACE_OWNER_URL.alliance,
+        await nativeLocalId(
+          `${active.surface.allianceId}:${target.target}:${target.draftId ?? ''}:${placement.id}`,
+        ),
+      )
       admitted.add(id)
       const existing = localTemplates().find((template) => template.id === id)
-      if (existing?.serverVersion === placement.version) continue
-      if (!hasRoomForServerTemplate(id, placement.width * placement.height)) continue
+      if (existing?.origin === 'wplace' && existing.version === placement.version) continue
+      if (!hasRoomForCopy(id, placement.width * placement.height)) continue
       const query = new URLSearchParams({ target: target.target })
       if (target.draftId !== undefined) query.set('draftId', String(target.draftId))
       const response = await fetch(
-        `${NATIVE_ALLIANCE_OWNER}/alliance/templates/${encodeURIComponent(placement.id)}/image?${query}`,
+        `${BACKEND_ORIGIN}/alliance/templates/${encodeURIComponent(placement.id)}/image?${query}`,
         { credentials: 'include', signal },
       )
       if (!response.ok) throw new Error(`Wplace alliance image returned ${response.status}`)
       const image = await response.blob()
-      if (image.size > 64 * 1024 * 1024) throw new Error('Wplace alliance image is too large')
+      if (image.size > MAX_IMAGE_BYTES) throw new Error('Wplace alliance image is too large')
       const geometry = {
         id,
         name: placement.name,
@@ -233,17 +246,17 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
         true,
       )
       if (!current(active, epoch) || sequence !== requestSequence) return
-      await putServerTemplate(
+      await putTemplateCopy(
         {
           ...pixels,
           id,
           originX: placement.originX,
           originY: placement.originY,
           surface: active.surface,
-          serverUrl: NATIVE_ALLIANCE_OWNER,
-          serverTemplateId: placement.id,
-          serverNodeId: null,
-          serverVersion: placement.version,
+          origin: 'wplace',
+          owner: 'alliance',
+          nodeId: null,
+          version: placement.version,
           sourceOpacity: placement.opacity,
         },
         () => current(active, epoch) && sequence === requestSequence,
@@ -251,8 +264,8 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
     }
     if (!current(active, epoch) || sequence !== requestSequence) return
     for (const template of localTemplates()) {
-      if (template.serverUrl === NATIVE_ALLIANCE_OWNER && !admitted.has(template.id))
-        await forgetServerTemplate(template.id)
+      if (isAllianceCopy(template) && !admitted.has(template.id))
+        await forgetTemplateCopy(template.id)
     }
   }
   api.getAllianceTemplates = async function (target) {
@@ -270,8 +283,7 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
       tail = tail
         .then(() => apply(body, target, active, epoch, sequence))
         .catch((error) => {
-          if (current(active, epoch))
-            warn('install', 'native alliance templates unavailable', String(error))
+          if (current(active, epoch)) warn('native alliance templates unavailable', String(error))
         })
     }
     return body
@@ -283,14 +295,12 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
     generation++
     controller.abort()
     controller = new AbortController()
-    tail = tail.then(() => forgetServerTemplates(NATIVE_ALLIANCE_OWNER))
+    tail = tail.then(() => forgetTemplateCopies(isAllianceCopy))
     const target = active === null ? null : nativeAllianceTarget(active)
     if (target !== null)
       void api
         .getAllianceTemplates(target)
-        .catch((error) =>
-          warn('install', 'could not load native alliance templates', String(error)),
-        )
+        .catch((error) => warn('could not load native alliance templates', String(error)))
   }
   const stop = onActiveAllianceSurfaceChange(select)
   selected = null
@@ -300,19 +310,19 @@ export const installNativeAllianceTemplates = (native: NativeTemplates): (() => 
     controller.abort()
     stop()
     api.getAllianceTemplates = original
-    void forgetServerTemplates(NATIVE_ALLIANCE_OWNER)
+    void forgetTemplateCopies(isAllianceCopy)
   }
 }
 
 /** Make an explicitly requested independent copy while leaving Wplace's shared source owned by Wplace. */
 export const copyWplaceTemplate = async (id: string): Promise<void> => {
   const source = localTemplates().find(
-    (template) => template.id === id && isWplaceOwned(template.serverUrl),
+    (template) => template.id === id && template.origin === 'wplace',
   )
   if (source === undefined) throw new Error('The Wplace template is no longer available')
   await addLocalTemplate(
     {
-      id: `local-${crypto.randomUUID()}`,
+      id: newTemplateId(),
       name: source.name,
       source: 'wplace',
       originX: source.originX,

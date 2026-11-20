@@ -1,19 +1,25 @@
+import { WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createLocalFolder, setLocalFolderVisible } from '../src/local-folders.js'
-import { setScopeVisible } from '../src/state.js'
-import * as store from '../src/templates/local-store.js'
-import { toast } from '../src/ui/toast.js'
-import { type TreeCallbacks, type TreeTarget, templateTreeAdapter } from '../src/ui/tree.js'
+import { setScopeVisible } from '../src/settings.js'
+import * as catalog from '../src/templates/catalog.js'
+import * as edits from '../src/templates/template-edits.js'
+import { showToast } from '../src/ui/notification-host.js'
+import { templateTreeAdapter } from '../src/ui/tree.js'
+import type { TreeCallbacks, TreeTarget } from '../src/ui/tree-context.js'
 
 vi.mock('../src/claim-editor.js', () => ({ startCaptureMode: () => false }))
-vi.mock('../src/main.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
-vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn() }))
+vi.mock('../src/map-view.js', () => ({ repaint: () => {}, viewportCentre: () => null }))
+vi.mock('../src/ui/notification-host.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/ui/notification-host.js')>()),
+  showToast: vi.fn(),
+}))
 
 import {
   handleTreeActionPresentationIntent,
-  openContextMenu,
   treeActionPresentation,
-} from '../src/application/tree-actions.js'
+} from '../src/application/tree-presentation.js'
+import { openContextMenu } from '../src/ui/tree-menu.js'
 
 const folder = (name: string, parentId: string | null = null): string => {
   const created = createLocalFolder(parentId, name)
@@ -23,7 +29,7 @@ const folder = (name: string, parentId: string | null = null): string => {
 
 const template = async (name: string, folderId: string | null): Promise<string> => {
   const id = `show-only-${crypto.randomUUID()}`
-  await store.addLocalTemplate(
+  await edits.addLocalTemplate(
     {
       id,
       name,
@@ -39,14 +45,14 @@ const template = async (name: string, folderId: string | null): Promise<string> 
     undefined,
     true,
   )
-  if (folderId !== null) await store.setTemplateFolder(id, folderId)
+  if (folderId !== null) await edits.setTemplateFolder(id, folderId)
   return id
 }
 
 const shown = (id: string): boolean => {
-  const placed = store.templateById(id)
+  const placed = catalog.templateById(id)
   if (placed === undefined) throw new Error(`${id} is missing`)
-  return store.isTemplateVisible(placed)
+  return catalog.isTemplateVisible(placed)
 }
 
 /** Choose "Show only this" from a row's menu, the way the panel's tree does. */
@@ -55,7 +61,12 @@ const chooseShowOnly = (key: string, query = ''): void => {
     onContextMenu: (target: TreeTarget, event: MouseEvent) =>
       openContextMenu(target, event, () => {}),
   } as Partial<TreeCallbacks> as TreeCallbacks
-  templateTreeAdapter(callbacks, () => {}, query).handle({ type: 'context-menu', key, x: 0, y: 0 })
+  templateTreeAdapter(callbacks, () => {}, { surface: WORLD_TEMPLATE_SURFACE, query }).handle({
+    type: 'context-menu',
+    key,
+    x: 0,
+    y: 0,
+  })
   const menu = treeActionPresentation().contextMenu
   const item = menu?.items.find((candidate) => candidate.label === 'Show only this')
   if (menu === undefined || item === undefined) throw new Error('Show only this is not offered')
@@ -69,7 +80,7 @@ const chooseShowOnly = (key: string, query = ''): void => {
 
 afterEach(async () => {
   setScopeVisible('local', true)
-  for (const placed of store.localTemplates()) await store.removeLocalTemplate(placed.id)
+  for (const placed of catalog.localTemplates()) await edits.removeLocalTemplate(placed.id)
 })
 
 describe('show only this', () => {
@@ -84,7 +95,7 @@ describe('show only this', () => {
     const outerPeer = await template('Outer peer', outer)
     const elsewhere = await template('Elsewhere', null)
     const stillHidden = await template('Still hidden', asleep)
-    await store.setLocalVisible(target, false)
+    await edits.setLocalVisible(target, false)
     setLocalFolderVisible(outer, false)
     setLocalFolderVisible(asleep, false)
 
@@ -102,7 +113,7 @@ describe('show only this', () => {
         false,
       ]),
     )
-    expect(toast).not.toHaveBeenCalled()
+    expect(showToast).not.toHaveBeenCalled()
 
     // A hidden subfolder keeps its own arrangement for when it is switched back on.
     setLocalFolderVisible(nested, true)
@@ -141,12 +152,12 @@ describe('show only this', () => {
     const group = folder('Group')
     const target = await template('Target', group)
     await template('Peer', group)
-    vi.spyOn(store, 'setLocalVisible').mockResolvedValueOnce(false)
+    vi.spyOn(edits, 'setLocalVisible').mockResolvedValueOnce(false)
 
     chooseShowOnly(`local:${target}`)
 
     await vi.waitFor(() =>
-      expect(toast).toHaveBeenCalledWith('Could not change visibility for “Target”.', 'error'),
+      expect(showToast).toHaveBeenCalledWith('Could not change visibility for “Target”.', 'error'),
     )
   })
 })

@@ -3,9 +3,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { RenderScene } from '../src/gl/render-scene.js'
 import { installMapCapture, releaseMapCapture } from '../src/map-handle.js'
 import { DEFAULT_APPEARANCE } from '../src/templates/appearance.js'
+import type { LocalTemplate } from '../src/templates/catalog.js'
 import { compositeCommittedArtwork } from '../src/templates/current-artwork.js'
 import { draftedPixelsIn } from '../src/templates/drafted.js'
-import type { PlacedTemplate } from '../src/templates/local-store.js'
 import { markLocalX, markLocalY, markWanted } from '../src/templates/mismatch-marks.js'
 import { type PixelScanJob, scanTile } from '../src/templates/mismatch-scan.js'
 import { cutPixels } from '../src/templates/sparse-pixels.js'
@@ -48,7 +48,8 @@ const tileJob = (overrides: Partial<PixelScanJob> = {}): PixelScanJob => ({
   ...overrides,
 })
 
-const template = (overrides: Partial<PlacedTemplate> = {}): PlacedTemplate => ({
+const template = (overrides: Partial<LocalTemplate> = {}): LocalTemplate => ({
+  origin: 'local',
   id: 'pixel-contract',
   name: 'Pixel contract',
   source: 'image',
@@ -57,6 +58,7 @@ const template = (overrides: Partial<PlacedTemplate> = {}): PlacedTemplate => ({
   width: 3,
   height: 1,
   artwork: { pixels: cutPixels(3, 1, new Uint8Array([5, 6, 7])) },
+  surface: WORLD_TEMPLATE_SURFACE,
   moved: 0,
   opaque: 3,
   tiles: new Set(),
@@ -171,8 +173,8 @@ describe('pixel accounting contracts', () => {
       owns: ['colours'],
     })
 
-    scene.advanceTemplates([owned], WORLD_TEMPLATE_SURFACE, 0, false)
-    const [rendered] = scene.advanceTemplates([owned], WORLD_TEMPLATE_SURFACE, 300, false).templates
+    scene.advanceTemplates([owned], WORLD_TEMPLATE_SURFACE, 0)
+    const [rendered] = scene.advanceTemplates([owned], WORLD_TEMPLATE_SURFACE, 300).templates
     if (rendered?.palette === null || rendered === undefined)
       throw new Error('render scene omitted a visible palette')
 

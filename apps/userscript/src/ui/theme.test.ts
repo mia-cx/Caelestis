@@ -20,13 +20,6 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
-it('paints pixel tokens when the root has data-game-ui and no data-standard-ui', () => {
-  document.documentElement.setAttribute('data-game-ui', '')
-  const el = themed()
-  expect(el.dataset.caelestisStyle).toBe('pixel')
-  expect(el.style.getPropertyValue('--caelestis-radius')).toBe('0')
-})
-
 it('repaints live when data-standard-ui appears and disappears', async () => {
   document.documentElement.setAttribute('data-game-ui', '')
   const el = themed()

@@ -6,9 +6,8 @@ import { horizontalCentre } from './placement.js'
 /**
  * Go to a place on the map, in-game.
  *
- * We hold a live MapLibre `Map` — see `map-handle.ts` for how, and for the four routes that failed
- * first — so this is `flyTo`, not a page load. Everything in memory survives, which matters most
- * immediately after an import.
+ * We hold a live MapLibre `Map` — see `map-handle.ts` for how — so this is `flyTo`, not a page
+ * load. Everything in memory survives, which matters most immediately after an import.
  *
  * `cameraForBounds` gives fit-to-extent for free, so a template is framed rather than merely
  * centred. The URL remains as a fallback for the case where the capture did not fire.
@@ -52,20 +51,20 @@ export const navigateTo = (target: NavigateTarget): void => {
   if (map !== null) {
     try {
       if (map.getCanvas().isConnected) {
-        log('install', 'flying', { lat, lng, zoom })
+        log('flying', { lat, lng, zoom })
         map.flyTo({ center: [lng, lat], zoom })
         return
       }
-      log('install', 'captured map is detached, falling back to the URL')
+      log('captured map is detached, falling back to the URL')
     } catch (error) {
       // MapLibre can be torn down between the connectivity check and flyTo during an SPA remount.
-      log('install', 'captured map failed, falling back to the URL', String(error))
+      log('captured map failed, falling back to the URL', String(error))
     }
   }
 
   // No map handle: fall back to the URL. This reloads, which is only survivable because local
   // templates persist.
-  log('install', 'no map handle, falling back to the URL', { lat, lng, zoom })
+  log('no map handle, falling back to the URL', { lat, lng, zoom })
   const url = new URL(window.location.href)
   url.searchParams.set('lat', lat.toFixed(7))
   url.searchParams.set('lng', lng.toFixed(7))

@@ -1,5 +1,6 @@
 import {
   createWorkClient,
+  decodeRegionSnapshot,
   encodeIndexedPng,
   type PainterIdentity,
   sha256Hex,
@@ -7,8 +8,9 @@ import {
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { serverEndpoint } from '../src/server-url.js'
+import { endpointUrl as serverEndpoint } from '../src/server-url.js'
 import { adminToken, backendFetch, createTestBackend, readToken, reportToken } from './backend.js'
+import { importStateModules } from './state-modules.js'
 
 const origin = 'https://userscript-telemetry-boundary.test'
 const painter: PainterIdentity = { wplaceUserId: 42, displayName: 'Mia' }
@@ -101,7 +103,7 @@ const artwork = async (): Promise<Blob> => {
 }
 
 afterEach(async () => {
-  const state = await import('../src/state.js')
+  const state = await importStateModules()
   for (const url of configuredServers) state.removeServer(url)
   configuredServers.clear()
   vi.clearAllTimers()
@@ -153,8 +155,9 @@ describe('userscript telemetry HTTP boundary', () => {
   it('writes, reads, refuses an unauthorized release, and removes a region through the presence HTTP client', async () => {
     await installBackend()
     vi.stubGlobal('WebSocket', IdleWebSocket)
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     const presence = await import('../src/presence-client.js')
+    const regionApi = await import('../src/region-api.js')
     const probed = await state.probeServer(origin, reportToken)
     if (probed.info === null) throw new Error('test backend did not return server metadata')
     const server = { ...probed, info: { ...probed.info, presence: 1 as const } }
@@ -176,12 +179,13 @@ describe('userscript telemetry HTTP boundary', () => {
         ],
       },
     }
-    expect(await presence.claimRegion(server, id, request)).toBeNull()
+    expect(await regionApi.claimRegion(server, id, request)).toEqual({ kind: 'ok' })
 
     const regions = await endpointRequest(reportToken)(
       '/work/regions?season=3&surface=world&painterId=42',
     )
-    expect(await regions.json()).toMatchObject({
+    // The client's snapshot decoder agrees with what the backend sends.
+    expect(decodeRegionSnapshot(await regions.json())).toMatchObject({
       canWrite: true,
       ownedRegionIds: [id],
       regions: [
@@ -194,9 +198,9 @@ describe('userscript telemetry HTTP boundary', () => {
       ],
     })
     expect(
-      await presence.releaseRegion(server, id, { wplaceUserId: 7, displayName: 'Other painter' }),
-    ).toBe('forbidden')
-    expect(await presence.releaseRegion(server, id, painter)).toBeNull()
+      await regionApi.releaseRegion(server, id, { wplaceUserId: 7, displayName: 'Other painter' }),
+    ).toEqual({ kind: 'error', message: 'forbidden' })
+    expect(await regionApi.releaseRegion(server, id, painter)).toEqual({ kind: 'ok' })
     expect(
       await (await endpointRequest(reportToken)('/work/regions?season=3&surface=world')).json(),
     ).toEqual({ regions: [] })
@@ -210,7 +214,7 @@ describe('userscript telemetry HTTP boundary', () => {
       paintReplies: [],
     }
     const fetch = await installBackend(wplace)
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     const probed = await state.probeServer(origin, adminToken)
     if (probed.status !== 'connected') throw new Error('admin probe did not connect')
     state.upsertServer(probed)
@@ -238,15 +242,14 @@ describe('userscript telemetry HTTP boundary', () => {
     const hash = await sha256Hex(canvas)
     const sync = await import('../src/server-sync-coordinator.js')
     const telemetry = await import('../src/telemetry.js')
-    const tileTransform = await import('../src/tile-transform.js')
+    const pageTaps = await import('../src/page-taps.js')
     telemetry.installTelemetry()
     sync.installServerSyncCoordinator()
-    const contents = await state.listServerContents(server)
+    const contents = await state.readManifest(server)
     if (contents === null) throw new Error('published template did not appear in the manifest')
-    state.admitServerContents(server, contents)
     wplace.tile = canvas
     const page = pageRealm(fetch)
-    tileTransform.install(page)
+    pageTaps.install(page)
     await (await page.fetch('https://backend.wplace.live/files/s3/tiles/0/0.png')).arrayBuffer()
     await vi.advanceTimersByTimeAsync(300)
     await vi.waitFor(() => {
@@ -280,8 +283,9 @@ describe('userscript telemetry HTTP boundary', () => {
     })
 
     sync.requestServerSync('connect', 'telemetry-status', server)
+    const { serverProgressFor } = await import('../src/server-status.js')
     await vi.waitFor(() =>
-      expect(telemetry.serverProgressFor(server, { id: uploaded.id, totalPixels: 1 })).toEqual({
+      expect(serverProgressFor(server, { id: uploaded.id, totalPixels: 1 })).toEqual({
         completed: 1,
         mismatched: 0,
         unpainted: 0,
@@ -308,7 +312,7 @@ describe('server mismatch masks', () => {
       paintReplies: [],
     }
     const fetch = await installBackend(wplace)
-    const state = await import('../src/state.js')
+    const state = await importStateModules()
     const probed = await state.probeServer(origin, adminToken)
     if (probed.status !== 'connected') throw new Error('admin probe did not connect')
     state.upsertServer(probed)
@@ -331,16 +335,15 @@ describe('server mismatch masks', () => {
     wplace.tile = await encodeIndexedPng(1_000, 1_000, indices)
     const telemetry = await import('../src/telemetry.js')
     const sync = await import('../src/server-sync-coordinator.js')
-    const tileTransform = await import('../src/tile-transform.js')
+    const pageTaps = await import('../src/page-taps.js')
     telemetry.installTelemetry()
     sync.installServerSyncCoordinator()
-    const contents = await state.listServerContents(server)
+    const contents = await state.readManifest(server)
     const published = contents?.templates.find((candidate) => candidate.id === uploaded.id)
     if (contents === null || published === undefined)
       throw new Error('published template did not appear in the manifest')
-    state.admitServerContents(server, contents)
     const page = pageRealm(fetch)
-    tileTransform.install(page)
+    pageTaps.install(page)
     await (await page.fetch('https://backend.wplace.live/files/s3/tiles/0/0.png')).arrayBuffer()
     await vi.advanceTimersByTimeAsync(300)
     const path = `/telemetry/templates/${uploaded.id}/versions/${published.version}/tiles/0/0/mismatches?season=3`
@@ -348,9 +351,11 @@ describe('server mismatch masks', () => {
     const wildcard = await endpointRequest(adminToken)(path, { headers: { 'if-none-match': '*' } })
     expect(wildcard.status).toBe(304)
     const template = {
-      serverUrl: origin,
+      origin: 'server' as const,
+      server,
       serverTemplateId: uploaded.id,
-      serverVersion: published.version,
+      version: published.version,
+      unpublished: false,
     }
     return { fetch, template, mismatch: await import('../src/server-mismatch.js') }
   }

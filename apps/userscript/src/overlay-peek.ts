@@ -1,4 +1,5 @@
 import { FADE_MS, fadeProgress } from './gl/fade.js'
+import { notifyListeners } from './listeners.js'
 
 /** Runtime-only hold-to-peek state. It must never mutate or persist template visibility. */
 
@@ -30,6 +31,6 @@ export const setOverlayPeekActive = (next: boolean): boolean => {
   const now = performance.now()
   fade = { from: opacityAt(now), to: next ? 0 : 1, since: now }
   active = next
-  for (const listener of listeners) listener()
+  notifyListeners(listeners, 'overlay peek observer failed')
   return true
 }

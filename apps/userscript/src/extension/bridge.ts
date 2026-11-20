@@ -9,11 +9,7 @@ import { loadStoredStrings, onStoredStringsChange, writeStoredString } from './s
  * `window` and can stop the handoff event before any page listener runs.
  */
 serveStorageBridge('extension', {
-  load: () =>
-    loadStoredStrings().catch((error: unknown) => {
-      console.warn('[caelestis] could not load stored values', error)
-      return null
-    }),
+  load: loadStoredStrings,
   write: writeStoredString,
   onChange: onStoredStringsChange,
 })

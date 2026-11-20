@@ -1,0 +1,30 @@
+import { afterEach, expect, it, vi } from 'vitest'
+import { adminToken, backendFetch, createTestBackend, readToken } from './backend.js'
+
+const origin = 'https://token-update.test'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.resetModules()
+})
+
+it('tells the row a token update is busy instead of leaving it checking', async () => {
+  const { app } = await createTestBackend()
+  const fetch = backendFetch(app, origin)
+  vi.stubGlobal('fetch', fetch)
+  window.fetch = fetch
+  vi.resetModules()
+  const { connectServer } = await import('../src/server-connections.js')
+  const settings = await import('../src/ui/settings-controller.js')
+  await connectServer(origin, readToken)
+
+  // An invite for the same server is still connecting when the row's token is submitted.
+  const invite = connectServer(origin, adminToken)
+  settings.handleSettingsIntent({ type: 'update-server-token', url: origin, token: adminToken })
+  await invite
+
+  await vi.waitFor(() => expect(settings.settingsModel().servers[0]?.pending).toBeUndefined())
+  expect(settings.settingsModel().servers[0]?.message).toBe(
+    'Still connecting. Try again in a moment.',
+  )
+})

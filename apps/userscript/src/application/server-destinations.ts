@@ -1,6 +1,6 @@
 import type { TreeNode } from '../server-manifest.js'
 
-export interface ServerDestinationChoice {
+interface ServerDestinationChoice {
   readonly nodeId: string | null
   readonly label: string
 }

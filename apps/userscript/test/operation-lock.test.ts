@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { runWhileBusy } from '../src/application/operation-lock.js'
+import { runWhileBusy } from '../src/concurrency.js'
 
 describe('tree operation admission', () => {
   it('refuses a concurrent move and releases the key after the first settles', async () => {
