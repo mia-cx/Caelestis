@@ -1,5 +1,33 @@
 # @caelestis/userscript
 
+## 1.2.1
+
+### Patch Changes
+
+- e1cf90f: Your Wplace identity and owned colours update whenever Wplace reads your account, and clear when it reports you signed out.
+- e1cf90f: Moving a server folder on an alliance canvas no longer refuses with "Some templates in that folder have not finished loading yet".
+- e1cf90f: Alliance templates show their remaining colours on Wplace's palette while the artboard cannot be read, and keep their last counts after their pixels are unloaded, as the template tree does.
+- e1cf90f: The claim button, the Painters drawer and the M shortcut all say why claiming is unavailable, such as a missing token, a season mismatch or an open alliance artboard.
+- e1cf90f: The claim editor and quick claims pick the same pixel at tile edges, and the claim brush width can no longer be set to 0.
+- dbfcc22: The Claim a region button names the key you bound to claim mode, or none when it is unbound, instead of always saying M.
+- 054c967: Closing Tags or Server details returns focus to the row that opened it.
+- e1cf90f: Disconnecting a server clears everything kept for it: its mismatch masks, unsent tile reports, pending upload checks and the anonymous live id, so reconnecting starts fresh.
+- c10fa5e: Opening a template's progress from the grid view moves keyboard focus into the progress pane.
+- e1cf90f: A server's live connection no longer drops when a newer template list arrives while the previous one is still downloading, and a list too large for memory is no longer drawn.
+- e1cf90f: The Apply and Cancel buttons for placing a template no longer flicker when the window is too short to show them.
+- e1cf90f: Refreshing a server's templates after live updates shows the refreshed list instead of keeping the older one.
+- e1cf90f: Closing the shortcut reference returns focus to the control that had it, including one inside the panel.
+- e1cf90f: Keyboard shortcuts keep working after you click a checkbox, radio button or button in settings.
+- e1cf90f: Shift-paint works while a checkbox has focus and with Wplace's legacy picker, and a Dangerous setting whose parent is off now shows as off.
+- 21adba2: The tag filter box and checkboxes take the shared corner radius, so they turn square in Wplace's pixel style.
+- d660f49: A template studio window dropped near the bottom of the screen remembers the place it was drawn at, so it no longer opens lower on a taller screen.
+- f334c42: Every switch knob in the panel shades like Wplace's own switches, instead of only nested settings rows.
+- e1cf90f: Updating a server's token no longer leaves its row stuck on "Checking…" when another connect or disconnect is still running.
+- 57543a5: Template colour progress in the menu uses the website's colour rows and sort orders, in the tree and in the grid's progress pane.
+- c8fb174: Dragging a template over a folder it cannot move into no longer outlines the folder as a drop target.
+- 3032cf5: The tree's search, sort and filter fields share the panel's corner radius.
+- b67940a: Template menus stay attached to their buttons while the panel scrolls or the window resizes, instead of closing or drifting off them.
+
 ## 1.2.0
 
 ### Minor Changes
