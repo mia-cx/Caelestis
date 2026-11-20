@@ -65,20 +65,32 @@ Index that store by player id and it lists every pixel a player painted. Index i
 
 ## Privacy settings
 
-The privacy setting "Show last painted pixel on alliance" (`showLastPixel`, saved with `POST /me/privacy`) controls one thing. It decides whether your alliance's admins see a button that jumps to your last painted pixel in the member list.
+`POST /me/privacy` saves four settings. None of them is a "private profile":
 
-It does not hide you on the pixel endpoint above. No privacy setting does. Anyone who clicks a pixel you painted sees your name, so a painter history like the one above includes players with the setting off.
+| Setting | What it changes |
+| --- | --- |
+| `showLastPixel` | Whether your alliance's leaderboard shows your last painted pixel location |
+| `showDiscord` | Whether leaderboards and profiles show your Discord handle |
+| `hotspotsOptOut` | Whether your painting counts toward the public hotspots list |
+| `hideAllianceHqPins` | Whether your own map shows alliance headquarters pins |
+
+None of them hides you on the pixel endpoint above. Anyone who clicks a pixel you painted sees your name, so a painter history like the one above includes every player.
 
 ## Other attribution data
 
 | Endpoint | Who can call it | What it ties together |
 | --- | --- | --- |
-| `GET /leaderboard/player/{period}` | anyone | top painters, with pixel counts, alliance and any linked Discord account the player chose to show |
-| `GET /leaderboard/region/players/{regionId}/{period}` | anyone | top painters in one region |
+| `GET /map/hotspots` | anyone | the busiest regions, with coordinates and pixel counts |
+| `GET /leaderboard/region/players/{regionId}/{period}` | anyone | the top painters in one region |
+| `GET /leaderboard/player/{period}` | anyone | the top painters, with pixel counts, alliance and Discord handle if shown |
 | `GET /alliances/{id}/members` | anyone | an alliance's member names and roles |
-| `GET /alliances/{id}/headquarters` | anyone | an alliance's headquarters location |
-| alliance member list, admin view | alliance admins | each member's last painted pixel location, unless the member turned `showLastPixel` off |
-| staff area and pixel tools | Wplace staff only | the painters of every pixel in an area |
+| `GET /alliances/{id}/headquarters` | anyone | an alliance's headquarters location, if the alliance makes it visible |
+| `GET /alliance/leaderboard/{period}` | alliance members | each member's last painted pixel location, unless they turned `showLastPixel` off |
+| staff area, pixel and wayback tools | Wplace staff only | the painters of every pixel in an area, and each tile's paint history |
+
+Hotspots and region leaderboards can point at one player. In two of three samples, a hotspot's pixel count matched exactly one player's daily count on that region's leaderboard. That gives a location and a name together. `hotspotsOptOut` is the only guard, and it is off by default.
+
+Some leaderboard entries carry a numeric `discordId` with no `discord` handle. If those players turned `showDiscord` off, the setting hides the handle but not the ID. This is unconfirmed.
 
 ## For app authors
 
