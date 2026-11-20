@@ -26,7 +26,19 @@ The request needs no account and no cookies. `s0` is the current season. `tileX`
 }
 ```
 
-The response names the last account to paint that pixel. The endpoint sent no rate-limit headers, and 30 requests in a row all succeeded.
+The response names the last account to paint that pixel. One call covers one pixel.
+
+## Rate limits
+
+Cloudflare limits each IP address to about 90 backend API requests in any 15 seconds. Past that, every `backend.wplace.live` API path answers `429` with `retry-after: 60` and the body `error code: 1015` for 60 seconds. The responses carry no headers that show how much of the limit is left. Requests that fail with an error still count.
+
+| Steady rate | Result |
+| --- | --- |
+| 5 requests per second | never blocked |
+| 6 requests per second | blocked after about 18 seconds |
+| 7 or more requests per second | blocked within 15 seconds |
+
+Map tiles under `/files/` are not part of this limit: 300 tile requests in 7 seconds all went through, and tiles stayed reachable while the API was blocked. These numbers were measured from one IP address on 20 November 2026.
 
 ## Where painting changes
 
