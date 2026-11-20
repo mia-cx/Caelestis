@@ -30,11 +30,11 @@ The response names the last account to paint that pixel. One call covers one pix
 
 ## Rate limits
 
-Cloudflare limits each IP address to about 90 backend API requests in any 15 seconds. Past that, every `backend.wplace.live` API path answers `429` with `retry-after: 60` and the body `error code: 1015` for 60 seconds. The responses carry no headers that show how much of the limit is left. Requests that fail with an error still count.
+Cloudflare configures the request counting period and the mitigation timeout separately. The Wplace measurements suggest a counting period of about 15 seconds and show a 60-second block after the rate limit trips. Blocked API requests returned HTTP `429` with `error code: 1015`. The `Retry-After` header counted down from 60 to 53 seconds, showing the time left on the block. Requests that failed with HTTP `400` counted toward the limit. [Cloudflare rate limiting parameters](https://developers.cloudflare.com/waf/rate-limiting-rules/parameters/#for-duration)
 
 | Steady rate | Result |
 | --- | --- |
-| 5 requests per second | never blocked |
+| 5 requests per second | 300 requests over 60 seconds without a block |
 | 6 requests per second | blocked after about 18 seconds |
 | 7 or more requests per second | blocked within 15 seconds |
 
