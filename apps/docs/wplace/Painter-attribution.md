@@ -26,7 +26,7 @@ The request needs no account and no cookies. `s0` is the current season. `tileX`
 }
 ```
 
-The response names the last account to paint that pixel. One call covers one pixel.
+The response names the last account to paint that pixel. It carries no paint time, so an app that records changes knows only when it saw them. One call covers one pixel.
 
 ## Rate limits
 
@@ -37,8 +37,11 @@ Cloudflare configures the request counting period and the mitigation timeout sep
 | 5 requests per second | 300 requests over 60 seconds without a block |
 | 6 requests per second | blocked after about 18 seconds |
 | 7 or more requests per second | blocked within 15 seconds |
+| 10 requests per second | blocked on request 81 |
 
-Map tiles under `/files/` are not part of this limit: 300 tile requests in 7 seconds all went through, and tiles stayed reachable while the API was blocked. These numbers were measured from one IP address on 20 November 2026.
+IPv4 and IPv6 get the same limit: from one server, both blocked on request 81 at 10 requests per second.
+
+Map tiles under `/files/` are not part of this limit: 300 tile requests in 7 seconds all went through, and tiles stayed reachable while the API was blocked. These numbers were measured on 20 November 2026.
 
 ## Where painting changes
 
@@ -51,6 +54,20 @@ GET https://backend.wplace.live/files/s0/tiles/{x}/{y}.png
 The CDN caches a tile for 5 seconds (`s-maxage=5`). Each tile carries an `ETag` and `Last-Modified`, so an app can tell when a tile changed without comparing images.
 
 `GET /map/hotspots` needs no account. It lists the regions with the most painting right now, with a latitude, longitude and pixel count for each.
+
+The canvas is a Web Mercator map at zoom 11: 2048 × 2048 tiles of 1000 × 1000 pixels. To find the tile and pixel under a latitude and longitude:
+
+```ts
+const WORLD_PIXELS = 2048 * 1000
+const lat = (latitude * Math.PI) / 180
+const px = ((longitude + 180) / 360) * WORLD_PIXELS
+const py = ((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * WORLD_PIXELS
+
+const tileX = Math.floor(px / 1000), x = Math.floor(px) % 1000
+const tileY = Math.floor(py / 1000), y = Math.floor(py) % 1000
+```
+
+Berlin, at 52.52° N 13.40° E, falls on tile 1100/671.
 
 ## Putting them together
 
@@ -90,7 +107,7 @@ None of them hides you on the pixel endpoint above. Anyone who clicks a pixel yo
 
 Hotspots and region leaderboards can point at one player. In two of three samples, a hotspot's pixel count matched exactly one player's daily count on that region's leaderboard. That gives a location and a name together. `hotspotsOptOut` is the only guard, and it is off by default.
 
-Some leaderboard entries carry a numeric `discordId` with no `discord` handle. If those players turned `showDiscord` off, the setting hides the handle but not the ID. This is unconfirmed.
+A leaderboard entry carries both `discord` (the handle) and `discordId`, or neither. Of 50 entries on the daily player leaderboard, 17 had both, 32 had neither, and 1 had a `discordId` with no handle, for an unknown reason.
 
 ## For app authors
 
