@@ -41,7 +41,14 @@ Cloudflare configures the request counting period and the mitigation timeout sep
 
 IPv4 and IPv6 get the same limit. From one server, both were blocked within that range at 10 requests per second, with a different tile and pixel on every request.
 
-Map tiles under `/files/` are not part of this limit. 200 requests for 200 different tiles in 11 seconds all went through, none served from Cloudflare's cache, and tiles stayed reachable from an address the API had blocked. These numbers were measured on 20 November 2026.
+Map tiles under `/files/` have a separate, higher limit. Every test asked for a different tile on each request, and no response came from Cloudflare's cache:
+
+| Tile requests | Result |
+| --- | --- |
+| 200 in 11 seconds | no block |
+| 100 per second | blocked on request 609, after 6 seconds, for 60 seconds |
+
+The two limits block separately. Tiles stayed reachable from an address the API had blocked, and the API kept answering an address the tile limit had blocked. These numbers were measured on 20 November 2026.
 
 ## Where painting changes
 
