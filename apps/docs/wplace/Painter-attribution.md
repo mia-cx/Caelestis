@@ -37,9 +37,9 @@ Cloudflare configures the request counting period and the mitigation timeout sep
 | 5 requests per second | 300 requests over 60 seconds without a block |
 | 6 requests per second | blocked after about 18 seconds |
 | 7 or more requests per second | blocked within 15 seconds |
-| 10 requests per second | blocked on request 81 |
+| 10 requests per second | blocked between request 81 and 95 |
 
-IPv4 and IPv6 get the same limit: from one server, both blocked on request 81 at 10 requests per second.
+IPv4 and IPv6 get the same limit. From one server, both were blocked within that range at 10 requests per second, with a different tile and pixel on every request.
 
 Map tiles under `/files/` are not part of this limit: 300 tile requests in 7 seconds all went through, and tiles stayed reachable while the API was blocked. These numbers were measured on 20 November 2026.
 
