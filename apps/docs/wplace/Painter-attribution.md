@@ -43,10 +43,15 @@ IPv4 and IPv6 get the same limit. From one server, both were blocked within that
 
 Map tiles under `/files/` have a separate, higher limit. Every test asked for a different tile on each request, and no response came from Cloudflare's cache:
 
-| Tile requests | Result |
+| Tile requests per second | Result |
 | --- | --- |
-| 200 in 11 seconds | no block |
-| 100 per second | blocked on request 609, after 6 seconds, for 60 seconds |
+| 28.2 | no block over 75 seconds |
+| 28.8 | blocked on request 913, after 32 seconds |
+| 33.2 | blocked on request 844, after 25 seconds |
+| 58.4 | blocked on request 698, after 12 seconds |
+| 97.9 | blocked on request 609, after 6 seconds |
+
+Every block lasted 60 seconds. The results fit Cloudflare's sliding-window counter with a limit of about 600 requests per 21 seconds, which allows about 28.5 tile requests per second sustained.
 
 The two limits block separately. Tiles stayed reachable from an address the API had blocked, and the API kept answering an address the tile limit had blocked. These numbers were measured on 20 November 2026.
 
