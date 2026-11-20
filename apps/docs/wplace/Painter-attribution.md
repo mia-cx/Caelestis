@@ -30,16 +30,19 @@ The response names the last account to paint that pixel. It carries no paint tim
 
 ## Rate limits
 
-Cloudflare configures the request counting period and the mitigation timeout separately. The Wplace measurements suggest a counting period of about 15 seconds and show a 60-second block after the rate limit trips. Blocked API requests returned HTTP `429` with `error code: 1015`. The `Retry-After` header counted down from 60 to 53 seconds, showing the time left on the block. Requests that failed with HTTP `400` counted toward the limit. [Cloudflare rate limiting parameters](https://developers.cloudflare.com/waf/rate-limiting-rules/parameters/#for-duration)
+Wplace's backend has two Cloudflare rate limits: one for the API, and a higher one for map tiles. Each counts requests per IP address over a sliding window. Going over either limit blocks the address for 60 seconds with HTTP `429` and `error code: 1015`, and `Retry-After` counts down the time left on the block. [Cloudflare rate limiting parameters](https://developers.cloudflare.com/waf/rate-limiting-rules/parameters/#for-duration)
 
-| Steady rate | Result |
+Every API endpoint shares one counter: the limit is about 80 requests per 16 seconds, or 5 requests per second sustained. Pixel lookups, `/alliances/{id}`, and the two alternating were all blocked at the same point. Requests that fail, such as a `400` or a `404`, still count. A block covers every API endpoint, including `/me`, but not tiles.
+
+| API requests per second | Result |
 | --- | --- |
-| 5 requests per second | 300 requests over 60 seconds without a block |
-| 6 requests per second | blocked after about 18 seconds |
-| 7 or more requests per second | blocked within 15 seconds |
-| 10 requests per second | blocked between request 81 and 95 |
+| 5 | 300 requests over 60 seconds without a block |
+| 5.06 | blocked on request 99, after 19 seconds |
+| 5.5 | blocked on request 121, after 22 seconds |
+| 10 | blocked between request 81 and 95 |
+| 20 or 40 | blocked on request 81 |
 
-IPv4 and IPv6 get the same limit. From one server, both were blocked within that range at 10 requests per second, with a different tile and pixel on every request.
+IPv4 and IPv6 get the same limit.
 
 Map tiles under `/files/` have a separate, higher limit. Every test asked for a different tile on each request, and no response came from Cloudflare's cache:
 
