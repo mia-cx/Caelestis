@@ -30,19 +30,19 @@
     "@caelestis/social": "workspace:*",
     "@caelestis/storage": "workspace:*",
     "@caelestis/wire-schema": "workspace:*",
-    "@hono/node-server": "^2.1.8",
+    "@hono/node-server": "^2.1.11",
     "drizzle-orm": "0.45.4",
-    "effect": "4.1.4",
+    "effect": "4.1.5",
     "fzstd": "0.1.1",
-    "hono": "^4.13.18",
+    "hono": "^4.13.19",
     "mariadb": "^3.5.5",
     "pg": "^8.23.1",
     "ws": "^8.23.0"
   },
   "devDependencies": {
-    "@aws-sdk/client-s3": "^3.1169.0",
-    "@cloudflare/workers-types": "^5.20261115.1",
-    "@types/bun": "1.4.4",
+    "@aws-sdk/client-s3": "^3.1173.0",
+    "@cloudflare/workers-types": "^5.20261120.1",
+    "@types/bun": "1.4.5",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
@@ -50,7 +50,7 @@
     "esbuild": "0.28.2",
     "miniflare": "5.20260918.0-alpha",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0",
+    "vitest": "^5.1.1",
     "wrangler": "^4.162.0"
   }
 }
