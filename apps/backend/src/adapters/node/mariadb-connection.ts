@@ -45,8 +45,11 @@ const mariaConstraintViolation = (error: unknown): ConstraintViolation | null =>
   return new ConstraintViolation(kind, constraint, { cause: error })
 }
 
-/** Lock wait timeout and deadlock: the batch did not commit and can run again. */
-const RETRYABLE_ERRNOS: readonly unknown[] = [1205, 1213]
+/**
+ * A row another transaction changed after this one's snapshot (MariaDB 11.6+ snapshot isolation),
+ * lock wait timeout, and deadlock: the transaction did not commit and can run again.
+ */
+const RETRYABLE_ERRNOS: readonly unknown[] = [1020, 1205, 1213]
 const retryable = (error: unknown): boolean =>
   causes(error).some((cause) => 'errno' in cause && RETRYABLE_ERRNOS.includes(cause.errno))
 const TRANSACTION_ATTEMPTS = 5
