@@ -146,6 +146,8 @@ describe('external relational adapter contract', () => {
     async () => {
       if (!(connection instanceof MariaConnection))
         throw new Error('Integration fixture did not open MariaDB')
+      // 11.8's default, pinned for this session so a server configured without it still conflicts.
+      await connection.prepare('SET SESSION innodb_snapshot_isolation = ON').run()
       await connection.prepare('CREATE TABLE snapshot_probe (id INT PRIMARY KEY, v INT)').run()
       await connection.prepare('INSERT INTO snapshot_probe VALUES (1, 0), (2, 0)').run()
       const rival = await createConnection({ ...connection.config, database: databaseName })
