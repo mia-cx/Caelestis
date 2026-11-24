@@ -112,6 +112,8 @@ describe('external relational adapter contract', () => {
       let attempts = 0
       await connection.transaction(async (sql) => {
         attempts += 1
+        // The retry starts after the rival commits, so it cannot also lose a snapshot conflict.
+        if (attempts > 1) await rivalDone
         await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 2').run()
         if (attempts === 1) {
           // The rival waits on this transaction for row 2, and commits once it gets it.
@@ -135,6 +137,35 @@ describe('external relational adapter contract', () => {
         results: [
           { id: 1, v: 11 },
           { id: 2, v: 11 },
+        ],
+      })
+    },
+  )
+  it.runIf(maria !== undefined)(
+    'runs a MariaDB callback transaction again after another commits a row it then writes',
+    async () => {
+      if (!(connection instanceof MariaConnection))
+        throw new Error('Integration fixture did not open MariaDB')
+      await connection.prepare('CREATE TABLE snapshot_probe (id INT PRIMARY KEY, v INT)').run()
+      await connection.prepare('INSERT INTO snapshot_probe VALUES (1, 0), (2, 0)').run()
+      const rival = await createConnection({ ...connection.config, database: databaseName })
+      let attempts = 0
+      await connection.transaction(async (sql) => {
+        attempts += 1
+        // This statement opens the transaction's snapshot.
+        await sql.prepare('UPDATE snapshot_probe SET v = v + 10 WHERE id = 2').run()
+        if (attempts === 1) await rival.query('UPDATE snapshot_probe SET v = v + 1 WHERE id = 1')
+        // On the first attempt row 1 changed after the snapshot, so MariaDB refuses this write.
+        await sql.prepare('UPDATE snapshot_probe SET v = v + 10 WHERE id = 1').run()
+      })
+      await rival.end()
+      expect(attempts).toBe(2)
+      expect(
+        await connection.prepare('SELECT id, v FROM snapshot_probe ORDER BY id').all(),
+      ).toMatchObject({
+        results: [
+          { id: 1, v: 11 },
+          { id: 2, v: 10 },
         ],
       })
     },
