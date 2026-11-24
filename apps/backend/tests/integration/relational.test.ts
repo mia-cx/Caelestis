@@ -128,13 +128,45 @@ describe('external relational adapter contract', () => {
       })
       await rivalDone
       await rival.end()
-      expect(attempts).toBe(2)
+      // A retry that starts before the rival commits also loses a snapshot conflict and runs again.
+      expect(attempts).toBeGreaterThanOrEqual(2)
       expect(
         await connection.prepare('SELECT id, v FROM deadlock_probe ORDER BY id').all(),
       ).toMatchObject({
         results: [
           { id: 1, v: 11 },
           { id: 2, v: 11 },
+        ],
+      })
+    },
+  )
+  it.runIf(maria !== undefined)(
+    'runs a MariaDB callback transaction again after another commits a row it then writes',
+    async () => {
+      if (!(connection instanceof MariaConnection))
+        throw new Error('Integration fixture did not open MariaDB')
+      // 11.8's default, pinned for this session so a server configured without it still conflicts.
+      await connection.prepare('SET SESSION innodb_snapshot_isolation = ON').run()
+      await connection.prepare('CREATE TABLE snapshot_probe (id INT PRIMARY KEY, v INT)').run()
+      await connection.prepare('INSERT INTO snapshot_probe VALUES (1, 0), (2, 0)').run()
+      const rival = await createConnection({ ...connection.config, database: databaseName })
+      let attempts = 0
+      await connection.transaction(async (sql) => {
+        attempts += 1
+        // This statement opens the transaction's snapshot.
+        await sql.prepare('UPDATE snapshot_probe SET v = v + 10 WHERE id = 2').run()
+        if (attempts === 1) await rival.query('UPDATE snapshot_probe SET v = v + 1 WHERE id = 1')
+        // On the first attempt row 1 changed after the snapshot, so MariaDB refuses this write.
+        await sql.prepare('UPDATE snapshot_probe SET v = v + 10 WHERE id = 1').run()
+      })
+      await rival.end()
+      expect(attempts).toBe(2)
+      expect(
+        await connection.prepare('SELECT id, v FROM snapshot_probe ORDER BY id').all(),
+      ).toMatchObject({
+        results: [
+          { id: 1, v: 11 },
+          { id: 2, v: 10 },
         ],
       })
     },

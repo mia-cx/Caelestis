@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { latLngToCanvasPixel } from '../../packages/shared/src/tiles.ts'
+import { registerHooks } from 'node:module'
+
+// Stack jobs test built images without installing or building the workspace, so this loads
+// shared's TypeScript source directly. Its imports name the `.js` files tsc emits; resolve those
+// to the `.ts` sources beside them.
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    const source =
+      context.parentURL?.endsWith('.ts') && specifier.startsWith('.') && specifier.endsWith('.js')
+    return nextResolve(source ? `${specifier.slice(0, -3)}.ts` : specifier, context)
+  },
+})
+const { latLngToCanvasPixel } = await import('../../packages/shared/src/tiles.ts')
 
 /** Import a local native Wplace export through the backend's normal template API. */
 export async function importWplace({ api, adminToken, filename }) {
