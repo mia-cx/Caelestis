@@ -7,7 +7,7 @@ import {
   sha256Hex,
   TRANSPARENT_INDEX,
 } from '@caelestis/shared'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { createBackendRuntime, makeBackendContext } from '../src/runtime/backend-runtime.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
 import { evaluateAlarmSnapshot } from '../src/telemetry/alarms/policy.js'
@@ -379,4 +379,31 @@ it('counts a tile whose refresh fails only as failed', async () => {
   await blobs.delete('tiles', (await blobs.list('tiles', { limit: 100 })).keys)
 
   expect(await scan()).toMatchObject({ fetched: 0, unchanged: 0, failed: first.fetched })
+})
+
+it('scans with the global fetch the way the Workers runtime requires it to be called', async () => {
+  const { app, sql, blobs } = await createTestBackend()
+  const form = new FormData()
+  form.set('png', new File([await encodeIndexedPng(3, 1, new Uint8Array([1, 1, 1]))], 'art.png'))
+  form.set('name', 'Default fetch')
+  form.set('season', '3')
+  form.set('originX', '10')
+  form.set('originY', '20')
+  expect(
+    (await app.fetch(authorized('/admin/templates', { method: 'POST', body: form }))).status,
+  ).toBe(201)
+  const canvas = await encodeIndexedPng(1000, 1000, new Uint8Array(1000000).fill(TRANSPARENT_INDEX))
+  // Workers' fetch throws "Illegal invocation" when called as a method of another object.
+  vi.stubGlobal('fetch', function (this: unknown) {
+    if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation')
+    return Promise.resolve(new Response(canvas))
+  })
+  try {
+    expect(await fetchCanvasTiles({ blobs, sql }, { season: 3 })).toMatchObject({
+      fetched: 1,
+      failed: 0,
+    })
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })

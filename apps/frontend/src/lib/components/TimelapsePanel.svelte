@@ -68,7 +68,7 @@
       step={0.05}
       value={overlayAlpha}
       oninput={(event) => (storedOverlay.value = event.currentTarget.valueAsNumber)}
-      class="slider max-w-44 flex-1"
+      class="slider max-w-44 min-w-0 flex-1"
       style:--fill="{overlayAlpha * 100}%"
       aria-label="template overlay opacity"
     />

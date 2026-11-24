@@ -70,13 +70,13 @@
 {:else}
   {@const { progress } = scope}
   <div class="flex flex-col gap-4">
-    <nav class="text-sm text-base-content/60" aria-label="breadcrumb">
+    <nav class="flex flex-wrap gap-x-1 text-sm text-base-content/60" aria-label="breadcrumb">
       <a href="/" class="link link-hover">All templates</a>
       {#each scope.ancestors as ancestor (ancestor.id)}
-        <span aria-hidden="true"> / </span>
+        <span aria-hidden="true">/</span>
         <a href="/folder/{ancestor.id}" class="link link-hover">{ancestor.name}</a>
       {/each}
-      <span aria-hidden="true"> / </span>
+      <span aria-hidden="true">/</span>
       <span>{scope.title}</span>
     </nav>
 
