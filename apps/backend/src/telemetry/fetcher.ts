@@ -105,7 +105,8 @@ const startRun = async (
     stores: { blobs: ports.blobs, sql: ports.sql, statusReadModel },
     sinks: createIngestSinks({ blobs: ports.blobs, statusReadModel }, writer),
     writer,
-    fetchImpl: options.fetchImpl ?? fetch,
+    // Bound because Workers reject fetch called as a method of `run`.
+    fetchImpl: options.fetchImpl ?? globalThis.fetch.bind(globalThis),
     now: options.now ?? seconds(Math.floor(Date.now() / 1_000)),
     tokenHash: await sha256Hex(new TextEncoder().encode('caelestis-tile-fetcher')),
   }
