@@ -112,8 +112,6 @@ describe('external relational adapter contract', () => {
       let attempts = 0
       await connection.transaction(async (sql) => {
         attempts += 1
-        // The retry starts after the rival commits, so it cannot also lose a snapshot conflict.
-        if (attempts > 1) await rivalDone
         await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 2').run()
         if (attempts === 1) {
           // The rival waits on this transaction for row 2, and commits once it gets it.
@@ -130,7 +128,8 @@ describe('external relational adapter contract', () => {
       })
       await rivalDone
       await rival.end()
-      expect(attempts).toBe(2)
+      // A retry that starts before the rival commits also loses a snapshot conflict and runs again.
+      expect(attempts).toBeGreaterThanOrEqual(2)
       expect(
         await connection.prepare('SELECT id, v FROM deadlock_probe ORDER BY id').all(),
       ).toMatchObject({
