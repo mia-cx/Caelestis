@@ -40,6 +40,8 @@ export type BridgeMessage =
    * written itself, so a write or delete it made meanwhile is not undone.
    */
   | { readonly type: 'watched'; readonly key: string; readonly value: string }
+  /** The answer to a `resource`: its `data:` URL, or `null` when it could not be read. */
+  | { readonly type: 'resource'; readonly id: number; readonly url: string | null }
 
 /** Page world to storage world, handled in order. */
 export type PageMessage =
@@ -51,3 +53,5 @@ export type PageMessage =
    * the key already has a value.
    */
   | { readonly type: 'watch'; readonly key: string }
+  /** A `@resource` of the userscript, which only the manager's world can read. Answered out of order. */
+  | { readonly type: 'resource'; readonly id: number; readonly name: string }

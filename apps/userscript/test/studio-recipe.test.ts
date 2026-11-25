@@ -1,4 +1,4 @@
-import scalarWasm from 'ditherette:scalar-wasm'
+import ditheretteWasm from 'ditherette:wasm'
 import { PALETTE_RGB } from '@caelestis/shared'
 import { ALPHA_MODES, COLOR_SPACES, DITHER_ALGORITHMS, RESIZE_MODES } from '@caelestis/ui/studio'
 import { createDitherette, type PaletteEntry } from 'ditherette'
@@ -40,7 +40,7 @@ const settings = (patch: Partial<StudioSettings> = {}): StudioSettings => ({
 describe('studio recipes', () => {
   // Every choice the studio offers must be a recipe Ditherette accepts; a mistranslated id fails here.
   it('turns every studio choice into a recipe Ditherette runs', async () => {
-    const processor = await createDitherette({ wasm: scalarWasm })
+    const processor = await createDitherette({ wasm: await ditheretteWasm('scalar') })
     const image = source()
     const run = (patch: Partial<StudioSettings>) =>
       processor.process({ source: image, palette, recipe: studioRecipe(settings(patch)) })

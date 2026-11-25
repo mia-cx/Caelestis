@@ -1,5 +1,4 @@
-import gpuWasm from 'ditherette:gpu-wasm'
-import scalarWasm from 'ditherette:scalar-wasm'
+import ditheretteWasm from 'ditherette:wasm'
 import workerSource from 'ditherette:worker'
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
 import type { Samples } from '@caelestis/ui/studio'
@@ -69,8 +68,8 @@ let workersFailed = false
 
 const compileModules = (): Promise<Modules> => {
   compiled ??= Promise.all([
-    WebAssembly.compile(scalarWasm),
-    'gpu' in navigator ? WebAssembly.compile(gpuWasm) : null,
+    ditheretteWasm('scalar').then((bytes) => WebAssembly.compile(bytes)),
+    'gpu' in navigator ? ditheretteWasm('gpu').then((bytes) => WebAssembly.compile(bytes)) : null,
   ]).then(([wasm, gpu]) => ({ wasm, gpuWasm: gpu }))
   compiled.catch(() => {
     compiled = null

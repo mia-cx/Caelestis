@@ -3,6 +3,15 @@ import { BRIDGE_HANDOFF, type Build } from '../page-markers.js'
 import { useStoredValues } from '../stored-values.js'
 import type { BridgeMessage, PageMessage } from './protocol.js'
 
+let askForResource: ((name: string) => Promise<string>) | null = null
+
+/**
+ * The userscript's `@resource` called `name` as a `data:` URL, read by the manager's world over
+ * the storage bridge. Rejects without a bridge, or when the manager could not read it.
+ */
+export const bridgedResource = (name: string): Promise<string> =>
+  askForResource?.(name) ?? Promise.reject(new Error('no storage bridge to read resources over'))
+
 /**
  * Claim the page for `build`, unless `standby`, and take its stored values over the storage bridge.
  * See `protocol.ts`.
@@ -25,6 +34,16 @@ export const connectStorageBridge = (
   const send = (message: PageMessage): void => port.postMessage(JSON.stringify(message))
   const syncs = new Map<number, (values: Record<string, string> | null) => void>()
   let lastSync = 0
+  const resources = new Map<number, (url: string | null) => void>()
+  let lastResource = 0
+  askForResource = (name) =>
+    new Promise((resolve, reject) => {
+      const id = ++lastResource
+      resources.set(id, (url) =>
+        url === null ? reject(new Error(`resource ${name} is out of reach`)) : resolve(url),
+      )
+      send({ type: 'resource', id, name })
+    })
   const watched = new Set<string>()
   /** Keys this page has written, whose `watched` answers are older than what it holds. */
   const written = new Set<string>()
@@ -63,6 +82,10 @@ export const connectStorageBridge = (
       case 'synced':
         syncs.get(message.id)?.(message.values)
         syncs.delete(message.id)
+        break
+      case 'resource':
+        resources.get(message.id)?.(message.url)
+        resources.delete(message.id)
         break
     }
   }
