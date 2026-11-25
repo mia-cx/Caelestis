@@ -10,8 +10,12 @@ const { FormData, Request, Response } = await import('undici')
 Object.assign(globalThis, { FormData, Request, Response })
 Object.assign(window, { FormData, Request, Response })
 
+const { fetch: localFetch } = await import('undici')
+
 const blockedNetwork = async (input: RequestInfo | URL) => {
   const url = new URL(typeof input === 'string' ? input : input.toString())
+  // A `data:` URL carries its own bytes, as userscript resources arrive.
+  if (url.protocol === 'data:') return localFetch(url)
   // Startup account discovery is a page boundary, not a real-network test dependency.
   if (url.origin === 'https://backend.wplace.live' && url.pathname === '/me')
     return Response.json({})

@@ -22,11 +22,13 @@ export const ditheretteResources = () => {
   const root = fileURLToPath(new URL('.', packageJson))
   return variants.map((variant) => {
     const path = wasmPath(variant)
-    const hash = createHash('sha256').update(readFileSync(path)).digest('base64')
+    const sha256 = createHash('sha256').update(readFileSync(path)).digest('base64')
     const file = relative(root, path).split('\\').join('/')
     return {
+      variant,
       name: `ditherette-${variant}`,
-      url: `https://cdn.jsdelivr.net/npm/ditherette@${version}/${file}#sha256=${hash}`,
+      sha256,
+      url: `https://cdn.jsdelivr.net/npm/ditherette@${version}/${file}#sha256=${sha256}`,
     }
   })
 }
@@ -57,17 +59,28 @@ export const ditherettePlugin = ({ minify, wasm = 'inline' }) => ({
   name: 'ditherette',
   setup(plugin) {
     ditheretteAssets(plugin)
-    plugin.onResolve({ filter: /^ditherette:wasm$/ }, (args) =>
-      wasm === 'resource'
-        ? { path: resolve(here, 'src/templates/ditherette-resources.ts') }
-        : { path: args.path, namespace: 'ditherette' },
-    )
-    plugin.onLoad({ filter: /^ditherette:wasm$/, namespace: 'ditherette' }, () => ({
-      contents: `import scalar from 'ditherette:scalar-wasm'
+    plugin.onResolve({ filter: /^ditherette:wasm$/ }, (args) => ({
+      path: args.path,
+      namespace: 'ditherette',
+    }))
+    plugin.onLoad({ filter: /^ditherette:wasm$/, namespace: 'ditherette' }, () => {
+      if (wasm === 'inline')
+        return {
+          contents: `import scalar from 'ditherette:scalar-wasm'
 import gpu from 'ditherette:gpu-wasm'
 export default async (variant) => (variant === 'gpu' ? gpu : scalar)`,
-      loader: 'js',
-    }))
+          loader: 'js',
+        }
+      // The managers that ignore the URL's hash still get their bytes checked against it.
+      const pins = Object.fromEntries(ditheretteResources().map((each) => [each.variant, each]))
+      return {
+        contents: `import load from ${JSON.stringify(resolve(here, 'src/templates/ditherette-resources.ts'))}
+const pins = ${JSON.stringify(pins)}
+export default (variant) => load(pins[variant].name, pins[variant].sha256)`,
+        loader: 'js',
+        resolveDir: here,
+      }
+    })
     plugin.onResolve({ filter: /^ditherette:worker$/ }, (args) => ({
       path: args.path,
       namespace: 'ditherette',

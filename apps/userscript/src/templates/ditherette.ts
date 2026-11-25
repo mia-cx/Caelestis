@@ -69,7 +69,15 @@ let workersFailed = false
 const compileModules = (): Promise<Modules> => {
   compiled ??= Promise.all([
     ditheretteWasm('scalar').then((bytes) => WebAssembly.compile(bytes)),
-    'gpu' in navigator ? ditheretteWasm('gpu').then((bytes) => WebAssembly.compile(bytes)) : null,
+    // Without the GPU binary, recipes still run on the CPU.
+    'gpu' in navigator
+      ? ditheretteWasm('gpu')
+          .then((bytes) => WebAssembly.compile(bytes))
+          .catch((error: unknown) => {
+            warn('Ditherette runs on the CPU: its GPU engine did not load', String(error))
+            return null
+          })
+      : null,
   ]).then(([wasm, gpu]) => ({ wasm, gpuWasm: gpu }))
   compiled.catch(() => {
     compiled = null
