@@ -1,13 +1,10 @@
-/** Ditherette's scalar WebAssembly binary. The build inlines the published package's own file. */
-declare module 'ditherette:scalar-wasm' {
-  const bytes: Uint8Array<ArrayBuffer>
-  export default bytes
-}
-
-/** Ditherette's GPU engine binary, inlined the same way. */
-declare module 'ditherette:gpu-wasm' {
-  const bytes: Uint8Array<ArrayBuffer>
-  export default bytes
+/**
+ * Ditherette's WebAssembly binary for `variant`. The build either inlines the published package's
+ * own files or reads the release userscript's `@resource`s; see `ditherette-plugin.mjs`.
+ */
+declare module 'ditherette:wasm' {
+  const load: (variant: 'scalar' | 'gpu') => Promise<BufferSource>
+  export default load
 }
 
 /** `templates/ditherette-worker.ts`, bundled on its own. Empty where no worker is built. */

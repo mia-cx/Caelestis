@@ -15,6 +15,8 @@ export interface StringStore {
    * the value it has now, or `null`.
    */
   watch?(key: string): string | null
+  /** The userscript's `@resource` called `name`, as a `data:` URL. The extension has none. */
+  resource?(name: string): Promise<string>
 }
 
 /**
@@ -52,6 +54,17 @@ export const serveStorageBridge = (build: Build, store: StringStore): (() => voi
     let writeFailed = false
     port.onmessage = ({ data }) => {
       const message = JSON.parse(String(data)) as PageMessage
+      if (message.type === 'resource') {
+        const { id, name } = message
+        Promise.resolve()
+          .then(() => store.resource?.(name) ?? null)
+          .catch((error: unknown) => {
+            console.warn(`[caelestis] could not read resource ${name}`, error)
+            return null
+          })
+          .then((url) => send({ type: 'resource', id, url }))
+        return
+      }
       queue = queue.then(async () => {
         if (message.type === 'write') {
           await store.write(message.key, message.value).catch((error: unknown) => {

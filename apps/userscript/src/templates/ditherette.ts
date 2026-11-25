@@ -1,5 +1,4 @@
-import gpuWasm from 'ditherette:gpu-wasm'
-import scalarWasm from 'ditherette:scalar-wasm'
+import ditheretteWasm from 'ditherette:wasm'
 import workerSource from 'ditherette:worker'
 import type { DitheretteEngine, DitheretteTemplateRecipe } from '@caelestis/shared'
 import type { Samples } from '@caelestis/ui/studio'
@@ -69,8 +68,16 @@ let workersFailed = false
 
 const compileModules = (): Promise<Modules> => {
   compiled ??= Promise.all([
-    WebAssembly.compile(scalarWasm),
-    'gpu' in navigator ? WebAssembly.compile(gpuWasm) : null,
+    ditheretteWasm('scalar').then((bytes) => WebAssembly.compile(bytes)),
+    // Without the GPU binary, recipes still run on the CPU.
+    'gpu' in navigator
+      ? ditheretteWasm('gpu')
+          .then((bytes) => WebAssembly.compile(bytes))
+          .catch((error: unknown) => {
+            warn('Ditherette runs on the CPU: its GPU engine did not load', String(error))
+            return null
+          })
+      : null,
   ]).then(([wasm, gpu]) => ({ wasm, gpuWasm: gpu }))
   compiled.catch(() => {
     compiled = null

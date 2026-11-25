@@ -8,7 +8,7 @@ import {
   USERSCRIPT_BUNDLE,
   WPLACE_MATCH,
 } from './build-config.mjs'
-import { ditherettePlugin } from './ditherette-plugin.mjs'
+import { ditherettePlugin, ditheretteResources } from './ditherette-plugin.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const backendPkg = JSON.parse(
@@ -47,7 +47,15 @@ const { revision, dirty } = existsSync(revisionFile)
  *
  * `@namespace` keeps its old repository URL until v1.0.0. Userscript managers identify a script by
  * name and namespace, so changing it installs a separate script with empty GM storage.
+ *
+ * A release carries Ditherette's binaries as `@resource`s and a development build inlines them, so
+ * the dev harness runs without a userscript manager.
  */
+const resources = development
+  ? ''
+  : ditheretteResources()
+      .map(({ name, url }) => `// @resource     ${name} ${url}\n`)
+      .join('')
 const metadata = `// ==UserScript==
 // @name         Caelestis
 // @namespace    https://github.com/mia-riezebos/wplace-template-server
@@ -66,6 +74,7 @@ const metadata = `// ==UserScript==
 // @match        ${WPLACE_MATCH}
 // @run-at       document-start
 // @inject-into  page
+${resources}// @grant        GM_getResourceURL
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -91,7 +100,7 @@ const options = {
   format: 'iife',
   target: 'es2022',
   loader: { '.woff2': 'dataurl', '.png': 'dataurl' },
-  plugins: [ditherettePlugin({ minify: !development })],
+  plugins: [ditherettePlugin({ minify: !development, wasm: development ? 'inline' : 'resource' })],
   define: {
     __CAELESTIS_USERSCRIPT_VERSION__: JSON.stringify(pkg.version),
     __CAELESTIS_EXPECTED_BACKEND_VERSION__: JSON.stringify(backendPkg.version),
@@ -165,11 +174,14 @@ const manifest = {
   ],
 }
 
+const extensionPlugins = [ditherettePlugin({ minify: !development, wasm: 'inline' })]
+
 const extensionOptions = [
   {
     ...options,
     entryPoints: ['src/extension/page.ts'],
     outfile: `${extensionDir}/caelestis.js`,
+    plugins: extensionPlugins,
     banner: undefined,
     footer: { js: oflNotice },
   },
@@ -177,6 +189,7 @@ const extensionOptions = [
     ...options,
     entryPoints: ['src/extension/popup.ts'],
     outfile: `${extensionDir}/popup.js`,
+    plugins: extensionPlugins,
     banner: undefined,
     footer: undefined,
   },
