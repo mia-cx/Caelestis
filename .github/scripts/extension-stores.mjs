@@ -268,9 +268,13 @@ const firefox = async (zip, source) => {
   process.stdout.write(signed.stdout)
   process.stderr.write(signed.stderr)
   if (signed.status === 0) return
-  // AMO never takes a version number twice, live, in review or rejected, so a retry has nothing to send.
+  // AMO never takes a version number twice, live, in review or rejected, so a retry has nothing to
+  // send. web-ext uploads the source archive after creating the version, so an earlier run that
+  // failed in between left the version without it.
   if (`${signed.stdout}${signed.stderr}`.includes(`Version ${version} already exists.`)) {
-    notice(`addons.mozilla.org already has ${version}; skipping Firefox.`)
+    console.log(
+      `::warning::addons.mozilla.org already has ${version}; skipping Firefox. If an earlier run failed after creating it, attach the source archive at https://addons.mozilla.org/developers/addon/caelestis/versions.`,
+    )
     return
   }
   throw new Error(`web-ext sign exited with ${signed.status ?? signed.signal}`)
