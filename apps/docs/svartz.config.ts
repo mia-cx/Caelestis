@@ -23,7 +23,10 @@ export default defineConfig({
         account_id: '492214885e7a580ccc1d141dfdb4dc5f',
         routes: [{ pattern: 'build.wikiplace.live', custom_domain: true }],
       },
-      theme: { base: '@svartz/theme-wiki' },
+      theme: {
+        base: ['@svartz/theme-api-docs', '@svartz/theme-docs'],
+        baseUrl: 'https://backend.wplace.live',
+      },
       site: {
         title: 'Wplace developer guide',
         description: 'Unofficial docs for building apps, mods and userscripts for Wplace.',

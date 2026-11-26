@@ -13,6 +13,8 @@ minimumReleaseAgeExclude:
   - '@svartz/config@2.6.0'
   - '@svartz/core@2.6.0'
   - '@svartz/plugins@2.6.0'
+  - '@svartz/theme-api-docs@2.6.0'
+  - '@svartz/theme-docs@2.6.0'
   - '@svartz/theme-minimal@2.6.0'
   - '@svartz/theme-wiki@2.6.0'
   - '@svartz/ui@2.6.0'

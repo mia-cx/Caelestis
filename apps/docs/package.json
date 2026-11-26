@@ -17,6 +17,8 @@
     "@caelestis/ui": "workspace:*",
     "@lucide/svelte": "^1.73.0",
     "@svartz/config": "^2.6.0",
+    "@svartz/theme-api-docs": "^2.6.0",
+    "@svartz/theme-docs": "^2.6.0",
     "@svartz/theme-wiki": "^2.6.0",
     "@svartz/ui": "^2.6.0",
     "@svartz/vite": "^2.6.0",

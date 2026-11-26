@@ -218,6 +218,12 @@ importers:
       '@svartz/config':
         specifier: ^2.6.0
         version: 2.6.0(@types/node@26.6.6)
+      '@svartz/theme-api-docs':
+        specifier: ^2.6.0
+        version: 2.6.0(supports-color@10.2.2)(svelte@5.57.3)
+      '@svartz/theme-docs':
+        specifier: ^2.6.0
+        version: 2.6.0(supports-color@10.2.2)(svelte@5.57.3)
       '@svartz/theme-wiki':
         specifier: ^2.6.0
         version: 2.6.0(supports-color@10.2.2)(svelte@5.57.3)
@@ -2294,6 +2300,18 @@ packages:
   '@svartz/plugins@2.6.0':
     resolution: {integrity: sha512-8JYAXB047hVMvr/4PFQ8bMOOrkc2n18rXiDmJH6clKh704FXhx73S7mXA7eLxI2PYsvqd9qYpRcuwf3SfHRexg==}
     engines: {node: ^20.19.0 || >=22.12.0}
+
+  '@svartz/theme-api-docs@2.6.0':
+    resolution: {integrity: sha512-EvBk5B4z1yJQl4zh1+YxVokRNrZZgG2YPrjk5p0WRzISBi/Uu+OgB7WGAB9aVRk23TjmL7gGxixZRFbiLm8PLA==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+    peerDependencies:
+      svelte: ^5.0.0
+
+  '@svartz/theme-docs@2.6.0':
+    resolution: {integrity: sha512-CGw+NnzVa4/Kn9mYkrQSkoyCPfRVcRNidV5YNLge6fo41tk8eCU0+QIONpxN+/QR1DLEyDBVX3/zansiBqZgLg==}
+    engines: {node: ^20.19.0 || >=22.12.0}
+    peerDependencies:
+      svelte: ^5.0.0
 
   '@svartz/theme-minimal@2.6.0':
     resolution: {integrity: sha512-j6xSYBeYzC/L7Dsm2M2PmVwW+/KruMsxvNGVTSdg5nkkltF9nWQ7NBIo8uevlKIx6acXSdiByzxk9u2nWNtWUQ==}
@@ -6169,6 +6187,33 @@ snapshots:
       - react
       - supports-color
       - svelte
+
+  '@svartz/theme-api-docs@2.6.0(supports-color@10.2.2)(svelte@5.57.3)':
+    dependencies:
+      '@svartz/core': 2.6.0
+      '@svartz/theme-minimal': 2.6.0(supports-color@10.2.2)(svelte@5.57.3)
+      '@svartz/ui': 2.6.0(supports-color@10.2.2)(svelte@5.57.3)
+      svelte: 5.57.3
+    transitivePeerDependencies:
+      - '@types/react'
+      - encoding
+      - preact-render-to-string
+      - react
+      - supports-color
+
+  '@svartz/theme-docs@2.6.0(supports-color@10.2.2)(svelte@5.57.3)':
+    dependencies:
+      '@lucide/svelte': 1.73.0(svelte@5.57.3)
+      '@svartz/core': 2.6.0
+      '@svartz/theme-minimal': 2.6.0(supports-color@10.2.2)(svelte@5.57.3)
+      '@svartz/ui': 2.6.0(supports-color@10.2.2)(svelte@5.57.3)
+      svelte: 5.57.3
+    transitivePeerDependencies:
+      - '@types/react'
+      - encoding
+      - preact-render-to-string
+      - react
+      - supports-color
 
   '@svartz/theme-minimal@2.6.0(supports-color@10.2.2)(svelte@5.57.3)':
     dependencies:
