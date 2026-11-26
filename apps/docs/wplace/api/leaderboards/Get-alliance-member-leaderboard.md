@@ -46,4 +46,4 @@ Entries include each member's last painted pixel unless they turned `showLastPix
 
 Counts toward the API [[Rate-limits|rate limit]].
 
-Related: [[Painter-attribution]], [[Error]].
+Related: [[Update-privacy]], [[Error]].

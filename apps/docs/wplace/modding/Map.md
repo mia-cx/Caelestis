@@ -8,7 +8,7 @@ symbol:
   signature: "const map: maplibregl.Map  // MapLibre GL JS 5.21.1, not on any global"
   members:
     - { name: getCanvas, kind: method, signature: "getCanvas(): HTMLCanvasElement", description: "The WebGL canvas, `canvas.maplibregl-canvas`, inside `div#map`." }
-    - { name: getCenter, kind: method, signature: "getCenter(): LngLat", description: "The camera centre. Convert to Wplace pixels with the zoom-11 Web Mercator formula in [[Painter-attribution]]." }
+    - { name: getCenter, kind: method, signature: "getCenter(): LngLat", description: "The camera centre. Convert to Wplace pixels with the zoom-11 Web Mercator formula in [[Coordinates]]." }
     - { name: getZoom, kind: method, signature: "getZoom(): number", description: "MapLibre zoom. Wplace's own tiles are zoom 11." }
     - { name: project, kind: method, signature: "project(lngLat: LngLatLike): Point", description: "Screen position of a longitude and latitude, in CSS pixels relative to the canvas." }
     - { name: unproject, kind: method, signature: "unproject(point: PointLike): LngLat", description: "The longitude and latitude under a screen point. Wplace picks its paint target the same way." }

@@ -72,4 +72,4 @@ The client sends this from the overlay panel, for one of the player's own templa
 
 Counts toward the API [[Rate-limits|rate limit]].
 
-Related: [[Get-pixel]], [[Painter-attribution]], [[Error]].
+Related: [[Get-pixel]], [[Error]].

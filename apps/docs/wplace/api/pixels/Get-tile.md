@@ -45,7 +45,7 @@ The canvas is 2048 × 2048 tiles of 1000 × 1000 pixels each, on a Web Mercator 
 
 The CDN caches a tile for 5 seconds (`s-maxage=5`). Each tile carries an `ETag` and `Last-Modified`, so a conditional request tells you whether it changed. Tile 2048 and above answer `404`, as does `s1`.
 
-The map renderer fetches tiles outside the API client, so Pawtect never inspects them. [[Painter-attribution]] shows how to turn a latitude and longitude into a tile.
+The map renderer fetches tiles outside the API client, so Pawtect never inspects them. [[Coordinates]] shows how to turn a latitude and longitude into a tile.
 
 Counts toward the tile [[Rate-limits|rate limit]].
 

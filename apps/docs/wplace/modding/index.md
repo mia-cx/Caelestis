@@ -22,6 +22,7 @@ Wplace does not offer a mod API. Every hook here reads or wraps code Wplace wrot
 | I want to… | Read |
 | --- | --- |
 | Get the MapLibre map | [Finding the map](Finding-the-map) |
+| Turn a place into a tile and pixel | [Coordinates](Coordinates) |
 | Know when tiles load or change | [Watching tiles](Watching-tiles) |
 | Draw my own layer on the map | [Drawing overlays](Drawing-overlays) |
 | Know what the player is painting with | [Reading the paint UI](Reading-the-paint-UI) |

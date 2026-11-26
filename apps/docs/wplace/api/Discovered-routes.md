@@ -83,4 +83,4 @@ Cloudflare challenged `GET /paint` and then `GET /report-user`, and probing stop
 - any staff route
 - the staging hosts
 
-Related: [[Rate-limits]], [[Painter-attribution]].
+Related: [[Rate-limits]].

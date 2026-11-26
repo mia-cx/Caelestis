@@ -15,7 +15,6 @@ The Wplace team does not write or review these docs. Endpoints change without no
 | Call Wplace's backend, endpoint by endpoint | [API reference](api/index) |
 | Check which hooks and requests Pawtect can see | [Pawtect safety](modding/Pawtect-safety) |
 | Know how fast I can call Wplace's backend | [Rate limits](Rate-limits) |
-| Know which endpoints reveal who painted what | [Painter attribution](Painter-attribution) |
 | Know what the anti-cheat collects, and keep my mod from flagging its users | [Anti-cheat](Anti-cheat) |
 
 ## Ground rules

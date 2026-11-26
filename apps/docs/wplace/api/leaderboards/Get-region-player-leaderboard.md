@@ -36,7 +36,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026: an anonymous request confirmed the response.
 
-Note the order: region first, then period. See [[Painter-attribution]] for how this combines with [[Get-hotspots]].
+Note the order: region first, then period. Each [[Get-hotspots|hotspot]] carries the `regionId` this takes.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

@@ -43,4 +43,4 @@ Other parameters, such as `error`, `domain` and `twitch-migration`, belong to si
 ## Related
 
 - [Finding the map](Finding-the-map)
-- [Painter attribution](Painter-attribution) converts coordinates to tiles and pixels
+- [Coordinates](Coordinates) converts coordinates to tiles and pixels

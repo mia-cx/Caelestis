@@ -13,7 +13,7 @@ Wplace's paint lives in 2048 × 2048 tiles of 1000 × 1000 pixels. Each is a PNG
 https://backend.wplace.live/files/s{season}/tiles/{x}/{y}.png
 ```
 
-The season is `0` on 26 November 2026. [Get tile](api/pixels/Get-tile) documents the request. [Painter attribution](Painter-attribution) converts between tiles, pixels and coordinates. Tiles have their own [rate limit](Rate-limits), and the CDN caches each one for 5 seconds.
+The season is `0` on 26 November 2026. [Get tile](api/pixels/Get-tile) documents the request. [Coordinates](Coordinates) converts between tiles, pixels and coordinates. Tiles have their own [rate limit](Rate-limits), and the CDN caches each one for 5 seconds.
 
 ## The path of a tile
 
@@ -48,7 +48,7 @@ Decode the bytes yourself with `createImageBitmap` and an `OffscreenCanvas`, or 
 
 Wplace reloads its visible tiles on a timer: the client config sets `refreshIntervalMs: 6000`, and it calls `map.refreshTiles('pixel-art-layer')`. Each refresh re-downloads every visible tile. A paint or a draft change also triggers a refresh.
 
-A mod can tell which tiles changed without decoding them. Each tile response carries an `ETag` and `Last-Modified` ([Painter attribution](Painter-attribution)).
+A mod can tell which tiles changed without decoding them. Each tile response carries an `ETag` and `Last-Modified` ([Get tile](api/pixels/Get-tile)).
 
 Don't fetch tiles a second time when the page already has them. Reading what Wplace downloads costs no extra requests. Fetching your own copies doubles your users' tile traffic, and their IP shares one tile limit with Wplace.
 

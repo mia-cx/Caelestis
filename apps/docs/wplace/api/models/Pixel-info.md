@@ -12,4 +12,4 @@ model:
         $ref: Region
 ---
 
-Returned by [[Get-pixel]]. See [[Painter-attribution]] for what this reveals.
+Returned by [[Get-pixel]]. [[Update-privacy]] lists which painter fields a player can hide.

@@ -58,8 +58,8 @@ This is the request the client sends when a player clicks a pixel. It names the 
 
 Without `x` and `y`, the server answers for pixel (0, 0) of the tile. A season other than `s0` answers `400`.
 
-The client always sends cookies, but the lookup works without them. See [[Painter-attribution]] for what an app can build from it.
+The client always sends cookies, but the lookup works without them. [[Coordinates]] converts a latitude and longitude to the tile and pixel.
 
 Counts toward the API [[Rate-limits|rate limit]].
 
-Related: [[Get-tile]], [[Painter-attribution]], [[Pixel-info]], [[Error]].
+Related: [[Get-tile]], [[Pixel-info]], [[Update-privacy]], [[Error]].

@@ -37,7 +37,14 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-None of these hides a player from [[Get-pixel]]. [[Painter-attribution]] explains each one. The client sends only the changed fields. Requests time out after 15 seconds.
+| Setting | What it changes |
+| --- | --- |
+| `showLastPixel` | Whether your alliance's leaderboard shows your last painted pixel location |
+| `showDiscord` | Whether leaderboards, profiles and pixel lookups show your Discord handle |
+| `hotspotsOptOut` | Whether your painting counts toward the public [[Get-hotspots\|hotspots]] list |
+| `hideAllianceHqPins` | Whether your own map shows alliance headquarters pins |
+
+None of these hides a player from [[Get-pixel]]: anyone who clicks a pixel sees who painted it. The client sends only the changed fields. Requests time out after 15 seconds.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

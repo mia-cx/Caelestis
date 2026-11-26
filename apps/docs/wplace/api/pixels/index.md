@@ -4,7 +4,7 @@ description: "Read the canvas: tiles, single pixels, hotspots and the paint requ
 order: 1
 ---
 
-The canvas, one tile or pixel at a time. [[Painter-attribution]] shows how these combine.
+The canvas, one tile or pixel at a time. [[Coordinates]] converts between latitude and longitude, tiles and pixels.
 
 - [[Get-pixel|Get a pixel]]: Get the painter, alliance and region of one pixel, with no account.
 - [[Get-tile|Get a map tile]]: Download one 1000 × 1000 canvas tile as a PNG, cached for 5 seconds.

@@ -37,7 +37,7 @@ const addTemplate = (map: maplibregl.Map, url: string, x: number, y: number, wid
 map.on('style.load', () => addTemplate(map, templateUrl, 1100_000, 671_000, 64, 64))
 ```
 
-`x` and `y` are world pixels: tile × 1000 + pixel ([Painter attribution](Painter-attribution)). `raster-resampling: nearest` keeps pixels sharp. Inserting before `pixel-hover` keeps Wplace's crosshair on top ([Map sources and layers](Map-sources-and-layers)).
+`x` and `y` are world pixels: tile × 1000 + pixel ([Coordinates](Coordinates)). `raster-resampling: nearest` keeps pixels sharp. Inserting before `pixel-hover` keeps Wplace's crosshair on top ([Map sources and layers](Map-sources-and-layers)).
 
 ## 2. A custom WebGL layer
 
