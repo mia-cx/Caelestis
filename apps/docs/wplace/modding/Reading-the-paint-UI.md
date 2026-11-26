@@ -28,7 +28,9 @@ Svelte mounts and unmounts the drawer without navigation. Watch with a `Mutation
 | `.ring-primary` on a swatch | The selected world colour |
 | `button.game-color-swatch[aria-pressed]` | A swatch in an alliance editor (headquarters, avatar, banner). No id. `aria-pressed="true"` is the selected one. |
 
-Palette index 0 is Transparent. Caelestis's own palette indices are Wplace's minus one ([`wplace-dom.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/wplace-dom.ts)).
+Palette index 0 is Transparent. [Palette](Palette) lists every colour by id. Caelestis's own palette indices are Wplace's minus one ([`wplace-dom.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/wplace-dom.ts)).
+
+The alliance editors have their own drawer and swatches ([Alliance editors](Alliance-editors)).
 
 Decorating swatches, for example with a count of pixels left, is safe as long as you don't change their ids or labels' meaning. Caelestis adds counts to swatch labels and restores the originals ([`palette-decoration.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/palette-decoration.ts)).
 
@@ -46,6 +48,13 @@ The player's unsent pixels are readable from the [service worker messages](Servi
 
 When the player presses Paint, the page sends [`POST /paint`](api/pixels/Paint-pixels) to `https://backend.wplace.live`, with a Pawtect token. A [fetch](Page-fetch) observer can read the response: `painted` is the number of pixels the server accepted. Read the request body from a clone if you need which pixels were sent, and wait for the response before treating them as painted.
 
+The response under-reports in two ways:
+
+- **It gives a count, not a list.** When `painted` is less than the number sent, nothing says which pixels failed. Caelestis treats only a submission accepted in full as known pixels ([`tile-pixels.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/tile-pixels.ts)).
+- **Tiles catch up later.** The next tile download can still predate the paint. Wplace's service worker keeps drawing accepted pixels into its tiles until fresh tiles show them ([ServiceWorkerMessage](Service-worker-messages)). A mod counting progress from tiles should do the same: keep the accepted pixels until a tile downloaded after the paint shows them.
+
+Snapshot the request body when the request starts. Wplace clears the draft as soon as it submits.
+
 Never modify, delay, replay or send this request yourself. The token is tied to the exact body, and a mod that sends paints is painting for the player. Caelestis observes only accepted paints, to update its template progress ([`paint-requests.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/paint-requests.ts)).
 
 ## Tools
@@ -54,6 +63,7 @@ The colour picker and eraser are buttons labelled `color_picker` and `eraser` in
 
 ## Related
 
+- [Palette](Palette)
 - [Keyboard input](Keyboard-input)
 - [DOM landmarks](DOM-landmarks)
 - [Pawtect safety](Pawtect-safety)

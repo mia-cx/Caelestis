@@ -25,6 +25,10 @@ Wplace does not offer a mod API. Every hook here reads or wraps code Wplace wrot
 | Turn a place into a tile and pixel | [Coordinates](Coordinates) |
 | Know when tiles load or change | [Watching tiles](Watching-tiles) |
 | Draw my own layer on the map | [Drawing overlays](Drawing-overlays) |
+| Draw a template without rewriting Wplace's tiles | [Layers versus tile compositing](Layers-versus-tile-compositing) |
+| Know how Wplace draws, rounds and refreshes its tiles | [How Wplace renders the map](Map-rendering) |
+| Match pixels to Wplace's colours | [Palette](Palette) |
+| Draw on an alliance's headquarters, picture or banner | [Alliance editors](Alliance-editors) |
 | Know what the player is painting with | [Reading the paint UI](Reading-the-paint-UI) |
 | Find a button, panel or dialog | [DOM landmarks](DOM-landmarks) |
 | Use Wplace's own code from my mod | [Importing Wplace's modules](Importing-Wplace-modules) |

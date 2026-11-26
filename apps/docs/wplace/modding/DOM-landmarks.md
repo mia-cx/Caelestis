@@ -34,7 +34,7 @@ The Settings dialog has tabs with ids `settings-tab-{id}` and panels with ids `s
 
 ## Dialogs and the pixel card
 
-Wplace's modals are native `<dialog>` elements. Use `dialog[open]` to find one. The card that opens when a player clicks a pixel is not a dialog. Its close control is a round button labelled with the catalog's `close` message.
+Wplace's modals are native `<dialog>` elements. Use `dialog[open]` to find one: closed dialogs stay in the DOM. The alliance headquarters, picture and banner editors are dialogs too ([Alliance editors](Alliance-editors)). The card that opens when a player clicks a pixel is not a dialog. Its close control is a round button labelled with the catalog's `close` message.
 
 ## Page-wide attributes
 

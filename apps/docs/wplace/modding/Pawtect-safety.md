@@ -45,6 +45,10 @@ The flags stay set until the page reloads.
 | [getContext](WebGL-context) | none | The map's context is not inspected |
 | [CanvasRenderingContext2D](Draft-canvases) | none | Canvas writes are not watched |
 | [Drawing overlays](Drawing-overlays) | none | Your own layers are not checked |
+| [Layers versus tile compositing](Layers-versus-tile-compositing) | none | Tile responses are not checked; a layer touches none |
+| [How Wplace renders the map](Map-rendering) | none | Render state is not in any token |
+| [Palette](Palette) | none | Reading is safe. Script clicks on swatches are not. |
+| [Alliance editors](Alliance-editors) | none | Reading the editors and drawing on your own canvas are not checked |
 | [ServiceWorkerMessage](Service-worker-messages) | none | Worker messages are not in any token |
 | [Live notifications](Live-notifications) | none | Not a `fetch`, not in any token |
 | [MapUrlState](URL-parameters) | none | Read once on load |

@@ -26,6 +26,8 @@ wplace.live registers a service worker at `https://wplace.live/service-worker.js
 - It turns a `404` tile into a transparent PNG.
 - It skips non-`GET` requests and requests with `Accept: text/event-stream`.
 
+Drawing drafts in is costly. From Caelestis's research on 24 September 2026, the worker keeps up to 64 decoded tiles, and decodes, draws into and re-encodes every tile it serves while a draft exists, including tiles with no drafts on them. One re-encoded tile was 1.59 MB, against 218 KB from the server ([How Wplace renders the map](Map-rendering)).
+
 ## The protocol
 
 The page posts a message with a numeric `id` to `navigator.serviceWorker.controller`. The worker always replies to that tab with `{ id, type }`. `type` is `"refreshPixelArt"` when the page should reload its tiles, and absent otherwise. The page gives up after 10 seconds.

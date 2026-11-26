@@ -58,8 +58,22 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** not called live.
 
-List the tiles you already hold in `knownTiles`, and the answer carries only what changed. `GET` on this path answers `404`. Caelestis decodes this format; **unverified** beyond that: the binary layout is not documented here.
+List the tiles you already hold in `knownTiles`, and the answer carries only what changed. `GET` on this path answers `404`. The signed-in editor posts the same body to `/alliance/headquarters/snapshot` with credentials; this public form sends none (rechecked in the API module, chunk `BcgqpPa1.js`, on 26 November 2026).
+
+The answer is little-endian binary. Layout from Caelestis's research on 30 August 2026, not rechecked:
+
+```text
+5 bytes  magic "WHQS1"
+u16      tile size (64)
+i64      event high-water mark
+u16      changed tile count
+u16      removed tile count
+per changed tile: i16 x, i16 y, i64 version, tileSize × tileSize palette indices (u8)
+per removed tile: i16 x, i16 y
+```
+
+Tile coordinates are signed, like the headquarters' own. A full request for a 250 × 250 headquarters returned three tiles in 12,343 bytes. Repeated with those versions in `knownTiles`, it returned the 19-byte header alone. [[Alliance-editors|Alliance editors]] covers how the editor uses it.
 
 Counts toward the API [[Rate-limits|rate limit]].
 
-Related: [[Get-alliance-headquarters-manifest]].
+Related: [[Get-alliance-headquarters-manifest]], [[Alliance-editors]].

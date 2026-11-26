@@ -16,7 +16,13 @@ symbol:
 
 **Pawtect:** none. Watching canvas writes is invisible to Pawtect. Only reading is safe here: drafts become paints when the player presses Paint, so don't write to these canvases.
 
-While a signed-in player paints, Wplace keeps their unsent pixels, the draft, on tile-sized 2D canvases: 1000 × 1000, one per tile with drafts. The same pixels go to the service worker as `previewPixels` ([ServiceWorkerMessage](Service-worker-messages)). Best guess: the `paint-preview-` map layers draw these canvases ([Map sources and layers](Map-sources-and-layers)).
+While a signed-in player paints, Wplace keeps their unsent pixels, the draft, on tile-sized 2D canvases: 1000 × 1000, one per tile with drafts. The same pixels go to the service worker as `previewPixels` ([ServiceWorkerMessage](Service-worker-messages)).
+
+Each canvas is the source of one `paint-preview-` map layer, whose id ends in its tile ([Map sources and layers](Map-sources-and-layers)). Three things about them, from Caelestis's code and research:
+
+- **They are upside down.** The source's corner coordinates run from the tile's bottom edge, so canvas row 0 is the tile's last row. Caelestis measured this on the live style: the layer for tile 325,1781 had its first corner at tile y 1782. Flip rows when you read one; columns are not reversed.
+- **They upload every frame.** The sources animate, so MapLibre re-uploads every draft canvas on every frame, while Wplace writes to a canvas only when a pixel changes. Re-read a canvas after a write, not after an upload.
+- **Transparent drafts are invisible.** Drafting Transparent writes alpha 0, which looks exactly like no draft. Only Wplace's crosshair over the pixel shows it ([Palette](Palette)).
 
 A mod that wants the draft, for example to count how many pixels of a template the player has placed, can read it from either place:
 
@@ -41,6 +47,7 @@ The draft canvases appear only for a signed-in player in Paint mode. This note's
 
 ## Related
 
+- [How Wplace renders the map](Map-rendering)
 - [Reading the paint UI](Reading-the-paint-UI)
 - [Watching tiles](Watching-tiles)
 - [getContext](WebGL-context)

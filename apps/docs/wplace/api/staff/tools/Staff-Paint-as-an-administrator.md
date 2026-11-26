@@ -34,9 +34,9 @@ operation:
 
 **Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
-Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
+Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live. Read from the client's API module, chunk `BcgqpPa1.js`, on 26 November 2026.
 
-Paints an image onto the canvas for administrators.
+Paints an image onto the canvas for administrators. The client method is `adminAutoPainterPaint`, which posts multipart form data with the image as a PNG. A `403` from a staff account that is not an administrator reads "Auto painter is restricted to administrators."
 
 Counts toward the API [[Rate-limits|rate limit]].
 

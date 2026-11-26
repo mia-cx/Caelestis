@@ -42,15 +42,32 @@ const tileOf = (url: string) => {
 }
 ```
 
-Decode the bytes yourself with `createImageBitmap` and an `OffscreenCanvas`, or a PNG decoder. Pixel colours map to Wplace's palette by RGB. Transparent pixels are unpainted.
+## Reading a tile's pixels
+
+Decode the bytes yourself with `createImageBitmap` and an `OffscreenCanvas`, or a PNG decoder. Checked on 26 November 2026:
+
+- Tiles are indexed PNGs at 1, 2, 4 or 8 bits per pixel, depending on how many colours the tile holds. A decoder that only reads 8-bit PNGs fails on sparse tiles.
+- Each tile has its own palette. Its indices are not Wplace's colour ids. Decode to RGBA and match by RGB ([Palette](Palette)).
+- Fully transparent pixels are unpainted. Black and Transparent share the RGB `#000000`, so check alpha first.
+- A tile nobody painted answers `404` with an HTML body from the origin. Wplace's service worker turns that into a 1 × 1 transparent PNG, so a tile that decodes to 1 × 1 is empty.
+
+Do the work off the page's thread, and after Wplace has its bitmap. A tile is 4 MB of RGBA and a million pixels to match. Caelestis once did this inside Wplace's `createImageBitmap` promise, and Wplace could not draw a tile until it finished ([#729](https://github.com/mia-cx/Caelestis/issues/729)). It now reads each tile in a worker, from the body, and skips the read when the body's SHA-256 matches the last one.
+
+Another mod may have rewritten the tile before you see it. Blue Marble, for example, hands Wplace every tile under its templates upscaled 3×, with its template drawn in. A tile that is not 1000 × 1000 is not Wplace's. Caelestis then fetches its own copy from a worker, where no page script can rewrite it ([#712](https://github.com/mia-cx/Caelestis/pull/712)). [Layers versus tile compositing](Layers-versus-tile-compositing) explains why it draws templates without rewriting tiles.
 
 ## How tiles refresh
 
-Wplace reloads its visible tiles on a timer: the client config sets `refreshIntervalMs: 6000`, and it calls `map.refreshTiles('pixel-art-layer')`. Each refresh re-downloads every visible tile. A paint or a draft change also triggers a refresh.
+Wplace reloads its visible tiles on a timer. The client config sets `refreshIntervalMs: 6000`. Above zoom 12.5 the timer runs every 6 seconds, and at or below it every 15 seconds. It runs only while the tab is visible. Each run calls `map.refreshTiles('pixel-art-layer')` with no tile list, which re-downloads every visible tile, changed or not. A paint or a draft change also triggers a refresh ([How Wplace renders the map](Map-rendering)).
 
-A mod can tell which tiles changed without decoding them. Each tile response carries an `ETag` and `Last-Modified` ([Get tile](api/pixels/Get-tile)).
+A mod can tell which tiles changed without downloading them. Tiles are served `cache-control: s-maxage=5, must-revalidate, no-store`, so the browser never revalidates them on its own. From the page:
 
-Don't fetch tiles a second time when the page already has them. Reading what Wplace downloads costs no extra requests. Fetching your own copies doubles your users' tile traffic, and their IP shares one tile limit with Wplace.
+- `HEAD` is a simple CORS request. It answers with `Last-Modified` and `Content-Length`, both readable.
+- `ETag` is sent but not exposed to page scripts.
+- A conditional `GET` with `If-None-Match` needs a CORS preflight, and the preflight answers `405`.
+
+So compare `Last-Modified` and `Content-Length` from a `HEAD`. `Last-Modified` has one-second resolution, so reload everything now and then as a safety net. Measured by Caelestis on 24 September 2026 over Paris: 18 `HEAD`s and 2 `GET`s, 405 KB, replaced 20 `GET`s, 4,048 KB, per idle minute. Assume a `HEAD` counts against the tile [rate limit](Rate-limits) like a `GET`. It was not measured separately.
+
+Don't fetch tiles a second time when the page already has them. Reading what Wplace downloads costs no extra requests. Fetching your own copies doubles your users' tile traffic, and their IP shares one tile limit with Wplace. Anything that makes Wplace reload all visible tiles costs 20 to 50 requests at a normal view. Caelestis once did that on every pixel step of a template drag ([#724](https://github.com/mia-cx/Caelestis/issues/724)).
 
 ## Caelestis's approach
 
@@ -65,6 +82,9 @@ None of these touch `json` or `text`, so none sets Tampered response.
 
 ## Related
 
+- [Palette](Palette)
+- [How Wplace renders the map](Map-rendering)
+- [Layers versus tile compositing](Layers-versus-tile-compositing)
 - [Map sources and layers](Map-sources-and-layers)
 - [Draft canvases](Draft-canvases)
 - [Drawing overlays](Drawing-overlays)

@@ -1,6 +1,6 @@
 ---
 title: Inspect an area (staff)
-description: Staff-only route that returns the painter and colour of every pixel in an area as binary.
+description: Staff-only route that returns the painter id and colour of every pixel in a rectangle of one tile, as binary.
 tags:
   - source/bundle
   - pawtect/flag
@@ -31,6 +31,30 @@ operation:
       type: integer
       example: 704
       description: Tile row, 0 to 2047.
+    - name: x0
+      in: query
+      required: true
+      type: integer
+      example: 100
+      description: Left edge of the rectangle, in tile pixels.
+    - name: y0
+      in: query
+      required: true
+      type: integer
+      example: 100
+      description: Top edge of the rectangle, in tile pixels.
+    - name: x1
+      in: query
+      required: true
+      type: integer
+      example: 140
+      description: Right edge of the rectangle, in tile pixels.
+    - name: y1
+      in: query
+      required: true
+      type: integer
+      example: 140
+      description: Bottom edge of the rectangle, in tile pixels.
     - name: j
       in: cookie
       required: true
@@ -39,7 +63,8 @@ operation:
       description: Wplace session cookie, set when the player signs in.
   responses:
     "200":
-      description: OK.
+      description: Five bytes per pixel. A little-endian `uint32` painter id, then a `uint8` colour index.
+      contentType: application/octet-stream
     "401":
       description: No session.
       schema:
@@ -52,10 +77,12 @@ operation:
 
 **Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
-Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
+Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live. Read from the client's API module, chunk `BcgqpPa1.js`, on 26 November 2026.
 
-Returns the painter and colour of every pixel in an area as binary.
+Returns who painted each pixel in a rectangle of one tile, and with which colour. The client method is `getPixelAreaInfo`. It reads the body as 5-byte records and splits them into a `paintedBy` array of ids and a `colors` array.
+
+The body carries ids only. The staff area tool resolves them to names with [[Staff-Look-up-accounts-by-id]].
 
 Counts toward the API [[Rate-limits|rate limit]].
 
-Related: [[Error]].
+Related: [[Staff-Look-up-accounts-by-id]], [[Get-pixel]], [[Error]].

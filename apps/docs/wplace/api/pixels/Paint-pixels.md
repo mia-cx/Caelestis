@@ -50,7 +50,7 @@ operation:
       schema:
         $ref: Error
     "403":
-      description: "Refused: `timeout` (with `durationMs`), `refresh`, `color-not-owned`, `company-paint-outside-allowed-area`, not enough `charges`, `challenge-required`, or a Cloudflare challenge."
+      description: "Refused: `timeout` (with `durationMs`), `refresh`, `color-not-owned`, `company-paint-outside-allowed-area`, `event-pixel-present` (an event pixel is in the way), not enough `charges`, `challenge-required`, or a Cloudflare challenge."
       schema:
         $ref: Error
 ---
@@ -67,4 +67,6 @@ A `403` with `challenge-required` and a `tier` makes the client run a challenge 
 
 Counts toward the API [[Rate-limits|rate limit]].
 
-Related: [[Get-me]], [[Purchase-item]], [[Paint-request]], [[Error]].
+The `200` body's `painted` is a count. When it is lower than the number of pixels sent, the response doesn't say which ones failed ([[Reading-the-paint-UI|Reading the paint UI]]).
+
+Related: [[Get-me]], [[Purchase-item]], [[Paint-request]], [[Palette]], [[Error]].

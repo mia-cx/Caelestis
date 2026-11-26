@@ -48,6 +48,15 @@ script.textContent = `(${pageMain})()`
 script.remove()
 ```
 
+`@run-at document-start` asks for early injection, but managers don't promise to run before the page's own scripts. From Caelestis's reports in November 2026 ([#887](https://github.com/mia-cx/Caelestis/issues/887)):
+
+- A painter on a slow laptop with Tampermonkey on Chrome got Caelestis's template on only about 1 load in 7. On the others, the script ran after Wplace had built its map, and both the map trap and the `getContext` wrapper missed.
+- Violentmonkey 2.50 on Manifest V3 also injected late.
+- 36 reloads with Tampermonkey 5.5.0 on Chromium 150 on a fast Mac all ran in time.
+- A browser extension's `document_start` content script in the main world did not race.
+
+So plan for a late start: find an existing map and canvas instead of only catching them as they are built. `document.querySelector('canvas.maplibregl-canvas')` finds the canvas. Calling `getContext('webgl2')` on it again returns the map's existing context.
+
 At document start `<html>` may not exist yet. Append to `document.documentElement`, or to `document` itself. wplace.live sent no `Content-Security-Policy` header on 26 November 2026, so inline scripts run. Check that a script ran before relying on it: Caelestis sets an attribute on `document.currentScript` from inside the injected copy ([`entry.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/entry.ts)).
 
 ## Timing

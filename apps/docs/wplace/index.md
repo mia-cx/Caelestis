@@ -12,6 +12,7 @@ The Wplace team does not write or review these docs. Endpoints change without no
 | I want to… | Read |
 | --- | --- |
 | Start writing a mod, userscript or extension | [Modding](modding/index) |
+| Draw a template without rewriting Wplace's tiles | [Layers versus tile compositing](modding/Layers-versus-tile-compositing) |
 | Call Wplace's backend, endpoint by endpoint | [API reference](api/index) |
 | Check which hooks and requests Pawtect can see | [Pawtect safety](modding/Pawtect-safety) |
 | Know how fast I can call Wplace's backend | [Rate limits](Rate-limits) |

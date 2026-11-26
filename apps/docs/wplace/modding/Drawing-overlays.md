@@ -7,7 +7,7 @@ tags: [source/caelestis, pawtect/none]
 
 **Pawtect:** none. An overlay that draws on its own layer sets no flag. Keep it from catching clicks meant for the map, and never forward synthetic clicks to the map in its place ([Anti-cheat](Anti-cheat)).
 
-There are three ways to draw over the map. All need the [map](Map) except the last, and all must be redone after a theme switch.
+There are three ways to draw over the map. All need the [map](Map) except the last. Many overlay mods instead rewrite Wplace's tile PNGs with the template drawn in. [Layers versus tile compositing](Layers-versus-tile-compositing) compares the two, with measured costs, and builds a template layer end to end.
 
 ## 1. An image layer
 
@@ -58,7 +58,7 @@ map.addLayer(
 
 Restore any WebGL state you change. Call `map.triggerRepaint()` when your data changes. Caelestis draws all its templates, markers and presence this way, in one stack of custom layers ([`gl/layer-stack.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/gl/layer-stack.ts)).
 
-MapLibre rounds where it draws each tile by up to half a screen pixel, so a layer placed by projection alone can sit half a pixel off Wplace's art. Caelestis aligns to where Wplace actually drew each tile, read from its draw calls ([getContext](WebGL-context)).
+MapLibre rounds where it draws each tile by up to half a screen pixel, so a layer placed by projection alone can sit half a pixel off Wplace's art. Draw with the matrices MapLibre draws the tiles with instead ([Layers versus tile compositing](Layers-versus-tile-compositing)).
 
 ## 3. A DOM overlay
 
@@ -68,7 +68,7 @@ Put DOM overlays outside `.maplibregl-canvas-container`, or set `pointer-events:
 
 ## After a theme switch
 
-Changing the theme calls `map.setStyle`, which removes your sources and layers. Add them again on every `style.load`:
+Changing the theme calls `map.setStyle`. Wplace carries its own sources and layers into the new style, and on 26 November 2026 yours stayed too: a custom layer and an image layer both survived, in order ([How Wplace renders the map](Map-rendering)). MapLibre drops everything when it cannot diff two styles, though, so add what is missing on every `style.load`:
 
 ```ts
 const install = () => { if (!map.getLayer('my-template')) addTemplate(map, templateUrl, x, y, w, h) }
@@ -78,6 +78,7 @@ if (map.isStyleLoaded()) install()
 
 ## Related
 
+- [Layers versus tile compositing](Layers-versus-tile-compositing)
 - [Map sources and layers](Map-sources-and-layers)
 - [Finding the map](Finding-the-map)
 - [Theme](Theme)

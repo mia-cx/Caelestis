@@ -56,10 +56,14 @@ Each wrapper calls the native method first and returns its result unchanged. A w
 
 - Shader uniform names come from MapLibre and change only with MapLibre's shaders.
 - The map can lose its context (`webglcontextlost`) and get a new canvas on navigation. Follow the canvas, not the first context you saw.
-- WebGL in a headless or virtual-display browser may be unavailable. Wplace then shows `h1#map-unsupported-title` and never builds a working map.
+- WebGL in a headless or virtual-display browser may be unavailable. Wplace then shows `h1#map-unsupported-title` and never builds a working map. Chromium under Xvfb with `--enable-unsafe-swiftshader` built a working map on 26 November 2026.
+- A script injected after the map was built never sees this call. Calling `getContext('webgl2')` on `canvas.maplibregl-canvas` again returns the same context, but wrappers added then miss the uniform locations MapLibre looked up earlier ([Getting into page context](Getting-into-page-context)).
+- Some GPU drivers corrupt frames when a layer leaves GL state behind or uses integer textures ([Layers versus tile compositing](Layers-versus-tile-compositing)).
 
 ## Related
 
+- [Layers versus tile compositing](Layers-versus-tile-compositing)
+- [How Wplace renders the map](Map-rendering)
 - [Drawing overlays](Drawing-overlays)
 - [Watching tiles](Watching-tiles)
 - [Draft canvases](Draft-canvases)

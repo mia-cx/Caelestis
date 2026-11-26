@@ -31,7 +31,7 @@ The complete way is Wplace's own setter: catch the [WplaceState](Wplace-state) a
 
 Without the state, setting the attribute and `localStorage.theme` changes the page's colours, but not the map style or Wplace's own idea of the theme. A mod would then also call `map.setStyle()` with the other style URL. Caelestis tries the setter first, then the visible control, then the Settings dialog hidden by a stylesheet, then the attribute and storage ([`wplace-theme.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/wplace-theme.ts)).
 
-Either way the map style is replaced, which removes your layers. Add them again on `style.load` ([Drawing overlays](Drawing-overlays)).
+Wplace's setter calls `map.setStyle(url, { transformStyle })`. The transform carries Wplace's own sources and layers, and any non-canvas source you added, into the new basemap. Custom layers stay too. On 26 November 2026 a custom layer and an image layer both survived a switch each way. Still, check for your layers on `style.load` ([Drawing overlays](Drawing-overlays)).
 
 ## Other page-wide switches
 
@@ -45,5 +45,6 @@ Wplace's pixel cursors are CSS custom properties, `--cursor-default`, `--cursor-
 
 ## Related
 
+- [How Wplace renders the map](Map-rendering)
 - [DOM landmarks](DOM-landmarks)
 - [Storage keys](Storage-keys)
