@@ -95,7 +95,7 @@ export const combineProgressSamples = (
 export const mergeObservedProgress = (
   archive: readonly ArchiveProgressSample[],
   observed: readonly ProgressSample[],
-  current?: Omit<ProgressSample, 'total'>,
+  current?: Omit<ProgressSample, 'total'> & Partial<Pick<ProgressSample, 'total'>>,
 ): readonly ObservedProgressSample[] => {
   const firstLive = Math.min(
     current?.at ?? Infinity,
@@ -117,7 +117,7 @@ export const mergeObservedProgress = (
   if (current !== undefined)
     byTime.set(current.at, {
       ...current,
-      total: observed.at(-1)?.total ?? archive.at(-1)?.total ?? 0,
+      total: current.total ?? observed.at(-1)?.total ?? archive.at(-1)?.total ?? 0,
       archive: false,
     })
   return [...byTime.values()].sort((a, b) => a.at - b.at)

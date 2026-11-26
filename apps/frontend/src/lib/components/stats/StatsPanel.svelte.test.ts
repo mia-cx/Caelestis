@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 
 import type { Progress, ProgressSample } from '@caelestis/shared'
-import { millis, seconds, type Template } from '@caelestis/shared'
+import { millis, seconds, type Template, type TemplateStatus } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AppState } from '#lib/state/app.svelte.js'
-import { appState, template } from '../../../tests/fixtures'
+import { appState, manifest, template } from '../../../tests/fixtures'
 import type { PainterHistorySource } from './progress-pace'
 
 const client = vi.hoisted(() => ({
@@ -172,4 +172,24 @@ it('excludes a capped sibling’s placements from painter pace', async () => {
   expect(histories.length).toBeGreaterThan(0)
   for (const { history } of histories)
     expect(history.buckets.map(({ templateId }) => templateId)).toEqual(['b'])
+})
+
+it('shows current counts for just the templates still inside their windows', async () => {
+  const a = { ...live('a'), progressWindow: { start: null, end: seconds(start + 5_000) } }
+  const b = live('b')
+  fixture.app.manifest = manifest({ templates: [a, b] })
+  fixture.app.statuses = new Map([
+    ['a', { templateId: 'a', correct: 2, wrong: 0, blank: 2, total: 4 } as TemplateStatus],
+    ['b', { templateId: 'b', correct: 3, wrong: 1, blank: 0, total: 4 } as TemplateStatus],
+  ])
+  render([a, b])
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+  expect(fixture.chart?.samples.at(-1)).toMatchObject({
+    at: start + 7_201,
+    correct: 3,
+    mismatched: 1,
+    total: 4,
+    revision: JSON.stringify([null, b.version]),
+  })
 })

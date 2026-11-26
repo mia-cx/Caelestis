@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { DAY_SECONDS, type HistoryBucket, HOUR_SECONDS, type Progress, type Template } from '@caelestis/shared'
+  import { DAY_SECONDS, emptyProgress, type HistoryBucket, HOUR_SECONDS, type Progress, sumProgress, type Template } from '@caelestis/shared'
   import Select from '#lib/components/Select.svelte'
   import { STORAGE_KEYS } from '#lib/deployment.js'
   import { Persisted } from '#lib/persisted.svelte.js'
   import { inProgressWindow } from '#lib/progress-window.js'
+  import { useApp } from '#lib/state/app.svelte.js'
   import { ActivityReads } from './activity-reads.svelte.js'
   import { archiveContributionDays } from './archive-history.js'
   import { Community } from './community.svelte.js'
@@ -39,6 +40,7 @@
   /** The grid an empty history's axis uses; it draws no buckets. */
   const EMPTY_HISTORY_RESOLUTION = 900
 
+  const app = useApp()
   const scope = new StatsScope(() => templates)
   const reads = new ProgressReads(scope)
   const selection = new PaceSelection(() => activity.painters)
@@ -56,7 +58,25 @@
     history: { ...history, buckets: history.buckets.filter(inBucketWindow) },
   })))
 
-  const progressRevision = $derived(JSON.stringify(templates.map((template) => template.version)))
+  const currentObservation = $derived.by(() => {
+    const at = scope.to
+    const active = templates.filter((template) => inProgressWindow(at, template.progressWindow))
+    if (active.length === 0) return undefined
+    const counts = active.length === templates.length
+      ? progress
+      : sumProgress(active.map((template) =>
+          app.tree?.templateById.get(template.id)?.progress ?? emptyProgress(template.totalPixels),
+        ))
+    return {
+      at,
+      correct: counts.completed,
+      mismatched: counts.mismatched,
+      total: counts.total,
+      revision: JSON.stringify(templates.map((template) =>
+        inProgressWindow(at, template.progressWindow) ? template.version : null,
+      )),
+    }
+  })
   const remainingPixels = $derived(progress.total - progress.completed)
   const displayFrom = $derived(
     Math.min(scope.progressFrom, ...reads.archiveSamples.map((sample) => sample.at)),
@@ -71,14 +91,7 @@
   const observations = $derived(
     reads.samples === null
       ? null
-      : mergeObservedProgress(reads.archiveSamples, reads.samples, templates.every(
-          (template) => inProgressWindow(scope.to, template.progressWindow),
-        ) ? {
-          at: scope.to,
-          correct: progress.completed,
-          mismatched: progress.mismatched,
-          revision: progressRevision,
-        } : undefined),
+      : mergeObservedProgress(reads.archiveSamples, reads.samples, currentObservation),
   )
 
   const estimatePeriods = [
