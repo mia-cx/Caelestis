@@ -226,7 +226,8 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
     // every historical observation before `at`. GROUP BY keeps SQLite from flattening this CTE
     // into `votes` and scanning all rows of `tile_history` before evaluating the MAX subquery.
     const resolutionRows = TILE_HISTORY_RESOLUTIONS.map(
-      (tier) => `SELECT ${tier} AS resolution_s, ${tier === 0 ? 1 : tier} AS min_age_s`,
+      (tier) =>
+        `SELECT ${tier} AS resolution_s, CAST(${tier === 0 ? 1 : tier} AS BIGINT) AS min_age_s`,
     ).join(' UNION ALL ')
     const result = await this.client
       .prepare(`
