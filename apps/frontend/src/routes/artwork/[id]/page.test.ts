@@ -227,20 +227,23 @@ it('bounds finished history and imported frames at the finish instant', async ()
     ],
   })
   fixture.api.getTileHistory.mockResolvedValue({ frames: [] })
+  fixture.api.getTemplateProgressHistory.mockResolvedValue({ samples: [] })
   fixture.api.getArchiveHistory.mockResolvedValue({
     source: 'eralyon',
-    basis: null,
-    samples: [],
+    basis: { versionId: template.version, total: 1 },
+    samples: [{ at: start, snapshotId: 1, correct: 0, mismatched: 0, total: 1 }],
     frames: [
+      { at: start - 60, hash: null, snapshotId: 0 },
       { at: start, hash: 'old', snapshotId: 1 },
       { at: start + 3_601, hash: 'after-finish', snapshotId: 2 },
     ],
   })
   await show()
+  expect(document.querySelector('[aria-label="time window"]')).toBeNull()
   expect(fixture.api.getTileHistory).toHaveBeenCalledWith(0, 0, 0, start, start + 3_601)
   expect(position()).toBe(3_600)
   click('play timelapse')
-  await advance(7_000)
+  await advance(7_200)
   expect(position()).toBe(3_600)
   expect(document.body.textContent).toContain('current')
 })
@@ -347,44 +350,57 @@ it('seeks the timelapse from a chart click, pausing playback on the latest snaps
   expect(position()).toBeLessThan(260)
 })
 
-it('clamps chart seeks to the retained history and keeps the right end live', async () => {
+it('seeks to the first and last recorded captures at the chart edges', async () => {
   await show()
   const from = Number(document.querySelector('[data-handle="head"]')?.getAttribute('aria-valuemin'))
-  expect(from).toBeLessThan(start)
+  expect(from).toBe(start)
 
   clickChart(from)
   expect(position()).toBe(0)
   expect(shownHash()).toBe('0')
 
   const to = Number(document.querySelector('[data-handle="tail"]')?.getAttribute('aria-valuemax'))
+  expect(to).toBe(start + 3_600)
   clickChart(to)
-  expect(position()).toBe(7_200)
-  expect(shownHash()).toBeUndefined()
-  expect(document.body.textContent).toContain('live')
-  expect(playheadX()).toBeNull()
+  expect(position()).toBe(3_600)
+  expect(shownHash()).toBe('3600')
+  expect(playheadX()).toBeCloseTo(px(to), 5)
+})
+
+it('does not draw a time axis when there are no tile captures', async () => {
+  fixture.api.getTileHistory.mockResolvedValue({ frames: [] })
+  mounted = mount(Page, { target: document.body })
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+  expect(document.body.textContent).toContain('No tile snapshots yet.')
+  expect(chart()).toBeNull()
 })
 
 it('scrubs from the playhead and leaves a drag elsewhere to zoom', async () => {
+  fixture.api.getHistory.mockResolvedValue({
+    buckets: [{ templateId: template.id, bucketStart: seconds(start), resolution: 60, placed: 1 }],
+  })
   await show()
   clickChart(start + 200)
   const plot = chart()
 
   plot?.dispatchEvent(pointer('pointerdown', { clientX: px(start + 200) + 4 }))
-  window.dispatchEvent(pointer('pointermove', { clientX: px(start + 3_700) }))
+  window.dispatchEvent(pointer('pointermove', { clientX: px(start + 3_600) }))
   flushSync()
-  expect(position()).toBe(3_700)
+  expect(position()).toBe(3_600)
   expect(shownHash()).toBe('3600')
-  window.dispatchEvent(pointer('pointerup', { clientX: px(start + 3_700) }))
+  window.dispatchEvent(pointer('pointerup', { clientX: px(start + 3_600) }))
   flushSync()
   expect(document.querySelector('[data-handle="tail"]')?.getAttribute('aria-valuenow')).toBe(
     document.querySelector('[data-handle="tail"]')?.getAttribute('aria-valuemax'),
   )
 
   plot?.dispatchEvent(pointer('pointerdown', { clientX: px(start + 1_000) }))
-  window.dispatchEvent(pointer('pointermove', { clientX: px(start + 6_000) }))
-  window.dispatchEvent(pointer('pointerup', { clientX: px(start + 6_000) }))
+  window.dispatchEvent(pointer('pointermove', { clientX: px(start + 2_500) }))
+  window.dispatchEvent(pointer('pointerup', { clientX: px(start + 2_500) }))
   flushSync()
-  expect(position()).toBe(3_700)
+  expect(position()).toBe(3_600)
   expect(document.querySelector('[data-handle="tail"]')?.getAttribute('aria-valuenow')).not.toBe(
     document.querySelector('[data-handle="tail"]')?.getAttribute('aria-valuemax'),
   )
@@ -417,9 +433,9 @@ it.each([false, true])(
     const plot = chart()
     const touch = { pointerType: 'touch', pointerId: 7 }
     plot?.dispatchEvent(pointer('pointerdown', { ...touch, clientX: px(start + 200) }))
-    window.dispatchEvent(pointer('pointermove', { ...touch, clientX: px(start + 3_700) }))
+    window.dispatchEvent(pointer('pointermove', { ...touch, clientX: px(start + 3_600) }))
     flushSync()
-    expect(position()).toBe(3_700)
+    expect(position()).toBe(3_600)
     expect(paused()).toBe(true)
     window.dispatchEvent(pointer('pointercancel', touch))
     flushSync()

@@ -17,7 +17,11 @@ const fixture = vi.hoisted(() => ({
   app: null as unknown as AppState,
   history: vi.fn(),
   archive: vi.fn(),
-  stats: null as null | { onSeek?: (time: number) => void; templates?: readonly Template[] },
+  stats: null as null | {
+    onSeek?: (time: number) => void
+    templates?: readonly Template[]
+    captureRange?: { from: number; to: number } | null
+  },
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'route' } } }))
 vi.mock('#lib/state/app.svelte.js', async (original) => ({
@@ -143,6 +147,12 @@ it('inherits folder dates and takes the outer dates of templates on a shared til
       { ...at('elsewhere', 'child', 500_000, 500_000), progressWindow: otherWindow },
     ],
   })
+  fixture.archive.mockResolvedValue({
+    frames: [
+      { at: start + 99, hash: 'before-window', snapshotId: 1 },
+      { at: start + 120, hash: 'first-capture', snapshotId: 2 },
+    ],
+  })
   mounted = mount(Page, { target: document.body })
   flushSync()
   await vi.advanceTimersByTimeAsync(0)
@@ -153,6 +163,7 @@ it('inherits folder dates and takes the outer dates of templates on a shared til
   expect(fixture.stats?.templates?.find(({ id }) => id === top.id)?.progressWindow).toEqual(
     folderWindow,
   )
+  expect(fixture.stats?.captureRange).toEqual({ from: start + 120, to: start + 3_600 })
   expect(position()).toBe(4_999)
   expect(document.querySelector('.badge-success')).toBeNull()
 })

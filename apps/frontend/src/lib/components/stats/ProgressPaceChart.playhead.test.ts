@@ -62,7 +62,6 @@ const mountThreeDays = (
       resolution: 3_600,
       from: 0,
       to: THREE_DAYS,
-      live: false,
       paces: new PaceSelection(() => []),
       painters: [],
       painterHistories: [],

@@ -25,7 +25,6 @@
 
   let {
     readout,
-    now,
     includesImport,
     rows,
     windowCount,
@@ -34,8 +33,6 @@
     plot,
   }: {
     readout: Readout | null
-    /** The readout is the live right edge. */
-    now: boolean
     /** Some pace line at the readout reaches back into imported archive progress. */
     includesImport: boolean
     rows: readonly PaceRow[]
@@ -136,7 +133,7 @@
     style:max-height="{viewportHeight - 2 * EDGE}px"
   >
     <div class="font-medium tabular-nums">
-      {formatTime(readout.t)}{#if now}<span class="ms-1 text-base-content/50">now</span>{/if}
+      {formatTime(readout.t)}
     </div>
     {#if readout.archive}<div class="text-base-content/60">{ARCHIVE_SOURCE}</div>{/if}
     <div class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 tabular-nums">

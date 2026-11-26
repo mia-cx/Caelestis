@@ -55,6 +55,19 @@ export class TimelapsePlayer {
   readonly layout: TimelapseLayout = $derived(timelapseLayout(this.templates))
 
   readonly timeline = $derived(this.frames === null ? [] : timelineOf(this.frames))
+  readonly captureRange = $derived.by(() => {
+    if (this.frames === null) return undefined
+    let from = Infinity
+    let to = -Infinity
+    for (const frames of this.frames.values()) {
+      for (const frame of frames) {
+        if (frame.missing) continue
+        from = Math.min(from, frame.bucketStart)
+        to = Math.max(to, frame.bucketStart)
+      }
+    }
+    return from <= to ? { from, to } : null
+  })
   readonly #playback = $derived(new TimelapseClock(this.timeline, this.historyEnd))
   readonly transport = $derived(
     transportScale(this.timeline[0] ?? this.historyEnd, this.historyEnd),

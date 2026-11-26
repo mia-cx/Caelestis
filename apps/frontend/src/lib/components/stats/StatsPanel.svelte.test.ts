@@ -24,7 +24,6 @@ const fixture = vi.hoisted(() => ({
     samples: readonly ProgressSample[]
     from: number
     to: number
-    live: boolean
     painterHistories: readonly PainterHistorySource[]
   },
 }))
@@ -85,8 +84,11 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const render = (templates: readonly Template[]) => {
-  const props = $state({ templates, progress })
+const render = (
+  templates: readonly Template[],
+  captureRange = { from: start, to: start + 7_000 },
+) => {
+  const props = $state({ templates, progress, captureRange })
   mounted = mount(StatsPanel, { target: document.body, props })
   return props
 }
@@ -125,7 +127,7 @@ it('asks only for the newest buckets on each chart tick', async () => {
   expect(options).toEqual({ maxResolution: 60 })
 })
 
-it('caps imported observations, native history, and the live endpoint of the progress chart', async () => {
+it('caps imported and native observations while displaying the capture range', async () => {
   const from = seconds(start + 1_000)
   const to = seconds(start + 5_000)
   const artwork = { ...live('a'), progressWindow: { start: from, end: to } }
@@ -137,12 +139,13 @@ it('caps imported observations, native history, and the live endpoint of the pro
     frames: [],
   })
   client.getTemplateProgressHistory.mockResolvedValue({ samples: [sample(start + 2_000)] })
-  render([artwork])
+  const captureRange = { from: start + 1_500, to: start + 3_000 }
+  render([artwork], captureRange)
   await vi.advanceTimersByTimeAsync(0)
   flushSync()
 
   expect(client.getTemplateProgressHistory).toHaveBeenCalledWith('a', from, to, from)
-  expect(fixture.chart).toMatchObject({ from, to, live: false })
+  expect(fixture.chart).toMatchObject(captureRange)
   expect(fixture.chart?.samples.map(({ at }) => at)).toEqual([from, start + 2_000])
 })
 
@@ -174,7 +177,7 @@ it('excludes a capped sibling’s placements from painter pace', async () => {
     expect(history.buckets.map(({ templateId }) => templateId)).toEqual(['b'])
 })
 
-it('shows current counts for just the templates still inside their windows', async () => {
+it('does not append current counts to the recorded chart, even for active siblings', async () => {
   const a = { ...live('a'), progressWindow: { start: null, end: seconds(start + 5_000) } }
   const b = live('b')
   fixture.app.manifest = manifest({ templates: [a, b] })
@@ -185,13 +188,7 @@ it('shows current counts for just the templates still inside their windows', asy
   render([a, b])
   await vi.advanceTimersByTimeAsync(0)
   flushSync()
-  expect(fixture.chart?.samples.at(-1)).toMatchObject({
-    at: start + 7_201,
-    correct: 3,
-    mismatched: 1,
-    total: 4,
-    revision: JSON.stringify([null, b.version]),
-  })
+  expect(fixture.chart?.samples).toEqual([])
 })
 
 it('chooses default painters from placements inside each template window', async () => {

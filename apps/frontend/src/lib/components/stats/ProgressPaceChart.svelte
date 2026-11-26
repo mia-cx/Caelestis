@@ -51,7 +51,6 @@
     resolution,
     from,
     to,
-    live,
     paces,
     painters,
     painterHistories,
@@ -69,8 +68,6 @@
     resolution: number
     from: number
     to: number
-    /** The right edge is now: the canvas is still being painted, so the last point is live. */
-    live: boolean
     /** Which pace lines are drawn; whoever fetches `painterHistories` reads the same. */
     paces: PaceSelection
     /** Who painted in the range, leading first: the picker's list. */
@@ -96,7 +93,6 @@
   const paceWindows = $derived(paceLines(samples, to))
   const painterPaces = $derived(painterLines(paces, painters, painterHistories, to))
   const active = $derived(hasActivity(samples, buckets, painterHistories, to))
-  const anchor = $derived(samples.findLast((sample) => sample.at === to))
   const enabledPaces = $derived(
     paces.allUsers
       ? paceWindows.filter((pace) => paces.windows.has(pace.key) && pace.segments.length > 0)
@@ -232,7 +228,9 @@
 
   const x = $derived(
     (t: number) =>
-      pad.left + ((t - shownView.from) / Math.max(1, shownView.to - shownView.from)) * plotWidth,
+      pad.left + (shownView.to === shownView.from
+        ? 0.5
+        : (t - shownView.from) / (shownView.to - shownView.from)) * plotWidth,
   )
   const yLeft = $derived(
     (v: number) => height - pad.bottom - (v / shownAxes.current.leftMax) * plotHeight,
@@ -252,6 +250,7 @@
 
   const tickStep = $derived(timeTickStep(shownView.to - shownView.from, plotWidth))
   const xTicks = $derived.by(() => {
+    if (shownView.from === shownView.to) return [shownView.from]
     const ticks: number[] = []
     for (let t = Math.ceil(shownView.from / tickStep) * tickStep; t < shownView.to; t += tickStep) {
       ticks.push(t)
@@ -262,7 +261,7 @@
   const formatTick = (t: number): string => {
     const date = new Date(t * 1000)
     const rangeStart = new Date(shownView.from * 1_000)
-    const rangeEnd = new Date((shownView.to - 1) * 1_000)
+    const rangeEnd = new Date(shownView.to * 1_000)
     const crossesDay =
       rangeStart.getFullYear() !== rangeEnd.getFullYear() ||
       rangeStart.getMonth() !== rangeEnd.getMonth() ||
@@ -357,10 +356,6 @@
       : { x: rect.left + x(hover.t), y: rect.top + pad.top }
   }
 
-  const liveEdge = $derived(
-    live && view.to === to && anchor?.correct != null ? { t: to, correct: anchor.correct } : null,
-  )
-
   // The plot draws the playhead only inside the shown window; the brush keeps it in view across
   // the whole range, so a zoomed reader still sees where playback is.
   const linked = $derived(onSeek !== undefined)
@@ -391,7 +386,7 @@
         : [`${painterLabel(line.painter)} ${line.window} ${painterMetricNoun} ${formatCount(value)} px/h`]
     })
     return [
-      `${formatTime(point.t)}${point.t === liveEdge?.t ? ' (now)' : ''}`,
+      formatTime(point.t),
       ...(point.archive ? [ARCHIVE_SOURCE] : []),
       point.correct === null ? 'No completion coverage' : `${point.correct.toLocaleString()} correct`,
       point.mismatched === null
@@ -726,27 +721,6 @@
               stroke-linecap="round"
             />
           {/each}
-
-          {#if liveEdge !== null}
-            <circle
-              cx={x(liveEdge.t)}
-              cy={yLeft(liveEdge.correct)}
-              r="4"
-              fill="var(--chart-correct)"
-              class="motion-safe:animate-ping"
-              style:transform-box="fill-box"
-              style:transform-origin="center"
-              opacity="0.6"
-            />
-            <circle
-              cx={x(liveEdge.t)}
-              cy={yLeft(liveEdge.correct)}
-              r="3"
-              fill="var(--chart-correct)"
-              class="stroke-base-100"
-              stroke-width="1.5"
-            />
-          {/if}
         </g>
 
         {#if playheadShown !== null}
@@ -827,7 +801,6 @@
 
       <PaceHoverCard
         readout={hover}
-        now={hover !== null && hover.t === liveEdge?.t}
         includesImport={hoverIncludesImport}
         rows={hoverPaceRows}
         windowCount={hoverWindowCount}
@@ -838,15 +811,17 @@
       <div class="sr-only" aria-live="polite">{announce}</div>
     </div>
 
-    <RangeBrush
-      {timeWindow}
-      {width}
-      plotLeft={pad.left}
-      {plotWidth}
-      series={brushSeries(samples, segments, buckets, { from, to, resolution })}
-      {playhead}
-      bind:dragging={brushDragging}
-    />
+    {#if from < to}
+      <RangeBrush
+        {timeWindow}
+        {width}
+        plotLeft={pad.left}
+        {plotWidth}
+        series={brushSeries(samples, segments, buckets, { from, to, resolution })}
+        {playhead}
+        bind:dragging={brushDragging}
+      />
+    {/if}
   {:else}
     <div
       style:height="{CHART_HEIGHT}px"

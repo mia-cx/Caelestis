@@ -17,18 +17,22 @@
   import { ProgressReads } from './progress-reads.svelte.js'
   import ProgressPaceChart, { CHART_HEIGHT } from './ProgressPaceChart.svelte'
   import { StatsScope } from './stats-scope.svelte.js'
+  import type { TimeWindow } from './time-window.svelte.js'
 
   let {
     templates,
     progress,
+    captureRange,
     playhead = null,
     onSeek,
     onScrubStart,
   }: {
     /** Every new list reads history again, so pass a new one only when the scope changes. */
     templates: readonly Template[]
-    /** The scope's current counts: the chart's right edge and the pixels still to paint. */
+    /** The scope's current counts and the pixels still to paint. */
     progress: Progress
+    /** The timelapse's first and last captures, or null if it has none. */
+    captureRange: TimeWindow | null | undefined
     /** The page's timelapse position, when it has one, for the chart to draw as a playhead. */
     playhead?: number | null
     /** Lets the chart seek that timelapse. Scopes without one leave it unset. */
@@ -78,20 +82,16 @@
     }
   })
   const remainingPixels = $derived(progress.total - progress.completed)
-  const displayFrom = $derived(
-    Math.min(scope.progressFrom, ...reads.archiveSamples.map((sample) => sample.at)),
-  )
   const importedContributions = $derived(
     archiveContributionDays(
       reads.contributionArchiveSamples,
       Math.min(...(activity.buckets ?? []).map((bucket) => bucket.bucketStart)),
     ),
   )
-  /** Every observation once, ending with the current counts at the right edge. */
-  const observations = $derived(
+  const recordedObservations = $derived(
     reads.samples === null
       ? null
-      : mergeObservedProgress(reads.archiveSamples, reads.samples, currentObservation),
+      : mergeObservedProgress(reads.archiveSamples, reads.samples),
   )
 
   const estimatePeriods = [
@@ -108,9 +108,13 @@
       estimatePeriods[2],
   )
   const pace = $derived(
-    reads.archives === null || observations === null
+    reads.archives === null || reads.samples === null
       ? null
-      : completionPace(observations, scope.progressTo, estimatePeriod.seconds),
+      : completionPace(
+          mergeObservedProgress(reads.archiveSamples, reads.samples, currentObservation),
+          scope.progressTo,
+          estimatePeriod.seconds,
+        ),
   )
   const eta = $derived(
     pace === null || pace.correct <= 0 || remainingPixels <= 0
@@ -154,16 +158,19 @@
       <div class="flex items-center justify-center text-sm text-base-content/50" style:height="{CHART_HEIGHT}px">
         Could not load pace history.
       </div>
-    {:else if activity.buckets === null || reads.archives === null || observations === null}
+    {:else if captureRange === undefined || activity.buckets === null || reads.archives === null || recordedObservations === null}
       <div class="skeleton w-full" style:height="{CHART_HEIGHT}px"></div>
+    {:else if captureRange === null}
+      <div class="flex items-center justify-center text-sm text-base-content/50" style:height="{CHART_HEIGHT}px">
+        No tile snapshots yet.
+      </div>
     {:else}
       <ProgressPaceChart
-        samples={observations}
+        samples={recordedObservations}
         buckets={progressBuckets}
         resolution={activity.buckets[0]?.resolution ?? EMPTY_HISTORY_RESOLUTION}
-        from={displayFrom}
-        to={scope.progressTo}
-        live={scope.progressLive}
+        from={captureRange.from}
+        to={captureRange.to}
         paces={selection}
         painters={activity.painters}
         {painterHistories}

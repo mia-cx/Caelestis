@@ -105,6 +105,7 @@
       <StatsPanel
         {templates}
         {progress}
+        captureRange={player.captureRange}
         playhead={player.live ? null : player.playhead}
         onSeek={player.timeline.length > 0 ? player.seekTo : undefined}
         onScrubStart={player.beginScrub}
