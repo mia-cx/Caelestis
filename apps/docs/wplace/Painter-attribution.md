@@ -1,5 +1,6 @@
 ---
 title: Painter attribution
+description: Which public Wplace endpoints reveal who painted a pixel, and what an app can learn by combining them.
 ---
 
 Wplace shows the painter of any pixel to anyone who clicks it. This page lists the public endpoints that tie painters to places, and what they let an app work out. Checked on 20 November 2026.

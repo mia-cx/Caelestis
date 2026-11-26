@@ -1,5 +1,6 @@
 ---
 title: Rate limits
+description: How many requests Wplace's API and map tiles allow per IP address, what a block looks like, and how IPv6 is counted.
 ---
 
 Wplace's backend has two Cloudflare rate limits: one for the API, and a higher one for map tiles. Each counts requests per IP address over a sliding window. Going over either limit blocks the address for 60 seconds with HTTP `429` and `error code: 1015`, and `Retry-After` counts down the time left on the block. [Cloudflare rate limiting parameters](https://developers.cloudflare.com/waf/rate-limiting-rules/parameters/#for-duration)

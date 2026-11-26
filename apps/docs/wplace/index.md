@@ -1,5 +1,6 @@
 ---
 title: Wplace developer guide
+description: Unofficial reference for building Wplace mods, userscripts and apps, with every backend endpoint, client hook and Pawtect flag.
 ---
 
 Unofficial community docs for building apps, mods, userscripts and plugins for [Wplace](https://wplace.live). Wplace publishes no API docs. Everything here comes from reading the public wplace.live web client and calling its public endpoints.

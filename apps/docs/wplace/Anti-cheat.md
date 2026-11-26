@@ -1,5 +1,6 @@
 ---
 title: Anti-cheat
+description: What Wplace's Pawtect anti-cheat collects, which actions set a flag, and how mod authors keep their users from being flagged.
 ---
 
 Wplace's client-side anti-cheat is called Pawtect. This page lists what it reads from your browser, what it sends, and which actions set a flag on your account. It is for players who want to know what the site collects, and for mod authors who want to keep their users from being flagged by mistake.
