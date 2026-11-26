@@ -11,11 +11,12 @@
  * of this one.
  * Edge: EDGE_PRODUCT_ID, EDGE_CLIENT_ID, EDGE_API_KEY. A store still reviewing the previous version
  * is skipped.
- * Firefox: AMO_JWT_ISSUER, AMO_JWT_SECRET. Skipped until the add-on exists on addons.mozilla.org.
+ * Firefox: AMO_JWT_ISSUER, AMO_JWT_SECRET. Skipped until the add-on exists on addons.mozilla.org,
+ * and when it already has this version.
  *
  * Each store publishes the version once its review approves it.
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { createSign } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -42,6 +43,9 @@ const credentials = (store, names) => {
   notice(`${store} credentials are not set up; skipping ${store}.`)
   return null
 }
+
+const manifestVersion = (zip) =>
+  JSON.parse(execFileSync('unzip', ['-p', zip, 'manifest.json'], { encoding: 'utf8' })).version
 
 const request = async (url, init) => {
   const response = await fetch(url, init)
@@ -91,7 +95,7 @@ const chrome = async (zip) => {
 
   // A store retry runs every store again, and Chrome refuses a version it already has.
   const current = await status()
-  const { version } = JSON.parse(execFileSync('unzip', ['-p', zip, 'manifest.json'], 'utf8'))
+  const version = manifestVersion(zip)
   const revisions = [current.publishedItemRevisionStatus, current.submittedItemRevisionStatus]
   if (
     revisions.some(
@@ -212,11 +216,11 @@ const firefox = async (zip, source) => {
   }
   if (!addon.ok)
     throw new Error(`addons.mozilla.org answered ${addon.status}: ${await addon.text()}`)
+  const version = manifestVersion(zip)
 
   const work = mkdtempSync(join(tmpdir(), 'caelestis-amo-'))
   const extension = join(work, 'extension')
   execFileSync('unzip', ['-q', zip, '-d', extension])
-  const { version } = JSON.parse(readFileSync(join(extension, 'manifest.json'), 'utf8'))
   const changelog = readFileSync(
     new URL('../../apps/userscript/CHANGELOG.md', import.meta.url),
     'utf8',
@@ -243,7 +247,7 @@ const firefox = async (zip, source) => {
       },
     }),
   )
-  execFileSync(
+  const signed = spawnSync(
     'npx',
     [
       '--yes',
@@ -257,10 +261,23 @@ const firefox = async (zip, source) => {
       '--approval-timeout=0',
     ],
     {
-      stdio: 'inherit',
+      encoding: 'utf8',
       env: { ...process.env, WEB_EXT_API_KEY: issuer, WEB_EXT_API_SECRET: secret },
     },
   )
+  process.stdout.write(signed.stdout)
+  process.stderr.write(signed.stderr)
+  if (signed.status === 0) return
+  // AMO never takes a version number twice, live, in review or rejected, so a retry has nothing to
+  // send. web-ext uploads the source archive after creating the version, so an earlier run that
+  // failed in between left the version without it.
+  if (`${signed.stdout}${signed.stderr}`.includes(`Version ${version} already exists.`)) {
+    console.log(
+      `::warning::addons.mozilla.org already has ${version}; skipping Firefox. If an earlier run failed after creating it, attach the source archive at https://addons.mozilla.org/developers/addon/caelestis/versions.`,
+    )
+    return
+  }
+  throw new Error(`web-ext sign exited with ${signed.status ?? signed.signal}`)
 }
 
 const stores = { chrome, edge, firefox }
