@@ -23,10 +23,7 @@ operation:
       description: "`active`, and `punishments` with `kind` (`ban` or `timeout`), `reason` and `timeoutUntil`."
       example:
         active: true
-        punishments:
-          - kind: timeout
-            reason: <reason>
-            timeoutUntil: 2026-11-27T12:00:00Z
+        punishments: [{ kind: timeout, reason: "<reason>", timeoutUntil: "2026-11-27T12:00:00Z" }]
     "401":
       description: No session, or an expired one.
       schema:
