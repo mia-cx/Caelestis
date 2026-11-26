@@ -1,0 +1,34 @@
+---
+title: Get store offers
+description: List current store promotions and each payment provider's prices.
+tags:
+  - source/client
+  - source/probe
+  - pawtect/flag
+operation:
+  protocol: rest
+  method: GET
+  path: /store/offers
+  auth: none
+  parameters:
+    - name: platform
+      in: query
+      type: string
+      example: web
+      description: The storefront.
+  responses:
+    "200":
+      description: The offers.
+      schema:
+        $ref: Store-offers
+---
+
+**Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+
+Called by the wplace.live client. Checked on 26 November 2026: an anonymous request confirmed the response.
+
+Cached for 30 seconds.
+
+Counts toward the API [[Rate-limits|rate limit]].
+
+Related: [[Store-offers]].

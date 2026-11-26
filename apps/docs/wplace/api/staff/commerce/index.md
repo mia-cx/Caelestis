@@ -1,0 +1,57 @@
+---
+title: "Staff: commerce"
+description: Staff-only routes for store products, promotions and purchases.
+---
+
+These routes serve Wplace's staff dashboard, which ships inside the public client. They are listed so mod authors can recognise them in the bundle. Players get `401` or `403`. Their notes describe what each route is for, and nothing more.
+
+- [[Staff-Get-the-commerce-overview|Get the commerce overview (staff)]]: Staff-only route that summarises sales and pending store changes.
+- [[Staff-Get-commerce-settings|Get commerce settings (staff)]]: Staff-only route that shows store-wide settings.
+- [[Staff-Save-commerce-settings|Save commerce settings (staff)]]: Staff-only route that changes store-wide settings.
+- [[Staff-List-payment-providers|List payment providers (staff)]]: Staff-only route that shows the payment providers and their state.
+- [[Staff-Reconcile-payments|Reconcile payments (staff)]]: Staff-only route that matches provider payments against grants.
+- [[Staff-Get-the-catalogue|Get the catalogue (staff)]]: Staff-only route that shows the store catalogue with draft fields.
+- [[Staff-Get-a-catalogue-entry|Get a catalogue entry (staff)]]: Staff-only route that shows one catalogue entry.
+- [[Staff-Edit-a-catalogue-entry|Edit a catalogue entry (staff)]]: Staff-only route that changes one catalogue entry.
+- [[Staff-List-store-change-sets|List store change sets (staff)]]: Staff-only route that lists proposed store changes.
+- [[Staff-Propose-a-store-change|Propose a store change (staff)]]: Staff-only route that creates a store change set.
+- [[Staff-Preview-a-store-change|Preview a store change (staff)]]: Staff-only route that previews what a change set would do.
+- [[Staff-Get-a-store-change|Get a store change (staff)]]: Staff-only route that shows one change set.
+- [[Staff-Edit-a-store-change|Edit a store change (staff)]]: Staff-only route that edits a draft change set.
+- [[Staff-Submit-a-store-change|Submit a store change (staff)]]: Staff-only route that sends a change set for approval.
+- [[Staff-Withdraw-a-store-change|Withdraw a store change (staff)]]: Staff-only route that pulls a change set back from approval.
+- [[Staff-Approve-a-store-change|Approve a store change (staff)]]: Staff-only route that approves a change set.
+- [[Staff-Reject-a-store-change|Reject a store change (staff)]]: Staff-only route that rejects a change set.
+- [[Staff-Publish-a-store-change|Publish a store change (staff)]]: Staff-only route that puts an approved change set live.
+- [[Staff-Cancel-a-store-change|Cancel a store change (staff)]]: Staff-only route that cancels a change set.
+- [[Staff-Roll-back-a-store-change|Roll back a store change (staff)]]: Staff-only route that undoes a published change set.
+- [[Staff-Adopt-a-store-baseline|Adopt a store baseline (staff)]]: Staff-only route that records the live store as the baseline for changes.
+- [[Staff-Retry-a-store-operation|Retry a store operation (staff)]]: Staff-only route that retries a failed store operation.
+- [[Staff-Resolve-a-store-operation|Resolve a store operation (staff)]]: Staff-only route that marks a failed store operation as handled.
+- [[Staff-Cancel-a-store-operation|Cancel a store operation (staff)]]: Staff-only route that cancels a pending store operation.
+- [[Staff-List-products|List products (staff)]]: Staff-only route that lists store products with draft fields.
+- [[Staff-Create-a-product|Create a product (staff)]]: Staff-only route that creates a store product.
+- [[Staff-Get-a-product|Get a product (staff)]]: Staff-only route that shows one store product.
+- [[Staff-Edit-a-product|Edit a product (staff)]]: Staff-only route that edits a draft store product.
+- [[Staff-Submit-a-product|Submit a product (staff)]]: Staff-only route that sends a product for approval.
+- [[Staff-Update-a-live-product|Update a live product (staff)]]: Staff-only route that changes a live store product.
+- [[Staff-Send-a-product-to-app-review|Send a product to app review (staff)]]: Staff-only route that submits a product for app store review.
+- [[Staff-Get-product-reference-data|Get product reference data (staff)]]: Staff-only route that lists the fields and options products may use.
+- [[Staff-List-product-images|List product images (staff)]]: Staff-only route that lists uploaded product images.
+- [[Staff-Upload-a-product-image|Upload a product image (staff)]]: Staff-only route that uploads a store product image.
+- [[Staff-List-promotions|List promotions (staff)]]: Staff-only route that lists store promotions.
+- [[Staff-Create-a-promotion|Create a promotion (staff)]]: Staff-only route that creates a store promotion.
+- [[Staff-Get-a-promotion|Get a promotion (staff)]]: Staff-only route that shows one store promotion.
+- [[Staff-Edit-a-promotion|Edit a promotion (staff)]]: Staff-only route that edits a draft promotion.
+- [[Staff-Submit-a-promotion|Submit a promotion (staff)]]: Staff-only route that sends a promotion for approval.
+- [[Staff-Cancel-a-promotion|Cancel a promotion (staff)]]: Staff-only route that ends a promotion early.
+- [[Staff-List-coupon-codes|List coupon codes (staff)]]: Staff-only route that lists a promotion's coupon codes.
+- [[Staff-Create-coupon-codes|Create coupon codes (staff)]]: Staff-only route that adds coupon codes to a promotion.
+- [[Staff-Toggle-a-coupon-code|Toggle a coupon code (staff)]]: Staff-only route that turns one coupon code on or off.
+- [[Staff-Move-coupon-codes|Move coupon codes (staff)]]: Staff-only route that moves coupon codes between promotions.
+- [[Staff-List-purchases|List purchases (staff)]]: Staff-only route that lists store purchases.
+- [[Staff-Get-a-purchase|Get a purchase (staff)]]: Staff-only route that shows one store purchase.
+- [[Staff-Get-an-unpaid-purchase|Get an unpaid purchase (staff)]]: Staff-only route that shows a purchase whose payment never arrived.
+- [[Staff-Get-commerce-history|Get commerce history (staff)]]: Staff-only route that lists store events by type.
+- [[Staff-Get-commerce-analytics|Get commerce analytics (staff)]]: Staff-only route that charts store sales.
+- [[Staff-Export-commerce-analytics|Export commerce analytics (staff)]]: Staff-only route that downloads store sales as a file.

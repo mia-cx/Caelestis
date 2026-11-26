@@ -1,0 +1,58 @@
+---
+title: Moderate an asset version (staff)
+description: Staff-only route that removes or restores a published alliance asset.
+tags:
+  - source/bundle
+  - pawtect/flag
+  - staff-only
+operation:
+  protocol: rest
+  method: POST
+  path: /staff/dashboard/alliances/{allianceId}/assets/versions/{versionId}/moderation
+  auth:
+    scheme: staff session
+    description: The `j` cookie of a Wplace staff account.
+  parameters:
+    - name: allianceId
+      in: path
+      required: true
+      type: integer
+      example: 12345
+      description: Alliance id.
+    - name: versionId
+      in: path
+      required: true
+      type: string
+      example: <versionId>
+    - name: j
+      in: cookie
+      required: true
+      type: string
+      example: <session-cookie>
+      description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      softDelete: true
+      reason: <reason>
+  responses:
+    "200":
+      description: OK.
+    "401":
+      description: No session.
+      schema:
+        $ref: Error
+    "403":
+      description: The account is not staff.
+      schema:
+        $ref: Error
+---
+
+**Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+
+Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
+
+Removes or restores a published alliance asset. The body is one action plus a `reason`. The dashboard sends `{ softDelete: true }` to remove it, or `{ state: "visible", restore }` to bring it back, with `restore` true when the version was soft-deleted.
+
+Counts toward the API [[Rate-limits|rate limit]].
+
+Related: [[Error]].

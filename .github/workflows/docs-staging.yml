@@ -1,7 +1,7 @@
 name: Docs staging
 
-# Every push to main deploys main's docs to staging.docs.caelest.is. Production docs deploy with
-# each release (deploy.yml).
+# Every push to main deploys main's docs to staging.docs.caelest.is, and the Wplace modding guide
+# to staging.build.wikiplace.live. Production docs deploy with each release (deploy.yml).
 on:
   push:
     branches:
@@ -49,3 +49,48 @@ jobs:
 
       - name: Deploy docs to staging
         run: pnpm --dir apps/docs exec wrangler deploy --env staging
+
+  wplace:
+    name: Deploy the Wplace modding guide to staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 492214885e7a580ccc1d141dfdb4dc5f
+    steps:
+      # Staging brings main up to date, so a late or re-run deploy ships main's latest commit.
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.23.2
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the guide
+        run: pnpm --dir apps/docs exec svartz build --vault wplace
+
+      # The vault's Worker config targets production. Staging is a second Worker on its own
+      # domain. Its pages keep production's canonical URLs, and every static response carries
+      # noindex, so search engines index only build.wikiplace.live.
+      - name: Write the staging Worker config
+        working-directory: apps/docs/.svartz/vaults/wplace
+        run: |
+          jq '.name = "wplace-docs-staging"
+            | .routes = [{ "pattern": "staging.build.wikiplace.live", "custom_domain": true }]' \
+            wrangler.json > wrangler.staging.json
+          printf '\n/*\n  X-Robots-Tag: noindex\n' >> "$(jq -r .assets.directory wrangler.json)/_headers"
+
+      - name: Deploy the guide to staging
+        run: pnpm --dir apps/docs exec wrangler deploy --config .svartz/vaults/wplace/wrangler.staging.json

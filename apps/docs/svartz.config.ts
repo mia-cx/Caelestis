@@ -14,5 +14,24 @@ export default defineConfig({
         url: 'https://docs.caelest.is',
       },
     },
+    {
+      id: 'wplace',
+      path: 'wplace',
+      target: {
+        type: 'cloudflare-workers',
+        name: 'wplace-docs',
+        account_id: '492214885e7a580ccc1d141dfdb4dc5f',
+        routes: [{ pattern: 'build.wikiplace.live', custom_domain: true }],
+      },
+      theme: {
+        base: ['@svartz/theme-api-docs', '@svartz/theme-docs'],
+        baseUrl: 'https://backend.wplace.live',
+      },
+      site: {
+        title: 'Wplace modding guide',
+        description: 'Unofficial docs for building apps, mods and userscripts for Wplace.',
+        url: 'https://build.wikiplace.live',
+      },
+    },
   ],
 })
