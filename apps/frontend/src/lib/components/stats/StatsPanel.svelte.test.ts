@@ -193,3 +193,26 @@ it('shows current counts for just the templates still inside their windows', asy
     revision: JSON.stringify([null, b.version]),
   })
 })
+
+it('chooses default painters from placements inside each template window', async () => {
+  const cutoff = seconds(start + 5_000)
+  const painter = (wplaceUserId: number, placed: number) => ({
+    wplaceUserId,
+    displayName: `Painter ${wplaceUserId}`,
+    placed,
+    correct: placed,
+    repairs: 0,
+  })
+  client.getPainterTotals.mockImplementation(async (ids: string[], _from: number, to: number) => ({
+    painters:
+      ids.length === 2
+        ? [...[1, 2, 3, 4, 5].map((id) => painter(id, 100)), painter(6, 7)]
+        : ids[0] === 'a' && to === cutoff
+          ? [painter(7, 2)]
+          : [painter(6, 7)],
+  }))
+  render([{ ...live('a'), progressWindow: { start: null, end: cutoff } }, live('b')])
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+  expect(client.getPainterHistory.mock.lastCall?.[1]).toEqual([6, 7])
+})

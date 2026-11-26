@@ -24,6 +24,48 @@ const PAINTERS_REFRESH_SECONDS = 5 * 60
 const fullReadKey = (scope: string, end: number): string =>
   `${scope}:${Math.floor(end / FULL_READ_SECONDS)}`
 
+const readPacePainters = async (
+  templates: StatsScope['templates'],
+  from: number,
+  to: number,
+): Promise<readonly PainterTotal[]> => {
+  const ranges = new Map<string, { ids: string[]; start: number; end: number }>()
+  for (const { id, progressWindow } of templates) {
+    const start = Math.max(from, progressWindow?.start ?? from)
+    const end = Math.min(to, progressWindow?.end ?? to)
+    if (start >= end) continue
+    const key = `${start}:${end}`
+    const range = ranges.get(key)
+    if (range === undefined) ranges.set(key, { ids: [id], start, end })
+    else range.ids.push(id)
+  }
+  const groups = await Promise.all(
+    [...ranges.values()].map(({ ids, start, end }) =>
+      getPainterTotals(ids, start, end, { limit: MAX_PAINTER_OPTIONS }),
+    ),
+  )
+  const totals = new Map<number, PainterTotal>()
+  for (const { painters } of groups) {
+    for (const painter of painters) {
+      const held = totals.get(painter.wplaceUserId)
+      totals.set(
+        painter.wplaceUserId,
+        held === undefined
+          ? painter
+          : {
+              ...held,
+              placed: held.placed + painter.placed,
+              correct: held.correct + painter.correct,
+              repairs: held.repairs + painter.repairs,
+            },
+      )
+    }
+  }
+  return [...totals.values()]
+    .sort((a, b) => b.correct - a.correct || b.placed - a.placed || a.wplaceUserId - b.wplaceUserId)
+    .slice(0, MAX_PAINTER_OPTIONS)
+}
+
 /** Placement history for a scope: the template buckets, who painted, and the chosen painters' lines. */
 export class ActivityReads {
   buckets = $state<readonly HistoryBucket[] | null>(null)
@@ -65,9 +107,8 @@ export class ActivityReads {
     let painterScope: string | undefined
     const paintersTick = $derived(Math.floor(scope.clock.now / PAINTERS_REFRESH_SECONDS))
     $effect(() => {
-      const ids = scope.templateIds
-      if (ids.length === 0) return
-      const { from, key } = scope
+      const { templates, from, key } = scope
+      if (templates.length === 0) return
       void paintersTick
       let cancelled = false
       if (painterScope !== key) {
@@ -76,11 +117,9 @@ export class ActivityReads {
         this.painterHistories = []
         selection.resetPainters()
       }
-      getPainterTotals(ids, from, untrack(() => scope.clock.now) + 1, {
-        limit: MAX_PAINTER_OPTIONS,
-      })
-        .then((response) => {
-          if (!cancelled) this.painters = response.painters
+      readPacePainters(templates, from, untrack(() => scope.clock.now) + 1)
+        .then((painters) => {
+          if (!cancelled) this.painters = painters
         })
         // A server without painter buckets still draws the template lines.
         .catch(() => {})
