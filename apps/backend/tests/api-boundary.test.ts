@@ -483,7 +483,7 @@ describe('backend API trust boundary', () => {
     await paint(4, [[id, 120, 100]])
     const response = await request(
       backend,
-      `/telemetry/painters?templateIds=${id},${other}&from=0&to=180&limit=1&windows=${id}::60`,
+      `/telemetry/painters?templateIds=${id},${other}&from=0&to=180&limit=1&windows=:60:0`,
       'GET',
       adminToken,
     )
@@ -508,7 +508,7 @@ describe('backend API trust boundary', () => {
       `/telemetry/painter-history?templateIds=${id}&from=1&to=2&painters=bad`,
       `/telemetry/painters?templateIds=${id}&from=1&to=2&limit=0`,
       `/telemetry/painters?templateIds=${id}&from=1&to=2&limit=abc`,
-      `/telemetry/painters?templateIds=${id}&from=1&to=2&windows=${id}:3:2`,
+      `/telemetry/painters?templateIds=${id}&from=1&to=2&windows=3:2:0`,
       `/telemetry/contributions?templateIds=${id}&from=2&to=1`,
       '/telemetry/leaderboard?limit=0',
       '/telemetry/leaderboard?limit=1.5',

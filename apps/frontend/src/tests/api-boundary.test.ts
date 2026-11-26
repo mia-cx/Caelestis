@@ -209,6 +209,25 @@ const seedArchive = async (backend: Awaited<ReturnType<typeof createTestBackend>
 }
 
 describe('frontend API client against the built backend', () => {
+  it('reads painter totals for a large folder sharing one progress window', async () => {
+    const ids = Array.from(
+      { length: 160 },
+      (_, index) => `01890f3e-7b2c-7abc-8def-${String(index).padStart(12, '0')}`,
+    )
+    const start = seconds(range.from)
+    const end = seconds(range.to)
+    const backend = await createTestBackend({ openAccess: true })
+    const read = frontendFetch(backend.app)
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) =>
+      new TextEncoder().encode(url).length >= 16_384
+        ? new Response(null, { status: 414 })
+        : read(url, init),
+    )
+    await expect(
+      getPainterTotals(ids, start, end, { windows: ids.map((id) => ({ id, start, end })) }),
+    ).resolves.toEqual({ painters: [] })
+  })
+
   it('reads current public branding and serves exact versioned image bytes without credentials', async () => {
     const backend = await createTestBackend({ openAccess: true })
     const updated = await backend.app.fetch(

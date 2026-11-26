@@ -265,9 +265,17 @@ export const getPainterTotals = (
     readonly windows?: readonly (ProgressWindow & { readonly id: string })[]
   } = {},
 ): Promise<PainterTotalsResponse> => {
-  const windows = (options.windows ?? [])
-    .filter(({ start, end }) => start !== null || end !== null)
-    .map(({ id, start, end }) => `${id}:${start ?? ''}:${end ?? ''}`)
+  const indices = new Map(templateIds.map((id, index) => [id, index]))
+  const groups = new Map<string, number[]>()
+  for (const { id, start, end } of options.windows ?? []) {
+    const index = indices.get(id)
+    if (index === undefined || (start === null && end === null)) continue
+    const key = `${start ?? ''}:${end ?? ''}`
+    const group = groups.get(key)
+    if (group === undefined) groups.set(key, [index])
+    else group.push(index)
+  }
+  const windows = [...groups].map(([key, group]) => `${key}:${group.join('.')}`)
   return json(
     `/telemetry/painters?templateIds=${templateIds.map(encodeURIComponent).join(',')}` +
       `&from=${from}&to=${to}` +
