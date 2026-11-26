@@ -82,13 +82,15 @@ jobs:
         run: pnpm --dir apps/docs exec svartz build --vault wplace
 
       # The vault's Worker config targets production. Staging is a second Worker on its own
-      # domain. Its pages keep production's canonical URLs, so search engines credit build.wikiplace.live.
+      # domain. Its pages keep production's canonical URLs, and every static response carries
+      # noindex, so search engines index only build.wikiplace.live.
       - name: Write the staging Worker config
         working-directory: apps/docs/.svartz/vaults/wplace
         run: |
           jq '.name = "wplace-docs-staging"
             | .routes = [{ "pattern": "staging.build.wikiplace.live", "custom_domain": true }]' \
             wrangler.json > wrangler.staging.json
+          printf '\n/*\n  X-Robots-Tag: noindex\n' >> "$(jq -r .assets.directory wrangler.json)/_headers"
 
       - name: Deploy the guide to staging
         run: pnpm --dir apps/docs exec wrangler deploy --config .svartz/vaults/wplace/wrangler.staging.json

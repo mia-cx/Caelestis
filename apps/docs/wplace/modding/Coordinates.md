@@ -12,9 +12,12 @@ The canvas is a Web Mercator map at zoom 11: 2048 × 2048 tiles of 1000 × 1000 
 
 ```ts
 const WORLD_PIXELS = 2048 * 1000
-const lat = (latitude * Math.PI) / 180
-const px = ((longitude + 180) / 360) * WORLD_PIXELS
-const py = ((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * WORLD_PIXELS
+const MAX_LATITUDE = 85.05112877980659 // the canvas's top and bottom edge
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
+
+const lat = (clamp(latitude, -MAX_LATITUDE, MAX_LATITUDE) * Math.PI) / 180
+const px = ((((longitude + 180) / 360) % 1) + 1) % 1 * WORLD_PIXELS // 180° wraps to -180°
+const py = clamp(((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * WORLD_PIXELS, 0, WORLD_PIXELS - 1)
 
 const tileX = Math.floor(px / 1000), x = Math.floor(px) % 1000
 const tileY = Math.floor(py / 1000), y = Math.floor(py) % 1000

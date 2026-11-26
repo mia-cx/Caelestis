@@ -11,7 +11,7 @@ Every hook note starts with a **Pawtect:** line and carries one of three tags:
 
 - `pawtect/flag`: using the hook the wrong way can set a flag, or put a bad value in the token.
 - `pawtect/visible`: the hook shows up in tokens, but sets no flag.
-- `pawtect/none`: Pawtect does not see the hook.
+- `pawtect/none`: the current client's Pawtect code does not read the hook. That says nothing about what Wplace's server infers from your requests.
 
 ## What Pawtect checks
 
