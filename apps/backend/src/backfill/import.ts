@@ -436,6 +436,7 @@ export class TemplateBackfill implements BackfillImporter {
 
   async history(versionId: string, tile?: TileCoord): Promise<ArchiveHistory> {
     const basis = (await this.storage.get<BackfillBasis>(`basis:${versionId}`)) ?? null
+    if (basis === null) return { source: 'eralyon', basis: null, samples: [], frames: [] }
     const firstLive = await this.sql.readFirstTemplateObservation(versionId)
     const samples =
       tile === undefined

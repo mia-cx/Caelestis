@@ -36,6 +36,7 @@ import {
   foldTileFrames,
   foldTileReporterRows,
   TILE_HISTORY_DECAY_EDGES,
+  TILE_HISTORY_RESOLUTIONS,
   type TileHistoryReporterRow,
 } from './ladder.js'
 import {
@@ -184,12 +185,18 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
     resolution: number,
     lifetime?: { readonly fromSeconds: Seconds; readonly toSeconds: Seconds },
   ): Promise<readonly MeasuredTileFrame[]> {
+    // Explicit resolution list lets SQLite/D1 seek `bucket_start_s` directly on the primary key
+    // `(season, tile_x, tile_y, resolution_s, bucket_start_s)` instead of scanning every tier.
+    const resolutions = TILE_HISTORY_RESOLUTIONS.filter((tier) => tier <= resolution)
+    const lower = Math.max(from, lifetime?.fromSeconds ?? from)
+    const lifetimeTo = lifetime?.toSeconds ?? Number.MAX_SAFE_INTEGER
+    const upper = Math.min(to, lifetimeTo)
+    if (resolutions.length === 0 || lower >= upper) return []
     const result = await this.client
       .prepare(`
-      WITH ${bucketWinners(`AND history.resolution_s <= ?4
+      WITH ${bucketWinners(`AND history.resolution_s IN (${resolutions.join(', ')})
         AND history.bucket_start_s >= ?2 AND history.bucket_start_s < ?3
-        AND history.bucket_start_s >= ?5 AND history.bucket_start_s < ?6
-        AND history.bucket_start_s + history.resolution_s <= ?6`)}, frames AS (
+        AND history.bucket_start_s + history.resolution_s <= ?5`)}, frames AS (
         SELECT *, CASE WHEN ?4 = 0 THEN bucket_start_s
           ELSE CAST(bucket_start_s / ?4 AS BIGINT) * ?4 END AS target_start
         FROM winners
@@ -197,7 +204,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY tile_x, tile_y, target_start
           ORDER BY bucket_start_s DESC, resolution_s ASC
-        ) AS frame_rank FROM frames WHERE target_start >= ?2
+        ) AS frame_rank FROM frames WHERE target_start >= ?6
       )
       SELECT frame.tile_x AS "tileX", frame.tile_y AS "tileY", frame.target_start AS "bucketStart",
         frame.sha256 AS hash, measurement.correct, measurement.wrong
@@ -206,14 +213,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
         AND measurement.tile_y = frame.tile_y AND measurement.sha256 = frame.sha256
       WHERE frame.frame_rank = 1 ORDER BY frame.target_start, frame.tile_x, frame.tile_y
     `)
-      .bind(
-        versionId,
-        from,
-        to,
-        resolution,
-        lifetime?.fromSeconds ?? from,
-        lifetime?.toSeconds ?? Number.MAX_SAFE_INTEGER,
-      )
+      .bind(versionId, lower, upper, resolution, lifetimeTo, from)
       .all<MeasuredTileFrame>()
     return result.results
   }
@@ -222,10 +222,48 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
     versionId: string,
     at: Seconds,
   ): Promise<readonly MeasuredTileFrame[]> {
+    // Seek the single latest bucket per (tile, resolution) via the primary key instead of grouping
+    // every historical observation before `at`.
+    const resolutionRows = TILE_HISTORY_RESOLUTIONS.map(
+      (tier) => `SELECT ${tier} AS resolution_s`,
+    ).join(' UNION ALL ')
     const result = await this.client
       .prepare(`
-      WITH ${bucketWinners(`AND history.bucket_start_s < ?2
-        AND history.bucket_start_s + history.resolution_s <= ?2`)}, latest AS (
+      WITH latest_buckets AS (
+        SELECT chunk.tile_x, chunk.tile_y, template.season, r.resolution_s,
+          (SELECT MAX(h.bucket_start_s)
+           FROM tile_history AS h
+           WHERE h.season = template.season
+             AND h.tile_x = chunk.tile_x
+             AND h.tile_y = chunk.tile_y
+             AND h.resolution_s = r.resolution_s
+             AND h.bucket_start_s < ?2
+             AND h.bucket_start_s <= ?2 - r.resolution_s) AS bucket_start_s
+        FROM version_tiles AS chunk
+        INNER JOIN template_versions AS version ON version.id = chunk.version_id
+        INNER JOIN templates AS template ON template.id = version.template_id
+        CROSS JOIN (${resolutionRows}) AS r
+        WHERE chunk.version_id = ?1
+      ), votes AS (
+        SELECT lb.tile_x, lb.tile_y, lb.resolution_s, lb.bucket_start_s,
+          history.sha256, COUNT(DISTINCT history.reported_by_user_id) AS reporters
+        FROM latest_buckets AS lb
+        INNER JOIN tile_history AS history
+          ON history.season = lb.season
+          AND history.tile_x = lb.tile_x
+          AND history.tile_y = lb.tile_y
+          AND history.resolution_s = lb.resolution_s
+          AND history.bucket_start_s = lb.bucket_start_s
+        WHERE lb.bucket_start_s IS NOT NULL
+        GROUP BY lb.tile_x, lb.tile_y, lb.resolution_s, lb.bucket_start_s, history.sha256
+      ), ranked AS (
+        SELECT *, ROW_NUMBER() OVER (
+          PARTITION BY tile_x, tile_y, resolution_s, bucket_start_s
+          ORDER BY reporters DESC, sha256 ASC
+        ) AS vote_rank FROM votes
+      ), winners AS (
+        SELECT * FROM ranked WHERE vote_rank = 1
+      ), latest AS (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY tile_x, tile_y ORDER BY bucket_start_s DESC, resolution_s ASC
         ) AS frame_rank FROM winners

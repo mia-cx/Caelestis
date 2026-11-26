@@ -9,6 +9,7 @@ import {
 import { Effect } from 'effect'
 import type { BlobStore } from '../ports/index.js'
 import { BlobStoreService, SqlStoreService } from '../runtime/backend-runtime.js'
+import { BoundedCache, memoize } from '../runtime/bounded-cache.js'
 import { NotFoundError, StorageError, storage } from '../runtime/errors.js'
 import type { TemplateVersionRecord } from '../templates/store.js'
 import type { TileBlobStore } from './blobs/store.js'
@@ -32,6 +33,62 @@ const readHistoricalTileMeasurement = async (
 
 /** Unmeasured frames classified at once: each holds a decoded 1000×1000 canvas while it runs. */
 const CLASSIFY_CONCURRENCY = 8
+
+/** Matches the dashboard's 5-minute refresh cadence so repeated folder/template reads share one query. */
+const PROGRESS_CACHE_TTL_MS = 5 * 60 * 1_000
+const PROGRESS_CACHE_MAX_ENTRIES = 512
+const PROGRESS_CACHE_MAX_BYTES = 16 * 1024 * 1024
+const SAMPLE_ESTIMATED_BYTES = 96
+const MIN_RESPONSE_BYTES = 128
+
+type ProgressHistoryResult = TemplateProgressHistoryResponse | ProgressHistoryResponse
+
+/** Keyed by store instance so separate runtimes and tests never share cached history. */
+const progressCaches = new WeakMap<object, BoundedCache<Promise<ProgressHistoryResult>>>()
+
+const progressCacheFor = (sql: object): BoundedCache<Promise<ProgressHistoryResult>> => {
+  let cache = progressCaches.get(sql)
+  if (cache === undefined) {
+    cache = new BoundedCache({
+      maxEntries: PROGRESS_CACHE_MAX_ENTRIES,
+      maxBytes: PROGRESS_CACHE_MAX_BYTES,
+      ttlMs: PROGRESS_CACHE_TTL_MS,
+    })
+    progressCaches.set(sql, cache)
+  }
+  return cache
+}
+
+const progressResponseBytes = (response: ProgressHistoryResult): number =>
+  Math.max(MIN_RESPONSE_BYTES, response.samples.length * SAMPLE_ESTIMATED_BYTES)
+
+const cachedProgressHistory = <T extends ProgressHistoryResult>(
+  key: string,
+  load: () => Effect.Effect<T, StorageError, SqlStoreService | BlobStoreService>,
+): Effect.Effect<T, StorageError, SqlStoreService | BlobStoreService> =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const blobs = yield* BlobStoreService
+    return (yield* Effect.tryPromise({
+      try: () =>
+        memoize(
+          progressCacheFor(sql),
+          key,
+          () =>
+            Effect.runPromise(
+              load().pipe(
+                Effect.provideService(SqlStoreService, sql),
+                Effect.provideService(BlobStoreService, blobs),
+              ),
+            ),
+          progressResponseBytes,
+        ),
+      catch: (cause) =>
+        cause instanceof StorageError
+          ? cause
+          : new StorageError({ operation: 'readProgressHistory', cause }),
+    })) as T
+  })
 
 /** Replay retained canvas images, caching missing classifications against their historical artwork. */
 export const readProgressHistory = (
@@ -218,9 +275,14 @@ export const readVisibleProgressHistory = (
     const template = yield* storage('readTemplate', () => sql.readTemplate(templateId))
     if (template === null || (!includeUnpublished && !template.published))
       return yield* Effect.fail(new NotFoundError({ message: 'Template not found.' }))
-    if (versionId === undefined) return yield* readTemplateProgressHistory(templateId, range)
+    const resolution = selectTileHistoryResolution(range)
+    if (versionId === undefined) {
+      const key = `t:${templateId}:${template.currentVersionId ?? ''}:${range.fromSeconds}:${range.toSeconds}:${resolution}`
+      return yield* cachedProgressHistory(key, () => readTemplateProgressHistory(templateId, range))
+    }
     const version = yield* storage('readTemplateVersion', () => sql.readTemplateVersion(versionId))
     if (version?.templateId !== templateId)
       return yield* Effect.fail(new NotFoundError({ message: 'Template version not found.' }))
-    return yield* readProgressHistory(version, range)
+    const key = `v:${templateId}:${versionId}:${range.fromSeconds}:${range.toSeconds}:${resolution}`
+    return yield* cachedProgressHistory(key, () => readProgressHistory(version, range, resolution))
   })

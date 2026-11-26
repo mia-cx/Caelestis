@@ -183,7 +183,11 @@ export const createTelemetryReadRoutes = (
       c,
       runtime,
       readVisibleProgressHistory(id, versionId, range, includeUnpublished(c)),
-      (response) => c.json(response),
+      (response) =>
+        c.json(response, 200, {
+          'cache-control': 'private, max-age=300',
+          vary: 'Authorization',
+        }),
     )
   })
 
