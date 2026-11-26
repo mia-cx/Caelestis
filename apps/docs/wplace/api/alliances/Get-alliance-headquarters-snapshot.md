@@ -58,7 +58,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** not called live.
 
-List the tiles you already hold in `knownTiles`, and the answer carries only what changed. `GET` on this path answers `404`. The signed-in editor posts the same body to `/alliance/headquarters/snapshot` with credentials; this public form sends none (rechecked in the API module, chunk `BcgqpPa1.js`, on 26 November 2026).
+List the tiles you already hold in `knownTiles`, and the answer carries only what changed. `GET` on this path answers `404`. The signed-in editor posts the same body to [[Get-own-headquarters-snapshot|`/alliance/headquarters/snapshot`]] with credentials; this public form sends none (rechecked in the API module, chunk `BcgqpPa1.js`, on 26 November 2026).
 
 The answer is little-endian binary. Layout from Caelestis's research on 30 August 2026, not rechecked:
 

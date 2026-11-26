@@ -13,7 +13,7 @@ symbol:
 
 **Pawtect:** none. The stream is not a `fetch`, so Pawtect's URL log does not see it, and no token covers it.
 
-Wplace's client opens no WebSocket. It has two server-sent event streams, both for signed-in players: [`/notification/stream`](api/notifications/Notification-stream) for the notification inbox, and `/support/stream` for support tickets. Pixel changes do not stream: the page learns about them by reloading tiles ([Watching tiles](Watching-tiles)).
+Wplace's client opens no WebSocket. It has two server-sent event streams, both for signed-in players: [`/notification/stream`](api/notifications/Notification-stream) for the notification inbox, and [`/support/stream`](api/support/Support-stream) for support tickets. Pixel changes do not stream: the page learns about them by reloading tiles ([Watching tiles](Watching-tiles)).
 
 The page opens the stream with `EventSource` and the player's cookies. It reconnects with exponential backoff, from 2 seconds up to about a minute. When an event names changed ids, it fetches those notifications from the API. It also re-checks every 25–35 seconds, and when the tab becomes visible again.
 

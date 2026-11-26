@@ -43,7 +43,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-Seen product ids: `100` buys the colour whose palette index is `variant`, and `110` buys the flag whose id is `variant`. The iOS app sends `{ productId, appAccountToken }` instead.
+Seen product ids: `100` buys the colour whose palette index is `variant`, and `110` buys the flag whose id is `variant`. The iOS app buys droplets through StoreKit instead and credits them with [[Verify-app-store-purchase]].
 
 Counts toward the API [[Rate-limits|rate limit]].
 

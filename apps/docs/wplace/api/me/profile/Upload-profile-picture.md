@@ -2,8 +2,8 @@
 title: Upload a profile picture
 description: Upload a new profile picture for the signed-in player.
 tags:
-  - source/community
-  - pawtect/flag
+  - source/client
+  - pawtect/none
 operation:
   protocol: rest
   method: POST
@@ -31,11 +31,11 @@ operation:
         $ref: Error
 ---
 
-**Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+**Pawtect:** No token and no flag: the client sends this with a plain `fetch`, outside its API client. Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
-Best guess: not called by the client; seen in community API notes (j0code/wplace-api). Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
+Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-The current client makes pictures on a pixel editor page at `/profile-picture`. **Unverified:** whether this upload route still exists, and its fields.
+The pixel editor page at `/profile-picture` sends the finished picture as a PNG in the multipart field `image`. It treats any status other than 200 as a failure.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

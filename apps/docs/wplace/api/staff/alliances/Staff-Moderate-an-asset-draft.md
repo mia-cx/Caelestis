@@ -30,6 +30,10 @@ operation:
       type: string
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      remove: true
+      reason: <reason>
   responses:
     "200":
       description: OK.
@@ -47,7 +51,7 @@ operation:
 
 Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
 
-Removes or restores an alliance asset draft.
+Removes or restores an alliance asset draft. The body is one action plus a `reason`. The dashboard sends `{ remove: true }` or `{ restore: true }`.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

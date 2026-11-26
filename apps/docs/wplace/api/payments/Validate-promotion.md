@@ -19,7 +19,10 @@ operation:
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
   requestBody:
-    example: {}
+    example:
+      couponCode: <coupon code>
+      lookupKey: <product lookup key>
+      provider: <payment provider>
   responses:
     "200":
       description: The discount.
@@ -33,7 +36,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-**Unverified:** the body fields.
+Checkout sends `couponCode`, `lookupKey` and `provider`. The droplet store sends only `couponCode`, and reads `productIds` back to see which packs it applies to. The client reads `valid` and `supersededBySale`. **Unverified:** the other response fields.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

@@ -19,6 +19,15 @@ operation:
       type: string
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      userIds: [1000001]
+      imageBase64: <base64 screenshot>
+      latitude: 0
+      longitude: 0
+      zoom: 0
+      reason: <reason>
+      notes: <notes>
   responses:
     "200":
       description: OK.
@@ -36,7 +45,7 @@ operation:
 
 Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
 
-Bans a player from Wplace.
+Bans a player from Wplace. The dashboard's summary page sends this through its shared punishment request, with a screenshot, a map position and the reason. The API module also has an older method for this route that sends only `userIds`, `reason` and `notes`, but nothing calls it.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

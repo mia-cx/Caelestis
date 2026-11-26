@@ -26,7 +26,7 @@ Every hook note starts with a **Pawtect:** line and carries one of three tags:
 | Tampered profile limits | A `/me` profile claiming unlimited favourite locations |
 | Automation globals | A global on `window` or `document` with a name automation tools use |
 | Multi-account records | `ui_layout_v3`, `nav.cursor` and `_pf_uid`. Clearing them can look like dodging the check. |
-| URL log | Every absolute URL fetched through `window.fetch` after Pawtect loads, up to 64, goes into the next token |
+| URL log | Every URL fetched through `window.fetch` after Pawtect loads that does not start with `/`, up to 64, goes into the next token |
 
 The flags stay set until the page reloads.
 
@@ -40,7 +40,7 @@ The flags stay set until the page reloads.
 | [Finding the map](Finding-the-map) | none | A short-lived `Object.prototype` setter |
 | [Map sources and layers](Map-sources-and-layers) | none | Styles are not checked |
 | [WplaceState](Wplace-state) | flag | `automatedClicks` and `captcha` are anti-cheat state. Never write them. |
-| [fetch](Page-fetch) | visible | URLs are logged. Patching `json` or `text` on API responses sets Tampered response. |
+| [fetch](Page-fetch) | flag | URLs are logged. Patching `json` or `text` on API responses sets Tampered response. |
 | [Watching tiles](Watching-tiles) | none | Tile responses are not checked for tampering |
 | [getContext](WebGL-context) | none | The map's context is not inspected |
 | [CanvasRenderingContext2D](Draft-canvases) | none | Canvas writes are not watched |

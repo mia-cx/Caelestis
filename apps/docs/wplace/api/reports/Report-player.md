@@ -23,7 +23,7 @@ operation:
       required: true
       type: string
       example: <pawtect-token>
-      description: Built by the client for this exact request body. See [[Anti-cheat]].
+      description: Built by the client over an empty body, not the form. See [[Anti-cheat]].
   requestBody:
     contentType: multipart/form-data
     example:
@@ -51,7 +51,7 @@ operation:
         $ref: Error
 ---
 
-**Pawtect:** This request requires an `x-pawtect-token` header, which the client builds for it; see [[Anti-cheat]]. The client reads the response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+**Pawtect:** This request requires an `x-pawtect-token` header, which the client builds for it; see [[Anti-cheat]]. The client sends it with a plain `fetch`, outside its API client, so its response sets no flag. Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 

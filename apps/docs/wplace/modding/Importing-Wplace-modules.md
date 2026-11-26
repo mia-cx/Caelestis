@@ -20,7 +20,7 @@ File names are content hashes. They change whenever the code inside changes, so 
 ## Finding a module by its source
 
 1. List the modules the page knows about: `link[rel="modulepreload"]` elements (about 100 on the home page), and `performance.getEntriesByType('resource')` for those loaded since.
-2. Fetch each one's source with `cache: 'force-cache'`, so it comes from the browser's cache.
+2. Fetch each one's source with `cache: 'force-cache'`. That reuses the browser's cached copy when there is one; a module the page never loaded still costs a network request.
 3. Follow the relative imports in each source, `"./X.js"` and `"../chunks/X.js"`.
 4. Pick the module whose source contains a string unique to it: a message, an error text, a storage key.
 5. `import()` the same URL. The browser returns the instance Wplace already uses.

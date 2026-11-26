@@ -24,9 +24,15 @@ operation:
       type: string
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      employeeUserId: 1000001
   responses:
-    "200":
-      description: OK.
+    "204":
+      description: Added. The client expects no body.
+      empty: true
+    "404":
+      description: No such player.
     "401":
       description: No session.
       schema:

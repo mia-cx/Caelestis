@@ -27,7 +27,10 @@ operation:
   requestBody:
     example:
       batchId: <uuid>
-      pixels: []
+      pixels:
+        - x: -12
+          y: 40
+          color: 5
   responses:
     "200":
       description: Painted.
@@ -47,7 +50,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-Like [[Paint-pixels]], this carries a Pawtect token, and a mod must not send it itself. Headquarters use their own charges. **Unverified:** the shape of `pixels`.
+Like [[Paint-pixels]], this carries a Pawtect token, and a mod must not send it itself. Headquarters use their own charges. Each pixel is `{ x, y, color }` in the headquarters' signed coordinates, with `color` a colour id.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

@@ -1,6 +1,6 @@
 ---
-title: Watch live anti-cheat (staff)
-description: Staff-only route that streams anti-cheat signals as they arrive.
+title: Get current anti-cheat signals (staff)
+description: Staff-only route that returns a JSON snapshot of the players anti-cheat is currently flagging.
 tags:
   - source/bundle
   - pawtect/flag
@@ -36,7 +36,7 @@ operation:
 
 Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
 
-Streams anti-cheat signals as they arrive.
+Returns one JSON snapshot of the players anti-cheat is currently flagging, as a `users` list. It is a plain request, not a stream: the dashboard's live view fetches it again when it refreshes.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

@@ -8,7 +8,7 @@ These routes serve Wplace's staff dashboard, which ships inside the public clien
 - [[Staff-Search-players|Search players (staff)]]: Staff-only route that searches player accounts by name or id.
 - [[Staff-Get-a-player-account|Get a player's account (staff)]]: Staff-only route that shows one player's full account record.
 - [[Staff-Get-several-accounts|Get several accounts (staff)]]: Staff-only route that shows several players' account records at once.
-- [[Staff-Edit-a-player-account|Edit a player's account (staff)]]: Staff-only route that edits fields on one player's account.
+- [[Staff-Edit-a-player-account|Change a player's cosmetics (staff)]]: Staff-only route that grants, removes or refunds one player's badges and cosmetics.
 - [[Staff-Sign-a-player-out|Sign a player out (staff)]]: Staff-only route that ends every session of one player.
 - [[Staff-Get-a-player-anti-cheat-record|Get a player's anti-cheat record (staff)]]: Staff-only route that shows one player's anti-cheat signals and score.
 - [[Staff-List-a-player-appeals|List a player's appeals (staff)]]: Staff-only route that lists the ban appeals one player sent.
@@ -33,6 +33,7 @@ These routes serve Wplace's staff dashboard, which ships inside the public clien
 - [[Staff-Adjust-droplets|Adjust droplets (staff)]]: Staff-only route that adds or removes droplets on an account.
 - [[Staff-Adjust-prism|Adjust prism (staff)]]: Staff-only route that adds or removes prism on an account.
 - [[Staff-Get-player-notes|Get player notes (staff)]]: Staff-only route that shows staff notes on one player.
+- [[Staff-Add-a-player-note|Add a player note (staff)]]: Staff-only route that adds a staff note to one player from the staff dashboard.
 - [[Staff-Ban-a-player|Ban a player (staff)]]: Staff-only route that bans a player from Wplace.
 - [[Staff-Unban-a-player|Unban a player (staff)]]: Staff-only route that lifts a Wplace ban.
 - [[Staff-Time-out-a-player|Time out a player (staff)]]: Staff-only route that stops a player painting for a while.

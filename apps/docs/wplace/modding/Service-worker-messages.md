@@ -20,10 +20,11 @@ symbol:
 
 wplace.live registers a service worker at `https://wplace.live/service-worker.js`, scoped to the whole site. It answers the page's tile requests ([Watching tiles](Watching-tiles)):
 
-- It caches tiles, and answers from the cache when the network fails.
+- With no draft and no recent paint, it passes tile requests straight to the network.
+- While a tab has a draft, it keeps that tab's tiles in memory, never in Cache Storage. It serves a copy younger than the refresh interval, and falls back to its copy or a blank tile when the network fails.
 - It draws the tab's draft pixels into each tile it returns, per tab.
 - It keeps recently painted pixels in its tiles until the server's tiles show them.
-- It turns a `404` tile into a transparent PNG.
+- It turns a `404` tile into a transparent PNG: 1 × 1 when it passes the request through, full tile size while it draws.
 - It skips non-`GET` requests and requests with `Accept: text/event-stream`.
 
 Drawing drafts in is costly. From Caelestis's research on 24 September 2026, the worker keeps up to 64 decoded tiles, and decodes, draws into and re-encodes every tile it serves while a draft exists, including tiles with no drafts on them. One re-encoded tile was 1.59 MB, against 218 KB from the server ([How Wplace renders the map](Map-rendering)).

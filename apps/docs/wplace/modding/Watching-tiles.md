@@ -18,7 +18,7 @@ The season is `0` on 26 November 2026. [Get tile](api/pixels/Get-tile) documents
 ## The path of a tile
 
 1. MapLibre asks for the tile with `fetch`, from the `pixel-art-layer` raster source ([Map sources and layers](Map-sources-and-layers)).
-2. Wplace's service worker answers first. It serves cached copies, draws the player's unsent draft pixels into the image, and turns a `404` into a transparent PNG ([ServiceWorkerMessage](Service-worker-messages)).
+2. Wplace's service worker answers first. Without a draft it passes the request through and turns a `404` into a transparent PNG. While the player has a draft, it serves its own in-memory copies and draws the unsent draft pixels into the image ([ServiceWorkerMessage](Service-worker-messages)).
 3. MapLibre reads the body with `arrayBuffer()`, builds a `Blob`, and decodes it with `createImageBitmap`.
 4. MapLibre uploads the bitmap with `texImage2D`, or refreshes a pooled texture with `texSubImage2D` ([getContext](WebGL-context)).
 
@@ -76,7 +76,7 @@ Caelestis needs to know exactly which texture holds which tile, so it tags each 
 - It shadows `arrayBuffer` and `blob` on tile responses with own properties, and tags the buffer they return ([`tile-attribution.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/tile-attribution.ts)).
 - It wraps the `Blob` constructor to carry the tag to the new `Blob`, and `createImageBitmap` to carry it to the bitmap.
 - It watches `texImage2D` and `texSubImage2D` to carry it to the texture ([`gl-observer.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/gl-observer.ts)).
-- It also wraps `map.refreshTiles` to reload only tiles whose `ETag` or `Last-Modified` changed, checked with `HEAD` requests ([`wplace-tile-refresh.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/wplace-tile-refresh.ts)). It reads the visible tiles from MapLibre's private `style.tileManagers['pixel-art-layer']._inViewTiles`.
+- It also wraps `map.refreshTiles` to reload only tiles whose `Last-Modified` or `Content-Length` changed, checked with `HEAD` requests ([`wplace-tile-refresh.ts`](https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/wplace-tile-refresh.ts)). It reads the visible tiles from MapLibre's private `style.tileManagers['pixel-art-layer']._inViewTiles`.
 
 None of these touch `json` or `text`, so none sets Tampered response.
 

@@ -50,7 +50,7 @@ operation:
       schema:
         $ref: Error
     "403":
-      description: "Refused: `timeout` (with `durationMs`), `refresh`, `color-not-owned`, `company-paint-outside-allowed-area`, `event-pixel-present` (an event pixel is in the way), not enough `charges`, `challenge-required`, or a Cloudflare challenge."
+      description: "Refused: `timeout` (with `durationMs`), `refresh`, `color-not-owned`, `company-paint-outside-allowed-area`, `event-pixel-present` (an event pixel is in the way), `pixel-protected` (with a `messageKey`), not enough `charges`, `challenge-required`, or a Cloudflare challenge."
       schema:
         $ref: Error
 ---

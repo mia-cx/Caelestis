@@ -19,6 +19,9 @@ operation:
       type: string
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      punishmentId: <punishmentId>
   responses:
     "200":
       description: OK.

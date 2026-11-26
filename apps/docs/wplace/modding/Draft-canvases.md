@@ -37,7 +37,7 @@ Caelestis wraps these methods on `CanvasRenderingContext2D.prototype` and `Offsc
 
 - `putImageData`: a draft write. The `ImageData` and destination give the exact pixels.
 - `clearRect` with an identity transform: erased draft pixels.
-- `drawImage`, `fillRect`, `fill`, `stroke`, `fillText`, `reset`, `clip`, and setting `width` or `height`: the canvas changed in a way that needs a full re-read.
+- `drawImage`, `fillRect`, `strokeRect`, `fill`, `stroke`, `fillText`, `strokeText`, `reset`, `clip`, and setting `width` or `height`: the canvas changed in a way that needs a full re-read.
 
 Each wrapper calls the native method first and returns its result. Install them at document start on the page's prototypes.
 

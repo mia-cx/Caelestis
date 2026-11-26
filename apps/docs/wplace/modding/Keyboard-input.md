@@ -18,6 +18,8 @@ Wplace has rebindable controls. The defaults found in the client on 26 November 
 | `zoom-in` | `=`, `+` | |
 | `zoom-out` | `-`, `_` | |
 | `fit` | `0` | Studio and headquarters editors |
+| `map.rotate-left`, `map.rotate-right` | `Shift+ArrowLeft`, `Shift+ArrowRight` | World map. Turns the bearing 15° each press. |
+| `map.reset-rotation` | `N` | World map. Turns north back up. |
 
 `Mod` is Ctrl, or ⌘ on Apple devices. There are more tool controls than this table lists. A player's own bindings are kept in `localStorage['wplace:controls:v1']` as `{ userId, dirty, bindings }`, synced to their account ([Get control bindings](api/me/Get-control-bindings)), and re-read on the `storage` event ([Storage keys](Storage-keys)).
 

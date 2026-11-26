@@ -22,6 +22,11 @@ operation:
       type: integer
       example: 75
       description: Limit to one country.
+    - name: region
+      in: query
+      type: integer
+      example: 12345
+      description: Limit to one region of that country. Needs `country`.
   responses:
     "200":
       description: Up to 50 players.
@@ -30,7 +35,7 @@ operation:
         items:
           $ref: Player-leaderboard-entry
     "400":
-      description: Unknown period, or a `region` filter.
+      description: Unknown period, or `region` without `country` (`invalid_region`).
       schema:
         $ref: Error
 ---
@@ -39,7 +44,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026: a browser recording saw the client send it, and an anonymous request confirmed the response.
 
-Periods other than `today`, `week`, `month` and `all-time` answer `400`. The client also sends a `region` filter, but an anonymous request with one answered `400`. **Unverified:** what `region` needs.
+Periods other than `today`, `week`, `month` and `all-time` answer `400`. A `region` filter works only together with its `country`: an anonymous request with both answered `200`, and one with `region` alone answered `400`.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

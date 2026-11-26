@@ -19,6 +19,33 @@ operation:
       type: integer
       example: 12345
       description: Alliance id.
+    - name: before
+      in: query
+      type: string
+      example: <cursor>
+      description: Page back from this point.
+    - name: limit
+      in: query
+      type: integer
+      example: 50
+    - name: category
+      in: query
+      type: string
+      example: <category>
+    - name: source
+      in: query
+      type: string
+      example: <source>
+    - name: userId
+      in: query
+      type: integer
+      example: 1000001
+      description: Only events by this player.
+    - name: includePaint
+      in: query
+      type: boolean
+      example: true
+      description: Include paint events.
     - name: j
       in: cookie
       required: true

@@ -25,7 +25,16 @@ operation:
       description: Wplace session cookie, set when the player signs in.
   requestBody:
     example:
-      locations: []
+      target: main_canvas
+      x: 1037000
+      y: 704000
+      width: 200
+      height: 200
+      opacity: 60
+      colorMetric: lab
+      dithering: false
+      colorPaletteMode: all
+      pixelMode: normal
   responses:
     "200":
       description: Saved.
@@ -47,7 +56,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-**Unverified:** the placement body fields.
+The client sends one flat placement. `target` is `main_canvas` for the world map or `headquarters` for the alliance headquarters. `x` and `y` are the top-left pixel, `opacity` is a whole percentage, and the rest are the template's display settings. **Unverified:** which fields the server requires.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

@@ -31,8 +31,11 @@ operation:
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
   responses:
-    "200":
-      description: OK.
+    "204":
+      description: Removed. The client expects no body.
+      empty: true
+    "409":
+      description: The player is not an employee of this business.
     "401":
       description: No session.
       schema:

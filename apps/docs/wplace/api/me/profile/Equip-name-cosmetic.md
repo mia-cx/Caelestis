@@ -1,6 +1,6 @@
 ---
 title: Equip a name cosmetic
-description: Apply an owned font and style to the player's display name.
+description: Apply an owned frame, font and style to the player's display name.
 tags:
   - source/client
   - pawtect/flag
@@ -19,7 +19,10 @@ operation:
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
   requestBody:
-    example: {}
+    example:
+      frameId: <frameId>
+      fontId: <fontId>
+      styleId: <styleId>
   responses:
     "200":
       description: Equipped.
@@ -33,7 +36,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-**Unverified:** the body fields.
+The client always sends the frame, font and style together, so equipping a font resends the current frame and style.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

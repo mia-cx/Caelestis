@@ -4,7 +4,7 @@ description: Check whether Wplace's backend is up.
 tags:
   - source/client
   - source/probe
-  - pawtect/flag
+  - pawtect/none
 operation:
   protocol: rest
   method: GET
@@ -17,7 +17,7 @@ operation:
         $ref: Health
 ---
 
-**Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+**Pawtect:** No token and no flag: the client probes this with a plain `fetch`, outside its API client, and never reads the body. Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
 Called by the wplace.live client. Checked on 26 November 2026: an anonymous request confirmed the response.
 

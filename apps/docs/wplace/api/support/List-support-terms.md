@@ -1,35 +1,32 @@
 ---
-title: List support terms
-description: List the help articles and terms the support form links to.
+title: Get the current support terms
+description: Get the support terms in force now, with their version, dates and full text.
 tags:
-  - source/client
+  - source/bundle
+  - source/probe
   - pawtect/flag
 operation:
   protocol: rest
   method: GET
   path: /support/terms
-  auth:
-    scheme: session cookie
-    description: The `j` cookie of a signed-in player.
-  parameters:
-    - name: j
-      in: cookie
-      required: true
-      type: string
-      example: <session-cookie>
-      description: Wplace session cookie, set when the player signs in.
+  auth: none
   responses:
     "200":
-      description: Terms.
-    "401":
-      description: No session, or an expired one.
-      schema:
-        $ref: Error
+      description: The current terms.
+      example:
+        version: "1"
+        publishedAt: <ISO date>
+        effectiveAt: <ISO date>
+        notice: <short notice>
+        material: false
+        content: <terms text>
 ---
 
-**Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+**Pawtect:** No token. The bundle's helper for this route reads the response through the API client, so patching its `json` or `text` would set "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
-Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
+In the client bundle, never called by the player UI. Checked on 26 November 2026: an anonymous request got `200` with the fields above.
+
+The support pages read the terms through [[Get-support-terms-history|Get the support terms history]] and [[Get-support-term|Get one support terms version]] instead.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

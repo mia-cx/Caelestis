@@ -34,7 +34,14 @@ const addTemplate = (map: maplibregl.Map, url: string, x: number, y: number, wid
   )
 }
 
-map.on('style.load', () => addTemplate(map, templateUrl, 1100_000, 671_000, 64, 64))
+const install = () => {
+  if (map.getSource('my-template') && map.getLayer('my-template')) return
+  if (map.getLayer('my-template')) map.removeLayer('my-template')
+  if (map.getSource('my-template')) map.removeSource('my-template')
+  addTemplate(map, templateUrl, 1100_000, 671_000, 64, 64)
+}
+map.on('style.load', install)
+if (map.isStyleLoaded()) install()
 ```
 
 `x` and `y` are world pixels: tile × 1000 + pixel ([Coordinates](Coordinates)). `raster-resampling: nearest` keeps pixels sharp. Inserting before `pixel-hover` keeps Wplace's crosshair on top ([Map sources and layers](Map-sources-and-layers)).
@@ -68,13 +75,7 @@ Put DOM overlays outside `.maplibregl-canvas-container`, or set `pointer-events:
 
 ## After a theme switch
 
-Changing the theme calls `map.setStyle`. Wplace carries its own sources and layers into the new style, and on 26 November 2026 yours stayed too: a custom layer and an image layer both survived, in order ([How Wplace renders the map](Map-rendering)). MapLibre drops everything when it cannot diff two styles, though, so add what is missing on every `style.load`:
-
-```ts
-const install = () => { if (!map.getLayer('my-template')) addTemplate(map, templateUrl, x, y, w, h) }
-map.on('style.load', install)
-if (map.isStyleLoaded()) install()
-```
+Changing the theme calls `map.setStyle`. Wplace carries its own sources and layers into the new style, and on 26 November 2026 yours stayed too: a custom layer and an image layer both survived, in order ([How Wplace renders the map](Map-rendering)). MapLibre drops everything when it cannot diff two styles, though. That is why the `install` in the first example runs on every `style.load` and adds only what is missing.
 
 ## Related
 

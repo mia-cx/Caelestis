@@ -36,7 +36,7 @@ operation:
 
 Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
 
-Runs an analysis over past punishments.
+Runs an analysis over past punishments. The dashboard sends a JSON request object it builds from a list of identifiers; a `400` with `too_many_identifiers` means the list is too long. **Unverified:** the body's fields.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

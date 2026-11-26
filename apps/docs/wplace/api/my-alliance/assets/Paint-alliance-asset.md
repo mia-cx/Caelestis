@@ -31,7 +31,10 @@ operation:
       description: Built by the client for this exact request body. See [[Anti-cheat]].
   requestBody:
     example:
-      pixels: []
+      pixels:
+        - x: 0
+          y: 0
+          color: 5
   responses:
     "200":
       description: Painted.
@@ -51,7 +54,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-Like [[Paint-pixels]], this request carries a Pawtect token, and a mod must not send it itself. **Unverified:** the shape of `pixels`.
+Like [[Paint-pixels]], this request carries a Pawtect token, and a mod must not send it itself. Each pixel is `{ x, y, color }`, counted from the draft's top-left corner, with `color` a colour id.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

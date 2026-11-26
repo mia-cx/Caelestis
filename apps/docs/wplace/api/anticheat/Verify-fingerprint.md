@@ -19,7 +19,8 @@ operation:
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
   requestBody:
-    example: {}
+    example:
+      sealedResults: <base64 sealed result>
   responses:
     "200":
       description: Accepted.
@@ -31,7 +32,7 @@ operation:
 
 **Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
-Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
+Called by the wplace.live client. The body is the Fingerprint Pro sealed result, base64-encoded, under `sealedResults`. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
 Like every anti-cheat request, this page describes the request only. Leave challenges to the player; see [[Anti-cheat]].
 

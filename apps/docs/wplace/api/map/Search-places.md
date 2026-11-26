@@ -17,6 +17,11 @@ operation:
       example: Lyon
       required: true
       description: What the player typed.
+    - name: lang
+      in: query
+      type: string
+      example: fr
+      description: The player's language. The client leaves it out for English, and sends `ja` for Japanese and `zh` for Chinese.
   responses:
     "200":
       description: A Pelias GeoJSON feature collection.

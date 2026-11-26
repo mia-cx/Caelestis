@@ -41,7 +41,7 @@ operation:
       required: true
       type: string
       example: <pawtect-token>
-      description: Built by the client for this exact request body. See [[Anti-cheat]].
+      description: Built over the request body, per community notes. See [[Anti-cheat]].
   requestBody:
     schema:
       type: object
@@ -69,11 +69,11 @@ operation:
         $ref: Error
 ---
 
-**Pawtect:** This request requires an `x-pawtect-token` header, which the client builds for it; see [[Anti-cheat]]. The client reads the response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+**Pawtect:** Community notes say older clients sent an `x-pawtect-token` header built over this body; see [[Anti-cheat]]. The current client never sends this request, so it builds no token for it and reads no response.
 
-Best guess: not called by the client; seen in openplace's protocol notes and older userscripts. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
+Not called by the current client. Known from openplace's protocol notes and older userscripts. Checked on 26 November 2026. **Unverified:** whether the server still accepts this `POST`, and what auth and Pawtect token it needs now; it was not tried.
 
-The current client no longer paints this way; it sends [[Paint-pixels]]. The same path still answers lookups with `GET`, as [[Get-pixel]]. **Unverified:** whether the server still accepts this `POST`; it was not tried.
+The current client paints with [[Paint-pixels]] instead. The same path still answers lookups with `GET`, as [[Get-pixel]].
 
 Counts toward the API [[Rate-limits|rate limit]].
 

@@ -24,6 +24,17 @@ operation:
       type: string
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      name: <name>
+      description: <description>
+      howToEarn: <how to earn>
+      rarity: <rarity>
+      reward: <reward>
+      sortOrder: null
+      assetKey: <assetKey>
+      type: <badge type>
+      secret: false
   responses:
     "200":
       description: OK.

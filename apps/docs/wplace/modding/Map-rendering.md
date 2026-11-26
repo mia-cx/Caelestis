@@ -16,7 +16,7 @@ Wplace draws with MapLibre GL JS 5.21.1, in one WebGL2 context on `canvas.maplib
 
 - Every tile is a zoom-11 Web Mercator tile: the source's `minzoom` and `maxzoom` are both 11. Further out, MapLibre draws no tiles. Further in, it scales the zoom-11 tiles up.
 - The source's `tileSize` depends on the window. It is 550 when `innerWidth` is over 640 CSS pixels and 400 otherwise, decided when the source is added. One Wplace pixel covers one CSS pixel at zoom 11.86 with 550, and at zoom 12.32 with 400.
-- Wplace keeps rotation and pitch off. Across 234,574 projection-matrix uploads Caelestis recorded in August 2026, including a two-finger twist under touch emulation, every off-diagonal term was zero. Treat it as a product decision that can change.
+- Wplace keeps pitch at 0 (`maxPitch: 0`) and turns off mouse and touch rotation (`dragRotate: false`, `touchZoomRotate.disableRotation()`). The keyboard can rotate the world map, though: `Shift+ArrowLeft` and `Shift+ArrowRight` turn the bearing 15° a press, and `N` resets it ([Keyboard input](Keyboard-input)). Expect a non-zero bearing.
 
 ## Where MapLibre rounds
 

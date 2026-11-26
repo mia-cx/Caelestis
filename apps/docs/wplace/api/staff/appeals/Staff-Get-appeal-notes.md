@@ -13,6 +13,12 @@ operation:
     scheme: staff session
     description: The `j` cookie of a Wplace staff account.
   parameters:
+    - name: userId
+      in: query
+      required: true
+      type: integer
+      example: 1000001
+      description: Player id.
     - name: j
       in: cookie
       required: true

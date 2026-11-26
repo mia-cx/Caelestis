@@ -11,4 +11,5 @@ These routes serve Wplace's staff dashboard, which ships inside the public clien
 - [[Staff-Assign-an-appeal|Assign an appeal (staff)]]: Staff-only route that assigns a ban appeal to a moderator.
 - [[Staff-Decide-an-appeal|Decide an appeal (staff)]]: Staff-only route that accepts or rejects a ban appeal.
 - [[Staff-Get-appeal-notes|Get appeal notes (staff)]]: Staff-only route that shows staff notes on a player's appeals.
+- [[Staff-Add-an-appeal-note|Add an appeal note (staff)]]: Staff-only route that adds a staff note to a player from the appeal queue.
 - [[Staff-List-appeals-in-a-range|List appeals in a range (staff)]]: Staff-only route that lists ban appeals sent in a time range.

@@ -19,11 +19,11 @@ model:
         type: object
         properties:
           x:
-            type: integer
-            example: 381
+            type: number
+            example: 381.42
           y:
-            type: integer
-            example: 570
+            type: number
+            example: 570.18
 ---
 
-Returned by [[Get-random-tile]].
+Returned by [[Get-random-tile]]. `pixel.x` and `pixel.y` often have a fractional part. Checked on 26 November 2026 with anonymous requests.

@@ -68,7 +68,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-The client sends this from the overlay panel, for one of the player's own templates. The body is a gzip-compressed mask built from the template image. **Unverified:** the mask encoding and the response fields; the client caches an answer for 60 seconds.
+The client sends this from the overlay panel, for one of the player's own templates. The body is a gzip-compressed mask built from the template image: one byte per template pixel, row by row, `width × height` bytes. Each byte is the colour id of that pixel, or `0` where the template's alpha is under 16. The client refuses templates over 4,000,000 pixels or 16 tiles before sending, and caches an answer for 60 seconds. **Unverified:** the response fields.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

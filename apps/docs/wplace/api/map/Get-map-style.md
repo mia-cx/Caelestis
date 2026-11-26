@@ -7,9 +7,16 @@ tags:
 operation:
   protocol: rest
   method: GET
-  path: /styles/liberty
+  path: /styles/{style}
   server: https://maps.wplace.live
   auth: none
+  parameters:
+    - name: style
+      in: path
+      required: true
+      type: string
+      example: liberty
+      description: "`liberty` for the light theme, `fiord` for the dark one ([[Theme]])."
   responses:
     "200":
       description: A MapLibre style document.
@@ -25,7 +32,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026: a browser recording saw the client send it.
 
-The base map is an OpenFreeMap "Liberty" style served from Wplace's own host. It points at the vector tiles in [[Get-map-tilejson]], fonts under `/fonts/{fontstack}/{range}.pbf`, sprites under `/sprites/`, and shaded relief under `/natural_earth/`. The recording on 26 November 2026 saw all of them load.
+The base map is an OpenFreeMap style served from Wplace's own host: "Liberty" for the light theme, "Fiord" for the dark one. The style points at the vector tiles in [[Get-map-tilejson]], fonts under `/fonts/{fontstack}/{range}.pbf`, sprites under `/sprites/`, and shaded relief under `/natural_earth/`. The recording on 26 November 2026 saw all of them load.
 
 The map renderer fetches these outside the API client.
 

@@ -19,6 +19,16 @@ operation:
       type: integer
       example: 1000001
       description: Player id.
+    - name: from
+      in: query
+      type: string
+      example: <start time>
+      description: Start of the time range.
+    - name: to
+      in: query
+      type: string
+      example: <end time>
+      description: End of the time range.
     - name: j
       in: cookie
       required: true

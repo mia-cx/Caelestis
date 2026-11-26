@@ -13,6 +13,15 @@ operation:
     scheme: staff session
     description: The `j` cookie of a Wplace staff account.
   parameters:
+    - name: query
+      in: query
+      type: string
+      example: ""
+      description: Search text.
+    - name: page
+      in: query
+      type: integer
+      example: 0
     - name: j
       in: cookie
       required: true

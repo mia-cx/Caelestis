@@ -41,7 +41,7 @@ operation:
 
 Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
 
-Limits where a business account may paint.
+Limits where a business account may paint. The dashboard sends the whole restriction object, including `regionIds` and a `tiles` list of `{ season, x, y }`. **Unverified:** its other fields.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

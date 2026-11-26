@@ -21,7 +21,7 @@ operation:
   requestBody:
     example:
       userId: 1000001
-      duration: 3600
+      duration: 1h
       reason: Griefing
   responses:
     "200":
@@ -44,7 +44,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-**Unverified:** the unit of `duration`.
+`duration` is one of the strings the client offers: `1h`, `24h`, `7d` or `indefinite`. `reason` is free text of up to 500 characters. **Unverified:** whether the server accepts other durations.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

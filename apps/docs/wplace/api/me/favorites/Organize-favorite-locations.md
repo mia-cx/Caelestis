@@ -19,7 +19,9 @@ operation:
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
   requestBody:
-    example: {}
+    example:
+      action: order
+      ids: [3, 1, 2]
   responses:
     "200":
       description: Saved.
@@ -33,7 +35,14 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-**Unverified:** the body fields.
+The body is one action, named by `action`:
+
+- `order` or `folder-order`: the new order as `ids`, with `id` and `folderId` when a favourite moves into a folder.
+- `folder`: create or update a folder, with its `id`, `name`, `hidden`, `collapsed` and `position`. `id: 0` creates one, and `locationId` puts a favourite in it.
+- `delete-folder`: the folder's `id`.
+- `pins`: `hidden`, to show or hide favourite pins on the map.
+
+**Unverified:** which fields the server requires.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

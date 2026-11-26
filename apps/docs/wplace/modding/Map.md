@@ -18,13 +18,13 @@ symbol:
     - { name: getSource, kind: method, signature: "getSource(id: string): Source | undefined", description: "Wplace's sources are listed in [[Map-sources-and-layers|Map sources and layers]]." }
     - { name: refreshTiles, kind: method, signature: "refreshTiles(sourceId: string, tiles?: { x: number; y: number; z: number }[]): void", description: "Reload a raster source's tiles. Wplace calls it for `pixel-art-layer` on a timer." }
     - { name: triggerRepaint, kind: method, signature: "triggerRepaint(): void", description: "Ask for a frame, for example after your custom layer's data changed." }
-    - { name: setStyle, kind: method, signature: "setStyle(style: string | StyleSpecification): this", description: "Wplace calls it when the theme changes. It drops every layer you added." }
+    - { name: setStyle, kind: method, signature: "setStyle(style: string | StyleSpecification, options?: StyleSwapOptions): this", description: "Wplace calls it with a `transformStyle` when the theme changes, which carries your image and raster sources and their layers into the new style. Custom layers survive MapLibre's style diff. A full style rebuild can still drop what you added." }
     - { name: style, kind: property, signature: "style: Style", description: "Private. `style._order` lists draw order with custom layers, `style._layers` holds layers by id, and `style.tileManagers` holds per-source tile state. Read defensively." }
     - { name: painter, kind: property, signature: "painter: Painter", description: "Private. `painter.transform.calculatePosMatrix()` gives a tile's matrix. Read defensively." }
   source: https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/map-handle.ts
 ---
 
-**Pawtect:** none. Pawtect reads no map state. Calling camera methods such as `jumpTo` sets no flag. Dispatching synthetic `click` or pointer events at the map canvas does: see [Anti-cheat](Anti-cheat).
+**Pawtect:** none. Pawtect reads no map state. Calling camera methods such as `jumpTo` sets no flag. Dispatching a synthetic `click`, `touchstart` or `pointerdown` at the map marks automated clicks in every later token: see [Anti-cheat](Anti-cheat).
 
 Wplace draws its world with [MapLibre GL JS](https://maplibre.org/maplibre-gl-js/docs/) 5.21.1, bundled into one chunk. The instance is the whole public MapLibre API, plus MapLibre's private fields. Confirmed on the live client on 26 November 2026: `map.version` is `"5.21.1"`, the container is `div#map`, and the constructor's name is minified.
 
@@ -43,7 +43,7 @@ The map is on no global, no DOM node and no module export. Two ways in, both at 
 | `style.load` (~580 ms) | Sources, layers and `addLayer`. Fires again after every `setStyle`. |
 | `load` (~3.4 s) | First tiles drawn. |
 
-Listen for `style.load` in a microtask after you catch the map, then check `map.style?._loaded` in case it already fired. Add your layers on every `style.load`, because a theme switch replaces the style and drops them ([Theme](Theme)).
+Listen for `style.load` in a microtask after you catch the map, then check `map.style?._loaded` in case it already fired. On every `style.load`, add only the sources and layers that are missing: a theme switch usually keeps yours, but a full style rebuild drops them ([Theme](Theme)).
 
 ## Stability
 

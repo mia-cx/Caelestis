@@ -36,7 +36,7 @@ operation:
 
 Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
 
-Adds a style for name cosmetics.
+Adds a style for name cosmetics. The store manager sends its cosmetic form as one JSON object. **Unverified:** the body's fields.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

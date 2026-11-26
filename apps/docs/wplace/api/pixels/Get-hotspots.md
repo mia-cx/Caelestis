@@ -23,7 +23,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026: a browser recording saw the client send it, and an anonymous request confirmed the response.
 
-The client loads hotspots at start and refreshes them at most every 30 minutes. Players who turned on `hotspotsOptOut` in [[Update-privacy]] don't count toward it.
+The client loads hotspots at start and reloads them every 15 minutes. After a paint, it also sends this request if the last one is over 30 minutes old. Players who turned on `hotspotsOptOut` in [[Update-privacy]] don't count toward it.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

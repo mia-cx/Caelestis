@@ -14,4 +14,4 @@ What the player shows next to their name.
 - [[List-my-badges|List my badges]]: List the badges the signed-in player owns.
 - [[Equip-badges|Equip badges]]: Choose which badges fill the player's three badge slots.
 - [[List-my-name-cosmetics|List my name cosmetics]]: List the name fonts and styles the signed-in player owns.
-- [[Equip-name-cosmetic|Equip a name cosmetic]]: Apply an owned font and style to the player's display name.
+- [[Equip-name-cosmetic|Equip a name cosmetic]]: Apply an owned frame, font and style to the player's display name.

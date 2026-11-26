@@ -1,7 +1,7 @@
 ---
 title: fetch
 description: How wplace.live's window.fetch is wrapped by SvelteKit and Pawtect, what a mod's own fetch wrapper sees, and what Pawtect logs.
-tags: [source/caelestis, pawtect/visible]
+tags: [source/caelestis, pawtect/flag]
 symbol:
   kind: function
   name: fetch
@@ -13,7 +13,7 @@ symbol:
   source: https://github.com/mia-cx/Caelestis/blob/main/apps/userscript/src/page-requests.ts
 ---
 
-**Pawtect:** visible, and flag risk. Pawtect wraps `window.fetch` and logs every absolute URL fetched through it, up to 64, into the next token. Patching `json` or `text` on a backend API response sets **Tampered response**. Wrapping `fetch` itself sets no flag.
+**Pawtect:** flag risk, and visible. Pawtect wraps `window.fetch` and logs every URL fetched through it that does not start with `/`, up to 64, into the next token. Patching `json` or `text` on a response the client reads through its API client sets **Tampered response**. Wrapping `fetch` itself sets no flag.
 
 Wplace's API calls to `https://backend.wplace.live` and MapLibre's tile and style requests all go through `window.fetch`. A wrapper on it sees them, with their responses. Module imports, images, and the [notification stream](Live-notifications) do not use `fetch`.
 

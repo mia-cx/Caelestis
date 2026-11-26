@@ -42,7 +42,8 @@ Every route that answered something other than `404`. "Session" means the route 
 | `GET` | `/s1/pixel/{tileX}/{tileY}?x=&y=` | 400 | none | A short error body that is not valid JSON |
 | `HEAD` | `/files/s0/tiles/{tileX}/{tileY}.png` | 200 | none | PNG, `Cache-Control: s-maxage=5, must-revalidate, no-store` |
 | `GET` | `/leaderboard/player/{period}` | 200 | none | 50 [[Player-leaderboard-entry\|players]]; `?country=` works |
-| `GET` | `/leaderboard/player/all-time?region={regionId}` | 400 | none | [[Error]] |
+| `GET` | `/leaderboard/player/all-time?region={regionId}` | 400 | none | [[Error]]: `invalid_region` without `country` |
+| `GET` | `/leaderboard/player/all-time?country={countryId}&region={regionId}` | 200 | none | 50 [[Player-leaderboard-entry\|players]] |
 | `GET` | `/leaderboard/player/year`, `/yesterday` | 400 | none | [[Error]]: unknown period |
 | `GET` | `/leaderboard/player/{period}/me` | 401 | session | [[Error]] |
 | `GET` | `/leaderboard/alliance/{period}` | 200 | none | 50 [[Alliance-leaderboard-entry\|alliances]] |

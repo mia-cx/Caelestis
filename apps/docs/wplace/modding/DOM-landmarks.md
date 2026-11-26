@@ -5,7 +5,7 @@ order: 8
 tags: [source/caelestis, source/client, pawtect/flag]
 ---
 
-**Pawtect:** flag risk. Reading the DOM is invisible to Pawtect. Calling `.click()` or `dispatchEvent` on palette swatches, the Paint button or the map sets a flag. Clicking other controls from script is not checked ([Anti-cheat](Anti-cheat)).
+**Pawtect:** flag risk. Reading the DOM is invisible to Pawtect. Calling `.click()` or `dispatchEvent` on palette swatches or the Paint button sets a flag. On the map, a synthetic click, touch or pointer-down marks automated clicks in every later token. Clicking other controls from script is not checked ([Anti-cheat](Anti-cheat)).
 
 Wplace's markup is Svelte with Tailwind and DaisyUI classes. Layout classes change often. Ids, ARIA attributes and the MapLibre classes change least. Everything below was seen on the live client on 26 November 2026 unless marked.
 

@@ -3,7 +3,7 @@ title: Get a proof-of-work challenge
 description: Get the hash puzzle for the lightest challenge tier.
 tags:
   - source/client
-  - pawtect/flag
+  - pawtect/none
 operation:
   protocol: rest
   method: GET
@@ -31,7 +31,7 @@ operation:
         $ref: Error
 ---
 
-**Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+**Pawtect:** No token and no flag: the client fetches this with a plain `fetch`, outside its API client. Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 

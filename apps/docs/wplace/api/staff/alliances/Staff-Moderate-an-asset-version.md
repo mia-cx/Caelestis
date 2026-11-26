@@ -30,6 +30,10 @@ operation:
       type: string
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      softDelete: true
+      reason: <reason>
   responses:
     "200":
       description: OK.
@@ -47,7 +51,7 @@ operation:
 
 Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
 
-Removes or restores a published alliance asset.
+Removes or restores a published alliance asset. The body is one action plus a `reason`. The dashboard sends `{ softDelete: true }` to remove it, or `{ state: "visible", restore }` to bring it back, with `restore` true when the version was soft-deleted.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

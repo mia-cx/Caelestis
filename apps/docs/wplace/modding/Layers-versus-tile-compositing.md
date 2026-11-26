@@ -134,7 +134,7 @@ const wplaceTiles = (map: MapInternals) => {
 
 Each matrix maps tile units, 0 to 8192 across one tile, to clip space. Draw one quad per tile the template covers. A template pixel at world `(px, py)` on tile `(x, y)` sits at `((px - x * 1000) * 8.192, (py - y * 1000) * 8.192)` in tile units. The tile list is also your culling: MapLibre only lists tiles in view.
 
-Caelestis also reads these matrices out of MapLibre's own draw calls, as a cross-check ([getContext](WebGL-context)). Wplace keeps rotation and pitch off: across 234,574 matrix uploads Caelestis recorded in August 2026, including a two-finger twist, every off-diagonal term was zero. Check for it anyway, and draw nothing on a rotated or pitched matrix.
+Caelestis also reads these matrices out of MapLibre's own draw calls, as a cross-check ([getContext](WebGL-context)). Wplace keeps pitch at 0, but the keyboard can rotate the world map ([Keyboard input](Keyboard-input)), so the matrices can carry a bearing. Matrices from MapLibre's own tile draws already include it.
 
 ### 5. Stay in the right place in the stack
 

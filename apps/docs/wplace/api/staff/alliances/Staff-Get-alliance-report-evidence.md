@@ -3,7 +3,7 @@ title: Get alliance report evidence (staff)
 description: Staff-only route that shows the evidence attached to an alliance report.
 tags:
   - source/bundle
-  - pawtect/flag
+  - pawtect/none
   - staff-only
 operation:
   protocol: rest
@@ -43,7 +43,7 @@ operation:
         $ref: Error
 ---
 
-**Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
+**Pawtect:** No token and no flag: the dashboard loads this as an image URL, outside its API client. Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
 Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
 

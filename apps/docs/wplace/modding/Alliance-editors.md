@@ -27,14 +27,14 @@ Watch with a `MutationObserver` and reconcile at most once a frame. The editors 
 
 ## The artboard
 
-Inside the stage, the element `.artboard-frame` carries the pan and zoom as a CSS transform. Search for it inside the open stage only. Svelte's hashed classes on the same elements change between builds.
+Inside the stage, the element `.artboard-frame` carries the pan as a CSS `transform: translate(…)` and the zoom as its CSS `width` and `height`: the canvas size times the scale. Search for it inside the open stage only. Svelte's hashed classes on the same elements change between builds.
 
 - **Headquarters:** the art is in one `.hq-tile-layer` canvas. Older builds used a container of 64 × 64 tile canvases ([#770](https://github.com/mia-cx/Caelestis/issues/770)). A full-size draft canvas follows it.
 - **Picture and banner:** one canvas holds the art, in normal flow.
 
 Tool and selection feedback sits on a separate, stage-sized canvas outside the frame, above everything.
 
-A canvas you add inside `.artboard-frame` inherits Wplace's pan, zoom, fit and clipping for free. Place it after the art and before the draft canvas, so drafts cover your template the way they do on the world map. The frame's transform makes it a stacking context. An absolutely positioned canvas paints above the in-flow art canvas whatever its DOM order, so an outline meant to sit under the art needs `z-index: -1` ([#843](https://github.com/mia-cx/Caelestis/issues/843)).
+A canvas you add inside `.artboard-frame`, sized to 100% of it, inherits Wplace's pan, zoom, fit and clipping for free. Place it after the art and before the draft canvas, so drafts cover your template the way they do on the world map. The frame's transform makes it a stacking context. An absolutely positioned canvas paints above the in-flow art canvas whatever its DOM order, so an outline meant to sit under the art needs `z-index: -1` ([#843](https://github.com/mia-cx/Caelestis/issues/843)).
 
 Wplace's own **Alliance overlays** button is `dialog[open] [role="application"] > div > button[aria-label="Alliance overlays"]`, at the top left of the stage.
 

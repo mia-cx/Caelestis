@@ -19,6 +19,10 @@ operation:
       type: string
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      userIds: [1000001]
+      notes: <notes>
   responses:
     "200":
       description: OK.
@@ -34,7 +38,7 @@ operation:
 
 **Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
-Staff only: the staff dashboard in the client bundle calls it, and players can't use it. Not called live.
+Staff only, and players can't use it. The client's API module defines it, but no dashboard page calls it. Not called live.
 
 Lifts a Wplace ban.
 

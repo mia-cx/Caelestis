@@ -20,8 +20,9 @@ For each protected request, Pawtect builds an encrypted token and the client sen
 - `POST /report/alliance`
 - `POST /report-user` (player reports), with the token built over an empty body
 - `POST /report/appeal` (ban appeals)
+- the staff map tool's area clear
 
-Pawtect also replaces `window.fetch` with a wrapper. The wrapper changes no request. It records every absolute URL fetched through the page's `fetch`, keeps up to 64 of them, and adds them to the next token. The wrapper reports itself as native code to `fetch.toString()`.
+Pawtect also replaces `window.fetch` with a wrapper. The wrapper changes no request. It records every URL fetched through the page's `fetch` that does not start with `/`: every absolute URL, and relative ones such as `./data.json`. It keeps up to 64 of them and adds them to the next token. The wrapper reports itself as native code to `fetch.toString()`.
 
 ## What it collects
 
@@ -54,14 +55,14 @@ Pawtect keeps a set of integrity flags for the life of the page. Once set, a fla
 | Untrusted pointer | A script moves the mouse while a paint-hold, erase-hold or drag-paint is active. |
 | Untrusted palette | A script clicks a palette colour. |
 | Untrusted paint submit | A script clicks the Paint button. |
-| Tampered response | A backend API response reaching the page has its `json` or `text` method replaced, or throws when inspected. |
+| Tampered response | A response the client reads through its API client has its own `json` or `text` property, or throws when inspected. Requests the client sends with a plain `fetch` are not checked. |
 | Tampered profile limits | Your `/me` profile claims an unlimited number of favourite locations. |
 
 "A script" means an event with `isTrusted` set to false: anything sent with `dispatchEvent` or `.click()` rather than by your hand. Other clicks on the page are not checked.
 
 ## Multi-account check
 
-Pawtect remembers the last account that painted on this browser. It stores that account in four places: a `localStorage` entry, a `sessionStorage` entry, a one-year cookie, and memory. The names look like UI preferences: `ui_layout_v3`, `nav.cursor` and `_pf_uid`. Every 500 ms the page restores a deleted copy from the others.
+Pawtect remembers the last account that painted on this browser. It stores that account in four places: a `localStorage` entry, a `sessionStorage` entry, a one-year cookie, and memory. The names look like UI preferences: `ui_layout_v3`, `nav.cursor` and `_pf_uid`. While you are signed in, the page checks every 500 ms whether the `localStorage` copy is gone. If it is, the page copies the first surviving record back into all four places. Pressing Paint also rewrites all four.
 
 When you press Paint, the client checks those records. If a different account painted from this browser in the last 24 hours, it refuses to paint and warns you about multi-accounting. The check runs in the browser itself. Wplace's rules also warn that family members sharing a computer can be flagged.
 
@@ -86,7 +87,7 @@ The iOS app adds Apple device attestation. None of that runs in a web browser.
 
 The staff dashboard ships inside the public client, so its labels show how the server scores accounts. The scoring itself is not visible.
 
-- Signals fall into categories: behavioural, device, network, Pawtect, captcha, identity, reports and manual.
+- Signals fall into categories: behavioural, device, network, Pawtect, captcha, identity, reports, manual and other.
 - An hourly scan scores the last 12 hours of signals. A higher score raises the challenge tier, and a score past a threshold bans automatically.
 - Accounts link when they paint from the same device fingerprint and the same home IP. A shared IP alone raises the challenge tier but never counts toward a ban. VPN and datacenter addresses are left out of linking.
 - Detection of a known Wplace bot bans the account on its own.
@@ -96,7 +97,7 @@ The staff dashboard ships inside the public client, so its labels show how the s
 
 Each item below is something that plausibly flags the people who use your mod.
 
-1. **Don't send synthetic input to Wplace's controls.** Calling `.click()` or `dispatchEvent` on the Paint button, palette colours or the map sets the flags above, and they stay set until reload. If your mod needs an action, ask the player to press the real control.
+1. **Don't send synthetic input to Wplace's controls.** Calling `.click()` or `dispatchEvent` on the Paint button or palette colours sets their flags. A synthetic click, touch or pointer-down on the map marks automated clicks in every later token, and a synthetic pointer move while painting sets "untrusted pointer". All of these stay set until reload. If your mod needs an action, ask the player to press the real control.
 2. **Don't patch backend API responses.** Replacing `json` or `text` on a `Response` from `/me`, `/paint` or any other API call sets "tampered response". Map tiles are not checked this way.
 3. **Don't edit `/me` profile values**, such as the favourite-location limit.
 4. **Know that the page's `fetch` reports where it goes.** Any absolute URL fetched through `window.fetch` after Pawtect loads goes into your users' next paint token. Your mod's own server shows up there.

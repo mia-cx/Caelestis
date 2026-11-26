@@ -2,7 +2,7 @@
 title: Report an alliance name
 description: Report an alliance's name as offensive.
 tags:
-  - source/client
+  - source/bundle
   - pawtect/flag
 operation:
   protocol: rest
@@ -32,7 +32,7 @@ operation:
 
 **Pawtect:** No token. The client reads this response through its API client, so patching its `json` or `text` sets "Tampered response" ([[Anti-cheat]]). Any absolute URL fetched through the page's `window.fetch` goes into the next token's URL log.
 
-Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
+In the client bundle, never called by the player UI. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
 Counts toward the API [[Rate-limits|rate limit]].
 

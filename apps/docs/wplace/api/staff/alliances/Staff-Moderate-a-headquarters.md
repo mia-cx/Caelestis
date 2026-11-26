@@ -25,6 +25,10 @@ operation:
       type: string
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
+  requestBody:
+    example:
+      locked: true
+      reason: <reason>
   responses:
     "200":
       description: OK.

@@ -19,7 +19,10 @@ operation:
       example: <session-cookie>
       description: Wplace session cookie, set when the player signs in.
   requestBody:
-    example: {}
+    example:
+      slotIndex0: <badgeId>
+      slotIndex1: <badgeId>
+      slotIndex2: <badgeId>
   responses:
     "200":
       description: Equipped.
@@ -33,7 +36,7 @@ operation:
 
 Called by the wplace.live client. Checked on 26 November 2026. **Unverified:** read from the client code, since the guide makes no signed-in requests.
 
-**Unverified:** the body fields.
+The client sends all three slots at once, as `slotIndex0` to `slotIndex2`. **Unverified:** how an empty slot is sent.
 
 Counts toward the API [[Rate-limits|rate limit]].
 
