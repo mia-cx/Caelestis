@@ -1,4 +1,10 @@
-import type { ContributionDay, LeaderboardEntry, Millis, Seconds } from '@caelestis/shared'
+import type {
+  ContributionDay,
+  LeaderboardEntry,
+  Millis,
+  ProgressWindow,
+  Seconds,
+} from '@caelestis/shared'
 import { MAX_IDS_PER_READ, tooManyIds } from '../../db/d1-limits.js'
 import type { CounterDelta } from '../../ports/counter-store.js'
 import type { PainterTelemetryBucket, TelemetryBucket } from './ladder.js'
@@ -14,6 +20,10 @@ export interface BucketQuery {
 /** `BucketQuery` for named painters only, so a read is bounded by who is being drawn. */
 export interface PainterBucketQuery extends BucketQuery {
   readonly wplaceUserIds: readonly number[]
+}
+
+export interface PainterTotalsQuery extends BucketQuery {
+  readonly windows: ReadonlyMap<string, ProgressWindow>
 }
 
 /** Painter ids one `readPainterBuckets` call may name: the wire bound on the history route. */
@@ -137,7 +147,7 @@ export interface HistoryStore {
    * Every painter's counters summed over the range, leading first (correct, then placed, then id)
    * and cut at `limit`. Summed in the database, so a scope's whole lifetime costs a bounded list.
    */
-  readPainterTotals(query: BucketQuery, limit: number): Promise<readonly PainterTotalRow[]>
+  readPainterTotals(query: PainterTotalsQuery, limit: number): Promise<readonly PainterTotalRow[]>
 
   /**
    * When this deployment started keeping painter buckets, or null before the table's migration

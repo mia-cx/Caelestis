@@ -6,6 +6,7 @@ import {
   type LeaderboardResponse,
   type PainterHistoryResponse,
   type PainterTotalsResponse,
+  type ProgressWindow,
   planTimelapseTiles,
   type Seconds,
   type ServerInfo,
@@ -382,6 +383,7 @@ export const readPainterHistory = (input: {
 export const readPainterTotals = (input: {
   readonly templateIds: readonly string[]
   readonly range: HistoryRange
+  readonly windows: ReadonlyMap<string, ProgressWindow>
   readonly limit: number
   readonly includeUnpublished: boolean
 }): Effect.Effect<PainterTotalsResponse, StorageError, SqlStoreService> =>
@@ -393,7 +395,12 @@ export const readPainterTotals = (input: {
         ? []
         : yield* storage('readPainterTotals', () =>
             sql.readPainterTotals(
-              { templateIds: visibleIds, resolutions: LADDER_RESOLUTIONS, ...input.range },
+              {
+                templateIds: visibleIds,
+                resolutions: LADDER_RESOLUTIONS,
+                ...input.range,
+                windows: input.windows,
+              },
               input.limit,
             ),
           )

@@ -1,5 +1,7 @@
 import {
   isUuidV7,
+  type ProgressWindow,
+  parseProgressWindow,
   parseTileKey,
   parseWholeNumber,
   type Seconds,
@@ -61,6 +63,36 @@ const parsePainterIds = (value: string | undefined): number[] | null => {
     ids.push(id)
   }
   return ids.length > MAX_PAINTER_HISTORY_IDS ? null : [...new Set(ids)]
+}
+
+const parsePainterWindows = (
+  value: string | undefined,
+  ids: readonly string[],
+): ReadonlyMap<string, ProgressWindow> | null => {
+  const windows = new Map<string, ProgressWindow>()
+  if (value === undefined) return windows
+  const entries = value.split(',')
+  if (entries.length > ids.length) return null
+  const selected = new Set(ids)
+  for (const entry of entries) {
+    const [id, start, end, ...extra] = entry.split(':')
+    if (
+      id === undefined ||
+      start === undefined ||
+      end === undefined ||
+      extra.length > 0 ||
+      !selected.has(id) ||
+      windows.has(id)
+    )
+      return null
+    const window = parseProgressWindow({
+      start: start === '' ? null : (parseWholeNumber(start) ?? undefined),
+      end: end === '' ? null : (parseWholeNumber(end) ?? undefined),
+    })
+    if (window === null) return null
+    windows.set(id, window)
+  }
+  return windows
 }
 
 /**
@@ -268,6 +300,12 @@ export const createTelemetryReadRoutes = (
     if (templateIds === null) return c.json({ error: TEMPLATE_IDS_ERROR }, 400)
     const range = parseRange(c)
     if (range === null) return c.json({ error: RANGE_ERROR }, 400)
+    const windows = parsePainterWindows(c.req.query('windows'), templateIds)
+    if (windows === null)
+      return c.json(
+        { error: 'windows must contain selected template ids and valid date bounds' },
+        400,
+      )
     const limit = parseLimit(c, MAX_PAINTER_TOTALS)
     if (limit === null || limit < 1) {
       return c.json({ error: 'limit must be a positive integer' }, 400)
@@ -278,6 +316,7 @@ export const createTelemetryReadRoutes = (
       readPainterTotals({
         templateIds,
         range,
+        windows,
         limit: Math.min(limit, MAX_PAINTER_TOTALS),
         includeUnpublished: includeUnpublished(c),
       }),

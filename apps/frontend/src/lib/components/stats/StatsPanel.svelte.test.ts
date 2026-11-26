@@ -203,16 +203,22 @@ it('chooses default painters from placements inside each template window', async
     correct: placed,
     repairs: 0,
   })
-  client.getPainterTotals.mockImplementation(async (ids: string[], _from: number, to: number) => ({
-    painters:
-      ids.length === 2
-        ? [...[1, 2, 3, 4, 5].map((id) => painter(id, 100)), painter(6, 7)]
-        : ids[0] === 'a' && to === cutoff
-          ? [painter(7, 2)]
-          : [painter(6, 7)],
+  client.getPainterTotals.mockImplementation(async (_ids, _from, _to, options) => ({
+    painters: options?.windows?.some(
+      ({ id, end }: { id: string; end: number }) => id === 'a' && end === cutoff,
+    )
+      ? [painter(6, 7), painter(7, 2)]
+      : [...[1, 2, 3, 4, 5].map((id) => painter(id, 100)), painter(6, 7)],
   }))
   render([{ ...live('a'), progressWindow: { start: null, end: cutoff } }, live('b')])
   await vi.advanceTimersByTimeAsync(0)
   flushSync()
+  expect(client.getPainterTotals).toHaveBeenCalledOnce()
+  expect(client.getPainterTotals).toHaveBeenCalledWith(
+    ['a', 'b'],
+    expect.any(Number),
+    start + 7_201,
+    { limit: 500, windows: [{ id: 'a', start: null, end: cutoff }] },
+  )
   expect(client.getPainterHistory.mock.lastCall?.[1]).toEqual([6, 7])
 })

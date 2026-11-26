@@ -13,6 +13,7 @@ import {
   type PainterHistoryResponse,
   type PainterTotalsResponse,
   type ProgressHistoryResponse,
+  type ProgressWindow,
   resolveServerUrl,
   type ServerAsset,
   type ServerAssetKind,
@@ -259,13 +260,21 @@ export const getPainterTotals = (
   templateIds: readonly string[],
   from: number,
   to: number,
-  options: { readonly limit?: number } = {},
-): Promise<PainterTotalsResponse> =>
-  json(
+  options: {
+    readonly limit?: number
+    readonly windows?: readonly (ProgressWindow & { readonly id: string })[]
+  } = {},
+): Promise<PainterTotalsResponse> => {
+  const windows = (options.windows ?? [])
+    .filter(({ start, end }) => start !== null || end !== null)
+    .map(({ id, start, end }) => `${id}:${start ?? ''}:${end ?? ''}`)
+  return json(
     `/telemetry/painters?templateIds=${templateIds.map(encodeURIComponent).join(',')}` +
       `&from=${from}&to=${to}` +
-      (options.limit === undefined ? '' : `&limit=${options.limit}`),
+      (options.limit === undefined ? '' : `&limit=${options.limit}`) +
+      (windows.length === 0 ? '' : `&windows=${encodeURIComponent(windows.join(','))}`),
   )
+}
 
 /**
  * The named painters' buckets on the same ladder as `getHistory`, so painter lines share its

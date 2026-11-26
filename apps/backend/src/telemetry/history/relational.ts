@@ -39,6 +39,7 @@ import {
   type PaintEventApplication,
   type PainterBucketQuery,
   type PainterTotalRow,
+  type PainterTotalsQuery,
   painterLabel,
 } from './store.js'
 
@@ -372,46 +373,51 @@ export class RelationalHistoryStore extends RelationalStore implements HistorySt
     return new Map(rows.map((row) => [row.wplaceUserId, row.displayName]))
   }
 
-  async readPainterTotals(query: BucketQuery, limit: number): Promise<readonly PainterTotalRow[]> {
+  async readPainterTotals(
+    query: PainterTotalsQuery,
+    limit: number,
+  ): Promise<readonly PainterTotalRow[]> {
     if (query.templateIds.length === 0) return []
     const resolutions = [...new Set(query.resolutions)]
     if (resolutions.length === 0) return []
     const templateIds = distinctIds(query.templateIds, 'readPainterTotals')
-    // Summed in SQL per chunk and merged here, so a scope's lifetime never leaves the database as
-    // rows; the caller gets at most `limit` painters however long the range.
-    const rows = await readIdChunks(templateIds, (chunk) =>
-      this.database
-        .select({
-          wplaceUserId: painterTelemetryBuckets.wplaceUserId,
-          placed: sql<number>`sum(${painterTelemetryBuckets.placed})`,
-          correct: sql<number>`sum(${painterTelemetryBuckets.correct})`,
-          repairs: sql<number>`sum(${painterTelemetryBuckets.repairs})`,
-        })
-        .from(painterTelemetryBuckets)
-        .where(
-          and(
-            inArray(painterTelemetryBuckets.resolution, resolutions),
-            gte(painterTelemetryBuckets.bucketStartS, query.fromSeconds),
-            lt(painterTelemetryBuckets.bucketStartS, query.toSeconds),
-            inArray(painterTelemetryBuckets.templateId, chunk),
-          ),
-        )
-        .groupBy(painterTelemetryBuckets.wplaceUserId),
-    )
-    const totals = new Map<number, { placed: number; correct: number; repairs: number }>()
-    for (const row of rows) {
-      const held = totals.get(row.wplaceUserId) ?? { placed: 0, correct: 0, repairs: 0 }
-      held.placed += Number(row.placed)
-      held.correct += Number(row.correct)
-      held.repairs += Number(row.repairs)
-      totals.set(row.wplaceUserId, held)
-    }
-    return [...totals]
-      .map(([wplaceUserId, held]) => ({ wplaceUserId, ...held }))
-      .sort(
-        (a, b) => b.correct - a.correct || b.placed - a.placed || a.wplaceUserId - b.wplaceUserId,
+    const windows = templateIds.map((id) => {
+      const window = query.windows.get(id)
+      return {
+        id,
+        start: Math.max(query.fromSeconds, window?.start ?? 0),
+        end: Math.min(query.toSeconds, window?.end ?? query.toSeconds),
+        cap: window?.end ?? null,
+      }
+    })
+    const field = this.syntax.jsonField
+    const { results } = await this.client
+      .prepare(`
+      WITH template_windows AS (
+        SELECT ${field('id', 'text')} AS template_id, ${field('start')} AS start_s,
+          ${field('end')} AS end_s, ${field('cap')} AS cap_s
+        FROM ${this.syntax.jsonEach}
       )
-      .slice(0, limit)
+      SELECT bucket.wplace_user_id AS "wplaceUserId", sum(bucket.placed) AS placed,
+        sum(bucket.correct) AS correct, sum(bucket.repairs) AS repairs
+      FROM template_windows AS window_bounds
+      JOIN painter_telemetry_buckets AS bucket ON bucket.template_id = window_bounds.template_id
+        AND bucket.bucket_start_s >= window_bounds.start_s
+        AND bucket.bucket_start_s < window_bounds.end_s
+        AND (window_bounds.cap_s IS NULL OR bucket.bucket_start_s + bucket.resolution <= window_bounds.cap_s)
+      WHERE bucket.resolution IN (${resolutions.map(() => '?').join(', ')})
+      GROUP BY bucket.wplace_user_id
+      ORDER BY correct DESC, placed DESC, bucket.wplace_user_id
+      LIMIT ?
+    `)
+      .bind(JSON.stringify(windows), ...resolutions, limit)
+      .all<PainterTotalRow>()
+    return results.map(({ wplaceUserId, placed, correct, repairs }) => ({
+      wplaceUserId: Number(wplaceUserId),
+      placed: Number(placed),
+      correct: Number(correct),
+      repairs: Number(repairs),
+    }))
   }
 
   async readPainterCollectionStart(): Promise<Seconds | null> {

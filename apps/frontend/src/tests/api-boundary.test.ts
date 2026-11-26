@@ -413,6 +413,10 @@ describe('frontend API client against the built backend', () => {
     expect(totals.painters).toContainEqual(
       expect.objectContaining({ wplaceUserId: 42, displayName: 'Boundary Painter', correct: 1 }),
     )
+    const cappedTotals = await getPainterTotals(templateIds, range.from, range.to, {
+      windows: [{ id: template.templateId, start: null, end: seconds(range.from + 1) }],
+    })
+    expect(cappedTotals.painters).toEqual([])
     expect(painterHistory.buckets).toContainEqual(
       expect.objectContaining({ templateId: template.templateId, wplaceUserId: 42, correct: 1 }),
     )
