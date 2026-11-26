@@ -5,6 +5,7 @@
   import ColourProgress from '#lib/components/ColourProgress.svelte'
   import StatsPanel from '#lib/components/stats/StatsPanel.svelte'
   import TimelapsePanel from '#lib/components/TimelapsePanel.svelte'
+  import { resolveProgressWindows } from '#lib/progress-window.js'
   import { pageTitle } from '#lib/server-info.js'
   import { useApp } from '#lib/state/app.svelte.js'
   import { TimelapsePlayer } from '#lib/timelapse-player.svelte.js'
@@ -32,19 +33,25 @@
   } = $props()
 
   const app = useApp()
+  const windows = $derived(app.manifest == null ? undefined : resolveProgressWindows(app.manifest))
   // Live statuses rebuild the scope's template list on every delta. The timelapse and the stats
   // get a new list, and read history again, only when a field they read can differ.
   const templatesKey = $derived(
     (scope?.templates ?? [])
       .map(
         (template) =>
-          `${template.id}:${template.version}:${template.createdAt}:${template.finishedAt}:${template.finished}:${template.timelapseFrozen}`,
+          `${template.id}:${template.version}:${template.createdAt}:${template.finishedAt}:${template.finished}:${template.timelapseFrozen}:${windows?.get(template.id)?.start}:${windows?.get(template.id)?.end}`,
       )
       .join(' '),
   )
   const templates = $derived.by(() => {
     void templatesKey
-    return untrack(() => scope?.templates ?? [])
+    return untrack(() =>
+      (scope?.templates ?? []).map((template) => {
+        const window = windows?.get(template.id)
+        return window === undefined ? template : { ...template, progressWindow: window }
+      }),
+    )
   })
   const player = new TimelapsePlayer({
     templates: () => templates,

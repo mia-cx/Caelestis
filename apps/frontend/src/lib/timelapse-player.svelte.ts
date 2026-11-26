@@ -1,5 +1,6 @@
 import {
   type CanvasTileSummary,
+  type ProgressWindow,
   parseTileKey,
   type Template,
   type TileKey,
@@ -9,6 +10,7 @@ import { untrack } from 'svelte'
 import { getArchiveHistory, getTileHistory } from '#lib/api/client.js'
 import { STORAGE_KEYS } from '#lib/deployment.js'
 import { Persisted } from '#lib/persisted.svelte.js'
+import { inProgressWindow, tileProgressWindow } from '#lib/progress-window.js'
 import { type TimelapseLayout, timelapseLayout } from '#lib/render.js'
 import { frameAt, playbackSpeed, TimelapseClock, transportScale } from '#lib/timelapse.js'
 
@@ -41,6 +43,8 @@ export class TimelapsePlayer {
   readonly #source: TimelapseSource
 
   frames = $state<ReadonlyMap<TileKey, readonly PlaybackFrame[]> | null>(null)
+  #windows = $state<ReadonlyMap<TileKey, ProgressWindow>>(new Map())
+  #currentAt = $state(0)
   archiveError = $state<string | null>(null)
   historyEnd = $state(0)
   /** The scrub position: 0..timeline.length, where the last stop is "live". */
@@ -56,7 +60,13 @@ export class TimelapsePlayer {
     transportScale(this.timeline[0] ?? this.historyEnd, this.historyEnd),
   )
   readonly live = $derived(this.scrub >= this.timeline.length)
-  readonly scrubTime = $derived(this.live ? null : this.timeline[this.scrub])
+  readonly showsCurrent = $derived(
+    this.live &&
+      this.templates.some((template) => inProgressWindow(this.#currentAt, template.progressWindow)),
+  )
+  readonly scrubTime = $derived(
+    this.live ? (this.showsCurrent ? null : this.historyEnd) : this.timeline[this.scrub],
+  )
 
   /**
    * Each tile shows its live state or its newest snapshot at the scrub time. Missing snapshots keep
@@ -66,10 +76,15 @@ export class TimelapsePlayer {
     const map = this.frames
     const t = this.scrubTime
     const canvas = this.#source.canvas()
+    const windows = this.#windows
     if (t == null || map === null) {
-      return (key: TileKey) => canvas.get(key)?.hash
+      const now = this.#currentAt
+      const showsCurrent = this.showsCurrent
+      return (key: TileKey) =>
+        inProgressWindow(now, windows.get(key)) && showsCurrent ? canvas.get(key)?.hash : undefined
     }
     return (key: TileKey): string | undefined => {
+      if (!inProgressWindow(t, windows.get(key))) return undefined
       const tileFrames = map.get(key)
       if (tileFrames === undefined) return undefined
       let hash: string | undefined
@@ -157,7 +172,11 @@ export class TimelapsePlayer {
   #load(layout: TimelapseLayout, season: number): () => void {
     const generation = { cancelled: false }
     const now = Date.now()
-    const endOf = (template: Template): number => Math.floor((template.finishedAt ?? now) / 1_000)
+    this.#currentAt = Math.floor(now / 1_000)
+    const naturalEndOf = (template: Template): number =>
+      Math.floor((template.finishedAt ?? now) / 1_000)
+    const endOf = (template: Template): number =>
+      Math.min(naturalEndOf(template), (template.progressWindow?.end ?? Infinity) - 1)
     const fail = (message: string): void => {
       if (!generation.cancelled) this.archiveError = message
     }
@@ -170,20 +189,28 @@ export class TimelapsePlayer {
     for (const { key, templates } of layout.tiles) {
       capturing.set(key, new Set([...(capturing.get(key) ?? []), ...templates]))
     }
+    const windows = new Map([...capturing].map(([key, set]) => [key, tileProgressWindow([...set])]))
+    this.#windows = windows
     Promise.all(
       [...capturing].map(async ([key, set]) => {
         const templates = [...set]
         const tile = parseTileKey(key)
         if (tile === null) return [key, []] as const
-        const from = Math.min(
-          ...templates.map((template) => Math.floor(template.createdAt / 1_000)),
+        const window = windows.get(key)
+        const from = Math.max(
+          window?.start ?? 0,
+          Math.min(...templates.map((template) => Math.floor(template.createdAt / 1_000))),
         )
-        const to = Math.max(...templates.map(endOf)) + 1
+        const to = Math.min(Math.max(...templates.map(naturalEndOf)) + 1, window?.end ?? Infinity)
         const [archives, response] = await Promise.all([
           Promise.all(
             templates.map((template) =>
               getArchiveHistory(template.id, template.version, tile).then(
-                (archive) => archive.frames.filter((frame) => frame.at <= endOf(template)),
+                (archive) =>
+                  archive.frames.filter(
+                    (frame) =>
+                      frame.at <= naturalEndOf(template) && inProgressWindow(frame.at, window),
+                  ),
                 () => {
                   fail('Imported timelapse history could not load.')
                   return []
@@ -191,12 +218,18 @@ export class TimelapsePlayer {
               ),
             ),
           ),
-          getTileHistory(tile.x, tile.y, season, from, to).catch(() => {
-            fail('Some timelapse history could not load.')
-            return { frames: [] }
-          }),
+          from >= to
+            ? { frames: [] }
+            : getTileHistory(tile.x, tile.y, season, from, to).catch(() => {
+                fail('Some timelapse history could not load.')
+                return { frames: [] }
+              }),
         ])
-        return [key, mergeArchiveFrames(response, archives.flat())] as const
+        const native = {
+          ...response,
+          frames: response.frames.filter((frame) => inProgressWindow(frame.bucketStart, window)),
+        }
+        return [key, mergeArchiveFrames(native, archives.flat())] as const
       }),
     ).then((entries) => {
       if (generation.cancelled) return

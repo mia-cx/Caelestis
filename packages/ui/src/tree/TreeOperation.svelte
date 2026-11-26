@@ -5,12 +5,16 @@
   let { operation, emit }: { operation: TreeOperationModel; emit: (intent: TemplateTreeIntent) => void } = $props()
 
   let selection = $state('')
+  let start = $state('')
+  let end = $state('')
   let admittedId: string | undefined
   // A new operation starts on its first option; refreshes of the same one keep the choice.
   $effect(() => {
     if (operation.id === admittedId) return
     admittedId = operation.id
     selection = operation.options?.[0]?.value ?? ''
+    start = operation.progressDates?.start ?? ''
+    end = operation.progressDates?.end ?? ''
   })
 </script>
 
@@ -21,13 +25,17 @@
       {#each operation.options as option}<option value={option.value}>{option.label}</option>{/each}
     </select>
   {/if}
+  {#if operation.progressDates !== undefined}
+    <label>Start date <input type="date" bind:value={start} disabled={operation.pending === true} /></label>
+    <label>End date <input type="date" bind:value={end} disabled={operation.pending === true} /></label>
+  {/if}
   {#if operation.note !== undefined}<small>{operation.note}</small>{/if}
   <div class="actions">
     {#if operation.cancellable !== false}
       <button type="button" onclick={() => emit({ type: 'tree-operation-cancel', operationId: operation.id })}>Cancel</button>
     {/if}
     {#if operation.confirmLabel !== undefined}
-      <button class="primary" type="button" disabled={operation.pending === true || operation.options?.length === 0} onclick={() => emit({ type: 'tree-operation-confirm', operationId: operation.id, value: selection })}>{operation.confirmLabel}</button>
+      <button class="primary" type="button" disabled={operation.pending === true || operation.options?.length === 0} onclick={() => emit({ type: 'tree-operation-confirm', operationId: operation.id, value: selection, ...(operation.progressDates === undefined ? {} : { progressDates: { start, end } }) })}>{operation.confirmLabel}</button>
     {/if}
   </div>
 </section>

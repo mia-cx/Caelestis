@@ -3,6 +3,7 @@
   import Select from '#lib/components/Select.svelte'
   import { STORAGE_KEYS } from '#lib/deployment.js'
   import { Persisted } from '#lib/persisted.svelte.js'
+  import { inProgressWindow } from '#lib/progress-window.js'
   import { ActivityReads } from './activity-reads.svelte.js'
   import { archiveContributionDays } from './archive-history.js'
   import { Community } from './community.svelte.js'
@@ -47,11 +48,11 @@
   const progressRevision = $derived(JSON.stringify(templates.map((template) => template.version)))
   const remainingPixels = $derived(progress.total - progress.completed)
   const displayFrom = $derived(
-    Math.min(scope.from, ...reads.archiveSamples.map((sample) => sample.at)),
+    Math.min(scope.progressFrom, ...reads.archiveSamples.map((sample) => sample.at)),
   )
   const importedContributions = $derived(
     archiveContributionDays(
-      reads.archiveSamples,
+      reads.contributionArchiveSamples,
       Math.min(...(activity.buckets ?? []).map((bucket) => bucket.bucketStart)),
     ),
   )
@@ -59,12 +60,14 @@
   const observations = $derived(
     reads.samples === null
       ? null
-      : mergeObservedProgress(reads.archiveSamples, reads.samples, {
+      : mergeObservedProgress(reads.archiveSamples, reads.samples, templates.every(
+          (template) => inProgressWindow(scope.to, template.progressWindow),
+        ) ? {
           at: scope.to,
           correct: progress.completed,
           mismatched: progress.mismatched,
           revision: progressRevision,
-        }),
+        } : undefined),
   )
 
   const estimatePeriods = [
@@ -83,7 +86,7 @@
   const pace = $derived(
     reads.archives === null || observations === null
       ? null
-      : completionPace(observations, scope.to, estimatePeriod.seconds),
+      : completionPace(observations, scope.progressTo, estimatePeriod.seconds),
   )
   const eta = $derived(
     pace === null || pace.correct <= 0 || remainingPixels <= 0
@@ -135,8 +138,8 @@
         buckets={activity.buckets}
         resolution={activity.buckets[0]?.resolution ?? EMPTY_HISTORY_RESOLUTION}
         from={displayFrom}
-        to={scope.to}
-        live={scope.live}
+        to={scope.progressTo}
+        live={scope.progressLive}
         paces={selection}
         painters={activity.painters}
         painterHistories={activity.painterHistories}

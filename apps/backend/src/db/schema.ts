@@ -202,6 +202,8 @@ export const nodes = sqliteTable(
     path: text('path').notNull(),
     name: text('name').notNull(),
     description: text('description'),
+    progressStart: integer('progress_start_seconds').$type<Seconds>(),
+    progressEnd: integer('progress_end_seconds').$type<Seconds>(),
     /** Ephemeral claim tying a confirmed cascade snapshot to its atomic delete batch. */
     deleteToken: text('delete_token'),
     createdAtMs: integer('created_at_ms').$type<Millis>().notNull(),
@@ -339,6 +341,8 @@ export const templates = sqliteTable(
     timelapseFrozenAt: integer('timelapse_frozen_at_ms').$type<Millis>(),
     /** When an administrator marked this artwork complete, or null while work is live. */
     finishedAt: integer('finished_at_ms').$type<Millis>(),
+    progressStart: integer('progress_start_seconds').$type<Seconds>(),
+    progressEnd: integer('progress_end_seconds').$type<Seconds>(),
     /**
      * Who created this template.
      *

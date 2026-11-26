@@ -303,6 +303,11 @@ describe('frontend API client against the built backend', () => {
       revision: template.versionId,
     })
     expect(new URL(requests[0]?.url ?? '').searchParams.has('version')).toBe(false)
+    const cut = fixtureNow - 500
+    const capped = await getTemplateProgressHistory(template.templateId, cut, fixtureNow + 600, cut)
+    expect(capped.samples).not.toContainEqual(expect.objectContaining({ correct: 1 }))
+    expect(capped.samples.every((sample) => sample.at >= cut)).toBe(true)
+    expect(new URL(requests.at(-1)?.url ?? '').searchParams.get('notBefore')).toBe(String(cut))
   })
 
   it('keeps retained-state revision boundaries when merging imported history without later reports', async () => {

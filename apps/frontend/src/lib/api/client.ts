@@ -236,8 +236,11 @@ export const getTemplateProgressHistory = (
   templateId: string,
   from: number,
   to: number,
+  notBefore?: number,
 ): Promise<TemplateProgressHistoryResponse> =>
-  json(`/telemetry/progress/${encodeURIComponent(templateId)}?from=${from}&to=${to}`)
+  json(
+    `/telemetry/progress/${encodeURIComponent(templateId)}?from=${from}&to=${to}${notBefore === undefined ? '' : `&notBefore=${notBefore}`}`,
+  )
 
 export const getHistory = (
   templateIds: readonly string[],

@@ -131,3 +131,28 @@ it('reads no history again when a live status rebuilds the folder', async () => 
   // The stats panel reads history again for every new list it gets.
   expect(fixture.stats?.templates).toBe(statsTemplates)
 })
+
+it('inherits folder dates and takes the outer dates of templates on a shared tile', async () => {
+  const folderWindow = { start: seconds(start + 100), end: seconds(start + 4_000) }
+  const otherWindow = { start: seconds(start + 300), end: seconds(start + 5_000) }
+  fixture.app.manifest = manifest({
+    nodes: [{ ...node('route', null), progressWindow: folderWindow }, node('child', 'route')],
+    templates: [
+      top,
+      { ...nested, bbox: top.bbox, progressWindow: otherWindow },
+      { ...at('elsewhere', 'child', 500_000, 500_000), progressWindow: otherWindow },
+    ],
+  })
+  mounted = mount(Page, { target: document.body })
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+
+  expect(fixture.history).toHaveBeenCalledWith(10, 10, 1, start + 100, start + 5_000)
+  expect(fixture.history).toHaveBeenCalledWith(500, 500, 1, start + 300, start + 5_000)
+  expect(fixture.stats?.templates?.find(({ id }) => id === top.id)?.progressWindow).toEqual(
+    folderWindow,
+  )
+  expect(position()).toBe(4_999)
+  expect(document.querySelector('.badge-success')).toBeNull()
+})

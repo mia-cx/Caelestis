@@ -30,6 +30,7 @@ import {
   PALETTE_SIZE,
   parseDiscordInviteUrl,
   parseHomeCopy,
+  parseProgressWindow,
   parseTemplateTags,
   SERVER_ASSET_CONTENT_TYPES,
   SHA256_HEX_PATTERN,
@@ -475,7 +476,13 @@ const TemplateTags = boundedArray(Schema.Struct({ id: Identifier, name: Name }),
   Schema.check(booleanFilter((tags) => parseTemplateTags(tags) !== null, 'valid unique tags')),
 )
 
+const ProgressWindow = Schema.declare<Shared.ProgressWindow>(
+  (value): value is Shared.ProgressWindow => parseProgressWindow(value) !== null,
+  { description: 'valid progress start and end dates' },
+)
+
 export const Node = Schema.Struct({
+  progressWindow: Schema.optionalKey(ProgressWindow),
   tags: Schema.optionalKey(TemplateTags),
   id: Identifier,
   parentId: Schema.NullOr(Identifier),
@@ -491,6 +498,7 @@ export const Chunk = Schema.Struct({
 })
 
 export const Template = Schema.Struct({
+  progressWindow: Schema.optionalKey(ProgressWindow),
   tags: Schema.optionalKey(TemplateTags),
   id: Identifier,
   nodeId: Schema.NullOr(Identifier),
@@ -527,6 +535,7 @@ const SurfaceChunk = Schema.Struct({
 })
 
 const SurfaceTemplate = Schema.Struct({
+  progressWindow: Schema.optionalKey(ProgressWindow),
   tags: Schema.optionalKey(TemplateTags),
   id: Identifier,
   nodeId: Schema.NullOr(Identifier),

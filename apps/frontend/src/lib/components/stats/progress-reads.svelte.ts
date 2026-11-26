@@ -7,6 +7,7 @@ import {
   RAW_TILE_HISTORY_SECONDS,
 } from '@caelestis/shared'
 import { getArchiveHistory, getTemplateProgressHistory } from '#lib/api/client.js'
+import { inProgressWindow } from '#lib/progress-window.js'
 import { combineArchiveSamples } from './archive-history.js'
 import { combineProgressSamples } from './progress-history.js'
 import type { StatsScope } from './stats-scope.svelte.js'
@@ -20,9 +21,23 @@ export class ProgressReads {
   archiveError = $state<string | null>(null)
   samples = $state<readonly ProgressSample[] | null>(null)
   error = $state<string | null>(null)
-  readonly archiveSamples = $derived(combineArchiveSamples(this.archives ?? []))
+  readonly contributionArchiveSamples = $derived(combineArchiveSamples(this.archives ?? []))
+  readonly archiveSamples = $derived.by(() => {
+    const windows = this.#scope.templates.map((template) => template.progressWindow)
+    if (windows.every((window) => window?.start == null && window?.end == null))
+      return this.contributionArchiveSamples
+    return combineArchiveSamples(
+      (this.archives ?? []).map((archive, index) => ({
+        ...archive,
+        samples: archive.samples.filter((sample) => inProgressWindow(sample.at, windows[index])),
+      })),
+      windows,
+    )
+  })
+  readonly #scope: StatsScope
 
   constructor(scope: StatsScope) {
+    this.#scope = scope
     $effect(() => {
       const templates = scope.templates.map(({ id, version }) => ({ id, version }))
       let cancelled = false
@@ -47,15 +62,23 @@ export class ProgressReads {
     })
 
     const to = $derived(
-      scope.live ? Math.floor(scope.to / REFRESH_SECONDS) * REFRESH_SECONDS + 1 : scope.to,
+      scope.progressLive
+        ? Math.floor(scope.progressTo / REFRESH_SECONDS) * REFRESH_SECONDS + 1
+        : scope.progressTo,
     )
     let loadedScope: string | undefined
     $effect(() => {
-      const templates = scope.templates.map(({ id, version }) => ({ id, version }))
-      const start = scope.from
+      const templates = scope.templates
+      const start = scope.progressFrom
       const end = to
-      if (loadedScope !== scope.key) {
-        loadedScope = scope.key
+      const key = templates
+        .map(
+          ({ id, version, progressWindow }) =>
+            `${id}:${version}:${progressWindow?.start}:${progressWindow?.end}`,
+        )
+        .join(' ')
+      if (loadedScope !== key) {
+        loadedScope = key
         this.samples = null
         this.error = null
       }
@@ -64,10 +87,16 @@ export class ProgressReads {
         const histories: (readonly ProgressSample[])[] = []
         for (const template of templates) {
           if (cancelled) return
-          histories.push(await readTiers(template.id, start, end))
+          const notBefore = template.progressWindow?.start ?? undefined
+          const from = Math.max(start, notBefore ?? 0)
+          const to = Math.min(end, template.progressWindow?.end ?? Infinity)
+          histories.push(from >= to ? [] : await readTiers(template.id, from, to, notBefore))
         }
         if (cancelled) return
-        this.samples = combineProgressSamples(histories)
+        this.samples = combineProgressSamples(
+          histories,
+          templates.map((template) => template.progressWindow),
+        )
         this.error = null
       })().catch(() => {
         if (cancelled) return
@@ -89,8 +118,9 @@ const readTiers = async (
   templateId: string,
   start: number,
   end: number,
+  notBefore?: number,
 ): Promise<readonly ProgressSample[]> => {
-  const lifetime = await getTemplateProgressHistory(templateId, start, end)
+  const lifetime = await getTemplateProgressHistory(templateId, start, end, notBefore)
   const samples = new Map(lifetime.samples.map((sample) => [sample.at, sample]))
   for (const recentStart of [
     // A day inside the hourly tier's retention, on its grid.
@@ -99,7 +129,7 @@ const readTiers = async (
     end - RAW_TILE_HISTORY_SECONDS + 10 * 60,
   ]) {
     if (start >= recentStart) continue
-    const recent = await getTemplateProgressHistory(templateId, recentStart, end)
+    const recent = await getTemplateProgressHistory(templateId, recentStart, end, notBefore)
     let covered = false
     for (const sample of recent.samples) {
       if (sample.correct !== null) covered = true

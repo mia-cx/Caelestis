@@ -3,6 +3,7 @@ import {
   type Millis,
   PALETTE_SIZE,
   type PixelBounds,
+  type ProgressWindow,
   parseTemplateRecipe,
   sameTemplateSurface,
   type TemplateRecipe,
@@ -58,6 +59,7 @@ export interface NewTemplateRecord extends TemplateVersionRecord {
 
 /** A template's own row: what it is called and where it sits, with no pixels attached. */
 export interface TemplateRecord {
+  readonly progressWindow?: ProgressWindow
   readonly id: string
   readonly surface: TemplateSurface
   readonly season: number
@@ -81,6 +83,7 @@ export interface TemplateDeletePrecondition {
 }
 
 export interface ManifestTemplateRecord {
+  readonly progressWindow?: ProgressWindow
   readonly id: string
   readonly nodeId: string | null
   readonly name: string
@@ -115,6 +118,7 @@ export interface ManifestTileRecord {
  * places the template at the server root; absence leaves the parent alone.
  */
 export interface TemplatePatch {
+  readonly progressWindow?: ProgressWindow
   readonly name?: string
   /** Moving to another node, or to the server root with null. */
   readonly nodeId?: string | null

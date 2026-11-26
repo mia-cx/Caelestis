@@ -1,7 +1,27 @@
 import type { ServerAsset } from './server-branding.js'
 import type { TemplateTag } from './tags.js'
 import type { TemplateSurface } from './template-surface.js'
-import type { Millis } from './time.js'
+import { type Millis, type Seconds, seconds } from './time.js'
+
+export interface ProgressWindow {
+  readonly start: Seconds | null
+  /** Exclusive end; the userscript stores midnight after the selected end date. */
+  readonly end: Seconds | null
+}
+
+export const parseProgressWindow = (value: unknown): ProgressWindow | null => {
+  if (value === null || typeof value !== 'object' || !('start' in value) || !('end' in value))
+    return null
+  const bound = (input: unknown): input is number | null =>
+    input === null ||
+    (typeof input === 'number' &&
+      Number.isSafeInteger(input) &&
+      input >= 0 &&
+      input < 4_102_444_800)
+  const { start, end } = value
+  if (!bound(start) || !bound(end) || (start !== null && end !== null && start >= end)) return null
+  return { start: start === null ? null : seconds(start), end: end === null ? null : seconds(end) }
+}
 
 /** Canonical chunk-grid coordinate. World keys are non-negative; centred surfaces may be signed. */
 export type SurfaceChunkKey = `${number}/${number}`
@@ -67,6 +87,7 @@ export interface ServerInfo {
  * any depth is one prefix query. Templates may also sit directly under the server root.
  */
 export interface Node {
+  readonly progressWindow?: ProgressWindow
   readonly tags?: readonly TemplateTag[]
   readonly id: string
   readonly parentId: string | null
@@ -78,6 +99,7 @@ export interface Node {
 }
 
 export interface Template {
+  readonly progressWindow?: ProgressWindow
   /** Authoritative labels; absent on servers predating tags. */
   readonly tags?: readonly TemplateTag[]
   readonly id: string

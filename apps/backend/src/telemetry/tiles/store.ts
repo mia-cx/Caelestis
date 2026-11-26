@@ -183,7 +183,11 @@ export interface TileStore {
   ): Promise<readonly MeasuredTileFrame[]>
 
   /** Latest retained canvas frame per tile as of this time, with cached counts for this artwork. */
-  readTemplateProgressAt(versionId: string, at: Seconds): Promise<readonly MeasuredTileFrame[]>
+  readTemplateProgressAt(
+    versionId: string,
+    at: Seconds,
+    notBefore?: Seconds,
+  ): Promise<readonly MeasuredTileFrame[]>
 
   /** Insert missing measurements, preserving existing counts and all live/placement records. */
   writeTileMeasurements(

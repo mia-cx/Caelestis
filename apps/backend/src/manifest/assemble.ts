@@ -70,11 +70,15 @@ export const assembleManifest = async (
   for (const tags of tagsByNode.values()) tags.sort((a, b) => a.id.localeCompare(b.id))
 
   const allNodes = nodeRecords
-    .map(({ id, parentId, path, name, description, createdAt }) =>
-      description === null
-        ? { id, parentId, path, name, createdAt }
-        : { id, parentId, path, name, description, createdAt },
-    )
+    .map(({ id, parentId, path, name, description, createdAt, progressWindow }) => ({
+      id,
+      parentId,
+      path,
+      name,
+      createdAt,
+      ...(description === null ? {} : { description }),
+      ...(progressWindow === undefined ? {} : { progressWindow }),
+    }))
     .map((node) => ({
       ...node,
       ...(tagsByNode.has(node.id) ? { tags: tagsByNode.get(node.id) ?? [] } : {}),
@@ -120,6 +124,7 @@ export const assembleManifest = async (
       finished: template.finished,
       finishedAt: template.finishedAt,
       timelapseFrozen: template.timelapseFrozen,
+      ...(template.progressWindow === undefined ? {} : { progressWindow: template.progressWindow }),
       createdAt: template.createdAt,
       updatedAt: template.updatedAt,
     }))

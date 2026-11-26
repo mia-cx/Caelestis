@@ -1,8 +1,10 @@
 import {
   isRecord,
   logoText,
+  type ProgressWindow,
   parseDiscordInviteUrl,
   parseHomeCopy,
+  parseProgressWindow,
   parseServerAsset,
   parseTemplateTags,
   type ServerAsset,
@@ -86,6 +88,7 @@ const parseServerPresentation = (
 
 /** One template a server publishes, as its manifest lists it. */
 export interface ServerTemplate {
+  readonly progressWindow?: ProgressWindow
   readonly tags?: readonly TemplateTag[]
   readonly id: string
   readonly nodeId: string | null
@@ -110,6 +113,7 @@ export interface ServerTemplate {
 }
 
 export interface TreeNode {
+  readonly progressWindow?: ProgressWindow
   readonly tags?: readonly TemplateTag[]
   readonly id: string
   readonly parentId: string | null
@@ -213,12 +217,15 @@ export const parseTreeNode = (raw: unknown): TreeNode | null => {
   if (!plausibleMillis(raw.createdAt)) return null
   const tags = raw.tags === undefined ? undefined : parseTemplateTags(raw.tags)
   if (tags === null) return null
+  const progressWindow = parseProgressWindow(raw.progressWindow)
+  if (raw.progressWindow !== undefined && progressWindow === null) return null
   return {
     id: raw.id,
     parentId: raw.parentId,
     path: raw.path,
     name: raw.name,
     ...(tags === undefined ? {} : { tags }),
+    ...(progressWindow === null ? {} : { progressWindow }),
     ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
     createdAt: raw.createdAt,
   }
@@ -376,6 +383,7 @@ const manifestContentsValid = (
         raw.finishedAt !== null &&
         !plausibleMillis(raw.finishedAt)) ||
       (raw.timelapseFrozen !== undefined && typeof raw.timelapseFrozen !== 'boolean') ||
+      (raw.progressWindow !== undefined && parseProgressWindow(raw.progressWindow) === null) ||
       !plausibleMillis(raw.createdAt) ||
       (raw.updatedAt !== undefined && !plausibleMillis(raw.updatedAt))
     )
@@ -476,27 +484,31 @@ export const parseServerManifest = (
   )
     return null
   const templates = (value.templates as readonly Record<string, unknown>[]).map(
-    (template): ServerTemplate => ({
-      id: String(template.id),
-      nodeId: template.nodeId === null ? null : String(template.nodeId),
-      name: String(template.name),
-      ...(template.tags === undefined ? {} : { tags: parseTemplateTags(template.tags) ?? [] }),
-      version: String(template.version),
-      totalPixels: Number(template.totalPixels),
-      published: template.published === true,
-      finished: template.finished === true,
-      finishedAt: typeof template.finishedAt === 'number' ? template.finishedAt : null,
-      timelapseFrozen: template.timelapseFrozen === true,
-      updatedAt:
-        typeof template.updatedAt === 'number'
-          ? template.updatedAt
-          : typeof template.createdAt === 'number'
-            ? template.createdAt
-            : 0,
-      bbox: template.bbox as ServerTemplate['bbox'],
-      chunks: template.chunks as ServerTemplate['chunks'],
-      surface,
-    }),
+    (template): ServerTemplate => {
+      const progressWindow = parseProgressWindow(template.progressWindow)
+      return {
+        id: String(template.id),
+        nodeId: template.nodeId === null ? null : String(template.nodeId),
+        name: String(template.name),
+        ...(template.tags === undefined ? {} : { tags: parseTemplateTags(template.tags) ?? [] }),
+        version: String(template.version),
+        totalPixels: Number(template.totalPixels),
+        published: template.published === true,
+        finished: template.finished === true,
+        finishedAt: typeof template.finishedAt === 'number' ? template.finishedAt : null,
+        timelapseFrozen: template.timelapseFrozen === true,
+        ...(progressWindow === null ? {} : { progressWindow }),
+        updatedAt:
+          typeof template.updatedAt === 'number'
+            ? template.updatedAt
+            : typeof template.createdAt === 'number'
+              ? template.createdAt
+              : 0,
+        bbox: template.bbox as ServerTemplate['bbox'],
+        chunks: template.chunks as ServerTemplate['chunks'],
+        surface,
+      }
+    },
   )
   return {
     version: value.version,

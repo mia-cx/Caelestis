@@ -1,4 +1,10 @@
-import { type ArchiveProgressSample, DAY_SECONDS, type ProgressSample } from '@caelestis/shared'
+import {
+  type ArchiveProgressSample,
+  DAY_SECONDS,
+  type ProgressSample,
+  type ProgressWindow,
+} from '@caelestis/shared'
+import { inProgressWindow } from '#lib/progress-window.js'
 
 /** Consecutive UTC capture dates count as daily observations despite hour-level drift. */
 const isDailyArchiveInterval = (interval: {
@@ -38,6 +44,7 @@ export const observedProgressIntervals = (samples: readonly ObservedProgressSamp
 /** Combine scopes at fixed observation times; a scope without coverage stays unknown. */
 export const combineProgressSamples = (
   histories: readonly (readonly ProgressSample[])[],
+  windows: readonly (ProgressWindow | undefined)[] = [],
 ): readonly ProgressSample[] => {
   const changes = new Map<number, Map<number, ProgressSample>>()
   for (const [scope, samples] of histories.entries()) {
@@ -52,10 +59,12 @@ export const combineProgressSamples = (
     .sort(([a], [b]) => a - b)
     .map(([at, entries]) => {
       for (const [scope, sample] of entries) latest.set(scope, sample)
-      const held = [...latest.values()]
+      const active = histories.flatMap((_, scope) =>
+        inProgressWindow(at, windows[scope]) ? [scope] : [],
+      )
+      const held = active.map((scope) => latest.get(scope))
       const complete =
         held.length > 0 &&
-        held.length === histories.length &&
         held.every((sample) => sample?.correct != null && sample.mismatched !== null)
       return {
         at,
@@ -67,10 +76,14 @@ export const combineProgressSamples = (
         ...([...entries.values()].every((sample) => sample.boundary)
           ? { boundary: true as const }
           : {}),
-        ...(held.some((sample) => sample.revision !== undefined)
+        ...(held.some((sample) => sample?.revision !== undefined)
           ? {
               revision: JSON.stringify(
-                histories.map((_, scope) => latest.get(scope)?.revision ?? null),
+                histories.map((_, scope) =>
+                  inProgressWindow(at, windows[scope])
+                    ? (latest.get(scope)?.revision ?? null)
+                    : null,
+                ),
               ),
             }
           : {}),

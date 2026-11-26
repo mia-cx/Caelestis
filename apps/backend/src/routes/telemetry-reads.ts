@@ -177,12 +177,27 @@ export const createTelemetryReadRoutes = (
     const id = c.req.param('templateId')
     const versionId = c.req.query('version')
     const range = parseRange(c)
+    const notBefore = optionalWholeNumber(c.req.query('notBefore'))
     if (!isUuidV7(id) || (versionId !== undefined && !isUuidV7(versionId)) || range === null)
       return c.json({ error: 'Choose a template, optional version, and valid time range.' }, 400)
+    if (
+      notBefore === null ||
+      (notBefore !== undefined && (notBefore > range.fromSeconds || versionId !== undefined))
+    )
+      return c.json(
+        { error: 'notBefore must be Unix seconds on or before from, without version.' },
+        400,
+      )
     return runBackendHttp(
       c,
       runtime,
-      readVisibleProgressHistory(id, versionId, range, includeUnpublished(c)),
+      readVisibleProgressHistory(
+        id,
+        versionId,
+        range,
+        includeUnpublished(c),
+        notBefore === undefined ? undefined : seconds(notBefore),
+      ),
       (response) => c.json(response),
     )
   })

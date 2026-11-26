@@ -40,6 +40,7 @@ export const readProgressHistory = (
   resolution = selectTileHistoryResolution(range),
   lifetime?: HistoryRange,
   initialAt?: Seconds,
+  notBefore?: Seconds,
 ): Effect.Effect<ProgressHistoryResponse, StorageError, SqlStoreService | BlobStoreService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
@@ -61,7 +62,7 @@ export const readProgressHistory = (
       initialAt === undefined
         ? []
         : yield* storage('readTemplateProgressAt', () =>
-            sql.readTemplateProgressAt(version.versionId, initialAt),
+            sql.readTemplateProgressAt(version.versionId, initialAt, notBefore),
           )
     const blobs = yield* BlobStoreService
     const chunks = new Map(
@@ -150,6 +151,7 @@ export const readProgressHistory = (
 export const readTemplateProgressHistory = (
   templateId: string,
   range: HistoryRange,
+  notBefore?: Seconds,
 ): Effect.Effect<
   TemplateProgressHistoryResponse,
   StorageError,
@@ -166,7 +168,7 @@ export const readTemplateProgressHistory = (
       const start = Math.max(range.fromSeconds, Math.floor(revision.createdAt / 1_000))
       const next = versions[index + 1]
       const lifetime = {
-        fromSeconds: seconds(Math.floor(revision.createdAt / 1_000)),
+        fromSeconds: seconds(Math.max(notBefore ?? 0, Math.floor(revision.createdAt / 1_000))),
         toSeconds: seconds(
           next === undefined ? Number.MAX_SAFE_INTEGER : Math.floor(next.createdAt / 1_000),
         ),
@@ -190,6 +192,7 @@ export const readTemplateProgressHistory = (
         resolution,
         lifetime,
         seconds(start),
+        notBefore,
       )
       for (const sample of history.samples) {
         if (sample.at >= start && sample.at < end)
@@ -208,6 +211,7 @@ export const readVisibleProgressHistory = (
   versionId: string | undefined,
   range: HistoryRange,
   includeUnpublished: boolean,
+  notBefore?: Seconds,
 ): Effect.Effect<
   TemplateProgressHistoryResponse | ProgressHistoryResponse,
   StorageError | NotFoundError,
@@ -218,7 +222,8 @@ export const readVisibleProgressHistory = (
     const template = yield* storage('readTemplate', () => sql.readTemplate(templateId))
     if (template === null || (!includeUnpublished && !template.published))
       return yield* Effect.fail(new NotFoundError({ message: 'Template not found.' }))
-    if (versionId === undefined) return yield* readTemplateProgressHistory(templateId, range)
+    if (versionId === undefined)
+      return yield* readTemplateProgressHistory(templateId, range, notBefore)
     const version = yield* storage('readTemplateVersion', () => sql.readTemplateVersion(versionId))
     if (version?.templateId !== templateId)
       return yield* Effect.fail(new NotFoundError({ message: 'Template version not found.' }))

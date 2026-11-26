@@ -3,6 +3,7 @@ import {
   isUuidV7,
   MAX_TEMPLATE_SOURCE_BYTES,
   millis,
+  parseProgressWindow,
   parseTemplateRecipe,
   parseWholeNumber,
   type TemplateRecipe,
@@ -141,7 +142,13 @@ export const createTemplateRoutes = (runtime: BackendRuntime) => {
     if (!isUuidV7(templateId)) return c.json({ error: INVALID_ID }, 400)
     const body = await jsonObject(c)
     if (body === null) return c.json({ error: 'invalid body' }, 400)
-    const { name, nodeId, published, timelapseFrozen, finished } = body
+    const { name, nodeId, published, timelapseFrozen, finished, progressWindow } = body
+    const window = parseProgressWindow(progressWindow)
+    if (progressWindow !== undefined && window === null)
+      return c.json(
+        { error: 'Progress start must precede the end, and both dates must be valid.' },
+        400,
+      )
 
     if (name !== undefined && !isName(name)) return c.json({ error: INVALID_NAME }, 400)
     if (nodeId !== undefined && nodeId !== null && !isUuidV7(nodeId)) {
@@ -151,7 +158,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime) => {
     if (!isOptionalBoolean(published)) return notBoolean('published')
     if (!isOptionalBoolean(timelapseFrozen)) return notBoolean('timelapseFrozen')
     if (!isOptionalBoolean(finished)) return notBoolean('finished')
-    const empty = emptyPatch({ name, nodeId, published, timelapseFrozen, finished })
+    const empty = emptyPatch({ name, nodeId, published, timelapseFrozen, finished, progressWindow })
     if (empty !== null) return c.json({ error: empty }, 400)
 
     return runBackendHttp(
@@ -159,6 +166,7 @@ export const createTemplateRoutes = (runtime: BackendRuntime) => {
       runtime,
       patchTemplate({
         templateId,
+        ...(window === null ? {} : { progressWindow: window }),
         ...(name === undefined ? {} : { name }),
         ...(nodeId === undefined ? {} : { nodeId }),
         ...(published === undefined ? {} : { published }),

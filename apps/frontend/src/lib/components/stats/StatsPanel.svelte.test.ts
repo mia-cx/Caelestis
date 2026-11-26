@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { Progress } from '@caelestis/shared'
+import type { Progress, ProgressSample } from '@caelestis/shared'
 import { millis, seconds, type Template } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -17,12 +17,25 @@ const client = vi.hoisted(() => ({
   getPainterTotals: vi.fn(),
 }))
 vi.mock('#lib/api/client.js', () => client)
-const fixture = vi.hoisted(() => ({ app: null as unknown as AppState }))
+const fixture = vi.hoisted(() => ({
+  app: null as unknown as AppState,
+  chart: null as null | {
+    samples: readonly ProgressSample[]
+    from: number
+    to: number
+    live: boolean
+  },
+}))
 vi.mock('#lib/state/app.svelte.js', async (original) => ({
   ...(await original<typeof import('#lib/state/app.svelte.js')>()),
   useApp: () => fixture.app,
 }))
-vi.mock('./ProgressPaceChart.svelte', () => ({ default: () => undefined, CHART_HEIGHT: 240 }))
+vi.mock('./ProgressPaceChart.svelte', () => ({
+  default: (_anchor: unknown, props: NonNullable<typeof fixture.chart>) => {
+    fixture.chart = props
+  },
+  CHART_HEIGHT: 240,
+}))
 
 import StatsPanel from './StatsPanel.svelte'
 
@@ -38,6 +51,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime((start + 7_200) * 1_000)
   localStorage.clear()
+  fixture.chart = null
   client.getArchiveHistory
     .mockReset()
     .mockResolvedValue({ source: 'eralyon', basis: null, samples: [], frames: [] })
@@ -106,4 +120,25 @@ it('asks only for the newest buckets on each chart tick', async () => {
   expect(from).toBeLessThanOrEqual(start + 7_140)
   // On the full read's 60 s grid.
   expect(options).toEqual({ maxResolution: 60 })
+})
+
+it('caps imported observations, native history, and the live endpoint of the progress chart', async () => {
+  const from = seconds(start + 1_000)
+  const to = seconds(start + 5_000)
+  const artwork = { ...live('a'), progressWindow: { start: from, end: to } }
+  const sample = (at: number) => ({ at: seconds(at), correct: 1, mismatched: 0, total: 4 })
+  client.getArchiveHistory.mockResolvedValue({
+    source: 'eralyon',
+    basis: { versionId: artwork.version, total: 4 },
+    samples: [start, from, to].map((at) => ({ ...sample(at), snapshotId: at })),
+    frames: [],
+  })
+  client.getTemplateProgressHistory.mockResolvedValue({ samples: [sample(start + 2_000)] })
+  render([artwork])
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+
+  expect(client.getTemplateProgressHistory).toHaveBeenCalledWith('a', from, to, from)
+  expect(fixture.chart).toMatchObject({ from, to, live: false })
+  expect(fixture.chart?.samples.map(({ at }) => at)).toEqual([from, start + 2_000])
 })
