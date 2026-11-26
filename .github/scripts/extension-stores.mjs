@@ -11,7 +11,8 @@
  * of this one.
  * Edge: EDGE_PRODUCT_ID, EDGE_CLIENT_ID, EDGE_API_KEY. A store still reviewing the previous version
  * is skipped.
- * Firefox: AMO_JWT_ISSUER, AMO_JWT_SECRET. Skipped until the add-on exists on addons.mozilla.org.
+ * Firefox: AMO_JWT_ISSUER, AMO_JWT_SECRET. Skipped until the add-on exists on addons.mozilla.org,
+ * and when its current version is this one.
  *
  * Each store publishes the version once its review approves it.
  */
@@ -42,6 +43,9 @@ const credentials = (store, names) => {
   notice(`${store} credentials are not set up; skipping ${store}.`)
   return null
 }
+
+const manifestVersion = (zip) =>
+  JSON.parse(execFileSync('unzip', ['-p', zip, 'manifest.json'], { encoding: 'utf8' })).version
 
 const request = async (url, init) => {
   const response = await fetch(url, init)
@@ -91,7 +95,7 @@ const chrome = async (zip) => {
 
   // A store retry runs every store again, and Chrome refuses a version it already has.
   const current = await status()
-  const { version } = JSON.parse(execFileSync('unzip', ['-p', zip, 'manifest.json'], 'utf8'))
+  const version = manifestVersion(zip)
   const revisions = [current.publishedItemRevisionStatus, current.submittedItemRevisionStatus]
   if (
     revisions.some(
@@ -212,11 +216,15 @@ const firefox = async (zip, source) => {
   }
   if (!addon.ok)
     throw new Error(`addons.mozilla.org answered ${addon.status}: ${await addon.text()}`)
+  const version = manifestVersion(zip)
+  if ((await addon.json()).current_version?.version === version) {
+    notice(`addons.mozilla.org already has ${version}; skipping Firefox.`)
+    return
+  }
 
   const work = mkdtempSync(join(tmpdir(), 'caelestis-amo-'))
   const extension = join(work, 'extension')
   execFileSync('unzip', ['-q', zip, '-d', extension])
-  const { version } = JSON.parse(readFileSync(join(extension, 'manifest.json'), 'utf8'))
   const changelog = readFileSync(
     new URL('../../apps/userscript/CHANGELOG.md', import.meta.url),
     'utf8',
