@@ -302,6 +302,13 @@ describe('template lifetime progress', () => {
     const history = (await response.json()) as TemplateProgressHistoryResponse
     expect(history.resolution).toBe(86_400)
     expect(history.samples).toContainEqual(expect.objectContaining({ at: end - 1, correct: 5 }))
+    const playback = await backend.app.fetch(
+      authorized(`/telemetry/tiles/0/0/history?season=3&from=${day}&to=${end}`),
+    )
+    expect(playback.status).toBe(200)
+    expect(await playback.json()).toMatchObject({
+      frames: [{ bucketStart: day, at: end - 1 }],
+    })
   })
 
   it.each([

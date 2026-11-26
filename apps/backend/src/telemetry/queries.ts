@@ -41,7 +41,11 @@ import {
 } from './derived-artifacts.js'
 import { LADDER_RESOLUTIONS, TELEMETRY_DECAY_EDGES } from './history/ladder.js'
 import { painterLabel } from './history/store.js'
-import { TILE_HISTORY_DECAY_EDGES, TILE_HISTORY_RESOLUTIONS } from './tiles/ladder.js'
+import {
+  TILE_HISTORY_DECAY_EDGES,
+  TILE_HISTORY_RESOLUTIONS,
+  tileCaptureTime,
+} from './tiles/ladder.js'
 import type { TileStore } from './tiles/store.js'
 
 interface HistoryTier {
@@ -185,6 +189,7 @@ const compareIds = (left: string, right: string): number =>
 /** Keep each tier's observations unless a finer tier covers the same bucket. */
 const mergeTileHistory = (
   tiers: readonly { readonly resolution: number; readonly frames: readonly TileHistoryFrame[] }[],
+  to: Seconds,
 ): readonly TileHistoryFrame[] => {
   const covered = new Map(
     TILE_HISTORY_RESOLUTIONS.map((resolution) => [resolution, new Set<number>()]),
@@ -195,7 +200,8 @@ const mergeTileHistory = (
   for (const tier of tiers) {
     for (const frame of tier.frames) {
       if (covered.get(tier.resolution)?.has(frame.bucketStart)) continue
-      frames.push(frame)
+      const at = tileCaptureTime(frame.bucketStart, tier.resolution)
+      frames.push(at !== frame.bucketStart && at < to ? { ...frame, at } : frame)
       for (const [resolution, starts] of covered) {
         if (resolution > tier.resolution) {
           starts.add(Math.floor(frame.bucketStart / resolution) * resolution)
@@ -613,7 +619,10 @@ export const readTileHistory = (input: {
     )
     return {
       ...(resolution === undefined ? {} : { resolution }),
-      frames: resolution === undefined ? mergeTileHistory(tiers) : (tiers[0]?.frames ?? []),
+      frames:
+        resolution === undefined
+          ? mergeTileHistory(tiers, input.range.toSeconds)
+          : (tiers[0]?.frames ?? []),
     }
   })
 

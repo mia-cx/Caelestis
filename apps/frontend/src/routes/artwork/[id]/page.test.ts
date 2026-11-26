@@ -377,6 +377,32 @@ it('does not draw a time axis when there are no tile captures', async () => {
   expect(chart()).toBeNull()
 })
 
+it('includes the final folded capture and its counts at the same chart edge', async () => {
+  const last = start + 5_399
+  fixture.api.getTileHistory.mockResolvedValue({
+    frames: [
+      { bucketStart: start, hash: 'first', reporters: 1 },
+      { bucketStart: start + 1_800, at: last, hash: 'folded', reporters: 1 },
+    ],
+  })
+  fixture.api.getTemplateProgressHistory.mockResolvedValue({
+    samples: [
+      { at: start, correct: 0, mismatched: 0, total: 1 },
+      { at: last, correct: 1, mismatched: 0, total: 1 },
+    ],
+  })
+  await show()
+  expect(
+    Number(document.querySelector('[data-handle="tail"]')?.getAttribute('aria-valuemax')),
+  ).toBe(last)
+  clickChart(last)
+  expect(position()).toBe(last - start)
+  expect(shownHash()).toBe('folded')
+  chart()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+  flushSync()
+  expect(document.querySelector('[aria-live="polite"]')?.textContent).toContain('1 correct')
+})
+
 it('scrubs from the playhead and leaves a drag elsewhere to zoom', async () => {
   fixture.api.getHistory.mockResolvedValue({
     buckets: [{ templateId: template.id, bucketStart: seconds(start), resolution: 60, placed: 1 }],

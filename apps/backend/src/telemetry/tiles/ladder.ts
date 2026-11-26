@@ -3,6 +3,9 @@ import { type Seconds, seconds, type TileCoord, type TileHistoryFrame } from '@c
 /** Bucket widths `tile_history` folds to. 0 is raw. */
 export const TILE_HISTORY_RESOLUTIONS: readonly number[] = [0, 3_600, 21_600, 86_400]
 
+export const tileCaptureTime = (bucketStart: Seconds, resolution: number): Seconds =>
+  seconds(bucketStart + Math.max(0, resolution - 1))
+
 export { TILE_HISTORY_DECAY_EDGES } from '@caelestis/shared'
 
 /** One physical reporter row carried between tile-history tiers. */

@@ -1371,6 +1371,7 @@ export const CanvasTilesResponse = CanvasTilesResponseStruct.pipe(
 
 const TileHistoryFrameStruct = Schema.Struct({
   bucketStart: Seconds,
+  at: Schema.optionalKey(Seconds),
   hash: Hash,
   reporters: NonNegativeInteger,
 })

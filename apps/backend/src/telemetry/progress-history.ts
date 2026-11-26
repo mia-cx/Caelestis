@@ -14,6 +14,7 @@ import type { TemplateVersionRecord } from '../templates/store.js'
 import type { TileBlobStore } from './blobs/store.js'
 import { type ClassificationTarget, classifyTarget, readDecodedCanvas } from './classification.js'
 import { type HistoryRange, selectTileHistoryResolution } from './queries.js'
+import { tileCaptureTime } from './tiles/ladder.js'
 import type { MeasuredTileFrame, TileMeasurement, TileStore } from './tiles/store.js'
 
 /** Derive counts for a retained canvas image against one artwork revision. */
@@ -107,7 +108,7 @@ export const readProgressHistory = (
       const frame = classified.get(storedFrame) ?? storedFrame
       // Stamp folded captures at the last second of their bucket, independent of the read cutoff.
       const at = Math.min(
-        frame.bucketStart + Math.max(0, resolution - 1),
+        tileCaptureTime(frame.bucketStart, resolution),
         (lifetime?.toSeconds ?? Infinity) - 1,
       )
       if (at >= range.toSeconds) continue
