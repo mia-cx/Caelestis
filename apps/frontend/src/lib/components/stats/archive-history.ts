@@ -27,6 +27,18 @@ export const combineArchiveSamples = (
         }),
       ),
   )
+  const lastCapture = Math.max(-Infinity, ...times.keys())
+  for (const window of windows) {
+    const end = window?.end
+    if (
+      end != null &&
+      end < lastCapture &&
+      !times.has(end) &&
+      !histories.some((_, index) => inProgressWindow(end, windows[index]))
+    ) {
+      times.set(end, 0)
+    }
+  }
   return [...times]
     .sort(([a], [b]) => a - b)
     .map(([at, snapshotId]) => {

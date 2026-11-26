@@ -7,6 +7,7 @@ import {
 } from '../lib/components/stats/archive-history'
 import { contributionPainters } from '../lib/components/stats/community.svelte'
 import { completionPace } from '../lib/components/stats/completion-pace'
+import { progressSegments } from '../lib/components/stats/pace-model'
 import {
   selectAllPainters,
   togglePainterSelection,
@@ -117,6 +118,31 @@ describe('observed progress and archive precedence', () => {
     expect(
       mergeObservedProgress(imported, [creation]).map(({ at, correct }) => ({ at, correct })),
     ).toEqual(imported.map(({ at, correct }) => ({ at, correct })))
+  })
+
+  it('breaks the imported progress line when no template is in its date window', () => {
+    const basis = {
+      templateId: template().id,
+      versionId: template().version,
+      name: 'Artwork',
+      season: 1,
+      bbox: { minX: 0, minY: 0, maxX: 10, maxY: 1 },
+      total: 10,
+      chunks: [],
+    }
+    const values = combineArchiveSamples(
+      [
+        { source: 'eralyon', basis, samples: [archive(10, 2)], frames: [] },
+        { source: 'eralyon', basis, samples: [archive(30, 3)], frames: [] },
+      ],
+      [
+        { start: null, end: seconds(15) },
+        { start: seconds(25), end: null },
+      ],
+    )
+    expect(
+      progressSegments(mergeObservedProgress(values, [])).map((line) => line.map((p) => p.t)),
+    ).toEqual([[10], [30]])
   })
 
   it('credits daily archive gains to their capture date and skips missing capture days', () => {
