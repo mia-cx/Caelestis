@@ -23,6 +23,8 @@ import { join } from 'node:path'
 import { fitReleaseNotes, releaseNotesFor } from './release-notes.mjs'
 
 const AMO_RELEASE_NOTES_LIMIT = 3_000
+/** Chrome revision states that neither publish nor review the version, so a retry submits it again. */
+const ENDED_CHROME_STATES = new Set(['REJECTED', 'CANCELLED'])
 const POLL_MS = 5_000
 const POLL_LIMIT = 60
 const WEB_EXT = 'web-ext@10.8.0'
@@ -92,8 +94,10 @@ const chrome = async (zip) => {
   const { version } = JSON.parse(execFileSync('unzip', ['-p', zip, 'manifest.json'], 'utf8'))
   const revisions = [current.publishedItemRevisionStatus, current.submittedItemRevisionStatus]
   if (
-    revisions.some((revision) =>
-      revision?.distributionChannels?.some((channel) => channel.crxVersion === version),
+    revisions.some(
+      (revision) =>
+        !ENDED_CHROME_STATES.has(revision?.state) &&
+        revision?.distributionChannels?.some((channel) => channel.crxVersion === version),
     )
   ) {
     notice(`The Chrome Web Store already has ${version}; skipping the Chrome Web Store.`)
