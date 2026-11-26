@@ -1,5 +1,26 @@
 # @caelestis/backend
 
+## 1.1.1
+
+### Patch Changes
+
+- da42aa1: A write that lands as an archive or restore begins now gets the same 503 with `retry-after` as every other request during the operation, instead of a 500.
+- f1c4e01: A paint report larger than the live transport's 8 MiB limit is refused with a 400 before the server reads all of it, as tile offers and uploads already were.
+- da42aa1: Server asset uploads and archive restores without a `Content-Length` are refused once they pass the size limit instead of being read in full, and the restore limit message names 64 MiB.
+- 702949e: A tile upload that fails because a template's stored artwork disagrees with its own bounds is answered as a server error, as a tile offer already was, instead of blaming the reporter with a 400.
+- 1a802a4: A Worker deployed from the self-hosted example answers requests again: an empty variable, such as its `SERVER_DESCRIPTION = ""`, now counts as unset on both hosts.
+- da42aa1: The canvas mirror no longer counts a tile whose refresh fails as both unchanged and failed.
+- da42aa1: A live tile upload whose bytes do not match its hash is answered as invalid instead of unavailable.
+- 115a52f: Deleting a folder that has subfolders now works on MariaDB.
+- e882396: On MariaDB 11.6 and later, a write that collides with another server request's just-committed change is retried instead of failing with "Record has changed since last read".
+- 5871409: On MariaDB, counter and server-state transactions that lose a deadlock or time out on a lock now run again, as they already did on PostgreSQL, instead of failing on the first try.
+- 328f4fb: Node `/metrics` reports the live-sync limit set by `CAELESTIS_LIVE_SUBSCRIBER_LIMIT`, and counts upgrades on the unversioned `/telemetry/live` and `/telemetry/presence` routes.
+- Presence rooms check the state stored on live connections that outlast a deploy, as live sync already did, and refuse a malformed one instead of acting on it.
+- 8e85cb1: A self-hosted server's `caelestis_presence_connections` metric counts the same presence sessions room admission counts, so it no longer reads higher than the capacity limit enforces.
+- 6d8735a: A self-hosted server started with `PORT=0` renders share images through the port it actually bound, instead of failing to reach port 0 when the job was already due at startup.
+- 212c992: Templates on sparse canvas tiles now get progress, status and alarms: the backend decodes the 1-, 2- and 4-bit tiles Wplace serves for them.
+- ff91946: A reported tile that does not decode is refused with 400 instead of 500, so reporters stop resending it.
+
 ## 1.1.0
 
 ### Minor Changes
