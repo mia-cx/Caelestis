@@ -19,8 +19,9 @@ import { createSign } from 'node:crypto'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { releaseNotesFor } from './release-notes.mjs'
+import { fitReleaseNotes, releaseNotesFor } from './release-notes.mjs'
 
+const AMO_RELEASE_NOTES_LIMIT = 3_000
 const POLL_MS = 5_000
 const POLL_LIMIT = 60
 const WEB_EXT = 'web-ext@10.8.0'
@@ -202,12 +203,17 @@ const firefox = async (zip, source) => {
     new URL('../../apps/userscript/CHANGELOG.md', import.meta.url),
     'utf8',
   )
-  const notes = releaseNotesFor(changelog, version)
-    .split('\n')
-    .filter((line) => !line.startsWith('#'))
-    .map((line) => line.replace(/^- [0-9a-f]{7,}: /, '- '))
-    .join('\n')
-    .trim()
+  const notes = fitReleaseNotes(
+    releaseNotesFor(changelog, version)
+      .split('\n')
+      .filter((line) => !line.startsWith('#'))
+      .map((line) => line.replace(/^- [0-9a-f]{7,}: /, '- '))
+      .join('\n')
+      .trim(),
+    AMO_RELEASE_NOTES_LIMIT,
+    // biome-ignore lint/suspicious/noUndeclaredEnvVars: This script runs directly in GitHub Actions, outside Turbo.
+    `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/tag/userscript-v${version}`,
+  )
   const metadata = join(work, 'amo.json')
   writeFileSync(
     metadata,

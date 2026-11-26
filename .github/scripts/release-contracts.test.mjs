@@ -17,7 +17,7 @@ import { portableImages, portableVersion } from './prepare-portable-release.mjs'
 import { prepareUserscriptRelease } from './prepare-userscript-release.mjs'
 import { releaseBody, shippedIssues } from './release-issues.mjs'
 import { isReleaseMerge, releaseValidated } from './release-merge.mjs'
-import { releaseNotesFor } from './release-notes.mjs'
+import { fitReleaseNotes, releaseNotesFor } from './release-notes.mjs'
 import { userscriptMetricVersions } from './userscript-metric-versions.mjs'
 
 const notes = '### Patch Changes\n\n- abc1234: Preserve template placement.'
@@ -236,6 +236,16 @@ test('release notes require an exact nonempty version section', () => {
   assert.equal(releaseNotesFor(changelog, '1.2.3'), notes)
   assert.throws(() => releaseNotesFor(changelog, '1.2'), /no .* release section/)
   assert.throws(() => releaseNotesFor('## 1.2.3\n\n## 1.2.2\nold', '1.2.3'), /empty/)
+})
+
+test('release notes past a store limit keep whole bullets and link the full notes', () => {
+  const long = '- first change\n  - its detail\n- second change\n- third change'
+  assert.equal(fitReleaseNotes(long, long.length, 'https://x.test'), long)
+  assert.equal(
+    fitReleaseNotes(long, 59, 'https://x.test'),
+    '- first change\n  - its detail\n\nFull notes: https://x.test',
+  )
+  assert.equal(fitReleaseNotes(long, 30, 'https://x.test'), 'Full notes: https://x.test')
 })
 
 test('a pending note stays immutable and describes one atomic app change', () => {
