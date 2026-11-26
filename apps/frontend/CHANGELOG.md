@@ -1,5 +1,27 @@
 # @caelestis/frontend
 
+## 1.1.0
+
+### Minor Changes
+
+- d9e770d: Colour progress can also sort by name, most mismatched or most unpainted.
+
+### Patch Changes
+
+- 892c713: The artwork page breadcrumb shows the full folder path to the artwork.
+- 3d9012d: Artwork cards draw art that crosses the map's date line in place, like the viewer, instead of stacking it at its left edge.
+- 57543a5: Colour progress fits its column rather than the window, and narrow rows show colour names instead of palette numbers.
+- 1e24221: A folder shows its progress by colour only once every published artwork in it has reported, so no colour's share is understated.
+- 800ba9b: The leaderboard lists the same 100 painters whether the dashboard streams live or polls, instead of 50 when polling.
+- 324d4bc: Progress meters and colour rows take the dashboard theme's muted text, success and surface colours in light and dark mode.
+- 5ceb102: The pace chart's hover card says a pace includes imported net progress whenever that pace's window reaches into imported archive data, including the first day after an artwork was added.
+- 8fb30c5: Artwork and folder tabs are titled with the server's name, as their link previews already were.
+- 8fb30c5: An artwork that crosses the map's date line shows its real width and links to its centre on Wplace.
+- d446a87: A server URL with its own path connects to that path, as it does in the userscript, instead of appending `/backend` to it.
+- f2a7b49: Link previews of a replaced artwork no longer show the previous version's progress.
+- 1e24221: Replaced artworks no longer show the previous version's progress until a fresh scan reports.
+- 2f543ab: A saved server address with a username or password no longer breaks the dashboard; it falls back to the default server so you can choose another.
+
 ## 1.0.2
 
 ### Patch Changes
