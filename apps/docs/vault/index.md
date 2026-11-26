@@ -33,6 +33,6 @@ The backend stores shared artwork and progress. The frontend serves the dashboar
 
 - [GitHub releases](https://github.com/mia-cx/Caelestis/releases)
 - [Official dashboard](https://caelest.is)
-- [The Quilt Discord](https://discord.gg/thequilt)
+- [The Quilt Discord](https://discord.gg/b7gQFHhQkk)
 - [Report a bug](https://github.com/mia-cx/Caelestis/issues/new/choose)
 - [Contribute](Contributing)
