@@ -223,9 +223,10 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
     at: Seconds,
   ): Promise<readonly MeasuredTileFrame[]> {
     // Seek the single latest bucket per (tile, resolution) via the primary key instead of grouping
-    // every historical observation before `at`.
+    // every historical observation before `at`. GROUP BY keeps SQLite from flattening this CTE
+    // into `votes` and scanning all rows of `tile_history` before evaluating the MAX subquery.
     const resolutionRows = TILE_HISTORY_RESOLUTIONS.map(
-      (tier) => `SELECT ${tier} AS resolution_s`,
+      (tier) => `SELECT ${tier} AS resolution_s, ${tier === 0 ? 1 : tier} AS min_age_s`,
     ).join(' UNION ALL ')
     const result = await this.client
       .prepare(`
@@ -237,13 +238,13 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
              AND h.tile_x = chunk.tile_x
              AND h.tile_y = chunk.tile_y
              AND h.resolution_s = r.resolution_s
-             AND h.bucket_start_s < ?2
-             AND h.bucket_start_s <= ?2 - r.resolution_s) AS bucket_start_s
+             AND h.bucket_start_s <= ?2 - r.min_age_s) AS bucket_start_s
         FROM version_tiles AS chunk
         INNER JOIN template_versions AS version ON version.id = chunk.version_id
         INNER JOIN templates AS template ON template.id = version.template_id
         CROSS JOIN (${resolutionRows}) AS r
         WHERE chunk.version_id = ?1
+        GROUP BY chunk.tile_x, chunk.tile_y, template.season, r.resolution_s, r.min_age_s
       ), votes AS (
         SELECT lb.tile_x, lb.tile_y, lb.resolution_s, lb.bucket_start_s,
           history.sha256, COUNT(DISTINCT history.reported_by_user_id) AS reporters
