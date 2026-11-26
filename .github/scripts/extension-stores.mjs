@@ -6,8 +6,9 @@
  *   node .github/scripts/extension-stores.mjs edge <extension.zip>
  *   node .github/scripts/extension-stores.mjs firefox <extension.zip> <source.zip>
  *
- * Chrome: CHROME_SERVICE_ACCOUNT_KEY, CHROME_PUBLISHER_ID, CHROME_ITEM_ID. A submission still in
- * review is cancelled in favour of this one.
+ * Chrome: CHROME_SERVICE_ACCOUNT_KEY, CHROME_PUBLISHER_ID, CHROME_ITEM_ID. A version the store
+ * already has is skipped. A submission of an older version still in review is cancelled in favour
+ * of this one.
  * Edge: EDGE_PRODUCT_ID, EDGE_CLIENT_ID, EDGE_API_KEY. A store still reviewing the previous version
  * is skipped.
  * Firefox: AMO_JWT_ISSUER, AMO_JWT_SECRET. Skipped until the add-on exists on addons.mozilla.org.
@@ -86,7 +87,20 @@ const chrome = async (zip) => {
     }).then(({ body }) => body)
   const status = () => call('GET', `/v2/${item}:fetchStatus`)
 
-  if ((await status()).submittedItemRevisionStatus?.state === 'PENDING_REVIEW') {
+  // A store retry runs every store again, and Chrome refuses a version it already has.
+  const current = await status()
+  const { version } = JSON.parse(execFileSync('unzip', ['-p', zip, 'manifest.json'], 'utf8'))
+  const revisions = [current.publishedItemRevisionStatus, current.submittedItemRevisionStatus]
+  if (
+    revisions.some((revision) =>
+      revision?.distributionChannels?.some((channel) => channel.crxVersion === version),
+    )
+  ) {
+    notice(`The Chrome Web Store already has ${version}; skipping the Chrome Web Store.`)
+    return
+  }
+
+  if (current.submittedItemRevisionStatus?.state === 'PENDING_REVIEW') {
     await call('POST', `/v2/${item}:cancelSubmission`)
     notice('Cancelled the Chrome Web Store submission still in review.')
   }
