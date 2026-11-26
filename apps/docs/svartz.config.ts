@@ -28,7 +28,7 @@ export default defineConfig({
         baseUrl: 'https://backend.wplace.live',
       },
       site: {
-        title: 'Wplace developer guide',
+        title: 'Wplace modding guide',
         description: 'Unofficial docs for building apps, mods and userscripts for Wplace.',
         url: 'https://build.wikiplace.live',
       },

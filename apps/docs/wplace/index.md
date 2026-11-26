@@ -1,5 +1,5 @@
 ---
-title: Wplace developer guide
+title: Wplace modding guide
 description: Unofficial reference for building Wplace mods, userscripts and apps, with every backend endpoint, client hook and Pawtect flag.
 ---
 
