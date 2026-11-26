@@ -6,6 +6,7 @@ import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AppState } from '#lib/state/app.svelte.js'
 import { appState, template } from '../../../tests/fixtures'
+import type { PainterHistorySource } from './progress-pace'
 
 const client = vi.hoisted(() => ({
   getArchiveHistory: vi.fn(),
@@ -24,6 +25,7 @@ const fixture = vi.hoisted(() => ({
     from: number
     to: number
     live: boolean
+    painterHistories: readonly PainterHistorySource[]
   },
 }))
 vi.mock('#lib/state/app.svelte.js', async (original) => ({
@@ -69,6 +71,7 @@ beforeEach(() => {
     ],
   })
   client.getPainterTotals.mockReset().mockResolvedValue({ painters: [] })
+  client.getPainterHistory.mockReset().mockResolvedValue({ buckets: [] })
   fixture.app = appState()
   // Streamed dashboards are the path these tests pin; the subscription itself is AppState's.
   fixture.app.live = true
@@ -141,4 +144,32 @@ it('caps imported observations, native history, and the live endpoint of the pro
   expect(client.getTemplateProgressHistory).toHaveBeenCalledWith('a', from, to, from)
   expect(fixture.chart).toMatchObject({ from, to, live: false })
   expect(fixture.chart?.samples.map(({ at }) => at)).toEqual([from, start + 2_000])
+})
+
+it('excludes a capped sibling’s placements from painter pace', async () => {
+  const painter = { wplaceUserId: 123, displayName: 'Painter' }
+  client.getPainterTotals.mockResolvedValue({
+    painters: [{ ...painter, placed: 4, correct: 4, repairs: 0 }],
+  })
+  client.getPainterHistory.mockResolvedValue({
+    buckets: ['a', 'b'].map((templateId) => ({
+      ...painter,
+      templateId,
+      resolution: 60,
+      bucketStart: seconds(start + 7_140),
+      placed: 2,
+      correct: 2,
+      repairs: 0,
+    })),
+  })
+  render([
+    { ...live('a'), progressWindow: { start: null, end: seconds(start + 5_000) } },
+    live('b'),
+  ])
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+  const histories = fixture.chart?.painterHistories ?? []
+  expect(histories.length).toBeGreaterThan(0)
+  for (const { history } of histories)
+    expect(history.buckets.map(({ templateId }) => templateId)).toEqual(['b'])
 })

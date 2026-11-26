@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { DAY_SECONDS, HOUR_SECONDS, type Progress, type Template } from '@caelestis/shared'
+  import { DAY_SECONDS, type HistoryBucket, HOUR_SECONDS, type Progress, type Template } from '@caelestis/shared'
   import Select from '#lib/components/Select.svelte'
   import { STORAGE_KEYS } from '#lib/deployment.js'
   import { Persisted } from '#lib/persisted.svelte.js'
@@ -44,6 +44,17 @@
   const selection = new PaceSelection(() => activity.painters)
   const activity = new ActivityReads(scope, selection)
   const community = new Community(scope)
+  const progressWindows = $derived(new Map(templates.map(({ id, progressWindow }) => [id, progressWindow])))
+  const inBucketWindow = (bucket: HistoryBucket): boolean => {
+    const window = progressWindows.get(bucket.templateId)
+    return bucket.bucketStart >= (window?.start ?? -Infinity) &&
+      bucket.bucketStart + bucket.resolution <= (window?.end ?? Infinity)
+  }
+  const progressBuckets = $derived(activity.buckets?.filter(inBucketWindow) ?? [])
+  const painterHistories = $derived(activity.painterHistories.map(({ window, history }) => ({
+    window,
+    history: { ...history, buckets: history.buckets.filter(inBucketWindow) },
+  })))
 
   const progressRevision = $derived(JSON.stringify(templates.map((template) => template.version)))
   const remainingPixels = $derived(progress.total - progress.completed)
@@ -135,14 +146,14 @@
     {:else}
       <ProgressPaceChart
         samples={observations}
-        buckets={activity.buckets}
+        buckets={progressBuckets}
         resolution={activity.buckets[0]?.resolution ?? EMPTY_HISTORY_RESOLUTION}
         from={displayFrom}
         to={scope.progressTo}
         live={scope.progressLive}
         paces={selection}
         painters={activity.painters}
-        painterHistories={activity.painterHistories}
+        {painterHistories}
         {playhead}
         {onSeek}
         {onScrubStart}
