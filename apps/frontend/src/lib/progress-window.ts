@@ -1,11 +1,12 @@
 import { type Manifest, type ProgressWindow, seconds } from '@caelestis/shared'
 
-const inherited = (own: ProgressWindow | undefined, fallback: ProgressWindow): ProgressWindow => ({
-  start: own?.start ?? fallback.start,
-  end: own?.end ?? fallback.end,
-})
-
 const unbounded: ProgressWindow = { start: null, end: null }
+
+const inherited = (own: ProgressWindow | undefined, fallback: ProgressWindow): ProgressWindow => {
+  const start = own?.start ?? fallback.start
+  const end = own?.end ?? fallback.end
+  return start !== null && end !== null && start >= end ? (own ?? unbounded) : { start, end }
+}
 
 export const resolveProgressWindows = (manifest: Manifest): ReadonlyMap<string, ProgressWindow> => {
   const nodes = new Map(manifest.nodes.map((node) => [node.id, node]))

@@ -30,3 +30,35 @@ it('derives folder defaults from its descendants without changing explicit dates
     outside: { start: null, end: null },
   })
 })
+
+it('keeps explicit template dates when a folder default would invert the range', () => {
+  const folder: Node = {
+    id: 'folder',
+    name: 'Folder',
+    parentId: null,
+    path: '/folder',
+    createdAt: millis(0),
+    progressWindow: { start: seconds(10), end: seconds(20) },
+  }
+  const windows = resolveProgressWindows(
+    manifest({
+      nodes: [folder],
+      templates: [
+        template({
+          id: 'later',
+          nodeId: folder.id,
+          progressWindow: { start: seconds(30), end: null },
+        }),
+        template({
+          id: 'earlier',
+          nodeId: folder.id,
+          progressWindow: { start: null, end: seconds(5) },
+        }),
+      ],
+    }),
+  )
+  expect(Object.fromEntries(windows)).toEqual({
+    later: { start: seconds(30), end: null },
+    earlier: { start: null, end: seconds(5) },
+  })
+})
