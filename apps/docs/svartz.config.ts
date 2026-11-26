@@ -20,6 +20,7 @@ export default defineConfig({
       target: {
         type: 'cloudflare-workers',
         name: 'wplace-docs',
+        account_id: '492214885e7a580ccc1d141dfdb4dc5f',
         routes: [{ pattern: 'build.wikiplace.live', custom_domain: true }],
       },
       theme: { base: '@svartz/theme-wiki' },
