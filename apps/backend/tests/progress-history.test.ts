@@ -285,4 +285,22 @@ describe('template lifetime progress', () => {
       samples: expect.arrayContaining([expect.objectContaining({ at: start + 30, correct: 7 })]),
     })
   })
+
+  it('keeps the final daily capture in a one-day historical range', async () => {
+    const day = Math.floor(start / 86_400) * 86_400
+    const end = day + 86_400
+    const now = day + 40 * 86_400
+    vi.spyOn(Date, 'now').mockReturnValue(now * 1_000)
+    const backend = await createTestBackend()
+    await backend.sql.createTemplate(version(originalId, day, 10, [0]))
+    await observe(backend.sql, originalId, 0, day + 600, 5, 5)
+    await backend.sql.foldTileHistory(3, { x: 0, y: 0 }, seconds(now))
+    const response = await backend.app.fetch(
+      authorized(`/telemetry/progress/${templateId}?from=${day}&to=${end}&notBefore=${day}`),
+    )
+    expect(response.status).toBe(200)
+    const history = (await response.json()) as TemplateProgressHistoryResponse
+    expect(history.resolution).toBe(86_400)
+    expect(history.samples).toContainEqual(expect.objectContaining({ at: end - 1, correct: 5 }))
+  })
 })

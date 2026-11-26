@@ -188,6 +188,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
       .prepare(`
       WITH ${bucketWinners(`AND history.resolution_s <= ?4
         AND history.bucket_start_s >= ?2 AND history.bucket_start_s < ?3
+        AND history.bucket_start_s + history.resolution_s <= ?3
         AND history.bucket_start_s >= ?5 AND history.bucket_start_s < ?6
         AND history.bucket_start_s + history.resolution_s <= ?6`)}, frames AS (
         SELECT *, CASE WHEN ?4 = 0 THEN bucket_start_s

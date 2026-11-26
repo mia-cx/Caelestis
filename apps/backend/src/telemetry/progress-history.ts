@@ -105,9 +105,13 @@ export const readProgressHistory = (
     )
     for (const storedFrame of frames) {
       const frame = classified.get(storedFrame) ?? storedFrame
-      // Folded observations are stamped at the bucket's end, within this artwork's lifetime.
-      const at = Math.min(frame.bucketStart + resolution, (lifetime?.toSeconds ?? Infinity) - 1)
-      if (at >= range.toSeconds) continue
+      // Keep a bucket ending at the exclusive cutoff without stamping it outside the read.
+      const bucketEnd = Math.min(
+        frame.bucketStart + resolution,
+        (lifetime?.toSeconds ?? Infinity) - 1,
+      )
+      if (bucketEnd > range.toSeconds) continue
+      const at = Math.min(bucketEnd, range.toSeconds - 1)
       const entries = changes.get(at) ?? new Map<string, MeasuredTileFrame>()
       entries.set(tileKey({ x: frame.tileX, y: frame.tileY }), frame)
       changes.set(at, entries)
