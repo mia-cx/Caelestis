@@ -18,6 +18,7 @@ For each protected request, Pawtect builds an encrypted token and the client sen
 - `POST /paint`
 - alliance draft and headquarters paints
 - `POST /report/alliance`
+- `POST /report-user` (player reports), with the token built over an empty body
 - `POST /report/appeal` (ban appeals)
 
 Pawtect also replaces `window.fetch` with a wrapper. The wrapper changes no request. It records every absolute URL fetched through the page's `fetch`, keeps up to 64 of them, and adds them to the next token. The wrapper reports itself as native code to `fetch.toString()`.

@@ -27,7 +27,7 @@ The request needs no account and no cookies. `s0` is the current season. `tileX`
 }
 ```
 
-The response names the last account to paint that pixel. It carries no paint time, so an app that records changes knows only when it saw them. One call covers one pixel.
+The response names the last account to paint that pixel. It also carries cosmetics, such as `avatarSeed` and `equippedBadges`, and the painter's Discord handle and id (`discord`, `discordId`) when they show them. It carries no paint time, so an app that records changes knows only when it saw them. One call covers one pixel.
 
 Pixel lookups count toward the API [rate limit](Rate-limits): about 80 requests per 16 seconds per IP address.
 
@@ -79,7 +79,7 @@ The method needs no access to Wplace's servers beyond what the website itself us
 | Setting | What it changes |
 | --- | --- |
 | `showLastPixel` | Whether your alliance's leaderboard shows your last painted pixel location |
-| `showDiscord` | Whether leaderboards and profiles show your Discord handle |
+| `showDiscord` | Whether leaderboards, profiles and pixel lookups show your Discord handle |
 | `hotspotsOptOut` | Whether your painting counts toward the public hotspots list |
 | `hideAllianceHqPins` | Whether your own map shows alliance headquarters pins |
 
