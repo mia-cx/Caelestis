@@ -9,6 +9,7 @@ import {
   THEMES,
 } from '#lib/deployment.js'
 import { leaveFormerHost, MOVE_PATH, receiveMove } from '#lib/server/dashboard-move.js'
+import { redirectWww } from '#lib/server/www-redirect.js'
 import { dev } from '$app/env'
 
 /** The Caelestis docs site. Every dashboard forwards its `/docs` paths there. */
@@ -16,6 +17,9 @@ const DOCS_ORIGIN = 'https://docs.caelest.is'
 
 /** Resolve host config once, so routes read `locals` alone on either host. */
 export const handle: Handle = ({ event, resolve }) => {
+  const redirect = redirectWww(event.url)
+  if (redirect) return redirect
+
   const { origin, pathname, search } = event.url
   if (origin === FORMER_DASHBOARD_ORIGIN) return leaveFormerHost(event.request, event.url)
   if (origin === DASHBOARD_ORIGIN && pathname === MOVE_PATH && event.request.method === 'POST') {

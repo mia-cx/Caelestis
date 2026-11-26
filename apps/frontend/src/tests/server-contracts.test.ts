@@ -125,6 +125,16 @@ describe('server-side read boundaries', () => {
     }
   })
 
+  it('redirects the www host to the apex before forwarding /docs', async () => {
+    const event = requestEvent('https://www.caelest.is/docs/x?y=1', vi.fn<typeof fetch>())
+    const resolve = vi.fn()
+    const response = await handle({ event, resolve })
+
+    expect(response.status).toBe(301)
+    expect(response.headers.get('location')).toBe('https://caelest.is/docs/x?y=1')
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
   it('forwards /docs paths to the docs site without reaching any route', async () => {
     const resolve = vi.fn()
     const forwarded = async (url: string) => {
