@@ -201,7 +201,7 @@ export class TimelapsePlayer {
           window?.start ?? 0,
           Math.min(...templates.map((template) => Math.floor(template.createdAt / 1_000))),
         )
-        const to = Math.min(Math.max(...templates.map(naturalEndOf)) + 1, window?.end ?? Infinity)
+        const to = Math.max(...templates.map(endOf)) + 1
         const [archives, response] = await Promise.all([
           Promise.all(
             templates.map((template) =>
@@ -209,7 +209,9 @@ export class TimelapsePlayer {
                 (archive) =>
                   archive.frames.filter(
                     (frame) =>
-                      frame.at <= naturalEndOf(template) && inProgressWindow(frame.at, window),
+                      frame.at < to &&
+                      frame.at <= naturalEndOf(template) &&
+                      inProgressWindow(frame.at, window),
                   ),
                 () => {
                   fail('Imported timelapse history could not load.')
@@ -227,7 +229,9 @@ export class TimelapsePlayer {
         ])
         const native = {
           ...response,
-          frames: response.frames.filter((frame) => inProgressWindow(frame.bucketStart, window)),
+          frames: response.frames.filter(
+            (frame) => frame.bucketStart < to && inProgressWindow(frame.bucketStart, window),
+          ),
         }
         return [key, mergeArchiveFrames(native, archives.flat())] as const
       }),

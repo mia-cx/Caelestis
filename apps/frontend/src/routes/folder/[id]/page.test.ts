@@ -156,3 +156,23 @@ it('inherits folder dates and takes the outer dates of templates on a shared til
   expect(position()).toBe(4_999)
   expect(document.querySelector('.badge-success')).toBeNull()
 })
+
+it('does not read a shared tile after all of its capturing templates end', async () => {
+  fixture.app.manifest = manifest({
+    nodes: [node('route', null), node('child', 'route')],
+    templates: [
+      { ...top, progressWindow: { start: null, end: seconds(start + 1_000) } },
+      {
+        ...nested,
+        bbox: top.bbox,
+        finishedAt: millis((start + 2_000) * 1_000),
+        progressWindow: { start: null, end: seconds(start + 5_000) },
+      },
+      at('elsewhere', 'child', 500_000, 500_000),
+    ],
+  })
+  mounted = mount(Page, { target: document.body })
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(fixture.history).toHaveBeenCalledWith(10, 10, 1, start, start + 2_001)
+})
