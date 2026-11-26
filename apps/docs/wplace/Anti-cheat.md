@@ -7,7 +7,7 @@ Wplace's client-side anti-cheat is called Pawtect. This page lists what it reads
 
 The page describes behaviour only. It does not explain how to forge, hide from, or get around any of it.
 
-It is based on a reading of the wplace.live web client from 20 November 2026 (bundle `Bx5qbGTA`, WASM `Cd8ln05J`). Nothing was run. Wplace can change any of this at any time. Server-side scoring is invisible to the client, so this page only names it.
+It is based on a reading of the wplace.live web client from 20 November 2026. The loader, WASM and flags were rechecked on 26 November 2026 (Pawtect loader `BcgqpPa1`, WASM `Cd8ln05J`). Nothing was run. Wplace can change any of this at any time. Server-side scoring is invisible to the client, so this page only names it.
 
 ## How it works
 
