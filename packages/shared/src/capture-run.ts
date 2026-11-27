@@ -73,11 +73,34 @@ export const captureSlot = (run: CaptureRun, index: number): number | null =>
     ? null
     : run.startsAt + (isCaptureGuard(run, index) ? 0 : index * run.staggerMs)
 
+/**
+ * Whether a line's pixels fit in a box no wider or taller than a line can be long. A painter places
+ * at most that many pixels, so anything wider is malformed, and bounding it bounds what a client
+ * allocates to draw it.
+ */
+export const isCompactCaptureLine = (line: readonly number[]): boolean => {
+  if (line.length === 0) return true
+  let minX = Number.POSITIVE_INFINITY
+  let minY = Number.POSITIVE_INFINITY
+  let maxX = Number.NEGATIVE_INFINITY
+  let maxY = Number.NEGATIVE_INFINITY
+  for (let at = 0; at + 1 < line.length; at += 2) {
+    const x = line[at] as number
+    const y = line[at + 1] as number
+    minX = Math.min(minX, x)
+    maxX = Math.max(maxX, x)
+    minY = Math.min(minY, y)
+    maxY = Math.max(maxY, y)
+  }
+  return maxX - minX < MAX_CAPTURE_LINE_PIXELS && maxY - minY < MAX_CAPTURE_LINE_PIXELS
+}
+
 const isLine = (value: unknown): value is readonly number[] =>
   Array.isArray(value) &&
   value.length % 2 === 0 &&
   value.length <= MAX_CAPTURE_LINE_PIXELS * 2 &&
-  value.every((n) => isSafeInteger(n) && n >= 0)
+  value.every((n) => isSafeInteger(n) && n >= 0) &&
+  isCompactCaptureLine(value)
 
 const isMember = (value: unknown): value is CaptureMember =>
   isRecord(value) &&

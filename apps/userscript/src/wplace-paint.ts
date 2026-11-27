@@ -108,11 +108,13 @@ export const performPaintAction = (): boolean => {
 }
 
 /**
- * Submit the open draft through the drawer's Paint button, for a capture run's slot. The caller
- * checks the `capture-paint` switch; Wplace flags the click as `UntrustedPaintSubmit`.
+ * Submit the open world draft through the drawer's Paint button, for a capture run's slot. Never
+ * an alliance editor's draft, which has nothing to do with the run. The caller checks the
+ * `capture-paint` switch; Wplace flags the click as `UntrustedPaintSubmit`.
  */
-export const submitPaintDraft = (): boolean => {
-  const drawer = paintDrawer(activePaintRoot())
+export const submitWorldPaintDraft = (): boolean => {
+  if (activeAllianceDialog() !== null) return false
+  const drawer = paintDrawer(document)
   return clickEnabled(drawer === null ? null : paintDrawerCommitButton(drawer))
 }
 

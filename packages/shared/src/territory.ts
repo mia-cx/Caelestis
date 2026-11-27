@@ -266,12 +266,17 @@ export const anchorStrips = (
   return [strip(wall.slice(0, length)), strip(wall.slice(-length).reverse())]
 }
 
-/** Split an ordered wall into consecutive lines of at most `charges` pixels each. */
-export const splitWall = (wall: readonly ArenaPixel[], charges: number): CapturePlan => {
-  const lines: ArenaPixel[][] = []
-  for (let start = 0; start < wall.length; start += charges)
-    lines.push(wall.slice(start, start + charges))
-  return { lines }
+/**
+ * Split an ordered wall into exactly `painters` consecutive lines, as even as they come, so each
+ * painter of the group has one; a wall shorter than the group leaves the last lines empty.
+ */
+export const splitWall = (wall: readonly ArenaPixel[], painters: number): CapturePlan => {
+  const size = Math.ceil(wall.length / painters)
+  return {
+    lines: Array.from({ length: painters }, (_, index) =>
+      wall.slice(index * size, (index + 1) * size),
+    ),
+  }
 }
 
 /**
@@ -343,7 +348,7 @@ export const edgeRectanglePlanner: CapturePlanner = ({ map, team, painters, char
   return (['x', 'y'] as const)
     .map((along) => edgeWall(map, team, along, budget))
     .filter((wall): wall is ArenaPixel[] => wall !== null)
-    .map((wall) => splitWall(wall, charges))
+    .map((wall) => splitWall(wall, painters))
     .map((plan) => ({ plan, gained: simulateCapture(map, team, plan).gained }))
     .sort((a, b) => b.gained - a.gained)
     .map(({ plan }) => plan)

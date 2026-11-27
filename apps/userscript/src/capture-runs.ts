@@ -52,12 +52,11 @@ import {
 } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { hasServerAdminToken } from './server-connections.js'
-import { onStateChange } from './settings.js'
-import { simulatedInputAllowed } from './simulated-input.js'
+import { getState, onStateChange } from './settings.js'
 import { navigateTo } from './templates/navigate.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { accountIdentity } from './wplace-account.js'
-import { submitPaintDraft } from './wplace-paint.js'
+import { submitWorldPaintDraft } from './wplace-paint.js'
 import { BACKEND_ORIGIN } from './wplace-raster.js'
 
 /**
@@ -85,6 +84,10 @@ const TICK_MS = 100
 const DONE_AFTER_MS = 3_000
 /** How long before a slot the precise wait starts; setTimeout alone can be late by this much. */
 const SPIN_MS = 30
+/** A slot this far behind when the tab wakes is skipped: the next painter has gone already. */
+const MISSED_SLOT_MS = 250
+/** The most often a member reports their drafted count; the latest count goes each time. */
+const DRAFTED_REPORT_MS = 1_000
 
 interface Proposal extends CaptureProposal {
   /** Each painter's line as flat world coordinates. */
@@ -102,8 +105,10 @@ let element: CaelestisElement<'caelestis-capture-run'> | null = null
 let timer: ReturnType<typeof setInterval> | null = null
 /** Run id and member index whose slot this tab has already acted on, or armed. */
 let armedSlot: string | null = null
-/** Silences the beeps of the slot armed before, when the run restarts or closes. */
-let silence: () => void = () => {}
+/** Cancels the armed slot's beeps and Paint, when the run restarts, changes or closes. */
+let disarm: () => void = () => {}
+/** When this tab last reported its drafted count, so drafting never floods the socket. */
+let draftedSentAt = Number.NEGATIVE_INFINITY
 let joinedRun: string | null = null
 let lastDrafted = -1
 
@@ -453,31 +458,56 @@ const slotCues = (slot: number, go: number): CaptureCue[] => [
   { at: slot, tone: 'go' },
 ]
 
+/** Whether this tab's painter switched on "Paint at my capture slot" in Dangerous settings. */
+const autoPaintOn = (): boolean => getState().simulatedInput['capture-paint'] === true
+
 /**
- * At this painter's slot, press Paint. A timeout wakes it shortly before, then it waits out the
- * rest precisely, because timers in a busy page fire late.
+ * Arm this painter's slot: schedule the beeps, and at the slot press Paint if the switch is on
+ * then. A timeout wakes it shortly before and it waits out the rest precisely, because timers in a
+ * busy page fire late. At the deadline it checks again that the run, this painter's place in it and
+ * the switch are all as they were, and skips a slot a suspended tab woke too late for.
  */
 const armSlot = (view: CaptureView, run: CaptureRun, index: number): void => {
-  const key = `${run.id}:${index}:${run.startsAt}`
+  const key = `${view.server.url}:${run.id}:${index}:${run.startsAt}`
   if (armedSlot === key) return
   const slot = captureSlot(run, index)
   const at = slot === null ? null : localTime(view, slot)
   if (at === null) return
+  disarm()
   armedSlot = key
-  silence()
   const go = run.startsAt === null ? null : localTime(view, run.startsAt - CAPTURE_LEAD_MS)
-  silence = scheduleCaptureCues(slotCues(at, go ?? at - CAPTURE_LEAD_MS))
-  if (!simulatedInputAllowed('capture-paint')) return
+  const silenceCues = scheduleCaptureCues(slotCues(at, go ?? at - CAPTURE_LEAD_MS))
   const fire = () => {
     while (localClock() < at) {
       // Spin out the last few milliseconds; the page is about to paint anyway.
     }
-    const submitted = submitPaintDraft()
-    log('capture slot', { index, late: localClock() - at, submitted })
+    const now = active()
+    const still =
+      armedSlot === key &&
+      now !== null &&
+      now.server.url === view.server.url &&
+      now.run?.id === run.id &&
+      now.run.startsAt === run.startsAt &&
+      memberIndex(now) === index
+    if (!still || !autoPaintOn()) return
+    const late = localClock() - at
+    if (late > MISSED_SLOT_MS) {
+      message = 'Your slot passed while this tab was asleep.'
+      render()
+      return
+    }
+    const submitted = submitWorldPaintDraft()
+    log('capture slot', { index, late, submitted })
     if (!submitted) message = 'Paint was not ready at your slot.'
     render()
   }
-  setTimeout(fire, Math.max(0, at - localClock() - SPIN_MS))
+  const timeout = setTimeout(fire, Math.max(0, at - localClock() - SPIN_MS))
+  disarm = () => {
+    clearTimeout(timeout)
+    silenceCues()
+    armedSlot = null
+    disarm = () => {}
+  }
 }
 
 const phaseOf = (view: CaptureView | null): CaptureRunModel['phase'] => {
@@ -641,12 +671,15 @@ const tick = (): void => {
       // Report only what the run does not already say, once per value until it does.
       const drafted = line === undefined ? 0 : draftedOn(line)
       const reported = run.members[mine]?.drafted
+      const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
       if (drafted === reported) lastDrafted = drafted
-      else if (drafted !== lastDrafted && run.startsAt === null) {
+      else if (drafted !== lastDrafted && run.startsAt === null && due) {
         lastDrafted = drafted
+        draftedSentAt = localClock()
         sendCapture(view.server, { type: 'capture-drafted', drafted })
       }
-      if (run.startsAt !== null) armSlot(view, run, mine)
+      // Only a member with pixels to place is armed; an empty line has nothing to submit.
+      if (run.startsAt !== null && (run.lines[mine]?.length ?? 0) > 0) armSlot(view, run, mine)
     }
   }
   if (view !== null) {
@@ -686,7 +719,7 @@ export const installCaptureRuns = (): void => {
     lastRun = key
     if (run === null) {
       lastDrafted = -1
-      silence()
+      disarm()
     }
     if (view !== null) watchAnchor(view, run, memberIndex(view))
     render()

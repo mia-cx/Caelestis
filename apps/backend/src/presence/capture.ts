@@ -62,7 +62,7 @@ export const applyCaptureEvent = (
       return { ...run, members }
     }
     case 'capture-order': {
-      if (!actor.admin) return run
+      if (!actor.admin || run.startsAt !== null) return run
       const rank = new Map(event.order.map((id, index) => [id, index]))
       const members = run.members
         .map((entry, index) => ({
@@ -89,8 +89,13 @@ export const applyCaptureEvent = (
   }
 }
 
-/** The run without a session, as when its socket closes. */
+/**
+ * The run without a session, as when it leaves or its socket closes. Once started, every member
+ * keeps their place: their slot and line were fixed at Go, and shifting the others would hand
+ * them lines they have not drafted.
+ */
 export const leaveCapture = (run: CaptureRun, sessionId: string): CaptureRun => {
+  if (run.startsAt !== null) return run
   const members = run.members.filter((entry) => entry.sessionId !== sessionId)
   return members.length === run.members.length ? run : { ...run, members }
 }

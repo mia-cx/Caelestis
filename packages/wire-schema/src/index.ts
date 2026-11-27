@@ -1,5 +1,6 @@
 import type * as Shared from '@caelestis/shared'
 import {
+  isCompactCaptureLine,
   isPresenceDraft,
   isRegionDocument,
   isRegionItem,
@@ -203,7 +204,15 @@ const PresenceIdentity = Schema.Struct({
 })
 const PresenceSessionId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{16}$/))
 
-const CaptureLine = boundedArray(integerBetween(0, WORLD_PIXELS - 1), MAX_CAPTURE_LINE_PIXELS * 2)
+const CaptureLine = boundedArray(
+  integerBetween(0, WORLD_PIXELS - 1),
+  MAX_CAPTURE_LINE_PIXELS * 2,
+).check(
+  booleanFilter(
+    (line: readonly number[]) => line.length % 2 === 0 && isCompactCaptureLine(line),
+    'a capture line is pairs of coordinates within one line-length box',
+  ),
+)
 const Epoch = integerBetween(0, Number.MAX_SAFE_INTEGER)
 
 export const CaptureRun = Schema.Struct({

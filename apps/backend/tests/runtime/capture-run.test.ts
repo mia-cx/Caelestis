@@ -125,13 +125,16 @@ it('runs a capture from open to start, in the order the administrator sets', asy
   const late = await server.painter()
   await vi.waitFor(() => expect(late.run()?.startsAt).toBe(startsAt))
   late.send({ type: 'capture-join' })
-  first.close()
-  await vi.waitFor(() =>
-    expect(admin.run()?.members.map((m) => m.sessionId)).toEqual([second.sessionId]),
-  )
+  // The first painter's socket drops during the countdown; nobody moves into their slot.
+  second.close()
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  expect(admin.run()?.members.map((m) => m.sessionId)).toEqual([second.sessionId, first.sessionId])
+  admin.send({ type: 'capture-order', order: [first.sessionId, second.sessionId] })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(admin.run()?.members[0]?.sessionId).toBe(second.sessionId)
 
   admin.send({ type: 'capture-close' })
-  await vi.waitFor(() => expect(second.run()).toBeNull())
+  await vi.waitFor(() => expect(first.run()).toBeNull())
 })
 
 it('answers clock requests with the server time', async () => {
