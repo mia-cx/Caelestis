@@ -281,14 +281,13 @@ interface PeerTag {
 /** A peer's drafted pixels are tagged when the pointer is on them, else its viewport. */
 const HIT_ORDER = ['draft', 'viewport', 'painting'] as const
 
-let peerTagsFor: {
-  readonly scene: readonly SceneItem[]
-  readonly tags: readonly PeerTag[]
-} | null = null
+/** Tags by the scene they were built from, held only as long as that scene and its masks are. */
+const peerTagsFor = new WeakMap<readonly SceneItem[], readonly PeerTag[]>()
 
 /** Every peer's tag, built once per scene rather than on every frame the pointer rests. */
 const peerTags = (scene: readonly SceneItem[]): readonly PeerTag[] => {
-  if (peerTagsFor?.scene === scene) return peerTagsFor.tags
+  const held = peerTagsFor.get(scene)
+  if (held !== undefined) return held
   const peers = new Map<string, { peer: PresencePeer; items: SceneItem[] }>()
   for (const item of scene) {
     if (item.source.kind !== 'peer') continue
@@ -305,7 +304,7 @@ const peerTags = (scene: readonly SceneItem[]): readonly PeerTag[] => {
     colour: presenceCss(peer.painter.wplaceUserId, 0.85),
     items: HIT_ORDER.flatMap((kind) => items.filter((item) => item.kind === kind)),
   }))
-  peerTagsFor = { scene, tags }
+  peerTagsFor.set(scene, tags)
   return tags
 }
 
