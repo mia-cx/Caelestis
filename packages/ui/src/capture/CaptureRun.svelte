@@ -1,9 +1,6 @@
 <script lang="ts">
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
-  import SettingRow from '../foundations/SettingRow.svelte'
-  import Toggle from '../foundations/Toggle.svelte'
-  import CaterpillarDemo from './CaterpillarDemo.svelte'
   import type { CaptureRunIntent, CaptureRunModel } from './model.js'
 
   let { model, onIntent }: { model: CaptureRunModel; onIntent: (intent: CaptureRunIntent) => void } =
@@ -144,26 +141,12 @@
     {/if}
 
     {#if model.role !== null && gathering}
-      {@const colour = model.members.find((member) => member.me)?.colour ?? 'currentColor'}
       <ol class="steps" aria-label="What to do">
-        <li>
-          Make your way over to your leg by drawing like a caterpillar
-          <CaterpillarDemo {colour} />
-        </li>
+        <li>Make your way over to your leg by drawing like a caterpillar</li>
         <li>Wait for the countdown</li>
         <li>Click Paint when your timer hits 0</li>
         {#if model.role === 'guard'}<li>Watch and repair your anchor point</li>{/if}
       </ol>
-    {/if}
-
-    {#if model.joined && (gathering || counting)}
-      <!-- The Dangerous settings row, flags line included, so the switch reads the same in both places. -->
-      <div class="auto-paint">
-        <SettingRow label="Paint at my slot" hint="Caelestis clicks Paint for you.">
-          {#snippet details()}<small class="flags">Trips: <code>UntrustedPaintSubmit</code></small>{/snippet}
-          {#snippet children()}<Toggle label="Paint at my slot" checked={model.autoPaint} onChange={(on) => onIntent({ type: 'set-auto-paint', on })} />{/snippet}
-        </SettingRow>
-      </div>
     {/if}
 
     {#if model.admin && gathering}
@@ -305,16 +288,11 @@
   .plan-stats { color: var(--caelestis-muted-text); font-size: 0.75rem; }
   .state { display: inline-flex; align-items: center; gap: 0.125rem; color: var(--caelestis-success); font-weight: 600; font-size: 0.75rem; }
 
-  /* The Dangerous settings row and its "Trips:" line, flush with the card's padding. */
-  .auto-paint { --caelestis-content-inset: 0; margin-block: -0.25rem; }
-  .flags { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.25rem; margin-block-start: 0.25rem; color: var(--caelestis-muted-text); font-size: 0.72rem; }
-  .flags code { padding: 0.05rem 0.3rem; border: 1px solid var(--caelestis-border); border-radius: 0.3rem; background: var(--caelestis-raised-surface); color: var(--caelestis-text); font: 0.7rem/1.3 var(--caelestis-mono-font); }
 
   .message { color: var(--caelestis-muted-text); overflow-wrap: anywhere; }
 
   .steps { display: flex; flex-direction: column; gap: 0.375rem; margin: 0; padding-inline-start: 1.25rem; }
   .steps li::marker { color: var(--caelestis-muted-text); font-variant-numeric: tabular-nums; }
-  .steps :global(.demo) { margin-block-start: 0.375rem; }
 
   footer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
   .end { display: flex; gap: 0.375rem; margin-inline-start: auto; }

@@ -297,10 +297,17 @@ const edgeWall = (
   const at = (s: number, t: number): ArenaPixel => (along === 'x' ? { x: s, y: t } : { x: t, y: s })
   const ownerAt = ({ x, y }: ArenaPixel) => owner[y * size + x]
 
-  let frontier = step > 0 ? 0 : last
-  while (frontier >= 0 && frontier <= last && ownerAt(at(frontier, fixed)) === team)
-    frontier += step
-  if (frontier < 0 || frontier > last || frontier === (step > 0 ? 0 : last)) return null
+  // The team's reach along the edge: its last pixel before another team's land begins. Unowned
+  // gaps inside its own land do not end it.
+  let held: number | null = null
+  for (let along = step > 0 ? 0 : last; along >= 0 && along <= last; along += step) {
+    const owner = ownerAt(at(along, fixed))
+    if (owner === team) held = along
+    else if (owner !== NO_TEAM) break
+  }
+  if (held === null) return null
+  const frontier = held + step
+  if (frontier < 0 || frontier > last) return null
 
   for (let side = Math.round(budget / 2); side > 1; side--) {
     const leg = Math.round((budget - side) / 2)

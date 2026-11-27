@@ -24,7 +24,6 @@ const counting = {
   mySlotAt: null,
   myTurn: 2,
   startsAt: null,
-  autoPaint: false,
 } satisfies CaptureRunModel
 
 const mounted: object[] = []
@@ -54,15 +53,6 @@ describe('capture run countdown', () => {
     const slot = render({ ...counting, mySlotAt: performance.now() - 250 })
     expect(slot.querySelector('[role="status"]')?.textContent).toContain('Paint now')
     expect(slot.querySelector('.big')?.textContent).toBe('00:00.000')
-  })
-
-  it('turns painting at the slot on from the card', () => {
-    const intents: CaptureRunIntent[] = []
-    const card = render({ ...counting, mySlotAt: performance.now() + 9_000 }, intents)
-    const toggle = card.querySelector<HTMLInputElement>('input[role="switch"]')
-    expect(toggle?.getAttribute('aria-label')).toBe('Paint at my slot')
-    toggle?.click()
-    expect(intents).toEqual([{ type: 'set-auto-paint', on: true }])
   })
 })
 

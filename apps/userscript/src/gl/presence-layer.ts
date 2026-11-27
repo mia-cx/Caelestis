@@ -54,8 +54,9 @@ import {
  *   shader by sampling the mask a stroke-width away in screen space, so it never claims a pixel
  *   of its own and stays the same thickness at every zoom.
  * - The claim being edited: the same as a claim, from the editor's working document.
- * - A capture run's lines: each painter's line drawn like their draft. Your own line steps aside
- *   under the pointer, like your claims, so you can see the pixels you draft over it.
+ * - A capture run: your line solid, others' lines filled once drafted and outlined before, the area
+ *   the wall encloses hatched, each guard's anchor in a dashed box, and a short chain showing how to
+ *   crawl a draft out to your line. Your line steps aside under the pointer, like your claims.
  *
  * Everything arrives and leaves on the shared fade ramp so a painter closing their tab does not
  * blink out.
@@ -214,16 +215,71 @@ const STYLES: Record<SceneKind, Style> = {
     patternAlpha: 0.3,
     contrast: 0,
   },
-  // A capture run's line: a draft's look, so a painter traces it exactly, on any team's colour.
-  capture: {
+  // A capture run. This painter's line looks like their draft, solid, so they trace it exactly.
+  'capture-mine': {
     fill: 0,
     border: 1,
     borderWidth: 1.5,
     dash: 0,
-    maskAlpha: 0.7,
+    maskAlpha: 0.75,
     pattern: 0,
     patternAlpha: 0,
     contrast: 0.7,
+  },
+  // Another painter's line once they have drafted all of it: filled, lighter than your own.
+  'capture-ready': {
+    fill: 0,
+    border: 0.9,
+    borderWidth: 1.5,
+    dash: 0,
+    maskAlpha: 0.4,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0.6,
+  },
+  // A line still being drafted, or a proposed wall: outline only, so the gaps read as gaps.
+  'capture-pending': {
+    fill: 0,
+    border: 1,
+    borderWidth: 1.5,
+    dash: 0,
+    maskAlpha: 0,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0.6,
+  },
+  // What the wall encloses: a faint hatch, so the planned shape reads as a shape.
+  'capture-area': {
+    fill: 0,
+    border: 0,
+    borderWidth: 0,
+    dash: 0,
+    maskAlpha: 0.08,
+    pattern: 1,
+    patternAlpha: 0.22,
+    contrast: 0,
+  },
+  // A guard's anchor: a dashed box in the guard's colour around the end of the wall they hold.
+  'capture-anchor': {
+    fill: 0,
+    border: 1,
+    borderWidth: 2,
+    dash: 6,
+    maskAlpha: 0,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0,
+  },
+  // The caterpillar demo: the chain as you would draft it, solid with the dark outline.
+  'capture-demo': {
+    fill: 0,
+    border: 0,
+    borderWidth: 0,
+    dash: 0,
+    maskAlpha: 0.9,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0.8,
   },
   tool: {
     fill: 0,

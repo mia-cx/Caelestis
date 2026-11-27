@@ -57,6 +57,15 @@ describe('edgeRectanglePlanner', () => {
   })
 })
 
+it('starts the wall where another team begins, past unowned gaps in its own land', () => {
+  const map = quadrantMap()
+  // A hole in green's bottom row, well inside its land, must not end green's reach there.
+  map.owner[(SIZE - 1) * SIZE + 30] = NO_TEAM
+  const plans = edgeRectanglePlanner({ map, team: GREEN, painters: 2, charges: 15 })
+  const starts = plans.map((plan) => plan.lines[0]?.[0])
+  expect(starts).toContainEqual({ x: SIZE / 2 - 1, y: SIZE - 1 })
+})
+
 describe('anchorStrips', () => {
   it('thickens both ends of a wall with pixels the team can place before the wall exists', () => {
     const map = quadrantMap()

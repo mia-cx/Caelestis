@@ -79,8 +79,6 @@ export interface CaptureRunModel {
   readonly myTurn: number | null
   /** When the first painter paints, as a `performance.now()` time, while counting down. */
   readonly startsAt: number | null
-  /** Whether Caelestis presses Paint at this painter's slot (Dangerous settings switch). */
-  readonly autoPaint: boolean
   /** A short status or error, e.g. "Your team holds no arena edge to build from." */
   readonly message?: string
 }
@@ -99,5 +97,3 @@ export type CaptureRunIntent =
   | { readonly type: 'show-line' }
   | { readonly type: 'go' }
   | { readonly type: 'close' }
-  /** Turn the Dangerous settings switch "Paint at my capture slot" on or off from the card. */
-  | { readonly type: 'set-auto-paint'; readonly on: boolean }

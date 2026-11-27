@@ -10,7 +10,6 @@ import {
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
   PALETTE_RGB,
-  type PainterIdentity,
   type RegionShapePixels,
   simulateCapture,
   TERRITORY_ARENA,
@@ -29,6 +28,16 @@ import type {
   CaptureRunModel,
 } from '@caelestis/ui/elements'
 import { type CaptureCue, primeCaptureAudio, scheduleCaptureCues } from './capture-cues.js'
+import {
+  anchorRect,
+  approachPath,
+  type CaptureItem,
+  type CaptureItemKind,
+  caterpillarFrames,
+  enclosedArea,
+  linePixels,
+  pixelMask,
+} from './capture-scene.js'
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt } from './draft-pixels.js'
 import { requestMapFrame } from './map-view.js'
@@ -43,7 +52,7 @@ import {
 } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { hasServerAdminToken } from './server-connections.js'
-import { getState, onStateChange, setState } from './settings.js'
+import { onStateChange } from './settings.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import { navigateTo } from './templates/navigate.js'
 import { applyWplaceTheme } from './ui/theme.js'
@@ -80,6 +89,8 @@ const SPIN_MS = 30
 interface Proposal extends CaptureProposal {
   /** Each painter's line as flat world coordinates. */
   readonly lines: readonly (readonly number[])[]
+  /** What the wall would enclose. */
+  readonly area: RegionShapePixels | null
 }
 
 let painters = 3
@@ -113,13 +124,6 @@ const memberIndex = (view: CaptureView): number =>
 const localTime = (view: CaptureView, serverTime: number): number | null =>
   view.clockOffset === null ? null : serverTime - view.clockOffset
 
-const linePixels = (line: readonly number[]): { x: number; y: number }[] => {
-  const pixels: { x: number; y: number }[] = []
-  for (let at = 0; at + 1 < line.length; at += 2)
-    pixels.push({ x: line[at] as number, y: line[at + 1] as number })
-  return pixels
-}
-
 /** This painter's event team, once read; only its colour and dark shade claim territory. */
 let myTeam: TerritoryTeam | null = null
 
@@ -135,56 +139,133 @@ const draftedOn = (line: readonly number[]): number => {
   }).length
 }
 
-/** A line as a pixel mask over its bounding box, for the presence layer. */
-const lineMask = (line: readonly number[]): RegionShapePixels | null => {
-  const pixels = linePixels(line)
-  if (pixels.length === 0) return null
-  const xs = pixels.map(({ x }) => x)
-  const ys = pixels.map(({ y }) => y)
-  const rect = {
-    x: Math.min(...xs),
-    y: Math.min(...ys),
-    w: Math.max(...xs) - Math.min(...xs) + 1,
-    h: Math.max(...ys) - Math.min(...ys) + 1,
-  }
-  const mask = new Uint8Array(rect.w * rect.h)
-  for (const { x, y } of pixels) mask[(y - rect.y) * rect.w + (x - rect.x)] = 1
-  return { rect, mask, count: pixels.length }
+/** Wplace's map and the team, read for the plan on screen, with what the map shows from them. */
+interface PlanView {
+  readonly key: string
+  readonly area: RegionShapePixels | null
+  /** This painter's caterpillar demo, frame by frame; empty when they are not drafting a line. */
+  readonly demo: readonly (readonly { x: number; y: number }[])[]
 }
+let planView: PlanView | null = null
+let planLoading: string | null = null
+let demoStep = 0
 
-export interface CaptureLineItem {
-  readonly pixels: RegionShapePixels
-  readonly painter: PainterIdentity | null
-  readonly mine: boolean
-}
+const planKey = (run: CaptureRun, mine: number): string =>
+  `${run.id}:${mine}:${run.lines.map((line) => line.join(',')).join(';')}`
 
-const lineCache = new WeakMap<CaptureRun, readonly CaptureLineItem[]>()
-
-/** Every line of the shown run, or of the proposal an administrator is looking at, for the map. */
-export const captureLines = (): readonly CaptureLineItem[] => {
-  const view = active()
-  const run = view?.run ?? null
-  if (view === null) return []
-  if (run === null || run.lines.length === 0) {
-    const preview = proposals[0]
-    if (preview === undefined) return []
-    return preview.lines.flatMap((line) => {
-      const pixels = lineMask(line)
-      return pixels === null ? [] : [{ pixels, painter: null, mine: false }]
+/** Read the map for a published plan once, for its enclosed area and this painter's demo. */
+const loadPlanView = (run: CaptureRun, mine: number): void => {
+  const key = planKey(run, mine)
+  if (planView?.key === key || planLoading === key) return
+  planLoading = key
+  void Promise.all([myTeam ?? loadTeam(), loadTerritory()])
+    .then(([team, map]) => {
+      if (planLoading !== key || team === null || map === null) return
+      myTeam = team
+      const line = mine >= 0 ? linePixels(run.lines[mine] ?? []) : []
+      const first = line[0]
+      planView = {
+        key,
+        area: enclosedArea(map, team, run.lines),
+        demo: first === undefined ? [] : caterpillarFrames(approachPath(map, team, first), line),
+      }
+      demoStep = 0
+      requestMapFrame()
     })
-  }
-  const cached = lineCache.get(run)
-  if (cached !== undefined) return cached
+    .catch((error) => warn('capture plan view failed', String(error)))
+    .finally(() => {
+      if (planLoading === key) planLoading = null
+    })
+}
+
+const kindOf = (run: CaptureRun, index: number, mine: number): CaptureItemKind => {
+  if (index === mine) return 'mine'
+  const member = run.members[index]
+  const length = (run.lines[index]?.length ?? 0) / 2
+  return member !== undefined && length > 0 && member.drafted >= length ? 'ready' : 'pending'
+}
+
+/** Whether this painter's demo plays: while gathering, until their line is drafted. */
+const demoPlaying = (view: CaptureView): boolean => {
+  const run = view.run
   const mine = memberIndex(view)
-  const items = run.lines.flatMap((line, index) => {
-    const pixels = lineMask(line)
-    const member = run.members[index]
-    return pixels === null
-      ? []
-      : [{ pixels, painter: member?.painter ?? null, mine: index === mine }]
-  })
-  lineCache.set(run, items)
-  return items
+  if (run === null || run.startsAt !== null || mine < 0 || planView === null) return false
+  const length = (run.lines[mine]?.length ?? 0) / 2
+  return planView.demo.length > 0 && (run.members[mine]?.drafted ?? 0) < length
+}
+
+const itemsCache = new WeakMap<
+  CaptureRun,
+  { readonly key: string; readonly items: CaptureItem[] }
+>()
+
+/** What the shown run, or the plans an administrator is choosing between, puts on the map. */
+export const captureItems = (): readonly CaptureItem[] => {
+  const view = active()
+  if (view === null) return []
+  const run = view.run
+  if (run === null || run.lines.length === 0)
+    return proposals.flatMap((proposal) => [
+      ...(proposal.area === null
+        ? []
+        : [
+            {
+              kind: 'area' as const,
+              rect: proposal.area.rect,
+              pixels: proposal.area,
+              painter: null,
+            },
+          ]),
+      ...proposal.lines.flatMap((line) => {
+        const pixels = pixelMask(linePixels(line))
+        return pixels === null
+          ? []
+          : [{ kind: 'pending' as const, rect: pixels.rect, pixels, painter: null }]
+      }),
+    ])
+  const mine = memberIndex(view)
+  const key = `${planView?.key ?? ''}|${run.members.map(({ drafted }) => drafted).join(',')}`
+  let held = itemsCache.get(run)
+  if (held?.key !== key) {
+    const items: CaptureItem[] = []
+    if (planView?.area)
+      items.push({ kind: 'area', rect: planView.area.rect, pixels: planView.area, painter: null })
+    run.lines.forEach((line, index) => {
+      const pixels = pixelMask(linePixels(line))
+      if (pixels !== null)
+        items.push({
+          kind: kindOf(run, index, mine),
+          rect: pixels.rect,
+          pixels,
+          painter: run.members[index]?.painter ?? null,
+        })
+    })
+    for (let index = run.painters; index < run.lines.length; index++) {
+      const rect = anchorRect(run, index, GUARD_STRIP)
+      if (rect !== null)
+        items.push({
+          kind: 'anchor',
+          rect,
+          pixels: null,
+          painter: run.members[index]?.painter ?? null,
+        })
+    }
+    held = { key, items }
+    itemsCache.set(run, held)
+  }
+  if (!demoPlaying(view) || planView === null) return held.items
+  const frame = pixelMask(planView.demo[demoStep % planView.demo.length] ?? [])
+  return frame === null
+    ? held.items
+    : [
+        ...held.items,
+        {
+          kind: 'demo',
+          rect: frame.rect,
+          pixels: frame,
+          painter: run.members[mine]?.painter ?? null,
+        },
+      ]
 }
 
 const edgeLabel = (lines: readonly (readonly number[])[]): string => {
@@ -212,6 +293,15 @@ const loadTeam = async (): Promise<TerritoryTeam | null> => {
   const team = (body as { me?: { team?: unknown } } | null)?.me?.team
   return team === 0 || team === 1 || team === 2 || team === 3 ? team : null
 }
+
+/** Fly the map to a box of world pixels, with room around a thin line. */
+const flyTo = (rect: { x: number; y: number; w: number; h: number }): void =>
+  navigateTo({
+    x: rect.x + rect.w / 2,
+    y: rect.y + rect.h / 2,
+    width: Math.max(rect.w, 40),
+    height: Math.max(rect.h, 40),
+  })
 
 /** Wplace's live territory map. */
 const loadTerritory = async (): Promise<TerritoryMap | null> => {
@@ -315,9 +405,14 @@ const propose = async (groupSize: number, guardCount: number): Promise<void> => 
         pixels: outcome.painted,
         published: false,
         lines,
+        area: enclosedArea(map, team, lines),
       }
     })
     if (proposals.length === 0) message = 'No wall fits along an edge your team holds.'
+    // Fly to the best plan, so the shape being chosen is on screen.
+    const best = proposals[0]
+    const box = best === undefined ? null : pixelMask(best.lines.flatMap(linePixels))?.rect
+    if (box != null) flyTo(box)
     log(
       'capture proposals',
       proposals.map(({ label, gained, pixels }) => ({ label, gained, pixels })),
@@ -448,7 +543,6 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
     myTurn: run !== null && mine >= 0 && !isCaptureGuard(run, mine) ? mine + 1 : null,
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
-    autoPaint: simulatedInputAllowed('capture-paint'),
     ...(message === undefined ? {} : { message }),
   }
 }
@@ -498,14 +592,8 @@ const handleIntent = (intent: CaptureRunIntent): void => {
     case 'show-line': {
       const mine = memberIndex(view)
       const line = mine < 0 ? undefined : view.run?.lines[mine]
-      const pixels = line === undefined ? null : lineMask(line)
-      if (pixels !== null)
-        navigateTo({
-          x: pixels.rect.x + pixels.rect.w / 2,
-          y: pixels.rect.y + pixels.rect.h / 2,
-          width: Math.max(pixels.rect.w, 40),
-          height: Math.max(pixels.rect.h, 40),
-        })
+      const box = line === undefined ? null : pixelMask(linePixels(line))?.rect
+      if (box != null) flyTo(box)
       break
     }
     case 'go':
@@ -516,12 +604,6 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       proposals = []
       sendCapture(server, { type: 'capture-close' })
       break
-    case 'set-auto-paint': {
-      // The same switch as in Dangerous settings, written the way that list writes it.
-      const { 'capture-paint': _, ...others } = getState().simulatedInput
-      setState({ simulatedInput: intent.on ? { ...others, 'capture-paint': true } : others })
-      break
-    }
   }
   render()
 }
@@ -567,7 +649,14 @@ const tick = (): void => {
       if (run.startsAt !== null) armSlot(view, run, mine)
     }
   }
-  if (view !== null) watchAnchor(view, run, memberIndex(view))
+  if (view !== null) {
+    watchAnchor(view, run, memberIndex(view))
+    if (run !== null && run.lines.length > 0) loadPlanView(run, memberIndex(view))
+    if (demoPlaying(view)) {
+      demoStep++
+      requestMapFrame()
+    }
+  }
   render()
 }
 
