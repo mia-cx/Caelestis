@@ -778,11 +778,22 @@ const phaseOf = (view: CaptureView | null): CaptureRunModel['phase'] => {
   return end !== null && localClock() > end ? 'done' : 'countdown'
 }
 
+const TEAM_NAMES = ['Blue', 'Orange', 'Green', 'Purple'] as const satisfies Record<
+  TerritoryTeam,
+  string
+>
+
+/** Why an event server shows this tab nothing: its token belongs to another team. */
+const refusedMessage = (team: TerritoryTeam): string =>
+  `This token is for team ${TEAM_NAMES[team]}. Switch to a Wplace account on team ${TEAM_NAMES[team]} to see its runs.`
+
 const model = (view: CaptureView | null): CaptureRunModel | null => {
   if (view === null) return null
   const run = view.run
   const admin = canRunServerCaptures(view.server)
-  if (run === null && !admin) return null
+  const refused = view.refusedTeam === null ? undefined : refusedMessage(view.refusedTeam)
+  if (run === null && !admin && refused === undefined) return null
+  const status = refused ?? message
   const mine = memberIndex(view)
   const phase = phaseOf(view)
   // A wall shorter than the group leaves a line empty: that member has nothing to paint.
@@ -839,7 +850,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
         : null,
     turns: run === null ? Math.ceil(painters / 2) : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
-    ...(message === undefined ? {} : { message }),
+    ...(status === undefined ? {} : { message: status }),
   }
 }
 

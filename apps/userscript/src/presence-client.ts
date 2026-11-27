@@ -35,6 +35,7 @@ import {
 } from './claim-store.js'
 import { userscriptVersion } from './client-metrics.js'
 import { log, warn } from './debug.js'
+import { rememberEventTeam } from './event-team.js'
 import { notifyListeners } from './listeners.js'
 import { liveClientId } from './live-identity.js'
 import {
@@ -118,6 +119,11 @@ interface Connection {
   sessionId: string | null
   peers: Map<string, PresencePeer>
   capture: CaptureRun | null
+  /**
+   * The team this socket's token is bound to, while an event server refuses the team this tab
+   * reported. Its next run, for the reported team, clears it.
+   */
+  refusedTeam: TerritoryTeam | null
   /** Whether the server lets this socket's credential write, as its ready event said. */
   canWrite: boolean
   clock: ClockSample | null
@@ -414,6 +420,11 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
       return true
     case 'capture':
       connection.capture = event.run
+      connection.refusedTeam = null
+      return false
+    case 'team-refused':
+      connection.capture = null
+      connection.refusedTeam = event.team
       return false
     case 'clock': {
       // The server answered halfway through the round trip, as near as one trip can tell; the
@@ -445,6 +456,7 @@ const closeConnection = (connection: Connection): void => {
   connection.socket = null
   connection.sessionId = null
   connection.capture = null
+  connection.refusedTeam = null
   connection.clock = null
   revision++
   if (socket !== null && socket.readyState < WebSocket.CLOSING) {
@@ -565,6 +577,7 @@ const open = (connection: Connection): void => {
     connection.socket = null
     connection.sessionId = null
     connection.capture = null
+    connection.refusedTeam = null
     connection.clock = null
     endLiveClaims(server)
     clearTimers(connection)
@@ -598,6 +611,7 @@ const reconcile = (): void => {
       sessionId: null,
       peers: new Map(),
       capture: null,
+      refusedTeam: null,
       canWrite: false,
       clock: null,
       clockSyncAt: Number.NEGATIVE_INFINITY,
@@ -695,6 +709,8 @@ export interface CaptureView {
   readonly clockOffset: number | null
   /** Whether this socket may join: its credential can write. */
   readonly canWrite: boolean
+  /** The team the socket's token is bound to, while the server refuses the one this tab reported. */
+  readonly refusedTeam: TerritoryTeam | null
 }
 
 /** Every open presence socket and the capture run it holds, if any. */
@@ -708,6 +724,7 @@ export const captureViews = (): readonly CaptureView[] =>
             sessionId: connection.sessionId,
             clockOffset: connection.clock?.offset ?? null,
             canWrite: connection.canWrite,
+            refusedTeam: connection.refusedTeam,
           },
         ]
       : [],
@@ -762,6 +779,7 @@ export const quickClaimsAvailable = (): boolean =>
 export const setPresenceTeam = (team: TerritoryTeam | null): void => {
   if (team === local.team) return
   local.team = team
+  rememberEventTeam(team)
   scheduleAll()
 }
 

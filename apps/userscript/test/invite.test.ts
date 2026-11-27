@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
+import { hashToken } from '../../backend/dist/auth/tokens.js'
 import {
   adminToken,
   backendFetch,
@@ -68,6 +69,22 @@ it('trades a one-use event-runner invite for a kept token that runs captures', a
     headers: { authorization: `Bearer ${inviteToken}` },
   })
   expect(spent.status).toBe(401)
+})
+
+it('binds an invite redeemed on an event server to the painter’s event team', async () => {
+  const { app, sql } = await createTestBackend({ capture: 1, eventRunners: 1 })
+  const fetch = vi.fn(backendFetch(app, origin))
+  vi.stubGlobal('fetch', fetch)
+  window.fetch = fetch
+  const invite = await load()
+  ;(await import('../src/event-team.js')).rememberEventTeam(2)
+  const inviteToken = await mintEventRunnerInvite(fetch, origin)
+
+  expect((await invite.accept(inviteToken))?.kind).toBe('connected')
+
+  const [server] = invite.getState().servers
+  const token = server?.token ?? ''
+  expect((await sql.readAccessToken(await hashToken(token)))?.team).toBe(2)
 })
 
 it('leaves an event-runner invite unspent when the connection list is full', async () => {
