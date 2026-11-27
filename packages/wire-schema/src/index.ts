@@ -400,6 +400,7 @@ export const PresenceServerEvent = Schema.Union([
     regions: Schema.Array(RegionClaim),
     ownedRegionIds: Schema.optionalKey(Schema.Array(Identifier)),
   }),
+  Schema.Struct({ type: Schema.Literal('team-refused'), team: TerritoryTeam }),
   Schema.Struct({ type: Schema.Literal('capture'), run: Schema.NullOr(CaptureRun) }),
   Schema.Struct({ type: Schema.Literal('clock'), sent: Epoch, at: Epoch }),
 ])

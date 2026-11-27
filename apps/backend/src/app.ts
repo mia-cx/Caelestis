@@ -96,7 +96,7 @@ export const createApp = (context: BackendContext, options: AppOptions) => {
     ['/tiles', createBlobRoutes(runtime, 'tiles'), 'read'],
     ['/recipes', createRecipeRoutes(runtime), 'read'],
     ['/telemetry', createTelemetryRoutes(runtime, auth, { currentSeason, server }), 'open'],
-    ['/auth', createAuthRoutes(runtime, auth), 'open'],
+    ['/auth', createAuthRoutes(runtime, auth, { eventServer: isEventServer(server) }), 'open'],
   ]
   for (const [path, routes, scope] of mounts) {
     // `/admin/*` above guards every admin mount, so its place in the path is its scope.

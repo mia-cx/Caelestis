@@ -50,6 +50,11 @@ interface Attachment extends PresenceConnection {
   readonly renewedAt?: number
   /** On an event server, the event team the session last reported. */
   readonly team?: TerritoryTeam
+  /**
+   * On an event server, the team the session's token is bound to, once known. A session whose token
+   * binds acts in its reported team only when it is this one; see `PresenceCoordinator.teamOf`.
+   */
+  readonly boundTeam?: TerritoryTeam
 }
 
 /**
@@ -89,6 +94,8 @@ interface SessionState {
   onlineSent?: number
   /** The region version and owned ids it was last sent. */
   claimsSent?: { readonly version: number; readonly owned: string }
+  /** Whether a write binding its token's team is in flight. */
+  binding?: boolean
 }
 
 /** An open socket with the attachment read once for the operation at hand. */
@@ -202,7 +209,7 @@ export class PresenceCoordinator<Client> {
         run: updated,
       } satisfies PresenceServerEvent)
       for (const { socket, held } of this.sessionsOpen())
-        if (held.team === team) this.sendEncoded(socket, payload)
+        if (this.teamOf(held) === team) this.sendEncoded(socket, payload)
       return updated
     })
     // A failed write keeps the run as it was, so the next change starts from what is stored.
@@ -211,6 +218,89 @@ export class PresenceCoordinator<Client> {
       next.catch(() => previous),
     )
     this.state.waitUntil(next)
+  }
+
+  /**
+   * Whether a session's team comes from its token: on an event server, for every stored token but
+   * an admin's. The bootstrap credential and anonymous readers have no row to bind, and admins act
+   * for every team, so their reported team stands.
+   */
+  private bindsTeam(held: Attachment): boolean {
+    return this.eventServer && held.revocable && held.credentialScope !== 'admin'
+  }
+
+  /**
+   * The team a session shares presence and capture runs in: the one it reported, when its token
+   * is bound to that team or binds none. A session that reported another team than its token's,
+   * or whose token is not bound yet, is in no team and sees and shares nothing.
+   */
+  private teamOf(held: Attachment): TerritoryTeam | undefined {
+    return !this.bindsTeam(held) || held.team === held.boundTeam ? held.team : undefined
+  }
+
+  /** Whether the session reported a team its token is bound against. */
+  private refused(held: Attachment): boolean {
+    return (
+      this.bindsTeam(held) &&
+      held.boundTeam !== undefined &&
+      held.team !== undefined &&
+      held.team !== held.boundTeam
+    )
+  }
+
+  /**
+   * Bind the session's token to the team it reported, the first time an unbound token reports
+   * one, then act in the team the token holds. The store binds in one conditional write, so a
+   * second session of the same token reporting another team at once reads the first one's team.
+   */
+  private bindIfDue(socket: LiveSocket, held: Attachment): void {
+    const reported = held.team
+    if (!this.bindsTeam(held) || held.boundTeam !== undefined || reported === undefined) return
+    const local = this.localState(held.sessionId)
+    if (local.binding) return
+    local.binding = true
+    const bound = this.sql.bindTeam(held.tokenHash, reported).then(
+      (team) => {
+        local.binding = false
+        if (socket.readyState !== 1) return
+        const current = attachmentOf(socket)
+        if (current === null || current.closed) return
+        // Revoked meanwhile: the revoke closes the session; it never joins a team.
+        if (team === null) return this.close(socket, 1008, 'credential revoked')
+        const updated = { ...current, boundTeam: team } satisfies Attachment
+        socket.serializeAttachment(updated)
+        this.retarget(socket, current, updated)
+      },
+      () => {
+        // The next message tries again.
+        local.binding = false
+      },
+    )
+    this.state.waitUntil(bound)
+  }
+
+  /**
+   * After a session's reported or bound team changed: leave the old team's run and see the new
+   * one's, or tell it that its token's team refuses the team it reported.
+   */
+  private retarget(socket: LiveSocket, before: Attachment, after: Attachment): void {
+    if (this.refused(after) && !this.refused(before) && after.boundTeam !== undefined)
+      this.send({ socket, held: after }, { type: 'team-refused', team: after.boundTeam })
+    const left = this.teamOf(before)
+    const joined = this.teamOf(after)
+    if (left === joined) return
+    if (left !== undefined)
+      this.updateCapture(left, (run) => run && leaveCapture(run, after.sessionId))
+    if (joined !== undefined)
+      void this.captureRun(joined).then((run) => {
+        // The read can finish after the session closed or switched again; then it is not theirs.
+        if (socket.readyState !== 1) return
+        const held = attachmentOf(socket)
+        if (held === null || held.closed || this.teamOf(held) !== joined) return
+        this.send({ socket, held }, { type: 'capture', run })
+      })
+    this.dirty.add(after.sessionId)
+    this.armTick()
   }
 
   stop(): void {
@@ -254,12 +344,12 @@ export class PresenceCoordinator<Client> {
   /**
    * The peers each subscriber may see, as one grid per visibility group: the whole room, or on an
    * event server one grid per event team, so selection never walks another team's sessions.
-   * Sessions without a team on an event server join no grid and see nobody.
+   * Sessions in no team on an event server (see `teamOf`) join no grid and see nobody.
    */
   private peerGrids(open: readonly LiveSession[]): Map<TerritoryTeam | undefined, PeerGrid> {
     const groups = new Map<TerritoryTeam | undefined, PresencePeer[]>()
     for (const { held } of open) {
-      const team = this.eventServer ? held.team : undefined
+      const team = this.eventServer ? this.teamOf(held) : undefined
       if (this.eventServer && team === undefined) continue
       let group = groups.get(team)
       if (group === undefined) {
@@ -494,7 +584,7 @@ export class PresenceCoordinator<Client> {
           // still recompute every recipient so moving viewports can discover previously unseen peers.
           if (previous !== undefined && dirty.size === 0 && local.onlineSent === online) continue
           grids ??= this.peerGrids(open)
-          const peers = grids.get(this.eventServer ? subscriber.team : undefined)
+          const peers = grids.get(this.eventServer ? this.teamOf(subscriber) : undefined)
           const started = performance.now()
           const relevant = peers === undefined ? [] : this.relevant(subscriber, peers)
           this.timings.record('presence', 'select', performance.now() - started)
@@ -538,8 +628,9 @@ export class PresenceCoordinator<Client> {
     this.local.delete(attachment.sessionId)
     this.dirty.add(attachment.sessionId)
     this.armTick()
-    if (attachment.team !== undefined)
-      this.updateCapture(attachment.team, (run) => run && leaveCapture(run, attachment.sessionId))
+    const team = this.teamOf(attachment)
+    if (team !== undefined)
+      this.updateCapture(team, (run) => run && leaveCapture(run, attachment.sessionId))
   }
 
   private close(socket: LiveSocket, code: number, reason: string): void {
@@ -557,6 +648,7 @@ export class PresenceCoordinator<Client> {
       connection
     let capacity = false
     let regions: readonly RegionClaim[] = []
+    let boundTeam: TerritoryTeam | undefined
     const pair = await this.sessions.attach(
       async () => {
         const open = this.sessionsOpen()
@@ -570,6 +662,7 @@ export class PresenceCoordinator<Client> {
           await this.routeRevocation(tokenHash)
           const token = await this.sql.readAccessToken(tokenHash)
           if (token === null || token.scope !== credentialScope) return false
+          boundTeam = token.team
         }
         // An event server neither renews nor shows the claims stored before it became one.
         if (this.eventServer) return true
@@ -595,6 +688,7 @@ export class PresenceCoordinator<Client> {
           draftPixels: 0,
           lastSeenAt: Date.now(),
           renewedAt: Date.now(),
+          ...(this.eventServer && boundTeam !== undefined ? { boundTeam } : {}),
         }
         const pair = this.state.connect(attachment)
         const open = this.sessionsOpen()
@@ -665,7 +759,10 @@ export class PresenceCoordinator<Client> {
       return
     }
     if (event.type === 'presence-heartbeat') {
-      socket.serializeAttachment({ ...attachment, lastSeenAt: now } satisfies Attachment)
+      const updated = { ...attachment, lastSeenAt: now } satisfies Attachment
+      socket.serializeAttachment(updated)
+      // A session that hibernated with its bind unfinished retries it here.
+      this.bindIfDue(socket, updated)
       this.armTick()
       return
     }
@@ -677,7 +774,7 @@ export class PresenceCoordinator<Client> {
     }
     if (attachment.credentialScope === 'read') return
     if (event.type !== 'presence-update') {
-      const { team } = attachment
+      const team = this.teamOf(attachment)
       if (team === undefined) return
       const actor = {
         sessionId: attachment.sessionId,
@@ -726,19 +823,8 @@ export class PresenceCoordinator<Client> {
       lastSeenAt: now,
     } satisfies Attachment
     socket.serializeAttachment(updated)
-    if (team !== undefined && team !== attachment.team) {
-      // A new team: leave the old team's run, see the new one's.
-      const left = attachment.team
-      if (left !== undefined)
-        this.updateCapture(left, (run) => run && leaveCapture(run, attachment.sessionId))
-      void this.captureRun(team).then((run) => {
-        // The read can finish after the session closed or switched again; then it is not theirs.
-        if (socket.readyState !== 1) return
-        const held = attachmentOf(socket)
-        if (held === null || held.closed || held.team !== team) return
-        this.send({ socket, held }, { type: 'capture', run })
-      })
-    }
+    if (team !== attachment.team) this.retarget(socket, attachment, updated)
+    this.bindIfDue(socket, updated)
     this.dirty.add(attachment.sessionId)
     this.armTick()
   }
