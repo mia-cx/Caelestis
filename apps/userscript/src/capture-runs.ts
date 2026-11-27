@@ -8,6 +8,7 @@ import {
   decodePng,
   GUARD_MARGIN,
   isCaptureGuard,
+  isEventServer,
   latLngToCanvasPixel,
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
@@ -51,6 +52,7 @@ import {
   localClock,
   onPresenceChange,
   sendCapture,
+  setPresenceTeam,
   syncCaptureClock,
 } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
@@ -128,7 +130,7 @@ let lastDrafted = -1
  * competing for it.
  */
 const active = (): CaptureView | null => {
-  const views = captureViews().filter((view) => view.server.info?.capture === 1)
+  const views = captureViews().filter((view) => isEventServer(view.server.info))
   const administered = views.filter((view) => canRunServerCaptures(view.server))
   return (
     views.find((view) => memberIndex(view) >= 0) ??
@@ -147,29 +149,31 @@ const localTime = (view: CaptureView, serverTime: number): number | null =>
   view.clockOffset === null ? null : serverTime - view.clockOffset
 
 /**
- * This painter's event team and the Wplace account it was read for. It decides which runs they may
- * open and join; everything about a run itself uses the run's own team.
+ * This painter's event team, once read. Event servers share presence and capture runs within a
+ * team, so it decides which run this tab sees; everything about a run itself uses the run's own
+ * team.
  */
-let teamRead: { readonly account: number; readonly team: TerritoryTeam } | null = null
+let myTeam: TerritoryTeam | null = null
 
-/** This painter's event team, while the account it was read for is still signed in. */
-const myTeam = (): TerritoryTeam | null => {
-  const account = accountIdentity()?.wplaceUserId
-  return teamRead !== null && teamRead.account === account ? teamRead.team : null
-}
-
-/** Read this painter's team again, from Wplace's own leaderboard. */
+/** Read this painter's team from Wplace's own leaderboard, until it is known. */
 const refreshTeam = async (): Promise<TerritoryTeam | null> => {
-  const account = accountIdentity()?.wplaceUserId
+  if (myTeam !== null) return myTeam
   teamTriedAt = localClock()
   const team = await loadTeam()
-  if (account !== undefined && team !== null) teamRead = { account, team }
-  return team
+  // Lookups can overlap; a late answer from before the painter joined never undoes a known team.
+  myTeam ??= team
+  return myTeam
 }
 
-const teamName = (team: TerritoryTeam): string => {
-  const { key } = TERRITORY_TEAMS[team]
-  return key.charAt(0).toUpperCase() + key.slice(1)
+/** Keep event servers told this painter's team, reading it until it is known. */
+const syncTeam = (): void => {
+  setPresenceTeam(myTeam)
+  if (myTeam !== null || accountIdentity() === null) return
+  if (localClock() - teamTriedAt < TEAM_RETRY_MS) return
+  if (!captureViews().some((view) => isEventServer(view.server.info))) return
+  void refreshTeam()
+    .then(setPresenceTeam)
+    .catch(() => undefined)
 }
 
 /** Whether this tab has drafted a pixel in a colour that claims for `team`. */
@@ -733,9 +737,6 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
   const slot = run !== null && mine >= 0 && !idle ? captureSlot(run, mine) : null
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
-  const team = myTeam()
-  const otherTeam = run !== null && mine < 0 && team !== null && team !== run.team
-  const note = otherTeam ? `This run is for team ${teamName(run.team)}.` : message
   return {
     phase,
     admin,
@@ -761,7 +762,6 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
     canJoin:
       view.canWrite &&
       run !== null &&
-      team === run.team &&
       run.startsAt === null &&
       mine < 0 &&
       run.members.length < run.painters + run.guards,
@@ -786,7 +786,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
         : null,
     turns: run === null ? Math.ceil(painters / 2) : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
-    ...(note === undefined ? {} : { message: note }),
+    ...(message === undefined ? {} : { message }),
   }
 }
 
@@ -803,29 +803,17 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       guards = Math.min(MAX_CAPTURE_GUARDS, Math.max(0, Math.round(intent.guards)))
       proposals = []
       break
-    case 'open':
-    case 'join': {
-      if (intent.type === 'join') primeCaptureAudio()
-      const run = view.run?.id ?? null
-      const account = accountIdentity()?.wplaceUserId
-      // Open is for this administrator's team and Join must name it, so both read it fresh.
+    case 'open': {
+      // The run is for this administrator's team.
       void refreshTeam()
         .then((team) => {
-          // The painter chose this server, account and run; a change while Wplace answered drops it.
-          const now = active()
-          if (
-            accountIdentity()?.wplaceUserId !== account ||
-            now?.server.url !== server.url ||
-            (now.run?.id ?? null) !== run
-          )
-            return
+          // The administrator chose this server; a change while Wplace answered drops it.
+          if (active()?.server.url !== server.url) return
+          setPresenceTeam(team)
           if (team === null) message = 'Join a team in the event first.'
-          else if (intent.type === 'open') {
+          else {
             proposals = []
-            sendCapture(server, { type: 'capture-open', painters, guards, team })
-          } else if (run !== null) {
-            sendCapture(server, { type: 'capture-join', team, run })
-            syncCaptureClock(server)
+            sendCapture(server, { type: 'capture-open', painters, guards })
           }
         })
         .catch(() => {
@@ -834,6 +822,13 @@ const handleIntent = (intent: CaptureRunIntent): void => {
         .finally(render)
       break
     }
+    case 'join':
+      if (view.run === null) break
+      primeCaptureAudio()
+      // The session's reported team picks the run; the id stops a join to one since replaced.
+      sendCapture(server, { type: 'capture-join', run: view.run.id })
+      syncCaptureClock(server)
+      break
     case 'leave':
       sendCapture(server, { type: 'capture-leave' })
       break
@@ -898,9 +893,6 @@ const tick = (): void => {
   const run = view?.run ?? null
   if (view !== null && run !== null) {
     const mine = memberIndex(view)
-    // Whether this painter may join needs their team; a failed lookup tries again a little later.
-    if (myTeam() === null && localClock() - teamTriedAt >= TEAM_RETRY_MS)
-      void refreshTeam().catch(() => undefined)
     if (mine >= 0) {
       // A painter who joined from another tab, or whose socket reconnected, still needs a sync.
       if (joinedRun !== run.id || view.clockOffset === null) {
@@ -980,6 +972,7 @@ const render = (): void => {
 export const installCaptureRuns = (): void => {
   let lastRun: string | null = null
   onPresenceChange(() => {
+    syncTeam()
     const view = active()
     const run = view?.run ?? null
     // A started run re-syncs the clock once more, just before the countdown matters.
@@ -995,6 +988,9 @@ export const installCaptureRuns = (): void => {
     render()
   })
   onStateChange(render)
+  // The account can load after the last presence change; the team is read once it has, whether
+  // or not anything else changes.
+  setInterval(syncTeam, TEAM_RETRY_MS)
   // A style swap attaches the same map again; follow each map once.
   let followed: MapLike | null = null
   onMapAttached((map) => {

@@ -1,4 +1,4 @@
-import type { ServerInfo } from '@caelestis/shared'
+import { isEventServer, type ServerInfo } from '@caelestis/shared'
 import { Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -90,7 +90,7 @@ export const createApp = (context: BackendContext, options: AppOptions) => {
     ['/admin/tags', createTagRoutes(runtime, currentSeason), 'admin'],
     ['/manifest', createManifestRoutes(runtime, { server, currentSeason }), 'read'],
     ['/archive', createCanvasHistoryRoutes(runtime), 'read'],
-    ['/work', createWorkRoutes(runtime), 'read'],
+    ['/work', createWorkRoutes(runtime, { claims: !isEventServer(server) }), 'read'],
     ['/chunks', createBlobRoutes(runtime, 'chunks'), 'read'],
     ['/sources', createBlobRoutes(runtime, 'sources'), 'read'],
     ['/tiles', createBlobRoutes(runtime, 'tiles'), 'read'],

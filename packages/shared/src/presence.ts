@@ -4,6 +4,7 @@ import { isSafeInteger } from './guards.js'
 import type { RegionDocument } from './region-shape.js'
 import type { PainterIdentity } from './telemetry.js'
 import type { TemplateSurface } from './template-surface.js'
+import type { TerritoryTeam } from './territory.js'
 
 /**
  * Live painter presence: where each online painter is looking, what they have drafted, and which
@@ -84,6 +85,11 @@ export interface PresenceUpdate {
   readonly draft?: PresenceDraft | null
   /** Rectangles claimed for the current paint session; `[]` clears them. */
   readonly quickClaims?: readonly PresenceRect[]
+  /**
+   * On an event server, the painter's event team: viewports, drafts and capture runs are shared
+   * within a team only, so a session that has not said shares and sees none of them.
+   */
+  readonly team?: TerritoryTeam
 }
 
 export type PresenceClientEvent =

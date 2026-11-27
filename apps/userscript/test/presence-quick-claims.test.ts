@@ -45,7 +45,7 @@ class FakeWebSocket extends EventTarget {
     this.dispatchEvent(new Event('close'))
   }
 
-  open(): void {
+  open(canWrite?: boolean): void {
     this.protocol = PRESENCE_PROTOCOL_V1
     this.readyState = FakeWebSocket.OPEN
     this.dispatchEvent(new Event('open'))
@@ -55,6 +55,7 @@ class FakeWebSocket extends EventTarget {
       online: 1,
       peers: [],
       regions: [],
+      ...(canWrite === undefined ? {} : { canWrite }),
     })
   }
 
@@ -83,7 +84,14 @@ afterEach(() => {
   FakeWebSocket.instances = []
 })
 
-const connect = async () => {
+/** One presence socket, opened: on an event server with `event`, and able to write with `canWrite`. */
+const connect = async ({
+  event = false,
+  canWrite,
+}: {
+  event?: boolean
+  canWrite?: boolean
+} = {}) => {
   vi.useFakeTimers()
   vi.stubGlobal('WebSocket', FakeWebSocket)
   vi.stubGlobal(
@@ -94,7 +102,13 @@ const connect = async () => {
   const presence = await import('../src/presence-client.js')
   const server = {
     url: 'https://presence.test',
-    info: { id: SERVER_ID, name: 'Presence test', auth: 'none' as const, presence: 1 as const },
+    info: {
+      id: SERVER_ID,
+      name: 'Presence test',
+      auth: 'none' as const,
+      presence: 1 as const,
+      ...(event ? { capture: 1 as const } : {}),
+    },
     token: null,
     status: 'connected' as const,
     isAdmin: false,
@@ -105,7 +119,7 @@ const connect = async () => {
   presence.installPresence()
   const socket = FakeWebSocket.instances[0]
   if (socket === undefined) throw new Error('presence did not open a socket')
-  socket.open()
+  socket.open(canWrite)
   await vi.advanceTimersByTimeAsync(0)
   return { presence, state, socket }
 }
@@ -234,4 +248,22 @@ it('shows polled claims until a session starts, then only what the socket report
   const reads = fetch.mock.calls.length
   await vi.advanceTimersByTimeAsync(60_000)
   expect(fetch.mock.calls.length).toBe(reads)
+})
+
+it('offers quick claims on a writable session of a server that takes them', async () => {
+  const { presence } = await connect({ canWrite: true })
+  expect(presence.quickClaimsAvailable()).toBe(true)
+})
+
+it('offers no quick claims on a read-only session, whose claims the server drops', async () => {
+  const { presence } = await connect()
+  expect(presence.quickClaimsAvailable()).toBe(false)
+})
+
+it('leaves quick claims off an event server', async () => {
+  const { presence, socket } = await connect({ event: true, canWrite: true })
+  expect(presence.quickClaimsAvailable()).toBe(false)
+  presence.setPresenceQuickClaims([rect(0)])
+  await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
+  expect(socket.quickClaims()).toEqual([])
 })

@@ -40,7 +40,10 @@ export interface CaptureMember {
 
 export interface CaptureRun {
   readonly id: string
-  /** The event team the wall is for: the opening administrator's, which every member draws in. */
+  /**
+   * The event team the run is for: the opening administrator's. A room keeps one run per team and
+   * shares it with that team's sessions only, so every member draws and paints in its colours.
+   */
   readonly team: TerritoryTeam
   /** Painters who build the wall, in turn. */
   readonly painters: number
@@ -55,17 +58,10 @@ export interface CaptureRun {
 }
 
 export type CaptureClientEvent =
-  | {
-      readonly type: 'capture-open'
-      readonly painters: number
-      readonly guards: number
-      readonly team: TerritoryTeam
-    }
-  /**
-   * Joining names the painter's own event team, of which only the run's may join, and the run they
-   * chose, so a join that arrives after the run was replaced joins nothing.
-   */
-  | { readonly type: 'capture-join'; readonly team: TerritoryTeam; readonly run: string }
+  /** Capture events act on the run of the team the session last reported in `presence-update`. */
+  | { readonly type: 'capture-open'; readonly painters: number; readonly guards: number }
+  /** Joining names the run the painter chose, so a join that arrives after it was replaced joins nothing. */
+  | { readonly type: 'capture-join'; readonly run: string }
   | { readonly type: 'capture-leave' }
   | { readonly type: 'capture-order'; readonly order: readonly string[] }
   /** The wall's lines in paint order, then one anchor strip per guard. */

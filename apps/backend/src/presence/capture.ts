@@ -6,6 +6,7 @@ import {
   type PainterIdentity,
   type Scope,
   satisfiesScope,
+  type TerritoryTeam,
 } from '@caelestis/shared'
 
 /** Who sent a capture event, as the room knows the socket. */
@@ -14,6 +15,8 @@ export interface CaptureActor {
   readonly painter: PainterIdentity
   /** The scope of the credential the socket connected with. */
   readonly scope: Scope
+  /** The event team the session reported; it acts on that team's run. */
+  readonly team: TerritoryTeam
 }
 
 type RunEvent = Exclude<CaptureClientEvent, { readonly type: 'clock' }>
@@ -37,7 +40,7 @@ export const applyCaptureEvent = (
     return runner && run === null
       ? {
           id: newId(),
-          team: event.team,
+          team: actor.team,
           painters: event.painters,
           guards: event.guards,
           members: [],
@@ -53,7 +56,6 @@ export const applyCaptureEvent = (
       if (
         member >= 0 ||
         event.run !== run.id ||
-        event.team !== run.team ||
         run.startsAt !== null ||
         run.members.length >= run.painters + run.guards
       )

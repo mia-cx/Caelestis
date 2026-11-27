@@ -15,6 +15,8 @@ const harness = vi.hoisted(() => ({
   toasts: [] as string[],
   showPresenceClaims: true,
   sharePresence: true,
+  /** Whether an open session on a server that takes quick claims would share one. */
+  available: true,
   stateListeners: [] as ((state: { sharePresence: boolean }) => void)[],
 }))
 vi.mock('./settings.js', () => ({
@@ -41,6 +43,7 @@ vi.mock('./paint-cell.js', () => ({
 }))
 vi.mock('./presence-client.js', () => ({
   presenceQuickClaims: () => harness.claims,
+  quickClaimsAvailable: () => harness.available,
   setPresenceQuickClaims: (rects: readonly PresenceRect[]) => {
     harness.claims = rects
   },
@@ -93,6 +96,7 @@ beforeEach(() => {
   harness.toasts = []
   harness.showPresenceClaims = true
   harness.sharePresence = true
+  harness.available = true
   document.body.innerHTML = ''
   canvas = document.createElement('canvas')
   document.body.append(canvas)
@@ -146,6 +150,16 @@ it('leaves a plain drag, or a Ctrl+drag with the paint drawer closed, to Wplace'
   drag([10, 10], [40, 40])
   expect(harness.claims).toEqual([])
   expect(reachedWplace).toContain('pointerdown')
+})
+
+it('leaves the gesture and its context menu to Wplace when no server would share the claim', () => {
+  harness.available = false
+  drag([10, 10], [40, 40])
+  const menu = new MouseEvent('contextmenu', { ctrlKey: true, bubbles: true, cancelable: true })
+  canvas.dispatchEvent(menu)
+  expect(harness.claims).toEqual([])
+  expect(reachedWplace).toEqual(['pointerdown', 'pointermove', 'pointerup', 'contextmenu'])
+  expect(menu.defaultPrevented).toBe(false)
 })
 
 it('removes the quick claim under a Ctrl+click and ignores one outside every claim', () => {
