@@ -1,5 +1,8 @@
-/** Access-token scopes, ordered: each one grants everything below it. */
-export const SCOPES = ['read', 'report', 'admin'] as const
+/**
+ * Access-token scopes, ordered: each one grants everything below it. `event_runner` reports like
+ * `report` and also runs capture runs on an event server, without administering anything.
+ */
+export const SCOPES = ['read', 'report', 'event_runner', 'admin'] as const
 
 export type Scope = (typeof SCOPES)[number]
 

@@ -4,21 +4,25 @@ import {
   type CaptureClientEvent,
   type CaptureRun,
   type PainterIdentity,
+  type Scope,
+  satisfiesScope,
 } from '@caelestis/shared'
 
 /** Who sent a capture event, as the room knows the socket. */
 export interface CaptureActor {
   readonly sessionId: string
   readonly painter: PainterIdentity
-  readonly admin: boolean
+  /** The scope of the credential the socket connected with. */
+  readonly scope: Scope
 }
 
 type RunEvent = Exclude<CaptureClientEvent, { readonly type: 'clock' }>
 
 /**
  * The run after one event, or the same object when the event changes nothing or is not allowed.
- * Administrators open, order, plan, start and close; any painter who can write joins and leaves;
- * members report how much of their line they have drafted. Nobody joins a run that has started.
+ * Event runners and administrators open, order, plan, start and close; any painter who can write
+ * joins and leaves; members report how much of their line they have drafted. Nobody joins a run
+ * that has started.
  */
 export const applyCaptureEvent = (
   run: CaptureRun | null,
@@ -27,9 +31,10 @@ export const applyCaptureEvent = (
   now: number,
   newId: () => string,
 ): CaptureRun | null => {
+  const runner = satisfiesScope(actor.scope, 'event_runner')
   // Opening needs an empty room: a run in progress is closed first, never replaced.
   if (event.type === 'capture-open')
-    return actor.admin && run === null
+    return runner && run === null
       ? {
           id: newId(),
           team: event.team,
@@ -70,7 +75,7 @@ export const applyCaptureEvent = (
       return { ...run, members }
     }
     case 'capture-order': {
-      if (!actor.admin || run.startsAt !== null) return run
+      if (!runner || run.startsAt !== null) return run
       const rank = new Map(event.order.map((id, index) => [id, index]))
       const members = run.members
         .map((entry, index) => ({
@@ -82,7 +87,7 @@ export const applyCaptureEvent = (
       return { ...run, members }
     }
     case 'capture-plan':
-      if (!actor.admin || run.startsAt !== null) return run
+      if (!runner || run.startsAt !== null) return run
       return {
         ...run,
         lines: event.lines.slice(0, run.painters + run.guards),
@@ -90,14 +95,14 @@ export const applyCaptureEvent = (
       }
     case 'capture-go':
       // Every published line needs its painter, or the wall would start with a gap nobody fills.
-      return actor.admin &&
+      return runner &&
         run.lines.length > 0 &&
         run.members.length >= run.lines.length &&
         run.startsAt === null
         ? { ...run, startsAt: now + CAPTURE_LEAD_MS }
         : run
     case 'capture-close':
-      return actor.admin ? null : run
+      return runner ? null : run
   }
 }
 

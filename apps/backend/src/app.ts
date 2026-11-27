@@ -5,6 +5,7 @@ import { cors } from 'hono/cors'
 import type { ArchiveHost } from './archive/port.js'
 import { requireScopeEffect } from './auth/middleware.js'
 import { archiveHold, createArchiveAdminRoutes } from './routes/archive.js'
+import { createAuthRoutes } from './routes/auth.js'
 import { createBackfillAdminRoutes, createCanvasHistoryRoutes } from './routes/backfill.js'
 import { createManifestRoutes } from './routes/manifest.js'
 import { createNodeRoutes } from './routes/nodes.js'
@@ -95,6 +96,7 @@ export const createApp = (context: BackendContext, options: AppOptions) => {
     ['/tiles', createBlobRoutes(runtime, 'tiles'), 'read'],
     ['/recipes', createRecipeRoutes(runtime), 'read'],
     ['/telemetry', createTelemetryRoutes(runtime, auth, { currentSeason, server }), 'open'],
+    ['/auth', createAuthRoutes(runtime, auth), 'open'],
   ]
   for (const [path, routes, scope] of mounts) {
     // `/admin/*` above guards every admin mount, so its place in the path is its scope.

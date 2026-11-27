@@ -4,7 +4,9 @@ import { describe, expect, it } from 'vitest'
 import {
   Alarm,
   ContributionsResponse,
+  CredentialScope,
   HistoryResponse,
+  InviteExchange,
   LeaderboardResponse,
   LiveDashboardSubscription,
   LiveSyncClientEvent,
@@ -169,6 +171,13 @@ describe('wire schema public contracts', () => {
     invalid(ServerInfo, { ...base, build: '' })
     invalid(ServerInfo, { ...base, version: 'x'.repeat(65) })
     invalid(ServerInfo, { ...base, build: 'x'.repeat(65) })
+  })
+
+  it('names every credential scope and bounds an exchanged token', () => {
+    expect(decode(CredentialScope, { scope: 'event_runner' })).toEqual({ scope: 'event_runner' })
+    invalid(CredentialScope, { scope: 'owner' })
+    expect(decode(InviteExchange, { token: 'ABC123' })).toEqual({ token: 'ABC123' })
+    invalid(InviteExchange, { token: '' })
   })
 
   it('keeps v1 and v2 live variants compatible while bounding subscriptions', () => {

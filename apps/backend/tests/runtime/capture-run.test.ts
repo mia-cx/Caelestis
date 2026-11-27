@@ -53,12 +53,20 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
   }
   cleanups.push(stop)
   const base = `http://127.0.0.1:${server.port}/backend/v1`
-  const minted = await fetch(`${base}/admin/tokens`, {
+  const mint = async (scope: 'report' | 'event_runner') => {
+    const minted = await fetch(`${base}/admin/tokens`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ label: scope, scope }),
+    })
+    return ((await minted.json()) as { token: string }).token
+  }
+  const painterToken = await mint('report')
+  const exchanged = await fetch(`${base}/auth/exchange`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ label: 'painter', scope: 'report' }),
+    headers: { authorization: `Bearer ${await mint('event_runner')}` },
   })
-  const { token: painterToken } = (await minted.json()) as { token: string }
+  const { token: runnerToken } = (await exchanged.json()) as { token: string }
 
   let nextPainter = 1
   const connect = async (token: string) => {
@@ -100,6 +108,7 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     stop,
     admin: () => connect(ADMIN),
     painter: () => connect(painterToken),
+    runner: () => connect(runnerToken),
   }
 }
 
@@ -186,6 +195,28 @@ it('runs a capture from open to start, in the order the administrator sets', asy
 
   admin.send({ type: 'capture-close' })
   await vi.waitFor(() => expect(first.run()).toBeNull())
+})
+
+it('lets an event runner run a capture that a reporter cannot open', async () => {
+  const server = await start()
+  const painter = await server.painter()
+  const runner = await server.runner()
+
+  painter.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(painter.run() ?? null).toBeNull()
+
+  runner.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
+  await vi.waitFor(() => expect(painter.run()).toMatchObject({ team: 2, painters: 1 }))
+  painter.send({ type: 'capture-join', team: 2, run: painter.run()?.id ?? '' })
+  await vi.waitFor(() => expect(painter.run()?.members).toHaveLength(1))
+  runner.send({ type: 'capture-plan', lines: [line(1_028_000)] })
+  await vi.waitFor(() => expect(painter.run()?.lines).toHaveLength(1))
+  painter.send({ type: 'capture-close' })
+  runner.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(painter.run()?.startsAt).not.toBeNull())
+  runner.send({ type: 'capture-close' })
+  await vi.waitFor(() => expect(painter.run()).toBeNull())
 })
 
 it('answers clock requests with the server time', async () => {

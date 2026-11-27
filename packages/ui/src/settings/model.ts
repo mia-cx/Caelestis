@@ -1,3 +1,4 @@
+import type { Scope } from '@caelestis/shared'
 import type { ShortcutHelpPlatform } from '../shortcut-help/model.js'
 
 export type SettingsBooleanKey =
@@ -15,7 +16,7 @@ export type SettingsBooleanKey =
   | 'notifyUpdates'
   | 'notifyActivity'
 
-export type AccessTokenScope = 'read' | 'report' | 'admin'
+export type AccessTokenScope = Scope
 
 export interface SettingsAccessTokenModel {
   readonly tokenHash: string
@@ -30,6 +31,8 @@ export interface SettingsAccessTokensModel {
   readonly status: 'loading' | 'ready' | 'error'
   readonly tokens: readonly SettingsAccessTokenModel[]
   readonly hasMore: boolean
+  /** The server says it mints event-runner invites, so the scope picker offers them. */
+  readonly eventRunners?: true
   readonly loadingMore?: boolean
   readonly creating?: boolean
   readonly createError?: string

@@ -1,4 +1,4 @@
-import { millis } from '@caelestis/shared'
+import { millis, type ServerInfo } from '@caelestis/shared'
 import { createApp } from '../../backend/dist/app.js'
 import { hashToken } from '../../backend/dist/auth/tokens.js'
 import { openMemoryStores } from '../../backend/dist/node/memory-stores.js'
@@ -26,15 +26,24 @@ export const backendFetch =
     )
   }
 
+/** Mint a one-use event-runner invite on `origin`'s backend, as its admin would. */
+export const mintEventRunnerInvite = async (fetch: typeof globalThis.fetch, origin: string) => {
+  const response = await fetch(`${origin}/v1/admin/tokens`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ label: 'Organiser', scope: 'event_runner' }),
+  })
+  const { token } = (await response.json()) as { token: string }
+  return token
+}
+
 /** Exercise the built backend package without loading its compiler environment into Vitest. */
 export const createTestBackend = async ({
   openAccess = false,
-  ...release
+  ...advertised
 }: {
   openAccess?: boolean
-  version?: string
-  build?: string
-} = {}) => {
+} & Partial<Pick<ServerInfo, 'version' | 'build' | 'capture' | 'eventRunners'>> = {}) => {
   const { sql, blobs, counters } = await openMemoryStores()
   const tokenHash = await hashToken(adminToken)
   await sql.insertAccessToken({
@@ -66,7 +75,7 @@ export const createTestBackend = async ({
         id: '00000000-0000-7000-8000-000000000000',
         name: 'Userscript contract server',
         auth: openAccess ? 'none' : 'access_token',
-        ...release,
+        ...advertised,
       },
       currentSeason: 3,
     }),

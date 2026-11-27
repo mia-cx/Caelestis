@@ -35,6 +35,7 @@ import {
   parseDiscordInviteUrl,
   parseHomeCopy,
   parseTemplateTags,
+  SCOPES,
   SERVER_ASSET_CONTENT_TYPES,
   SHA256_HEX_PATTERN,
   TILE_SIZE,
@@ -466,6 +467,7 @@ export const ServerInfo = Schema.Struct({
   liveTileOffers: Schema.optionalKey(Schema.Literal(1)),
   presence: Schema.optionalKey(Schema.Literal(1)),
   capture: Schema.optionalKey(Schema.Literal(1)),
+  eventRunners: Schema.optionalKey(Schema.Literal(1)),
   livePaintParts: Schema.optionalKey(Schema.Literal(1)),
   discordInviteUrl: Schema.optionalKey(DiscordInviteUrl),
   version: Schema.optionalKey(boundedString(64)),
@@ -484,6 +486,15 @@ export const ServerInfo = Schema.Struct({
     ),
   ),
 )
+
+/** `GET /auth`: the scope of the credential the request presented. */
+export const CredentialScope = Schema.Struct({ scope: Schema.Literals(SCOPES) })
+
+/**
+ * `POST /auth/exchange`: the token a one-use invite was traded for. This response is the only
+ * place it ever appears, so a client stores it straight away.
+ */
+export const InviteExchange = Schema.Struct({ token: boundedString(MAX_IDENTIFIER_LENGTH) })
 
 /**
  * A materialized group path: a leading slash and at least one segment.

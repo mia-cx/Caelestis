@@ -178,7 +178,7 @@
                   <div class="access-list">
                     {#each server.accessTokens.tokens as token (token.tokenHash)}
                       <div class="access-token">
-                        <div class="access-copy"><span title={token.label}>{token.label}</span><small>{token.bootstrap ? "admin · set in the server's environment" : `${token.scope} · ${dateText(token.createdAt)}`}</small></div>
+                        <div class="access-copy"><span title={token.label}>{token.label}</span><small>{token.bootstrap ? "admin · set in the server's environment" : `${token.scope.replace('_', ' ')} · ${dateText(token.createdAt)}`}</small></div>
                         {#if !token.bootstrap}<Button label={`Delete ${token.label}`} kind="ghost" size="small" iconOnly ariaDisabled={token.pending === true} onclick={() => emit({ type: 'revoke-access-token', url: server.url, tokenHash: token.tokenHash, label: token.label })}><Icon name="close" /></Button>{/if}
                       </div>
                     {/each}
@@ -188,7 +188,7 @@
                 <div class="new-token">
                   <div class="new-token-row">
                     <input class="caelestis-field" type="text" maxlength="128" value={accessLabelDrafts[server.url] ?? ''} oninput={(event) => accessLabelDrafts[server.url] = event.currentTarget.value} placeholder="Who is it for?" aria-label="New token label" onkeydown={(event) => { if (event.key === 'Enter') submitAccessToken(server) }} />
-                    <select class="caelestis-select" aria-label="New token scope" value={accessScopeDrafts[server.url] ?? 'report'} onchange={(event) => accessScopeDrafts[server.url] = event.currentTarget.value as AccessTokenScope}><option value="read">Read</option><option value="report">Report</option><option value="admin">Admin</option></select>
+                    <select class="caelestis-select" aria-label="New token scope" value={accessScopeDrafts[server.url] ?? 'report'} onchange={(event) => accessScopeDrafts[server.url] = event.currentTarget.value as AccessTokenScope}><option value="read">Read</option><option value="report">Report</option>{#if server.accessTokens.eventRunners}<option value="event_runner">Event runner</option>{/if}<option value="admin">Admin</option></select>
                     <Button label="Create" kind="primary" size="small" disabled={server.accessTokens.creating === true} onclick={() => submitAccessToken(server)} />
                   </div>
                   {#if server.accessTokens.createError !== undefined}<p class="error token-error" role="status">{server.accessTokens.createError}</p>{/if}
