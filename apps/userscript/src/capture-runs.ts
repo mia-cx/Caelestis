@@ -12,6 +12,7 @@ import {
   simulateCapture,
   TERRITORY_ARENA,
   TERRITORY_CHARGES,
+  TERRITORY_TEAMS,
   type TerritoryTeam,
   TILE_SIZE,
   territoryMapFromImage,
@@ -107,13 +108,20 @@ const linePixels = (line: readonly number[]): { x: number; y: number }[] => {
   return pixels
 }
 
-/** How many of a line's pixels this tab has drafted. */
-const draftedOn = (line: readonly number[]): number =>
-  linePixels(line).filter(({ x, y }) => {
+/** This painter's event team, once read; only its colour and dark shade claim territory. */
+let myTeam: TerritoryTeam | null = null
+
+/** How many of a line's pixels this tab has drafted in a colour that claims for its team. */
+const draftedOn = (line: readonly number[]): number => {
+  const team = myTeam === null ? null : TERRITORY_TEAMS[myTeam]
+  return linePixels(line).filter(({ x, y }) => {
     const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
     const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
-    return comparisonDraftPixelAt(tile, offset) !== UNPAINTED
+    const drafted = comparisonDraftPixelAt(tile, offset)
+    if (drafted === UNPAINTED) return false
+    return team === null || drafted === team.colour || drafted === team.dark
   }).length
+}
 
 /** A line as a pixel mask over its bounding box, for the presence layer. */
 const lineMask = (line: readonly number[]): RegionShapePixels | null => {
@@ -205,6 +213,7 @@ const propose = async (groupSize: number): Promise<void> => {
         response.ok ? response.arrayBuffer() : null,
       ),
     ])
+    myTeam = team
     if (team === null) {
       message = 'Join a team in the event first.'
       return
@@ -449,6 +458,12 @@ const tick = (): void => {
     if (mine >= 0) {
       // A painter who joined from another tab, or whose socket reconnected, still needs a sync.
       if (joinedRun !== run.id || view.clockOffset === null) {
+        if (joinedRun !== run.id && myTeam === null)
+          void loadTeam()
+            .then((team) => {
+              myTeam = team
+            })
+            .catch(() => undefined)
         joinedRun = run.id
         syncCaptureClock(view.server)
       }
