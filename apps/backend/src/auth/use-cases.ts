@@ -110,8 +110,10 @@ export const listAccessTokens = (cursor: string | undefined, bootstrapConfigured
   })
 
 /**
- * Revoke a stored token and close every live session it opened. Absence is revocation, so revoking
- * a token that is already gone succeeds.
+ * Revoke a stored token and close every live session it opened. An event runner can be named by
+ * the invite it was minted as, so a confirmation opened before the runner redeemed it still revokes
+ * the runner and closes the sessions of the token it redeemed for. Absence is revocation, so
+ * revoking a token that is already gone succeeds.
  */
 export const revokeAccessTokenAndLiveSessions = (
   tokenHash: string,
@@ -119,7 +121,9 @@ export const revokeAccessTokenAndLiveSessions = (
 ): Effect.Effect<void, StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    yield* storage('revokeAccessToken', () => sql.revokeAccessToken(tokenHash))
+    const revoked = yield* storage('revokeAccessToken', () => sql.revokeAccessToken(tokenHash))
     const statusReadModel = yield* StatusReadModelService
-    yield* storage('closeLiveCredential', () => statusReadModel.closeCredential(season, tokenHash))
+    yield* storage('closeLiveCredential', () =>
+      statusReadModel.closeCredential(season, revoked ?? tokenHash),
+    )
   })

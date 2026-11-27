@@ -42,8 +42,9 @@ export interface AccessTokenStore {
 
   /**
    * Consume the invite with this hash and store `replacement` in its place, in one statement: the
-   * row keeps its label, scope and author and takes the replacement's hash and creation time.
-   * False when no unconsumed invite has the hash, so two concurrent exchanges cannot both win.
+   * row keeps its label, scope, author and invite hash and takes the replacement's hash and
+   * creation time. False when no unconsumed invite has the hash, so two concurrent exchanges cannot
+   * both win.
    */
   redeemInvite(
     inviteHash: string,
@@ -57,11 +58,14 @@ export interface AccessTokenStore {
   listAccessTokens(query?: AccessTokenQuery): Promise<readonly AccessToken[]>
 
   /**
-   * Revoke a token by deleting it, idempotently.
+   * Revoke a token by deleting it, idempotently. `tokenHash` names either the token's current hash
+   * or, for an event runner, the invite it was minted as, which an admin may still be looking at
+   * after the runner redeemed it. Resolves to the hash of the credential deleted, whose sessions
+   * the caller closes, or null when nothing matched.
    *
    * A hard delete needs no reader to remember a `revoked` flag. What the token already reported
    * stays: reported state records what was on wplace, and revoking ends a holder's future access
    * rather than rewriting history.
    */
-  revokeAccessToken(tokenHash: string): Promise<void>
+  revokeAccessToken(tokenHash: string): Promise<string | null>
 }

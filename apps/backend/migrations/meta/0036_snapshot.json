@@ -42,13 +42,12 @@
           "notNull": true,
           "autoincrement": false
         },
-        "invite": {
-          "name": "invite",
-          "type": "integer",
+        "invite_hash": {
+          "name": "invite_hash",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -62,7 +61,7 @@
         },
         "access_tokens_invite_check": {
           "name": "access_tokens_invite_check",
-          "value": "\"access_tokens\".\"invite\" IN (0, 1) AND (\"access_tokens\".\"invite\" = 0 OR \"access_tokens\".\"scope\" = 'event_runner')"
+          "value": "\"access_tokens\".\"invite_hash\" IS NULL OR \"access_tokens\".\"scope\" = 'event_runner'"
         }
       }
     },

@@ -5,9 +5,9 @@ CREATE TABLE `__new_access_tokens` (
 	`scope` text NOT NULL,
 	`created_with_token` text NOT NULL,
 	`created_at_ms` integer NOT NULL,
-	`invite` integer DEFAULT false NOT NULL,
+	`invite_hash` text,
 	CONSTRAINT "access_tokens_scope_check" CHECK("__new_access_tokens"."scope" IN ('read', 'report', 'event_runner', 'admin')),
-	CONSTRAINT "access_tokens_invite_check" CHECK("__new_access_tokens"."invite" IN (0, 1) AND ("__new_access_tokens"."invite" = 0 OR "__new_access_tokens"."scope" = 'event_runner'))
+	CONSTRAINT "access_tokens_invite_check" CHECK("__new_access_tokens"."invite_hash" IS NULL OR "__new_access_tokens"."scope" = 'event_runner')
 );
 --> statement-breakpoint
 INSERT INTO `__new_access_tokens`("token_hash", "label", "scope", "created_with_token", "created_at_ms") SELECT "token_hash", "label", "scope", "created_with_token", "created_at_ms" FROM `access_tokens`;--> statement-breakpoint

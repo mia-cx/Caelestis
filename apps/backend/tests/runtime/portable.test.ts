@@ -75,6 +75,46 @@ it('serves authenticated HTTP and upgrades, revokes, and closes real WebSockets'
   ).toBe(204)
   expect((await revoked)[0]).toBe(1008)
 
+  // An admin who listed the runner before it redeemed its invite still revokes it by that row.
+  const invited = await fetch(`${base}/backend/v1/admin/tokens`, {
+    method: 'POST',
+    headers: { authorization: 'Bearer runtime-admin', 'content-type': 'application/json' },
+    body: JSON.stringify({ label: 'runtime runner', scope: 'event_runner' }),
+  })
+  const invite = (await invited.json()) as { token: string; tokenHash: string }
+  const exchanged = await fetch(`${base}/backend/v1/auth/exchange`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${invite.token}` },
+  })
+  const { token: runnerToken } = (await exchanged.json()) as { token: string }
+  const runner = new WebSocket(
+    `${base.replace('http', 'ws')}/backend/v1/telemetry/presence?season=0&painterId=43&painterName=Runner&clientId=01890f3e-7b2c-7abc-8def-000000000006`,
+    [
+      'caelestis.presence.v1',
+      `caelestis.auth.b64.${Buffer.from(runnerToken).toString('base64url')}`,
+    ],
+  )
+  const runnerReady = once(runner, 'message')
+  await once(runner, 'open')
+  await runnerReady
+  const runnerRevoked = once(runner, 'close')
+  expect(
+    (
+      await fetch(`${base}/backend/v1/admin/tokens/${invite.tokenHash}`, {
+        method: 'DELETE',
+        headers: { authorization: 'Bearer runtime-admin' },
+      })
+    ).status,
+  ).toBe(204)
+  expect((await runnerRevoked)[0]).toBe(1008)
+  expect(
+    (
+      await fetch(`${base}/backend/v1/manifest`, {
+        headers: { authorization: `Bearer ${runnerToken}` },
+      })
+    ).status,
+  ).toBe(401)
+
   const live = new WebSocket(
     `${base.replace('http', 'ws')}/api/v1/telemetry/live?season=0&scope=public&stateVector=1`,
     ['caelestis.live.v2'],

@@ -10,7 +10,7 @@ const toAccessToken = (row: typeof accessTokens.$inferSelect): AccessToken => ({
   scope: row.scope,
   createdWithToken: row.createdWithToken,
   createdAt: row.createdAtMs,
-  ...(row.invite ? { invite: true } : {}),
+  ...(row.inviteHash === row.tokenHash ? { invite: true } : {}),
 })
 
 export class RelationalAccessTokenStore extends RelationalStore implements AccessTokenStore {
@@ -21,7 +21,7 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
       scope: token.scope,
       createdWithToken: token.createdWithToken,
       createdAtMs: token.createdAt,
-      invite: token.invite === true,
+      inviteHash: token.invite === true ? token.tokenHash : null,
     })
   }
 
@@ -41,8 +41,8 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
   ): Promise<boolean> {
     const result = await this.database
       .update(accessTokens)
-      .set({ tokenHash: replacement.tokenHash, createdAtMs: replacement.createdAt, invite: false })
-      .where(and(eq(accessTokens.tokenHash, inviteHash), eq(accessTokens.invite, true)))
+      .set({ tokenHash: replacement.tokenHash, createdAtMs: replacement.createdAt })
+      .where(and(eq(accessTokens.tokenHash, inviteHash), eq(accessTokens.inviteHash, inviteHash)))
       .run()
     return changedRows(result) === 1
   }
@@ -69,7 +69,21 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
     return rows.map(toAccessToken)
   }
 
-  async revokeAccessToken(tokenHash: string): Promise<void> {
-    await this.database.delete(accessTokens).where(eq(accessTokens.tokenHash, tokenHash))
+  async revokeAccessToken(tokenHash: string): Promise<string | null> {
+    // A redemption can rotate the hash between the read and the delete, at most once, so a delete
+    // that misses reads again rather than reporting the old hash it never removed.
+    for (;;) {
+      const [row] = await this.database
+        .select({ tokenHash: accessTokens.tokenHash })
+        .from(accessTokens)
+        .where(or(eq(accessTokens.tokenHash, tokenHash), eq(accessTokens.inviteHash, tokenHash)))
+        .limit(1)
+      if (row === undefined) return null
+      const result = await this.database
+        .delete(accessTokens)
+        .where(eq(accessTokens.tokenHash, row.tokenHash))
+        .run()
+      if (changedRows(result) === 1) return row.tokenHash
+    }
   }
 }

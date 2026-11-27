@@ -426,10 +426,13 @@ export const accessTokens = sqliteTable(
     createdWithToken: text('created_with_token').notNull(),
     createdAtMs: integer('created_at_ms').$type<Millis>().notNull(),
     /**
-     * A one-use invite: it authenticates only the exchange that replaces it with a fresh token of
-     * the same label, so the secret an organiser shares never becomes the one a browser keeps.
+     * The hash of the one-use invite an event runner was minted as. While it equals `token_hash`
+     * the row is that invite, which authenticates only the exchange that gives it a fresh token of
+     * the same label, so the secret an organiser shares never becomes the one a browser keeps. The
+     * exchange rotates `token_hash` and leaves this, so a revoke by the hash an admin saw before
+     * the exchange still finds the runner.
      */
-    invite: integer('invite', { mode: 'boolean' }).notNull().default(false),
+    inviteHash: text('invite_hash'),
   },
   (table) => [
     check(
@@ -439,7 +442,7 @@ export const accessTokens = sqliteTable(
     // Only event runners are invited; every other scope is minted ready to use.
     check(
       'access_tokens_invite_check',
-      sql`${table.invite} IN (0, 1) AND (${table.invite} = 0 OR ${table.scope} = 'event_runner')`,
+      sql`${table.inviteHash} IS NULL OR ${table.scope} = 'event_runner'`,
     ),
   ],
 )
