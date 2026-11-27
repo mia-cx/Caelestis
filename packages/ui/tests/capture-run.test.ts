@@ -106,7 +106,7 @@ it('keeps the coordinator on the closing line while the administrator orders the
   expect(rows[2]?.textContent).toContain('Closes wall')
   const disabled = (label: string) =>
     card.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.disabled
-  expect(disabled('Move Bea up')).toBe(true)
+  expect(disabled('Move Bea up')).toBeUndefined()
   expect(disabled('Move Ada down')).toBe(true)
   expect(disabled('Move Cy down')).toBe(false)
 })

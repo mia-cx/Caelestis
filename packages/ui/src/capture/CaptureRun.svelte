@@ -127,21 +127,23 @@
           <li class:me={member.me}>
             {#if member.guard}<span class="place" aria-label="Anchor guard" title="Anchor guard">G</span>{:else}<span class="place">{index + 1}</span>{/if}
             <span class="swatch" style:background-color={member.colour} aria-hidden="true"></span>
-            <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
-            {#if member.closes}<span class="closes">Closes wall</span>{/if}
+            <span class="who">
+              <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
+              {#if member.closes}<span class="closes">Closes wall</span>{/if}
+            </span>
             {#if member.length > 0}
               <span class="ready" class:done={ready} aria-label={`${member.drafted} of ${member.length} pixels drafted`}>{#if ready}<Icon name="check" size="0.875rem" />{/if}{member.drafted}/{member.length}</span>
             {/if}
             {#if member.me && member.length > 0 && model.phase !== 'done'}
               <Button label="Show my line" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'show-line' })}><Icon name="flyTo" size="0.875rem" /></Button>
             {/if}
-            {#if model.admin && gathering}
+            <!-- The closer keeps their place, so no move into or out of it does anything. -->
+            {#if model.admin && gathering && !member.closes}
               {@const before = model.members[index - 1]}
               {@const after = model.members[index + 1]}
-              <!-- The closer keeps their place, so no move into or out of it does anything. -->
               <span class="order">
-                <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={before === undefined || before.closes || member.closes} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
-                <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={after === undefined || after.closes || member.closes} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
+                <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={before === undefined || before.closes} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
+                <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={after === undefined || after.closes} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
               </span>
             {/if}
           </li>
@@ -284,9 +286,10 @@
   .members li.me { background: var(--caelestis-raised-surface); }
   .place { inline-size: 1rem; color: var(--caelestis-muted-text); text-align: end; }
   .swatch { flex: none; inline-size: 0.75rem; block-size: 0.75rem; border: 1px solid color-mix(in oklab, var(--caelestis-text) 30%, transparent); border-radius: 2px; }
-  .name { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; }
+  .name, .closes { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .you { margin-inline-start: 0.25em; color: var(--caelestis-muted-text); }
-  .closes { flex: none; color: var(--caelestis-muted-text); font-size: 0.75rem; }
+  .closes { color: var(--caelestis-muted-text); font-size: 0.75rem; line-height: 1.2; }
   .ready { display: inline-flex; align-items: center; gap: 0.125rem; color: var(--caelestis-muted-text); }
   .ready.done { color: var(--caelestis-success); }
   .order { display: inline-flex; }
