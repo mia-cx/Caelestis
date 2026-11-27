@@ -45,13 +45,18 @@ import {
  *
  * - A viewport of someone browsing: dashed edge, 15% fill, dotted grid.
  * - A viewport of someone painting: solid edge, 30% fill, diagonal stripes.
- * - Their drafted pixels: the same colour, solid, so the exact pixels show inside the viewport.
+ * - Their drafted pixels: the same colour, mostly solid, so the exact pixels show inside the
+ *   viewport. The shape is outlined by a dark line and, inside it, a line in that colour, so a
+ *   draft stays visible over artwork of the painter's own hue, such as an event's team territory.
  * - A region claim: solid edge, 30% fill, diagonal stripes. The claim is the union of its shapes,
  *   rasterised to whole pixels and sampled with nearest filtering, so the tint stops on a pixel
  *   edge. The outline is a stroke of fixed device-pixel width along that boundary, found in the
  *   shader by sampling the mask a stroke-width away in screen space, so it never claims a pixel
  *   of its own and stays the same thickness at every zoom.
  * - The claim being edited: the same as a claim, from the editor's working document.
+ * - A capture run: your line solid, others' lines filled once drafted and outlined before, the area
+ *   the wall encloses hatched, each guard's anchor in a dashed box, and a short chain showing how to
+ *   crawl a draft out to your line. Your line steps aside under the pointer, like your claims.
  *
  * Everything arrives and leaves on the shared fade ramp so a painter closing their tab does not
  * blink out.
@@ -75,32 +80,40 @@ uniform float u_maskAlpha;
 uniform int u_pattern;
 uniform float u_patternAlpha;
 uniform float u_scale;
+uniform float u_contrast;
 out vec4 fragColor;
+// Width of the dark contrast line, in CSS pixels.
+const float CONTRAST_WIDTH = 1.0;
 bool outsideAt(vec2 uv) {
   // Beyond the texture is outside too; clamping would otherwise repeat the edge texel.
   if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return true;
   return texture(u_mask, uv).r < 0.5;
+}
+// Whether anything that many device pixels away, in screen space, is outside the mask.
+bool nearOutside(float width) {
+  vec2 d = vec2(width) / u_size;
+  vec2 g = d * 0.7071;
+  return outsideAt(v_uv + vec2(d.x, 0.0)) || outsideAt(v_uv - vec2(d.x, 0.0)) ||
+    outsideAt(v_uv + vec2(0.0, d.y)) || outsideAt(v_uv - vec2(0.0, d.y)) ||
+    outsideAt(v_uv + g) || outsideAt(v_uv - g) ||
+    outsideAt(v_uv + vec2(g.x, -g.y)) || outsideAt(v_uv - vec2(g.x, -g.y));
 }
 void main() {
   vec2 px = v_uv * u_size;
   float alpha = 0.0;
   bool inside = false;
   bool edge = false;
+  bool contrast = false;
   if (u_hasMask == 1) {
     inside = !outsideAt(v_uv);
     if (inside) {
       alpha = u_maskAlpha;
-      // A stroke of u_borderWidth device pixels (a CSS width scaled by the display's ratio)
-      // along the boundary, drawn on the inside: a fragment is on it when anything that far
-      // away, in screen space, is outside the mask.
-      if (u_borderWidth > 0.0) {
-        vec2 d = vec2(u_borderWidth) / u_size;
-        vec2 g = d * 0.7071;
-        edge = outsideAt(v_uv + vec2(d.x, 0.0)) || outsideAt(v_uv - vec2(d.x, 0.0)) ||
-          outsideAt(v_uv + vec2(0.0, d.y)) || outsideAt(v_uv - vec2(0.0, d.y)) ||
-          outsideAt(v_uv + g) || outsideAt(v_uv - g) ||
-          outsideAt(v_uv + vec2(g.x, -g.y)) || outsideAt(v_uv - vec2(g.x, -g.y));
-      }
+      // Strokes along the boundary, drawn on the inside, in device pixels (CSS widths scaled by
+      // the display's ratio): the dark contrast line outermost, so even a shape a few screen
+      // pixels across keeps it, then u_borderWidth of the painter's colour.
+      float dark = u_contrast > 0.0 ? CONTRAST_WIDTH * u_scale : 0.0;
+      contrast = dark > 0.0 && nearOutside(dark);
+      edge = !contrast && u_borderWidth > 0.0 && nearOutside(dark + u_borderWidth);
     }
   } else {
     inside = true;
@@ -124,6 +137,10 @@ void main() {
     if (cell.x < 4.0 && cell.y < 4.0) alpha = max(alpha, u_patternAlpha);
   }
   if (edge) alpha = max(alpha, u_border);
+  if (contrast) {
+    fragColor = vec4(0.0, 0.0, 0.0, u_contrast);
+    return;
+  }
   fragColor = vec4(u_colour * alpha, alpha);
 }
 `
@@ -142,6 +159,8 @@ interface Style {
   /** 0 none, 1 diagonal stripes, 2 dotted grid. */
   readonly pattern: 0 | 1 | 2
   readonly patternAlpha: number
+  /** Alpha of a dark line along a mask's boundary, outside its border, for shapes that must show on any colour. */
+  readonly contrast: number
 }
 
 const STYLES: Record<SceneKind, Style> = {
@@ -153,6 +172,7 @@ const STYLES: Record<SceneKind, Style> = {
     maskAlpha: 0,
     pattern: 2,
     patternAlpha: 0.25,
+    contrast: 0,
   },
   painting: {
     fill: 0.2,
@@ -162,15 +182,17 @@ const STYLES: Record<SceneKind, Style> = {
     maskAlpha: 0,
     pattern: 1,
     patternAlpha: 0.35,
+    contrast: 0,
   },
   draft: {
     fill: 0,
-    border: 0,
-    borderWidth: 0,
+    border: 1,
+    borderWidth: 1.5,
     dash: 0,
-    maskAlpha: 0.55,
+    maskAlpha: 0.7,
     pattern: 0,
     patternAlpha: 0,
+    contrast: 0.7,
   },
   region: {
     fill: 0,
@@ -180,6 +202,7 @@ const STYLES: Record<SceneKind, Style> = {
     maskAlpha: 0.15,
     pattern: 1,
     patternAlpha: 0.3,
+    contrast: 0,
   },
   // A claim held only for one paint session: the claim's weight, with a dashed edge.
   quick: {
@@ -190,6 +213,86 @@ const STYLES: Record<SceneKind, Style> = {
     maskAlpha: 0,
     pattern: 1,
     patternAlpha: 0.3,
+    contrast: 0,
+  },
+  // A capture run. This painter's line looks like their draft, solid, so they trace it exactly.
+  'capture-mine': {
+    fill: 0,
+    border: 1,
+    borderWidth: 1.5,
+    dash: 0,
+    maskAlpha: 0.75,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0.7,
+  },
+  // The rest of this painter's line, still to draft: a hatch of the team's colour inside a dark
+  // outline and no colour outline, so it can never pass for pixels the team already holds, and
+  // at low zoom, where the outline is all there is, it reads dark beside the solid drafted part.
+  'capture-todo': {
+    fill: 0,
+    border: 0,
+    borderWidth: 1.5,
+    dash: 0,
+    maskAlpha: 0.15,
+    pattern: 1,
+    patternAlpha: 0.95,
+    contrast: 0.9,
+  },
+  // Another painter's line once they have drafted all of it: filled, lighter than your own.
+  'capture-ready': {
+    fill: 0,
+    border: 0.9,
+    borderWidth: 1.5,
+    dash: 0,
+    maskAlpha: 0.4,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0.6,
+  },
+  // A line still being drafted, or a proposed wall: outline only, so the gaps read as gaps.
+  'capture-pending': {
+    fill: 0,
+    border: 1,
+    borderWidth: 1.5,
+    dash: 0,
+    maskAlpha: 0,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0.6,
+  },
+  // What the wall encloses: a faint hatch, so the planned shape reads as a shape.
+  'capture-area': {
+    fill: 0,
+    border: 0,
+    borderWidth: 0,
+    dash: 0,
+    maskAlpha: 0.08,
+    pattern: 1,
+    patternAlpha: 0.22,
+    contrast: 0,
+  },
+  // A guard's anchor: a dashed box in the guard's colour around the end of the wall they hold.
+  'capture-anchor': {
+    fill: 0,
+    border: 1,
+    borderWidth: 2,
+    dash: 6,
+    maskAlpha: 0,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0,
+  },
+  // The caterpillar demo: a translucent chain, a guide rather than pixels anyone drafted.
+  'capture-demo': {
+    fill: 0,
+    border: 0,
+    borderWidth: 0,
+    dash: 0,
+    maskAlpha: 0.55,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0.4,
   },
   tool: {
     fill: 0,
@@ -199,6 +302,7 @@ const STYLES: Record<SceneKind, Style> = {
     maskAlpha: 0.3,
     pattern: 1,
     patternAlpha: 0.5,
+    contrast: 0,
   },
 }
 
@@ -266,7 +370,8 @@ const currentItems = (): Item[] =>
       key: item.id,
       kind: item.kind,
       rect: item.rect,
-      colour: item.painter === null ? WHITE : presenceRgb(item.painter.wplaceUserId),
+      colour:
+        item.colour ?? (item.painter === null ? WHITE : presenceRgb(item.painter.wplaceUserId)),
       mask: item.mask,
       mine: item.mine,
       follows: item.follows,
@@ -579,6 +684,7 @@ class PresenceLayer {
           gl.uniform1f(this.uniform(gl, 'u_maskAlpha'), style.maskAlpha * fade * fill)
           gl.uniform1i(this.uniform(gl, 'u_pattern'), style.pattern)
           gl.uniform1f(this.uniform(gl, 'u_patternAlpha'), style.patternAlpha * fade * fill)
+          gl.uniform1f(this.uniform(gl, 'u_contrast'), style.contrast * fade)
           gl.uniform1i(this.uniform(gl, 'u_hasMask'), texture === null ? 0 : 1)
           gl.activeTexture(gl.TEXTURE0)
           gl.bindTexture(gl.TEXTURE_2D, texture)

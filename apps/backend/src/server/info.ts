@@ -3,11 +3,17 @@ import { LIVE_CAPABILITIES } from '../live/session.js'
 import type { ServerConfig } from './config.js'
 import type { ServerAssetRecord, ServerSettings } from './store.js'
 
+/** The protocols only an event server (`EVENT_SERVER=true`) serves, as `/server` advertises them. */
+export const EVENT_CAPABILITIES = {
+  capture: 1,
+  eventRunners: 1,
+} as const satisfies Partial<ServerInfo>
+
 /** What `/server` and every manifest say about this deployment before operator settings apply. */
 export const serverInfo = (
   config: Pick<
     ServerConfig,
-    'serverName' | 'serverDescription' | 'openAccess' | 'version' | 'build'
+    'serverName' | 'serverDescription' | 'openAccess' | 'eventServer' | 'version' | 'build'
   >,
   id: string,
 ): ServerInfo => ({
@@ -18,6 +24,7 @@ export const serverInfo = (
   ...(config.version === undefined ? {} : { version: config.version }),
   build: config.build,
   ...LIVE_CAPABILITIES,
+  ...(config.eventServer ? EVENT_CAPABILITIES : {}),
 })
 
 /** Public identity of a content-addressed branding object. */

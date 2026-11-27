@@ -1,4 +1,4 @@
-import { cloudflareBindings } from './adapters/cloudflare/bindings.js'
+import { cloudflareBindings, cloudflareConfig } from './adapters/cloudflare/bindings.js'
 import { forwardingObject } from './adapters/cloudflare/forwarding-object.js'
 import { receivePresence } from './adapters/cloudflare/live-connect.js'
 import { durableLiveHost } from './adapters/cloudflare/live-host.js'
@@ -31,6 +31,7 @@ export class PresenceObject extends forwardingObject<Coordinator>()([
       stores.sql,
       new IngestTimings(),
       (tokenHash) => statusShard(room.season).registerPresenceSurface(tokenHash, room.surface),
+      cloudflareConfig(env).eventServer,
     )
   }
   override fetch(request: Request) {

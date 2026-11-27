@@ -6,6 +6,8 @@ import {
   TRANSPARENT_INDEX,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import { CredentialScope, InviteExchange } from '@caelestis/wire-schema'
+import { Schema } from 'effect'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import { hashToken } from '../src/auth/tokens.js'
@@ -29,13 +31,25 @@ const request = (backend: Backend, path: string, method = 'GET', token?: string,
     }),
   )
 
-const mint = async (backend: Backend, scope: 'read' | 'report', token = adminToken) => {
+const mint = async (
+  backend: Backend,
+  scope: 'read' | 'report' | 'event_runner',
+  token = adminToken,
+) => {
   const response = await request(backend, '/admin/tokens', 'POST', token, { label: scope, scope })
   expect(response.status).toBe(201)
-  const value = (await response.json()) as { token: string; tokenHash: string }
+  const value = (await response.json()) as { token: string; tokenHash: string; invite?: true }
   expect(value.token).toEqual(expect.any(String))
   expect(value.tokenHash).toMatch(/^[0-9a-f]{64}$/)
   return value
+}
+
+/** An event runner's kept token: the one its invite exchanges for. */
+const eventRunner = async (backend: Backend) => {
+  const invite = await mint(backend, 'event_runner')
+  const response = await request(backend, '/v1/auth/exchange', 'POST', invite.token)
+  expect(response.status).toBe(201)
+  return ((await response.json()) as { token: string }).token
 }
 
 const reads = [
@@ -118,14 +132,19 @@ describe('backend API trust boundary', () => {
     const backend = await createTestBackend()
     const read = await mint(backend, 'read')
     const report = await mint(backend, 'report')
+    const runner = await eventRunner(backend)
     for (const prefix of ['', '/v1']) {
       const operations = [
         ...reads.flatMap((path) =>
-          [read.token, report.token, adminToken].map((token) => ({ method: 'GET', path, token })),
+          [read.token, report.token, runner, adminToken].map((token) => ({
+            method: 'GET',
+            path,
+            token,
+          })),
         ),
         ...adminOperations.map(([method, path]) => ({ method, path, token: adminToken })),
         ...reportOperations.flatMap(([method, path]) =>
-          [report.token, adminToken].map((token) => ({ method, path, token })),
+          [report.token, runner, adminToken].map((token) => ({ method, path, token })),
         ),
       ]
       for (const { method, path, token } of operations) {
@@ -148,12 +167,13 @@ describe('backend API trust boundary', () => {
     }
   })
 
-  it('keeps every administration operation inaccessible to read and report credentials', async () => {
+  it('keeps every administration operation inaccessible to read, report and event-runner credentials', async () => {
     const backend = await createTestBackend({ openAccess: true })
     const read = await mint(backend, 'read')
     const report = await mint(backend, 'report')
+    const runner = await eventRunner(backend)
     for (const [method, path] of adminOperations) {
-      for (const token of [undefined, read.token, report.token]) {
+      for (const token of [undefined, read.token, report.token, runner]) {
         const response = await request(backend, `/v1${path}`, method, token)
         expect(response.status, `${method} ${path}`).toBe(token === undefined ? 401 : 403)
         expect(await response.json()).toEqual({
@@ -551,6 +571,59 @@ describe('backend API trust boundary', () => {
     expect(
       (await request(backend, '/admin/tokens/bootstrap', 'DELETE', 'bootstrap-secret')).status,
     ).toBe(400)
+  })
+
+  it('trades an event-runner invite, once, for a token only its holder keeps', async () => {
+    const backend = await createTestBackend()
+    const report = await mint(backend, 'report')
+    const invite = await mint(backend, 'event_runner')
+    expect(invite.invite).toBe(true)
+
+    // The invite opens nothing but its own exchange.
+    const elsewhere = [
+      ...reads.map((path) => ['GET', path] as const),
+      ...reportOperations,
+      ...adminOperations,
+      ['GET', '/auth'] as const,
+    ]
+    for (const [method, path] of elsewhere) {
+      const response = await request(backend, `/v1${path}`, method, invite.token)
+      expect(response.status, `${method} ${path}`).toBe(403)
+    }
+
+    // Two holders racing the same invite: exactly one wins.
+    const exchanges = await Promise.all(
+      [0, 1].map(() => request(backend, '/v1/auth/exchange', 'POST', invite.token)),
+    )
+    expect(exchanges.map((response) => response.status).sort()).toEqual([201, 401])
+    const winner = exchanges.find((response) => response.status === 201) ?? Response.error()
+    const { token } = Schema.decodeUnknownSync(InviteExchange)(await winner.json())
+    expect(token).not.toBe(invite.token)
+    expect(
+      Schema.decodeUnknownSync(CredentialScope)(
+        await (await request(backend, '/v1/auth', 'GET', token)).json(),
+      ),
+    ).toEqual({ scope: 'event_runner' })
+    expect((await request(backend, '/v1/manifest', 'GET', token)).status).toBe(200)
+    expect((await request(backend, '/v1/auth/exchange', 'POST', invite.token)).status).toBe(401)
+
+    // The kept token carries the invite's label, and no invite remains.
+    const listed = (await (await request(backend, '/admin/tokens', 'GET', adminToken)).json()) as {
+      tokens: Record<string, unknown>[]
+    }
+    const runners = listed.tokens.filter((entry) => entry.scope === 'event_runner')
+    expect(runners).toEqual([
+      expect.objectContaining({ label: 'event_runner', tokenHash: await hashToken(token) }),
+    ])
+    expect(runners[0]).not.toHaveProperty('invite')
+
+    // Other credentials are not invites and keep working after an exchange attempt.
+    for (const credential of [report.token, token, adminToken])
+      expect((await request(backend, '/v1/auth/exchange', 'POST', credential)).status).toBe(403)
+    expect((await request(backend, '/v1/auth/exchange', 'POST')).status).toBe(401)
+    expect(await (await request(backend, '/v1/auth', 'GET', report.token)).json()).toEqual({
+      scope: 'report',
+    })
   })
 
   it('rejects malformed mutations and oversized work requests before changing stored state', async () => {

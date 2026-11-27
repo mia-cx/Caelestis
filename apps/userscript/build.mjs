@@ -9,6 +9,7 @@ import {
   WPLACE_MATCH,
 } from './build-config.mjs'
 import { ditherettePlugin, ditheretteResources } from './ditherette-plugin.mjs'
+import { workerPlugin } from './worker-plugin.mjs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 const backendPkg = JSON.parse(
@@ -100,7 +101,10 @@ const options = {
   format: 'iife',
   target: 'es2022',
   loader: { '.woff2': 'dataurl', '.png': 'dataurl' },
-  plugins: [ditherettePlugin({ minify: !development, wasm: development ? 'inline' : 'resource' })],
+  plugins: [
+    ditherettePlugin({ minify: !development, wasm: development ? 'inline' : 'resource' }),
+    workerPlugin({ minify: !development }),
+  ],
   define: {
     __CAELESTIS_USERSCRIPT_VERSION__: JSON.stringify(pkg.version),
     __CAELESTIS_EXPECTED_BACKEND_VERSION__: JSON.stringify(backendPkg.version),
@@ -174,7 +178,10 @@ const manifest = {
   ],
 }
 
-const extensionPlugins = [ditherettePlugin({ minify: !development, wasm: 'inline' })]
+const extensionPlugins = [
+  ditherettePlugin({ minify: !development, wasm: 'inline' }),
+  workerPlugin({ minify: !development }),
+]
 
 const extensionOptions = [
   {

@@ -2,7 +2,13 @@ import type { Scope } from '@caelestis/shared'
 import { isSha256Hex, millis, parseWholeNumber } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
-import { type StorageError, storage, ValidationError } from '../runtime/errors.js'
+import {
+  ForbiddenError,
+  type StorageError,
+  storage,
+  UnauthorizedError,
+  ValidationError,
+} from '../runtime/errors.js'
 import type { AccessToken } from './store.js'
 import { hashToken, mintToken } from './tokens.js'
 
@@ -12,7 +18,13 @@ import { hashToken, mintToken } from './tokens.js'
  */
 const TOKEN_PAGE_SIZE = 50
 
-/** Mint a token. The response is the only time its plaintext exists outside the caller's hands. */
+/**
+ * Mint a token. The response is the only time its plaintext exists outside the caller's hands.
+ *
+ * An `event_runner` token is minted as a one-use invite: whoever is handed it trades it through
+ * {@link exchangeInvite} for a token only their browser holds, so the shared secret stops working
+ * the moment it is used.
+ */
 export const mintAccessToken = (input: {
   readonly label: string
   readonly scope: Scope
@@ -28,9 +40,30 @@ export const mintAccessToken = (input: {
       scope: input.scope,
       createdWithToken: input.createdWithToken,
       createdAt: millis(Date.now()),
+      ...(input.scope === 'event_runner' ? { invite: true } : {}),
     }
     yield* storage('insertAccessToken', () => sql.insertAccessToken(record))
     return { token, ...record }
+  })
+
+/**
+ * Trade the presented invite for a fresh token with the same label and scope, once. The invite
+ * stops existing in the same write, so a second exchange finds nothing and is asked to
+ * authenticate. A credential that is not an invite is refused and keeps working.
+ */
+export const exchangeInvite = (presented: string | null) =>
+  Effect.gen(function* () {
+    if (presented === null) return yield* Effect.fail(new UnauthorizedError())
+    const sql = yield* SqlStoreService
+    const inviteHash = yield* Effect.promise(() => hashToken(presented))
+    const token = mintToken()
+    const tokenHash = yield* Effect.promise(() => hashToken(token))
+    const redeemed = yield* storage('redeemInvite', () =>
+      sql.redeemInvite(inviteHash, { tokenHash, createdAt: millis(Date.now()) }),
+    )
+    if (redeemed) return { token }
+    const held = yield* storage('readAccessToken', () => sql.readAccessToken(inviteHash))
+    return yield* Effect.fail(held === null ? new UnauthorizedError() : new ForbiddenError())
   })
 
 /** `createdAt:tokenHash` of the last token on the previous page. */
@@ -77,8 +110,12 @@ export const listAccessTokens = (cursor: string | undefined, bootstrapConfigured
   })
 
 /**
- * Revoke a stored token and close every live session it opened. Absence is revocation, so revoking
- * a token that is already gone succeeds.
+ * Revoke a stored token and close every live session it opened. An event runner can be named by
+ * the invite it was minted as, so a confirmation opened before the runner redeemed it still revokes
+ * the runner and closes the sessions of the token it redeemed for. The token stops authenticating
+ * before its sessions close, and its row goes only after they have, so a retry by either hash
+ * finishes a revoke that failed partway. Absence is revocation, so revoking a token that is already
+ * gone succeeds.
  */
 export const revokeAccessTokenAndLiveSessions = (
   tokenHash: string,
@@ -86,7 +123,10 @@ export const revokeAccessTokenAndLiveSessions = (
 ): Effect.Effect<void, StorageError, SqlStoreService | StatusReadModelService> =>
   Effect.gen(function* () {
     const sql = yield* SqlStoreService
-    yield* storage('revokeAccessToken', () => sql.revokeAccessToken(tokenHash))
+    const revoked = yield* storage('revokeAccessToken', () => sql.revokeAccessToken(tokenHash))
     const statusReadModel = yield* StatusReadModelService
-    yield* storage('closeLiveCredential', () => statusReadModel.closeCredential(season, tokenHash))
+    yield* storage('closeLiveCredential', () =>
+      statusReadModel.closeCredential(season, revoked ?? tokenHash),
+    )
+    if (revoked !== null) yield* storage('forgetAccessToken', () => sql.forgetAccessToken(revoked))
   })

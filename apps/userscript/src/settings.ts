@@ -76,6 +76,8 @@ export interface ServerConnection {
    * will only ever get a 403 is worse than not offering them.
    */
   readonly isAdmin: boolean
+  /** Set when the server says our token may run capture runs: an event runner's or an admin's. */
+  readonly canRunCaptures?: true
   /** Non-negative season advertised by the validated manifest. */
   readonly season: number | null
   /** Last manifest identity proven for this URL, retained only to validate render-only cache data. */

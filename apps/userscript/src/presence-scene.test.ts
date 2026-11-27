@@ -32,6 +32,7 @@ const inputs = (showPresenceClaims: boolean): SceneInputs => ({
   quickClaims: [{ x: 0, y: 0, w: 4, h: 4 }],
   quickPreview: null,
   tool: [],
+  capture: [],
 })
 
 it("draws your quick claims while painting and others' only where claims show", () => {

@@ -47,7 +47,7 @@ try {
     '--persist-to',
     persist,
     '--command',
-    `INSERT INTO access_tokens VALUES ('${hash}', 'frontend', 'read', 'bootstrap', 0)`,
+    `INSERT INTO access_tokens (token_hash, label, scope, created_with_token, created_at_ms) VALUES ('${hash}', 'frontend', 'read', 'bootstrap', 0)`,
   )
   const port = await availablePort()
   const site = `http://127.0.0.1:${port}`

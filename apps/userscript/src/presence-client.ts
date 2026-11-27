@@ -1,6 +1,9 @@
 import {
+  type CaptureClientEvent,
+  type CaptureRun,
   decodePresenceServerEvent,
   liveCredentialProtocol,
+  MAX_PRESENCE_MESSAGES_PER_SECOND,
   type PainterIdentity,
   PRESENCE_DRAFT_MIN_MS,
   PRESENCE_HEARTBEAT_MS,
@@ -63,6 +66,20 @@ const MAX_RECONNECT_MS = 30_000
 const INITIAL_RECONNECT_MS = 1_000
 const MAX_RECONNECT_ATTEMPTS = 10
 const RECONNECT_JITTER_MS = 500
+/** Round trips per clock sync, and the gap between them: under the server's message rate limit. */
+const CLOCK_PINGS = 6
+const CLOCK_PING_GAP_MS = 250
+/** The server's rate window, and the share of its limit this tab uses: one short, for headroom. */
+const RATE_WINDOW_MS = 1_000
+const SEND_BUDGET = MAX_PRESENCE_MESSAGES_PER_SECOND - 1
+/** The shortest time between two sync bursts on one socket. */
+const CLOCK_RESYNC_MS = CLOCK_PINGS * CLOCK_PING_GAP_MS + 1_000
+
+/**
+ * This tab's clock for capture timing: wall time at page load plus monotonic time since, so a
+ * system clock change mid-countdown cannot move it.
+ */
+export const localClock = (): number => performance.timeOrigin + performance.now()
 
 /** What was last sent on a socket. `undefined` means nothing yet; a new session has no quick claims. */
 interface Sent {
@@ -83,11 +100,29 @@ const nothingSent = (): Sent => ({
   quickClaimsAt: Number.NEGATIVE_INFINITY,
 })
 
+/** The server clock against this tab's monotonic clock, from the quickest `clock` round trip. */
+interface ClockSample {
+  /** Server time minus local time, in milliseconds. */
+  readonly offset: number
+  readonly rtt: number
+}
+
 interface Connection {
   readonly server: ServerConnection
   socket: WebSocket | null
   sessionId: string | null
   peers: Map<string, PresencePeer>
+  capture: CaptureRun | null
+  /** Whether the server lets this socket's credential write, as its ready event said. */
+  canWrite: boolean
+  clock: ClockSample | null
+  /** When the last clock sync burst started, so callers may ask as often as they like. */
+  clockSyncAt: number
+  /** When each message of the last second went, for the shared send budget. */
+  sentAt: number[]
+  /** Capture and clock messages waiting for budget, in order. */
+  outbox: (() => PresenceClientEvent)[]
+  outboxTimer: ReturnType<typeof setTimeout> | null
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -149,9 +184,29 @@ const sameDraft = (left: PresenceDraft | null, right: PresenceDraft | null): boo
 const sameRects = (left: readonly PresenceRect[], right: readonly PresenceRect[]): boolean =>
   left.length === right.length && left.every((rect, index) => sameRect(rect, right[index] ?? null))
 
+/** Messages sent in the last second, pruned; what the server's rate limit counts. */
+const recentSends = (connection: Connection, at = Date.now()): number[] => {
+  connection.sentAt = connection.sentAt.filter((sent) => at - sent < RATE_WINDOW_MS)
+  return connection.sentAt
+}
+
+/** Milliseconds until the socket may send again: zero while it is under its budget. */
+const sendWait = (connection: Connection): number => {
+  const at = Date.now()
+  const recent = recentSends(connection, at)
+  return recent.length < SEND_BUDGET ? 0 : (recent[0] as number) + RATE_WINDOW_MS - at
+}
+
+/**
+ * Send one event if the socket has budget for it. The server closes a socket past its message
+ * rate, and timers held back by a long task fire together, so every message counts against one
+ * budget; a caller told no tries again later.
+ */
 const send = (connection: Connection, event: PresenceClientEvent): boolean => {
   const socket = connection.socket
   if (socket === null || socket.readyState !== WebSocket.OPEN) return false
+  if (sendWait(connection) > 0) return false
+  connection.sentAt.push(Date.now())
   try {
     measureProfile('Presence send', () => {
       const payload = JSON.stringify(event)
@@ -173,14 +228,40 @@ const armHeartbeat = (connection: Connection): void => {
     // The full state goes with the heartbeat, so a server that hibernated and lost this session's
     // draft mask gets it back without any extra message.
     const draft = canPublish() ? (connection.sent.draft ?? null) : null
-    if (draft === null) send(connection, { type: 'presence-heartbeat' })
-    else
-      send(connection, {
-        type: 'presence-update',
-        viewport: connection.sent.viewport ?? null,
-        draft,
-      })
+    const sent =
+      draft === null
+        ? send(connection, { type: 'presence-heartbeat' })
+        : send(connection, {
+            type: 'presence-update',
+            viewport: connection.sent.viewport ?? null,
+            draft,
+          })
+    if (!sent && isOpen(connection))
+      connection.heartbeatTimer = setTimeout(() => armHeartbeat(connection), sendWait(connection))
   }, PRESENCE_HEARTBEAT_MS)
+}
+
+/**
+ * Queue a capture or clock message, built when it actually goes so a clock ping carries its true
+ * send time, and drain the queue as the budget allows.
+ */
+const enqueue = (connection: Connection, build: () => PresenceClientEvent): void => {
+  connection.outbox.push(build)
+  drain(connection)
+}
+
+const drain = (connection: Connection): void => {
+  if (connection.outboxTimer !== null) return
+  while (connection.outbox.length > 0 && isOpen(connection)) {
+    const next = connection.outbox[0] as () => PresenceClientEvent
+    if (!send(connection, next())) break
+    connection.outbox.shift()
+  }
+  if (connection.outbox.length === 0 || !isOpen(connection)) return
+  connection.outboxTimer = setTimeout(() => {
+    connection.outboxTimer = null
+    drain(connection)
+  }, sendWait(connection))
 }
 
 /** What this tab is willing to publish right now: the local state, or nothing at all. */
@@ -227,8 +308,14 @@ const flush = (connection: Connection): void => {
   const sendViewport = viewport.dirty && viewport.wait === 0
   const sendDraft = draft.dirty && draft.wait === 0
   const sendQuickClaims = quickClaims.dirty && quickClaims.wait === 0
+  const due = sendViewport || sendDraft || sendQuickClaims
+  if (due && sendWait(connection) > 0) {
+    // Over budget for this second: the same changes go as soon as there is room.
+    connection.flushTimer = setTimeout(() => flush(connection), sendWait(connection))
+    return
+  }
   if (
-    (sendViewport || sendDraft || sendQuickClaims) &&
+    due &&
     send(connection, {
       type: 'presence-update',
       ...(sendViewport ? { viewport: viewport.value } : {}),
@@ -291,6 +378,7 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
       // healthy exchange resets it.
       connection.attempts = 0
       connection.peers = new Map()
+      connection.canWrite = event.canWrite === true
       for (const peer of event.peers) receivePeer(connection, peer)
       receiveLiveClaims(server, event.regions, event.ownedRegionIds, event.canWrite === true)
       return true
@@ -304,10 +392,24 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
     case 'claims-renewed':
       renewClaims(server, event.ids, event.expiresAt)
       return true
+    case 'capture':
+      connection.capture = event.run
+      return false
+    case 'clock': {
+      // The server answered halfway through the round trip, as near as one trip can tell; the
+      // quickest trip bounds that error tightest, so it alone is kept.
+      const rtt = localClock() - event.sent
+      if (rtt < 0 || (connection.clock !== null && rtt >= connection.clock.rtt)) return false
+      connection.clock = { offset: event.at - (event.sent + rtt / 2), rtt }
+      return false
+    }
   }
 }
 
 const clearTimers = (connection: Connection): void => {
+  if (connection.outboxTimer !== null) clearTimeout(connection.outboxTimer)
+  connection.outboxTimer = null
+  connection.outbox = []
   if (connection.reconnectTimer !== null) clearTimeout(connection.reconnectTimer)
   if (connection.heartbeatTimer !== null) clearTimeout(connection.heartbeatTimer)
   if (connection.flushTimer !== null) clearTimeout(connection.flushTimer)
@@ -322,6 +424,8 @@ const closeConnection = (connection: Connection): void => {
   const socket = connection.socket
   connection.socket = null
   connection.sessionId = null
+  connection.capture = null
+  connection.clock = null
   revision++
   if (socket !== null && socket.readyState < WebSocket.CLOSING) {
     try {
@@ -440,6 +544,8 @@ const open = (connection: Connection): void => {
     if (connection.socket !== socket) return
     connection.socket = null
     connection.sessionId = null
+    connection.capture = null
+    connection.clock = null
     endLiveClaims(server)
     clearTimers(connection)
     connection.peers = new Map()
@@ -470,6 +576,13 @@ const reconcile = (): void => {
       socket: null,
       sessionId: null,
       peers: new Map(),
+      capture: null,
+      canWrite: false,
+      clock: null,
+      clockSyncAt: Number.NEGATIVE_INFINITY,
+      sentAt: [],
+      outbox: [],
+      outboxTimer: null,
       attempts: 0,
       reconnectTimer: null,
       heartbeatTimer: null,
@@ -549,6 +662,63 @@ export const presenceView = (): PresenceView => {
     connected: open.includes(true),
     me: accountIdentity(),
   }
+}
+
+/** A server's capture run, as one connected socket sees it. */
+export interface CaptureView {
+  readonly server: ServerConnection
+  readonly run: CaptureRun | null
+  /** This tab's session on the server, which is how the run names it. */
+  readonly sessionId: string
+  /** Server time minus `localClock()`, once a clock sync has answered. */
+  readonly clockOffset: number | null
+  /** Whether this socket may join: its credential can write. */
+  readonly canWrite: boolean
+}
+
+/** Every open presence socket and the capture run it holds, if any. */
+export const captureViews = (): readonly CaptureView[] =>
+  [...connections.values()].flatMap((connection) =>
+    isOpen(connection) && connection.sessionId !== null
+      ? [
+          {
+            server: connection.server,
+            run: connection.capture,
+            sessionId: connection.sessionId,
+            clockOffset: connection.clock?.offset ?? null,
+            canWrite: connection.canWrite,
+          },
+        ]
+      : [],
+  )
+
+const connectionFor = (server: ServerConnection): Connection | undefined =>
+  [...connections.values()].find((connection) => connection.server.url === server.url)
+
+/** Send a capture event on a server's presence socket. False when it has none open. */
+export const sendCapture = (server: ServerConnection, event: CaptureClientEvent): boolean => {
+  const connection = connectionFor(server)
+  if (connection === undefined || !isOpen(connection)) return false
+  enqueue(connection, () => event)
+  return true
+}
+
+/**
+ * Measure a server's clock against this tab's with a burst of round trips. Each sample keeps the
+ * quickest trip seen on this socket, so later bursts only ever tighten the estimate. A call while
+ * a burst is still running, or just after, does nothing: the server closes a socket that sends
+ * more than its message rate allows.
+ */
+export const syncCaptureClock = (server: ServerConnection): void => {
+  const connection = connectionFor(server)
+  const now = localClock()
+  if (connection === undefined || now - connection.clockSyncAt < CLOCK_RESYNC_MS) return
+  connection.clockSyncAt = now
+  for (let ping = 0; ping < CLOCK_PINGS; ping++)
+    setTimeout(() => {
+      if (isOpen(connection))
+        enqueue(connection, () => ({ type: 'clock', sent: Math.round(localClock()) }))
+    }, ping * CLOCK_PING_GAP_MS)
 }
 
 /** Publish this tab's viewport. */

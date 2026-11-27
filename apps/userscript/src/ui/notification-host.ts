@@ -312,16 +312,26 @@ export const requestConfirmation = ({
   })
 }
 
-/** Show newly created credentials and their optional invite together until acknowledged. */
+/**
+ * Show newly created credentials and their optional invite together until acknowledged. `oneUse`
+ * titles them as a one-use invite, which stops working once someone redeems it.
+ */
 export const showOneTimeSecret = (
   label: string,
   value: string,
   inviteUrl?: string,
+  oneUse = false,
 ): Promise<void> => {
   ensureRoot()
   if (pendingSecret !== undefined) finishSecret(pendingSecret.id)
   const id = `secret-${++sequence}`
-  oneTimeSecret = { id, label, value, ...(inviteUrl === undefined ? {} : { inviteUrl }) }
+  oneTimeSecret = {
+    id,
+    label,
+    value,
+    ...(inviteUrl === undefined ? {} : { inviteUrl }),
+    ...(oneUse ? { oneUse: true } : {}),
+  }
   render()
   return new Promise((resolve) => {
     pendingSecret = { id, resolve }

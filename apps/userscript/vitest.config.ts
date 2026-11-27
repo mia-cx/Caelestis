@@ -10,6 +10,8 @@ export default defineConfig({
     alias: {
       'ditherette:wasm': module('./test/ditherette-wasm.ts'),
       'ditherette:worker': module('./test/ditherette-no-worker.ts'),
+      // No worker bundles in tests: the capture planner runs inline.
+      'worker:capture-planner': module('./test/ditherette-no-worker.ts'),
     },
   },
   test: {

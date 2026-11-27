@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "dfb60cfc-889d-418e-a09c-1a71545c5be8",
+  "id": "a9981160-b3b9-4b7a-a795-19c2cc4a45b7",
   "prevId": "2d5898a7-dec8-4c40-ae28-81c09422c2c1",
   "tables": {
     "access_tokens": {
@@ -41,6 +41,21 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "invite_hash": {
+          "name": "invite_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revoked": {
+          "name": "revoked",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         }
       },
       "indexes": {},
@@ -50,7 +65,15 @@
       "checkConstraints": {
         "access_tokens_scope_check": {
           "name": "access_tokens_scope_check",
-          "value": "\"access_tokens\".\"scope\" IN ('read', 'report', 'admin')"
+          "value": "\"access_tokens\".\"scope\" IN ('read', 'report', 'event_runner', 'admin')"
+        },
+        "access_tokens_invite_check": {
+          "name": "access_tokens_invite_check",
+          "value": "\"access_tokens\".\"invite_hash\" IS NULL OR \"access_tokens\".\"scope\" = 'event_runner'"
+        },
+        "access_tokens_revoked_check": {
+          "name": "access_tokens_revoked_check",
+          "value": "\"access_tokens\".\"revoked\" IN (0, 1)"
         }
       }
     },
@@ -531,20 +554,6 @@
         "description": {
           "name": "description",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "progress_start_seconds": {
-          "name": "progress_start_seconds",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "progress_end_seconds": {
-          "name": "progress_end_seconds",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1814,20 +1823,6 @@
         },
         "finished_at_ms": {
           "name": "finished_at_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "progress_start_seconds": {
-          "name": "progress_start_seconds",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "progress_end_seconds": {
-          "name": "progress_end_seconds",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

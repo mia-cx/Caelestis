@@ -14,6 +14,7 @@ export type ServerEnvironment = {
   readonly [Name in
     | 'SEASON'
     | 'OPEN_ACCESS'
+    | 'EVENT_SERVER'
     | 'SERVER_ID'
     | 'SERVER_NAME'
     | 'SERVER_DESCRIPTION'
@@ -29,6 +30,8 @@ export interface ServerConfig {
   readonly season: number
   /** Serve the read surface without a token, and advertise `auth: 'none'`. */
   readonly openAccess: boolean
+  /** Serve Wplace event tools, such as capture runs, and advertise them in `/server`. */
+  readonly eventServer: boolean
   /** Absent on a host that generates and stores its own id. */
   readonly serverId: string | undefined
   readonly serverName: string
@@ -86,6 +89,10 @@ export const parseServerConfig = (env: ServerEnvironment, release: Release = {})
   if (openAccess !== undefined && openAccess !== 'true' && openAccess !== 'false')
     refuse('OPEN_ACCESS', 'true or false')
 
+  const eventServer = read('EVENT_SERVER')
+  if (eventServer !== undefined && eventServer !== 'true' && eventServer !== 'false')
+    refuse('EVENT_SERVER', 'true or false')
+
   const serverId = read('SERVER_ID')
   if (serverId !== undefined && !isUuidV7(serverId)) refuse('SERVER_ID', 'a UUIDv7')
 
@@ -115,6 +122,7 @@ export const parseServerConfig = (env: ServerEnvironment, release: Release = {})
   return {
     season: wholeNumber('SEASON', 0),
     openAccess: openAccess === 'true',
+    eventServer: eventServer === 'true',
     serverId,
     serverName,
     serverDescription,

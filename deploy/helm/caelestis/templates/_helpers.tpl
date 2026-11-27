@@ -80,6 +80,7 @@ containers:
       - { name: SERVER_NAME, value: {{ .Values.server.name | quote }} }
       - { name: SEASON, value: {{ .Values.server.season | quote }} }
       - { name: OPEN_ACCESS, value: {{ .Values.server.openAccess | quote }} }
+      - { name: EVENT_SERVER, value: {{ .Values.server.eventServer | quote }} }
       - { name: BASE_PATH, value: {{ .Values.server.basePath | quote }} }
       {{- with .Values.server.origin }}
       - { name: ORIGIN, value: {{ . | quote }} }

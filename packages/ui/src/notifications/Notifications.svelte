@@ -119,7 +119,7 @@
   {@const inviteCopyLabel = secret.inviteCopyStatus === 'copied' ? 'Copied link' : secret.inviteCopyStatus === 'unavailable' ? 'Select link' : 'Copy invite link'}
   <Modal open={secretOpen} labelledby="secret-title" initialFocus={copySecret} onClosed={() => (secret = null)}>
     <div class="dialog-box token-box">
-      <header><h2 id="secret-title">Access token created</h2></header>
+      <header><h2 id="secret-title">{secret.oneUse ? 'One-use invite created' : 'Access token created'}</h2></header>
       <div class="dialog-body">
         <p class="lead">For {secret.label}.</p>
         <p class="note">Copy the token or invite link before closing.</p>
@@ -199,6 +199,11 @@
     color: var(--caelestis-text);
     font: 500 0.8125rem/1.35 var(--caelestis-font);
     pointer-events: none;
+  }
+  /* In a short window the capture card rises over Wplace's scoreboard (1001); toasts stay above it,
+     so their actions remain reachable. */
+  @media (max-width: 1080px) and (max-height: 560px) {
+    .toasts { z-index: 1002; }
   }
 
   .toasts.listed { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }

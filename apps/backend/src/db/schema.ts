@@ -4,7 +4,12 @@ import type {
   ServerAssetContentType,
   TemplateSurfaceKind,
 } from '@caelestis/shared'
-import { MAX_NODE_PATH_LENGTH, TEMPLATE_SURFACE_KINDS, WORLD_PIXELS } from '@caelestis/shared'
+import {
+  MAX_NODE_PATH_LENGTH,
+  SCOPES,
+  TEMPLATE_SURFACE_KINDS,
+  WORLD_PIXELS,
+} from '@caelestis/shared'
 import { sql } from 'drizzle-orm'
 import {
   type AnySQLiteColumn,
@@ -421,12 +426,34 @@ export const accessTokens = sqliteTable(
   {
     tokenHash: text('token_hash').primaryKey(),
     label: text('label').notNull(),
-    scope: text('scope', { enum: ['read', 'report', 'admin'] }).notNull(),
+    scope: text('scope', { enum: SCOPES }).notNull(),
     createdWithToken: text('created_with_token').notNull(),
     createdAtMs: integer('created_at_ms').$type<Millis>().notNull(),
+    /**
+     * The hash of the one-use invite an event runner was minted as. While it equals `token_hash`
+     * the row is that invite, which authenticates only the exchange that gives it a fresh token of
+     * the same label, so the secret an organiser shares never becomes the one a browser keeps. The
+     * exchange rotates `token_hash` and leaves this, so a revoke by the hash an admin saw before
+     * the exchange still finds the runner.
+     */
+    inviteHash: text('invite_hash'),
+    /**
+     * Set when a revoke begins. The row stops authenticating at once but stays until the token's
+     * live sessions are closed, so a retry by either hash still finds the credential to close.
+     */
+    revoked: integer('revoked', { mode: 'boolean' }).notNull().default(false),
   },
   (table) => [
-    check('access_tokens_scope_check', sql`${table.scope} IN ('read', 'report', 'admin')`),
+    check(
+      'access_tokens_scope_check',
+      sql`${table.scope} IN ('read', 'report', 'event_runner', 'admin')`,
+    ),
+    // Only event runners are invited; every other scope is minted ready to use.
+    check(
+      'access_tokens_invite_check',
+      sql`${table.inviteHash} IS NULL OR ${table.scope} = 'event_runner'`,
+    ),
+    check('access_tokens_revoked_check', sql`${table.revoked} IN (0, 1)`),
   ],
 )
 

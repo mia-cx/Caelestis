@@ -19,6 +19,7 @@ import {
   parseTemplateTags,
   parseTileKey,
   quantiseToPalette,
+  satisfiesScope,
   sha256Hex,
   sliceTemplate,
   TRANSPARENT_INDEX,
@@ -50,6 +51,14 @@ describe('portable data contracts', () => {
     expect(TRANSPARENT_INDEX).toBe(63)
     expect(WPLACE_PALETTE[TRANSPARENT_INDEX]).toBeUndefined()
     expect(PALETTE_RGB[0]).toEqual([0, 0, 0])
+  })
+
+  it('ranks event runners above reporters and below administrators', () => {
+    expect(satisfiesScope('event_runner', 'report')).toBe(true)
+    expect(satisfiesScope('event_runner', 'read')).toBe(true)
+    expect(satisfiesScope('admin', 'event_runner')).toBe(true)
+    expect(satisfiesScope('report', 'event_runner')).toBe(false)
+    expect(satisfiesScope('event_runner', 'admin')).toBe(false)
   })
 
   it('quantises opaque colours and reports movement while leaving transparent pixels absent', () => {
