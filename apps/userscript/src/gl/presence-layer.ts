@@ -46,8 +46,8 @@ import {
  * - A viewport of someone browsing: dashed edge, 15% fill, dotted grid.
  * - A viewport of someone painting: solid edge, 30% fill, diagonal stripes.
  * - Their drafted pixels: the same colour, mostly solid, so the exact pixels show inside the
- *   viewport. The shape is outlined in that colour with a dark line just inside it, so a draft
- *   stays visible over artwork of the painter's own hue, such as an event's team territory.
+ *   viewport. The shape is outlined by a dark line and, inside it, a line in that colour, so a
+ *   draft stays visible over artwork of the painter's own hue, such as an event's team territory.
  * - A region claim: solid edge, 30% fill, diagonal stripes. The claim is the union of its shapes,
  *   rasterised to whole pixels and sampled with nearest filtering, so the tint stops on a pixel
  *   edge. The outline is a stroke of fixed device-pixel width along that boundary, found in the
@@ -105,13 +105,12 @@ void main() {
     inside = !outsideAt(v_uv);
     if (inside) {
       alpha = u_maskAlpha;
-      // A stroke of u_borderWidth device pixels (a CSS width scaled by the display's ratio)
-      // along the boundary, drawn on the inside, then the dark contrast line inside that.
-      if (u_borderWidth > 0.0) {
-        edge = nearOutside(u_borderWidth);
-        contrast = !edge && u_contrast > 0.0 &&
-          nearOutside(u_borderWidth + CONTRAST_WIDTH * u_scale);
-      }
+      // Strokes along the boundary, drawn on the inside, in device pixels (CSS widths scaled by
+      // the display's ratio): the dark contrast line outermost, so even a shape a few screen
+      // pixels across keeps it, then u_borderWidth of the painter's colour.
+      float dark = u_contrast > 0.0 ? CONTRAST_WIDTH * u_scale : 0.0;
+      contrast = dark > 0.0 && nearOutside(dark);
+      edge = !contrast && u_borderWidth > 0.0 && nearOutside(dark + u_borderWidth);
     }
   } else {
     inside = true;
@@ -157,7 +156,7 @@ interface Style {
   /** 0 none, 1 diagonal stripes, 2 dotted grid. */
   readonly pattern: 0 | 1 | 2
   readonly patternAlpha: number
-  /** Alpha of a dark line just inside a mask's border, for shapes that must show on any colour. */
+  /** Alpha of a dark line along a mask's boundary, outside its border, for shapes that must show on any colour. */
   readonly contrast: number
 }
 
