@@ -1,4 +1,5 @@
 import {
+  type CaptureRun,
   decodePresenceDraftMask,
   MAX_PRESENCE_MASK_BITS,
   MAX_PRESENCE_MESSAGE_CODE_UNITS,
@@ -21,6 +22,7 @@ import {
   rectCentreDistance,
   rectsIntersect,
   sameRect,
+  uuidV7,
 } from '@caelestis/shared'
 import { PresenceClientEvent } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
@@ -28,6 +30,7 @@ import type { AccessTokenStore } from '../auth/store.js'
 import { createLiveSessionFence, type LiveHost, type LiveSocket } from '../live/session.js'
 import type { IngestTimingSnapshot, IngestTimings } from '../metrics/ingest-timing.js'
 import { ownedRegionIds, type RegionOwner, type RegionStore } from '../work/region-store.js'
+import { applyCaptureEvent, leaveCapture } from './capture.js'
 import { presenceRectWithinSurface } from './geometry.js'
 import { PeerGrid } from './peer-grid.js'
 import type { PresenceConnection, PresenceRoomId } from './port.js'
@@ -92,6 +95,8 @@ interface LiveSession {
 }
 
 const CLAIM_RENEW_INTERVAL_MS = 60 * 60 * 1_000
+/** Storage key of the room's capture run, so it survives hibernation. */
+const CAPTURE_KEY = 'capture-run'
 /** The earliest claim expiry. The room's identity is stored beside it but read from the room. */
 interface RegionExpiry extends PresenceRoomId {
   readonly at: number | null
@@ -132,6 +137,8 @@ export class PresenceCoordinator<Client> {
   private regionVersion = 0
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = false
+  /** Capture run changes, one at a time, each reading the run the previous one stored. */
+  private captureQueue: Promise<CaptureRun | null> | null = null
 
   constructor(
     private readonly state: PresenceHost<Client>,
@@ -157,6 +164,32 @@ export class PresenceCoordinator<Client> {
       this.local.set(sessionId, held)
     }
     return held
+  }
+
+  /** The room's capture run as last stored, after any change still being applied. */
+  private captureRun(): Promise<CaptureRun | null> {
+    this.captureQueue ??= this.state.storage.get<CaptureRun>(CAPTURE_KEY).then((run) => run ?? null)
+    return this.captureQueue
+  }
+
+  /** Apply one change to the run, store it, and send it to every session when it changed. */
+  private updateCapture(change: (run: CaptureRun | null) => CaptureRun | null): void {
+    const previous = this.captureRun()
+    const next = previous.then(async (run) => {
+      const updated = change(run)
+      if (updated === run) return run
+      if (updated === null) await this.state.storage.delete(CAPTURE_KEY)
+      else await this.state.storage.put(CAPTURE_KEY, updated)
+      const payload = JSON.stringify({
+        type: 'capture',
+        run: updated,
+      } satisfies PresenceServerEvent)
+      for (const { socket } of this.sessionsOpen()) this.sendEncoded(socket, payload)
+      return updated
+    })
+    // A failed write keeps the run as it was, so the next change starts from what is stored.
+    this.captureQueue = next.catch(() => previous)
+    this.state.waitUntil(next)
   }
 
   stop(): void {
@@ -414,6 +447,7 @@ export class PresenceCoordinator<Client> {
     this.local.delete(attachment.sessionId)
     this.dirty.add(attachment.sessionId)
     this.armTick()
+    this.updateCapture((run) => run && leaveCapture(run, attachment.sessionId))
   }
 
   private close(socket: LiveSocket, code: number, reason: string): void {
@@ -486,6 +520,9 @@ export class PresenceCoordinator<Client> {
             canWrite: credentialScope !== 'read' && !anonymous,
           },
         )
+        const run = await this.captureRun()
+        if (run !== null)
+          this.send({ socket: pair.server, held: attachment }, { type: 'capture', run })
         this.dirty.add(sessionId)
         this.armTick()
         await this.armAlarm(open)
@@ -540,7 +577,20 @@ export class PresenceCoordinator<Client> {
       this.armTick()
       return
     }
+    if (event.type === 'clock') {
+      this.send({ socket, held: attachment }, { type: 'clock', sent: event.sent, at: Date.now() })
+      return
+    }
     if (attachment.credentialScope === 'read') return
+    if (event.type !== 'presence-update') {
+      const actor = {
+        sessionId: attachment.sessionId,
+        painter: attachment.painter,
+        admin: attachment.credentialScope === 'admin',
+      }
+      this.updateCapture((run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
+      return
+    }
     // Anonymous sessions are read scope, so the early return above keeps their quick claims out.
     const quickClaims = event.quickClaims
     const { surface } = this.room
