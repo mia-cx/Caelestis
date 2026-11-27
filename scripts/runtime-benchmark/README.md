@@ -1,5 +1,41 @@
 # Runtime comparison with exploring and painting users
 
+## Presence fan-out on an event server
+
+`presence-event.mjs` replays an event server's presence room at 1,024 and 2,048 sessions through
+the compiled `PresenceCoordinator` and the production Node socket host. It runs on any machine with
+Node and needs no database, Docker or `taskset`.
+
+```sh
+pnpm --filter @caelestis/backend... build   # once per build; copy each dist under apps/backend/test-results/
+node scripts/runtime-benchmark/presence-event.mjs \
+  apps/backend/test-results/dist-baseline apps/backend/test-results/dist-candidate \
+  test-results/presence-event/timed
+BENCH_HASH=1 BENCH_PAIRS=1 node scripts/runtime-benchmark/presence-event.mjs \
+  apps/backend/test-results/dist-baseline apps/backend/test-results/dist-candidate \
+  test-results/presence-event/hashed
+```
+
+Builds must sit inside `apps/backend` so they resolve the backend's dependencies. Each run is a
+fresh child process, and pairs alternate which build goes first. Four teams split the sessions.
+Three quarters of the sessions crowd hotspots on the midlines between team quadrants of the Territory
+Weekend arena, with 480×288 viewports. The rest roam it with 1280×768 viewports. Every session moves
+its viewport each 300 ms tick and redrafts 60 pixels each second. Updates arrive in ten slices across
+the tick. The driver runs each tick itself after the last slice, so every build sees the same
+updates in the same tick.
+
+Each result records the coordinator's own tick time and its select and serialize stages, process
+CPU, event-loop delay, RSS, and the messages and bytes sent. `realtimeFactor` is each step's wall time
+over 300 ms. The driver waits out the full interval before each tick, so the factor is never below
+1; it adds tick and drain time, not lag the coordinator would have. Every sixteenth session parses its
+messages. It must never receive another team's session, and its final peers, viewports and draft
+pixels must match the protocol's nearest-64 rule. `BENCH_HASH=1` hashes every byte each session
+receives and fails if the two builds differ. Hashing adds driver CPU, so hashed runs are not timing
+results. `BENCH_CPU_PROFILE=DIR` writes a Node CPU profile per run.
+
+Restored attachments stand in for connections, so HTTP admission, ws framing, the network, and
+browser decoding fall outside the measurement.
+
 ## Production Node/Bun images on k3s
 
 Issue [#390](https://github.com/mia-cx/Caelestis/issues/390) uses the same corrected 256-user trace against production images.
