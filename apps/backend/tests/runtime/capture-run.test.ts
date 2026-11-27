@@ -208,7 +208,8 @@ it('lets an event runner run a capture that a reporter cannot open', async () =>
 
   runner.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
   await vi.waitFor(() => expect(painter.run()).toMatchObject({ team: 2, painters: 1 }))
-  painter.send({ type: 'capture-join', team: 2 })
+  painter.send({ type: 'capture-join', team: 2, run: painter.run()?.id ?? '' })
+  await vi.waitFor(() => expect(painter.run()?.members).toHaveLength(1))
   runner.send({ type: 'capture-plan', lines: [line(1_028_000)] })
   await vi.waitFor(() => expect(painter.run()?.lines).toHaveLength(1))
   painter.send({ type: 'capture-close' })
