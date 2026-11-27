@@ -268,7 +268,7 @@ const SOLID = 8
 const SIDE_LENGTHS = 24
 /** The share of the budget `contact` must reach for a box to score its full area. */
 const CONTACT_TARGET = 0.75
-/** The best boxes checked for a painted outline that is a single run. */
+/** The best boxes checked for an outline that closes into a wall. */
 const KEEP = 40
 /** Steps in a corner's 45° staircase. */
 const CHAMFER = 24
@@ -490,17 +490,27 @@ const outlineOf = ({ x0, y0, x1, y1 }: Box): ArenaPixel[] => {
   return cells
 }
 
-/** The outline's cells the team does not hold, as the one run from anchor A to anchor B, or null. */
+const owns = (map: TerritoryMap, team: TerritoryTeam, { x, y }: ArenaPixel): boolean =>
+  map.owner[y * map.size + x] === team
+
+/**
+ * The outline from anchor A to anchor B, around everything but its longest stretch of the team's
+ * cells, which is the inner side; null when the outline is all or none of the team's. Specks of
+ * the team elsewhere on it, as on a ragged border at the arena edge, stay in the wall for its
+ * shape and are dropped before painting.
+ */
 const wallOf = (map: TerritoryMap, team: TerritoryTeam, box: Box): ArenaPixel[] | null => {
   const loop = outlineOf(box)
-  const ours = loop.map(({ x, y }) => map.owner[y * map.size + x] === team)
+  const ours = loop.map((cell) => owns(map, team, cell))
   const n = loop.length
-  const starts: number[] = []
-  for (let i = 0; i < n; i++) if (ours[(i - 1 + n) % n] && !ours[i]) starts.push(i)
-  if (starts.length !== 1) return null
-  const wall: ArenaPixel[] = []
-  for (let i = starts[0] as number; !ours[i % n]; i++) wall.push(loop[i % n] as ArenaPixel)
-  return wall
+  let inner = 0
+  let end = 0
+  for (let i = 0, run = 0; i < 2 * n; i++) {
+    run = ours[i % n] ? run + 1 : 0
+    if (run > inner) [inner, end] = [run, i % n]
+  }
+  if (inner === 0 || inner >= n) return null
+  return Array.from({ length: n - inner }, (_, k) => loop[(end + 1 + k) % n] as ArenaPixel)
 }
 
 /**
@@ -602,8 +612,8 @@ const overlaps = (a: Box, b: Box): boolean =>
   a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1
 
 /**
- * The default planner: the best few distinct boxes against the team's border whose painted outline
- * is one run, each chamfered, split into paired lines, with guard zones past its anchors.
+ * The default planner: the best few distinct boxes against the team's border whose outline closes
+ * into a wall, each chamfered, split into paired lines, with guard zones past its anchors.
  */
 export const borderBoxPlanner: CapturePlanner = ({ map, team, painters, guards, charges }) => {
   const budget = painters * charges
@@ -620,7 +630,8 @@ export const borderBoxPlanner: CapturePlanner = ({ map, team, painters, guards, 
       marginPast(map, team, wall.at(-1) as ArenaPixel, wall.at(-2) as ArenaPixel),
     ]
     const guardZones = guards === 0 ? [] : guards === 1 ? [zones.flat()] : zones
-    plans.push({ lines: pairLines(wall, painters, charges), guardZones })
+    const paint = wall.filter((cell) => !owns(map, team, cell))
+    plans.push({ lines: pairLines(paint, painters, charges), guardZones })
     taken.push(box)
   }
   return plans

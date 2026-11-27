@@ -62,6 +62,17 @@ describe('borderBoxPlanner', () => {
       for (const { x, y } of zone) expect(map.owner[y * SIZE + x]).toBe(GREEN)
   })
 
+  it('reaches the arena edge across specks of the team on a ragged border', () => {
+    const map = quadrantMap()
+    for (const x of [15, 17]) map.owner[(SIZE - 1) * SIZE + x] = GREEN
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 15 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const cells = plan.lines.flat()
+    expect(cells.some(({ y }) => y === SIZE - 1)).toBe(true)
+    for (const { x, y } of cells) expect(map.owner[y * SIZE + x]).not.toBe(GREEN)
+    expect(simulateCapture(map, GREEN, plan).refused).toBe(0)
+  })
+
   it('returns nothing when the budget cannot close any box', () => {
     expect(
       borderBoxPlanner({ map: quadrantMap(), team: GREEN, painters: 1, guards: 0, charges: 2 }),
