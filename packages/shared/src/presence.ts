@@ -1,4 +1,5 @@
 import { bytesToBase64, isPackedBits, unpackBits } from './bitmask.js'
+import type { CaptureClientEvent, CaptureServerEvent } from './capture-run.js'
 import { isSafeInteger } from './guards.js'
 import type { RegionDocument } from './region-shape.js'
 import type { PainterIdentity } from './telemetry.js'
@@ -85,7 +86,10 @@ export interface PresenceUpdate {
   readonly quickClaims?: readonly PresenceRect[]
 }
 
-export type PresenceClientEvent = PresenceUpdate | { readonly type: 'presence-heartbeat' }
+export type PresenceClientEvent =
+  | PresenceUpdate
+  | { readonly type: 'presence-heartbeat' }
+  | CaptureClientEvent
 
 /** One online painter session as every peer sees it. */
 export interface PresencePeer {
@@ -143,6 +147,7 @@ export type PresenceServerEvent =
       readonly regions: readonly RegionClaim[]
       readonly ownedRegionIds?: readonly string[]
     }
+  | CaptureServerEvent
 
 export interface RegionClaimRequest {
   /** The template the shape was drawn over, if any. Optional and unenforced. */

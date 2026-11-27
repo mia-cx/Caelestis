@@ -211,6 +211,7 @@ export const openNodeRuntime = async (
                 shards
                   .get(room.season)
                   .coordinator.registerPresenceSurface(tokenHash, room.surface),
+              config.eventServer,
             ),
         ),
       }),

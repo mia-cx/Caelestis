@@ -12,3 +12,9 @@ declare module 'ditherette:worker' {
   const source: string
   export default source
 }
+
+/** `src/<name>-worker.ts`, bundled on its own into a string; see `worker-plugin.mjs`. */
+declare module 'worker:*' {
+  const source: string
+  export default source
+}

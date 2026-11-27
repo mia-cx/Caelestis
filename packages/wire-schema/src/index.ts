@@ -1,9 +1,13 @@
 import type * as Shared from '@caelestis/shared'
 import {
+  isCompactCaptureLine,
   isPresenceDraft,
   isRegionDocument,
   isRegionItem,
   isRegionShape,
+  MAX_CAPTURE_GUARDS,
+  MAX_CAPTURE_LINE_PIXELS,
+  MAX_CAPTURE_PAINTERS,
   MAX_DESCRIPTION_LENGTH,
   MAX_HOME_COPY_LENGTH,
   MAX_LIVE_MESSAGE_BYTES,
@@ -200,8 +204,62 @@ const PresenceIdentity = Schema.Struct({
 })
 const PresenceSessionId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{16}$/))
 
+const CaptureLine = boundedArray(
+  integerBetween(0, WORLD_PIXELS - 1),
+  MAX_CAPTURE_LINE_PIXELS * 2,
+).check(
+  booleanFilter(
+    (line: readonly number[]) => line.length % 2 === 0 && isCompactCaptureLine(line),
+    'a capture line is pairs of coordinates within a bounded box',
+  ),
+)
+const Epoch = integerBetween(0, Number.MAX_SAFE_INTEGER)
+
+const TerritoryTeam = Schema.Literals([0, 1, 2, 3])
+
+export const CaptureRun = Schema.Struct({
+  id: Identifier,
+  team: TerritoryTeam,
+  painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
+  guards: integerBetween(0, MAX_CAPTURE_GUARDS),
+  members: boundedArray(
+    Schema.Struct({
+      sessionId: PresenceSessionId,
+      painter: PresenceIdentity,
+      drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+    }),
+    MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS,
+  ),
+  lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
+  startsAt: Schema.NullOr(Epoch),
+  staggerMs: integerBetween(0, 10_000),
+})
+
 export const PresenceClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal('presence-heartbeat') }),
+  Schema.Struct({
+    type: Schema.Literal('capture-open'),
+    painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
+    guards: integerBetween(0, MAX_CAPTURE_GUARDS),
+    team: TerritoryTeam,
+  }),
+  Schema.Struct({ type: Schema.Literal('capture-join'), team: TerritoryTeam, run: Identifier }),
+  Schema.Struct({ type: Schema.Literal('capture-leave') }),
+  Schema.Struct({
+    type: Schema.Literal('capture-order'),
+    order: boundedArray(PresenceSessionId, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
+  }),
+  Schema.Struct({
+    type: Schema.Literal('capture-plan'),
+    lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
+  }),
+  Schema.Struct({
+    type: Schema.Literal('capture-drafted'),
+    drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+  }),
+  Schema.Struct({ type: Schema.Literal('capture-go') }),
+  Schema.Struct({ type: Schema.Literal('capture-close') }),
+  Schema.Struct({ type: Schema.Literal('clock'), sent: Epoch }),
   Schema.Struct({
     type: Schema.Literal('presence-update'),
     viewport: Schema.optionalKey(Schema.NullOr(PresenceRect)),
@@ -341,6 +399,8 @@ export const PresenceServerEvent = Schema.Union([
     regions: Schema.Array(RegionClaim),
     ownedRegionIds: Schema.optionalKey(Schema.Array(Identifier)),
   }),
+  Schema.Struct({ type: Schema.Literal('capture'), run: Schema.NullOr(CaptureRun) }),
+  Schema.Struct({ type: Schema.Literal('clock'), sent: Epoch, at: Epoch }),
 ])
 
 const BoundingBoxStruct = Schema.Struct({
@@ -405,6 +465,7 @@ export const ServerInfo = Schema.Struct({
   liveSyncMax: Schema.optionalKey(Schema.Literals([1, 2])),
   liveTileOffers: Schema.optionalKey(Schema.Literal(1)),
   presence: Schema.optionalKey(Schema.Literal(1)),
+  capture: Schema.optionalKey(Schema.Literal(1)),
   livePaintParts: Schema.optionalKey(Schema.Literal(1)),
   discordInviteUrl: Schema.optionalKey(DiscordInviteUrl),
   version: Schema.optionalKey(boundedString(64)),
