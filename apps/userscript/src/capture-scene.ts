@@ -2,7 +2,6 @@ import {
   type ArenaPixel,
   arenaToWorld,
   type CaptureRun,
-  type PainterIdentity,
   type PresenceRect,
   type RegionShapePixels,
   simulateCapture,
@@ -14,9 +13,9 @@ import {
 /**
  * What a capture run puts on the map, as pure functions of the run and Wplace's territory map:
  *
- * - `mine`: this painter's own line, solid in their colour.
- * - `ready` and `pending`: everyone else's line, filled once they have drafted all of it and only
- *   outlined before, so the gaps in the wall show at a glance.
+ * - `mine`: this painter's own line, solid in the team's colour, the colour they paint it in.
+ * - `ready` and `pending`: everyone else's line in the team's dark shade, filled once they have
+ *   drafted all of it and only outlined before, so the gaps in the wall show at a glance.
  * - `area`: what the wall encloses once it closes, faintly hatched, so the shape reads as a shape.
  * - `anchor`: a dashed box around each guard's anchor, the end of the wall they hold.
  * - `demo`: a short chain crawling from the team's territory to this painter's line, showing how
@@ -30,8 +29,8 @@ export interface CaptureItem {
   readonly rect: PresenceRect
   /** The pixels for masked kinds; null for `anchor`, which is its rect. */
   readonly pixels: RegionShapePixels | null
-  /** Whose colour it is drawn in; null draws it white. */
-  readonly painter: PainterIdentity | null
+  /** Unit RGB to draw it in, from the team's colours; null draws it white. */
+  readonly colour: readonly [number, number, number] | null
 }
 
 type Pixel = { readonly x: number; readonly y: number }

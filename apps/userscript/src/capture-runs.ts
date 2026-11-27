@@ -204,73 +204,74 @@ const itemsCache = new WeakMap<
   { readonly key: string; readonly items: CaptureItem[] }
 >()
 
-/** What the shown run, or the plans an administrator is choosing between, puts on the map. */
+type Rgb = readonly [number, number, number]
+
+/** The team's colour and its dark shade as unit RGB, or null until the team is known. */
+const teamShades = (): { readonly colour: Rgb; readonly dark: Rgb } | null => {
+  if (myTeam === null) return null
+  const { colour, dark } = TERRITORY_TEAMS[myTeam]
+  const unit = (index: number): Rgb => {
+    const [r, g, b] = PALETTE_RGB[index] ?? [255, 255, 255]
+    return [r / 255, g / 255, b / 255]
+  }
+  return { colour: unit(colour), dark: unit(dark) }
+}
+
+const masked = (
+  kind: CaptureItemKind,
+  pixels: RegionShapePixels,
+  colour: Rgb | null,
+): CaptureItem => ({
+  kind,
+  rect: pixels.rect,
+  pixels,
+  colour,
+})
+
+/**
+ * What the shown run, or the plans an administrator is choosing between, puts on the map, all in
+ * the team's colours: the colour painters paint in for this painter's own leg, their anchor and
+ * the shape, and the team's dark shade for everyone else's legs.
+ */
 export const captureItems = (): readonly CaptureItem[] => {
   const view = active()
   if (view === null) return []
+  const shades = teamShades()
+  const colour = shades?.colour ?? null
+  const dark = shades?.dark ?? null
   const run = view.run
   if (run === null || run.lines.length === 0)
     return proposals.flatMap((proposal) => [
-      ...(proposal.area === null
-        ? []
-        : [
-            {
-              kind: 'area' as const,
-              rect: proposal.area.rect,
-              pixels: proposal.area,
-              painter: null,
-            },
-          ]),
+      ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
       ...proposal.lines.flatMap((line) => {
         const pixels = pixelMask(linePixels(line))
-        return pixels === null
-          ? []
-          : [{ kind: 'pending' as const, rect: pixels.rect, pixels, painter: null }]
+        return pixels === null ? [] : [masked('pending', pixels, colour)]
       }),
     ])
   const mine = memberIndex(view)
-  const key = `${planView?.key ?? ''}|${run.members.map(({ drafted }) => drafted).join(',')}`
+  const key = `${myTeam}|${planView?.key ?? ''}|${run.members.map(({ drafted }) => drafted).join(',')}`
   let held = itemsCache.get(run)
   if (held?.key !== key) {
     const items: CaptureItem[] = []
-    if (planView?.area)
-      items.push({ kind: 'area', rect: planView.area.rect, pixels: planView.area, painter: null })
+    if (planView?.area) items.push(masked('area', planView.area, colour))
     run.lines.forEach((line, index) => {
       const pixels = pixelMask(linePixels(line))
-      if (pixels !== null)
-        items.push({
-          kind: kindOf(run, index, mine),
-          rect: pixels.rect,
-          pixels,
-          painter: run.members[index]?.painter ?? null,
-        })
+      if (pixels !== null) {
+        const kind = kindOf(run, index, mine)
+        items.push(masked(kind, pixels, kind === 'mine' ? colour : dark))
+      }
     })
     for (let index = run.painters; index < run.lines.length; index++) {
       const rect = anchorRect(run, index, GUARD_STRIP)
       if (rect !== null)
-        items.push({
-          kind: 'anchor',
-          rect,
-          pixels: null,
-          painter: run.members[index]?.painter ?? null,
-        })
+        items.push({ kind: 'anchor', rect, pixels: null, colour: index === mine ? colour : dark })
     }
     held = { key, items }
     itemsCache.set(run, held)
   }
   if (!demoPlaying(view) || planView === null) return held.items
   const frame = pixelMask(planView.demo[demoStep % planView.demo.length] ?? [])
-  return frame === null
-    ? held.items
-    : [
-        ...held.items,
-        {
-          kind: 'demo',
-          rect: frame.rect,
-          pixels: frame,
-          painter: run.members[mine]?.painter ?? null,
-        },
-      ]
+  return frame === null ? held.items : [...held.items, masked('demo', frame, colour)]
 }
 
 const edgeLabel = (lines: readonly (readonly number[])[]): string => {

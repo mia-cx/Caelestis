@@ -357,7 +357,8 @@ const currentItems = (): Item[] =>
       key: item.id,
       kind: item.kind,
       rect: item.rect,
-      colour: item.painter === null ? WHITE : presenceRgb(item.painter.wplaceUserId),
+      colour:
+        item.colour ?? (item.painter === null ? WHITE : presenceRgb(item.painter.wplaceUserId)),
       mask: item.mask,
       mine: item.mine,
       follows: item.follows,

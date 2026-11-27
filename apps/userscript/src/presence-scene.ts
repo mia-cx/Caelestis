@@ -66,6 +66,8 @@ export interface SceneItem {
   /** Drawn where the pointer is right now, without fading: it follows a gesture. */
   readonly follows: boolean
   readonly source: SceneSource
+  /** Unit RGB that overrides the painter's colour, as a capture run's team colours do. */
+  readonly colour?: readonly [number, number, number]
 }
 
 /** What the scene is built from; `presenceScene` reads it from the page. */
@@ -183,7 +185,8 @@ export const sceneItems = (inputs: SceneInputs): SceneItem[] => {
       id,
       kind: `capture-${item.kind}`,
       rect: item.rect,
-      painter: item.painter,
+      painter: null,
+      ...(item.colour === null ? {} : { colour: item.colour }),
       mask: item.pixels,
       mine: item.kind === 'mine',
       aside: id,
