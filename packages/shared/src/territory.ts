@@ -18,6 +18,16 @@ import { TILE_SIZE } from './tiles.js'
 /** Where the arena sits on the world canvas, and its side in pixels. */
 export const TERRITORY_ARENA = { tileX: 635, tileY: 1027, size: 2000 } as const
 
+/** When the event runs, in epoch milliseconds. */
+export const TERRITORY_EVENT = {
+  startsAt: Date.parse('2026-11-27T16:00:00Z'),
+  endsAt: Date.parse('2026-11-27T16:00:00Z') + 72 * 3_600_000,
+} as const
+
+/** Whether the event is running at `now`. */
+export const territoryEventLive = (now: number): boolean =>
+  now >= TERRITORY_EVENT.startsAt && now < TERRITORY_EVENT.endsAt
+
 /** Charges each painter holds when full: the most pixels one painter places in one go. */
 export const TERRITORY_CHARGES = 60
 
@@ -115,6 +125,8 @@ export interface CaptureRequest {
   readonly guards: number
   /** Pixels each painter places, at most `TERRITORY_CHARGES`. */
   readonly charges: number
+  /** When set, only boxes holding this arena pixel are proposed. */
+  readonly focus?: ArenaPixel
 }
 
 /**
@@ -428,8 +440,13 @@ interface Candidate extends Box {
   readonly contact: number
 }
 
-/** The best `KEEP` boxes the budget can pay for, best first. */
-const bestBoxes = (map: TerritoryMap, team: TerritoryTeam, budget: number): Candidate[] => {
+/** The best `KEEP` boxes the budget can pay for, and that hold `focus` when set, best first. */
+const bestBoxes = (
+  map: TerritoryMap,
+  team: TerritoryTeam,
+  budget: number,
+  focus?: ArenaPixel,
+): Candidate[] => {
   const { size } = map
   const sums = needSums(map, team)
   const profiles = borderProfiles(map, team)
@@ -440,6 +457,8 @@ const bestBoxes = (map: TerritoryMap, team: TerritoryTeam, budget: number): Cand
   const consider = (box: Box | null) => {
     if (box === null) return
     const { x0, y0, x1, y1 } = box
+    if (focus !== undefined && (focus.x < x0 || focus.x > x1 || focus.y < y0 || focus.y > y1))
+      return
     const cost = boxCost(sums, x0, y0, x1, y1)
     if (cost <= 0 || cost > budget) return
     const outline = 2 * (x1 - x0 + y1 - y0)
@@ -615,11 +634,18 @@ const overlaps = (a: Box, b: Box): boolean =>
  * The default planner: the best few distinct boxes against the team's border whose outline closes
  * into a wall, each chamfered, split into paired lines, with guard zones past its anchors.
  */
-export const borderBoxPlanner: CapturePlanner = ({ map, team, painters, guards, charges }) => {
+export const borderBoxPlanner: CapturePlanner = ({
+  map,
+  team,
+  painters,
+  guards,
+  charges,
+  focus,
+}) => {
   const budget = painters * charges
   const plans: CapturePlan[] = []
   const taken: Box[] = []
-  for (const box of bestBoxes(map, team, budget)) {
+  for (const box of bestBoxes(map, team, budget, focus)) {
     if (plans.length === PROPOSALS) break
     if (taken.some((other) => overlaps(other, box))) continue
     const found = wallOf(map, team, box)

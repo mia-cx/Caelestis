@@ -26,6 +26,8 @@ export interface PlanRequest {
   readonly team: TerritoryTeam
   readonly painters: number
   readonly guards: number
+  /** The arena pixel every proposal must hold: where the administrator centres the map. */
+  readonly focus: ArenaPixel
 }
 
 export interface PlannedProposal {
@@ -72,9 +74,10 @@ export const planProposals = async ({
   team,
   painters,
   guards,
+  focus,
 }: PlanRequest): Promise<PlannedProposal[]> => {
   const map = territoryMapFromImage(await decodePng(snapshot), PALETTE_RGB)
-  const plans = borderBoxPlanner({ map, team, painters, guards, charges: TERRITORY_CHARGES })
+  const plans = borderBoxPlanner({ map, team, painters, guards, charges: TERRITORY_CHARGES, focus })
   return plans.flatMap((plan) => {
     const outcome = simulateCapture(map, team, plan)
     if (outcome.refused > 0 || outcome.gained <= 0) return []

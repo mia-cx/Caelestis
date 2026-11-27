@@ -8,14 +8,17 @@ import {
   decodePng,
   GUARD_MARGIN,
   isCaptureGuard,
+  latLngToCanvasPixel,
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
   PALETTE_RGB,
   type RegionShapePixels,
+  TERRITORY_ARENA,
   TERRITORY_TEAMS,
   type TerritoryMap,
   type TerritoryTeam,
   TILE_SIZE,
+  territoryEventLive,
   territoryMapFromImage,
   worldToArena,
 } from '@caelestis/shared'
@@ -40,7 +43,8 @@ import {
 } from './capture-scene.js'
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt } from './draft-pixels.js'
-import { requestMapFrame } from './map-view.js'
+import { getMap, type MapLike, onMapAttached } from './map-handle.js'
+import { requestMapFrame, viewportCentre } from './map-view.js'
 import {
   type CaptureView,
   captureViews,
@@ -91,6 +95,8 @@ const DRAFTED_REPORT_MS = 1_000
 const TEAM_RETRY_MS = 5_000
 /** How long a failed plan map load waits before trying again. */
 const PLAN_RETRY_MS = 5_000
+/** The share of the view the arena must fill for the card to show. */
+const ARENA_VIEW_SHARE = 0.25
 
 interface Proposal extends CaptureProposal {
   /** Each painter's line as flat world coordinates. */
@@ -418,11 +424,9 @@ const PLAN_INTERVAL_MS = 500
 
 let planning = false
 let planBusy = false
-/** Team, group and snapshot of the last pass, so an unchanged map is not planned twice. */
+/** Team, group, focus and snapshot of the last pass, so nothing is planned twice. */
 let planInputs = ''
 let planTimer: ReturnType<typeof setInterval> | null = null
-/** Whether this round of planning has flown the map to its best plan yet. */
-let planFlown = false
 
 /** FNV-1a over the snapshot: enough to tell one five-second map from the next. */
 const hashBytes = (bytes: Uint8Array): number => {
@@ -492,13 +496,28 @@ const planPass = async (groupSize: number, guardCount: number): Promise<void> =>
       stopPlanning()
       return
     }
+    // Plans hold the pixel at the middle of the view, so panning picks the stretch of border.
+    const centre = viewportCentre()
+    const focus = centre === null ? null : worldToArena(centre)
+    if (focus === null) {
+      proposals = []
+      message = 'Centre the map on the arena where you want a wall.'
+      render()
+      return
+    }
     const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
     if (!response.ok) return
     const snapshot = new Uint8Array(await response.arrayBuffer())
-    const inputs = `${team}|${groupSize}|${guardCount}|${hashBytes(snapshot)}`
+    const inputs = `${team}|${groupSize}|${guardCount}|${focus.x},${focus.y}|${hashBytes(snapshot)}`
     if (inputs === planInputs) return
     planInputs = inputs
-    const planned = await runPlanner({ snapshot, team, painters: groupSize, guards: guardCount })
+    const planned = await runPlanner({
+      snapshot,
+      team,
+      painters: groupSize,
+      guards: guardCount,
+      focus,
+    })
     if (!planning) return
     proposals = planned.map((proposal) => ({
       ...proposal,
@@ -506,14 +525,9 @@ const planPass = async (groupSize: number, guardCount: number): Promise<void> =>
       published: false,
     }))
     message =
-      proposals.length === 0 ? 'No wall fits this many painters along your border.' : undefined
-    // Fly to the best plan once per round, so the shape being chosen is on screen.
-    const best = proposals[0]
-    const box = best === undefined ? null : pixelMask(best.lines.flatMap(linePixels))?.rect
-    if (box != null && !planFlown) {
-      planFlown = true
-      flyTo(box)
-    }
+      proposals.length === 0
+        ? 'No wall fits here. Centre the map just outside your border.'
+        : undefined
     log(
       'capture proposals',
       proposals.map(({ label, gained, pixels }) => ({ label, gained, pixels })),
@@ -533,7 +547,6 @@ const startPlanning = (): void => {
   stopPlanning()
   planning = true
   planInputs = ''
-  planFlown = false
   message = undefined
   const pass = () => {
     const view = active()
@@ -827,17 +840,41 @@ const tick = (): void => {
   render()
 }
 
+/** Whether the event arena fills enough of the map's view to be what the painter is looking at. */
+const arenaInView = (): boolean => {
+  const map = getMap()
+  if (map === null) return false
+  const { clientWidth, clientHeight } = map.getCanvas()
+  const a = latLngToCanvasPixel(map.unproject([0, 0]))
+  const b = latLngToCanvasPixel(map.unproject([clientWidth, clientHeight]))
+  const left = TERRITORY_ARENA.tileX * TILE_SIZE
+  const top = TERRITORY_ARENA.tileY * TILE_SIZE
+  const overlap = (lo: number, hi: number, start: number) =>
+    Math.max(0, Math.min(hi, start + TERRITORY_ARENA.size) - Math.max(lo, start))
+  const view = (b.x - a.x) * (b.y - a.y)
+  return view > 0 && overlap(a.x, b.x, left) * overlap(a.y, b.y, top) >= ARENA_VIEW_SHARE * view
+}
+
+const removeElement = (): void => {
+  element?.remove()
+  element = null
+}
+
+/**
+ * Show the card only while the event runs and its arena is in view. Panning away hides the card but
+ * keeps the run ticking, so a member's slot and a guard's watch never depend on where they look.
+ */
 const render = (): void => {
-  const next = model(active())
+  const next = territoryEventLive(Date.now()) ? model(active()) : null
   if (next === null || accountIdentity() === null) {
-    element?.remove()
-    element = null
+    removeElement()
     if (timer !== null) clearInterval(timer)
     timer = null
     return
   }
-  ensureElement().model = next
   timer ??= setInterval(tick, TICK_MS)
+  if (arenaInView()) ensureElement().model = next
+  else removeElement()
 }
 
 /** Install once, after presence. */
@@ -859,4 +896,12 @@ export const installCaptureRuns = (): void => {
     render()
   })
   onStateChange(render)
+  // A style swap attaches the same map again; follow each map once.
+  let followed: MapLike | null = null
+  onMapAttached((map) => {
+    if (map === followed) return
+    followed?.off('moveend', render)
+    map.on('moveend', render)
+    followed = map
+  })
 }

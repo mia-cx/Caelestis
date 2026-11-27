@@ -73,6 +73,23 @@ describe('borderBoxPlanner', () => {
     expect(simulateCapture(map, GREEN, plan).refused).toBe(0)
   })
 
+  it('proposes only walls around the focus pixel', () => {
+    const request = { map: quadrantMap(), team: GREEN, painters: 2, guards: 0, charges: 15 } as const
+    const focus = { x: 30, y: 17 }
+    const plans = borderBoxPlanner({ ...request, focus })
+    expect(plans.length).toBeGreaterThan(0)
+    for (const plan of plans) {
+      const cells = plan.lines.flat()
+      const xs = cells.map(({ x }) => x)
+      const ys = cells.map(({ y }) => y)
+      expect(focus.x).toBeGreaterThanOrEqual(Math.min(...xs))
+      expect(focus.x).toBeLessThanOrEqual(Math.max(...xs))
+      expect(focus.y).toBeGreaterThanOrEqual(Math.min(...ys))
+      expect(focus.y).toBeLessThanOrEqual(Math.max(...ys))
+    }
+    expect(borderBoxPlanner({ ...request, focus: { x: 2, y: 2 } })).toEqual([])
+  })
+
   it('returns nothing when the budget cannot close any box', () => {
     expect(
       borderBoxPlanner({ map: quadrantMap(), team: GREEN, painters: 1, guards: 0, charges: 2 }),
