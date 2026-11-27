@@ -328,6 +328,15 @@ it('binds a token to the first team its sessions report, and a session claiming 
   await vi.waitFor(() => expect(later.refusedFor()).toBe(team))
 })
 
+it('applies a capture command sent while its token is still binding', async () => {
+  const server = await start()
+  const orange = await server.painter(ORANGE)
+  // The team report binds this fresh token; Open run goes right behind it, as the userscript sends.
+  const runner = await server.connect(await server.redeem(), ORANGE)
+  runner.send({ type: 'capture-open', painters: 1, guards: 0 })
+  await vi.waitFor(() => expect(orange.run()).toMatchObject({ team: ORANGE, painters: 1 }))
+})
+
 it('binds an event runner to the team it redeemed its invite with', async () => {
   const server = await start()
   const runner = await server.redeem(ORANGE)

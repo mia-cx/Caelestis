@@ -94,9 +94,15 @@ interface SessionState {
   onlineSent?: number
   /** The region version and owned ids it was last sent. */
   claimsSent?: { readonly version: number; readonly owned: string }
-  /** Whether a write binding its token's team is in flight. */
-  binding?: boolean
+  /** The write binding its token's team while in flight, then the capture commands waiting on it. */
+  binding?: Promise<void>
 }
+
+/** A client event that acts on a capture run. */
+type CaptureCommand = Exclude<
+  Schema.Schema.Type<typeof PresenceClientEvent>,
+  { readonly type: 'presence-update' | 'presence-heartbeat' | 'clock' }
+>
 
 /** An open socket with the attachment read once for the operation at hand. */
 interface LiveSession {
@@ -257,11 +263,9 @@ export class PresenceCoordinator<Client> {
     const reported = held.team
     if (!this.bindsTeam(held) || held.boundTeam !== undefined || reported === undefined) return
     const local = this.localState(held.sessionId)
-    if (local.binding) return
-    local.binding = true
+    if (local.binding !== undefined) return
     const bound = this.sql.bindTeam(held.tokenHash, reported).then(
       (team) => {
-        local.binding = false
         if (socket.readyState !== 1) return
         const current = attachmentOf(socket)
         if (current === null || current.closed) return
@@ -273,10 +277,38 @@ export class PresenceCoordinator<Client> {
       },
       () => {
         // The next message tries again.
-        local.binding = false
       },
     )
-    this.state.waitUntil(bound)
+    this.chainBind(local, bound)
+  }
+
+  /**
+   * Make `work` the end of the session's pending bind: capture commands that arrive meanwhile
+   * chain after it in order, and it clears itself once nothing is chained behind it.
+   */
+  private chainBind(local: SessionState, work: Promise<void>): void {
+    local.binding = work
+    this.state.waitUntil(
+      work.finally(() => {
+        if (local.binding === work) delete local.binding
+      }),
+    )
+  }
+
+  /** Apply one capture command to the run of the session's team, as the socket is now. */
+  private capture(socket: LiveSocket, event: CaptureCommand): void {
+    if (socket.readyState !== 1) return
+    const held = attachmentOf(socket)
+    if (held === null || held.closed) return
+    const team = this.teamOf(held)
+    if (team === undefined) return
+    const actor = {
+      sessionId: held.sessionId,
+      painter: held.painter,
+      scope: held.credentialScope,
+      team,
+    }
+    this.updateCapture(team, (run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
   }
 
   /**
@@ -774,15 +806,14 @@ export class PresenceCoordinator<Client> {
     }
     if (attachment.credentialScope === 'read') return
     if (event.type !== 'presence-update') {
-      const team = this.teamOf(attachment)
-      if (team === undefined) return
-      const actor = {
-        sessionId: attachment.sessionId,
-        painter: attachment.painter,
-        scope: attachment.credentialScope,
-        team,
-      }
-      this.updateCapture(team, (run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
+      const command = event
+      // The team report just ahead of it is still binding the token; act once it has.
+      if (this.teamOf(attachment) === undefined && local.binding !== undefined)
+        this.chainBind(
+          local,
+          local.binding.then(() => this.capture(socket, command)),
+        )
+      else this.capture(socket, command)
       return
     }
     // Anonymous sessions are read scope, so the early return above keeps their quick claims out.
