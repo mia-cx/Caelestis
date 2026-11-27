@@ -12,6 +12,11 @@ export interface AccessToken {
   readonly scope: Scope
   readonly createdWithToken: string
   readonly createdAt: Millis
+  /**
+   * Present on a one-use `event_runner` invite, which authenticates only its own exchange. Every
+   * other token omits it.
+   */
+  readonly invite?: true
 }
 
 /** The last row of a token page, used for a stable newest-first keyset scan. */
@@ -34,6 +39,16 @@ export interface AccessTokenStore {
 
   /** The token with this hash, or null if there is none — which is what revoked looks like. */
   readAccessToken(tokenHash: string): Promise<AccessToken | null>
+
+  /**
+   * Consume the invite with this hash and store `replacement` in its place, in one statement: the
+   * row keeps its label, scope and author and takes the replacement's hash and creation time.
+   * False when no unconsumed invite has the hash, so two concurrent exchanges cannot both win.
+   */
+  redeemInvite(
+    inviteHash: string,
+    replacement: Pick<AccessToken, 'tokenHash' | 'createdAt'>,
+  ): Promise<boolean>
 
   /**
    * Stored tokens newest first, tie-broken by hash. A query can continue strictly after a cursor and

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, lt, or } from 'drizzle-orm'
+import { changedRows } from '../adapters/relational-database.js'
 import { RelationalStore } from '../adapters/relational-store.js'
 import { accessTokens } from '../db/schema.js'
 import type { AccessToken, AccessTokenQuery, AccessTokenStore } from './store.js'
@@ -9,6 +10,7 @@ const toAccessToken = (row: typeof accessTokens.$inferSelect): AccessToken => ({
   scope: row.scope,
   createdWithToken: row.createdWithToken,
   createdAt: row.createdAtMs,
+  ...(row.invite ? { invite: true } : {}),
 })
 
 export class RelationalAccessTokenStore extends RelationalStore implements AccessTokenStore {
@@ -19,6 +21,7 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
       scope: token.scope,
       createdWithToken: token.createdWithToken,
       createdAtMs: token.createdAt,
+      invite: token.invite === true,
     })
   }
 
@@ -30,6 +33,18 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
       .limit(1)
     const row = rows[0]
     return row === undefined ? null : toAccessToken(row)
+  }
+
+  async redeemInvite(
+    inviteHash: string,
+    replacement: Pick<AccessToken, 'tokenHash' | 'createdAt'>,
+  ): Promise<boolean> {
+    const result = await this.database
+      .update(accessTokens)
+      .set({ tokenHash: replacement.tokenHash, createdAtMs: replacement.createdAt, invite: false })
+      .where(and(eq(accessTokens.tokenHash, inviteHash), eq(accessTokens.invite, true)))
+      .run()
+    return changedRows(result) === 1
   }
 
   async listAccessTokens(query: AccessTokenQuery = {}): Promise<readonly AccessToken[]> {

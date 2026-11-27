@@ -4,7 +4,12 @@ import type {
   ServerAssetContentType,
   TemplateSurfaceKind,
 } from '@caelestis/shared'
-import { MAX_NODE_PATH_LENGTH, TEMPLATE_SURFACE_KINDS, WORLD_PIXELS } from '@caelestis/shared'
+import {
+  MAX_NODE_PATH_LENGTH,
+  SCOPES,
+  TEMPLATE_SURFACE_KINDS,
+  WORLD_PIXELS,
+} from '@caelestis/shared'
 import { sql } from 'drizzle-orm'
 import {
   type AnySQLiteColumn,
@@ -417,12 +422,25 @@ export const accessTokens = sqliteTable(
   {
     tokenHash: text('token_hash').primaryKey(),
     label: text('label').notNull(),
-    scope: text('scope', { enum: ['read', 'report', 'admin'] }).notNull(),
+    scope: text('scope', { enum: SCOPES }).notNull(),
     createdWithToken: text('created_with_token').notNull(),
     createdAtMs: integer('created_at_ms').$type<Millis>().notNull(),
+    /**
+     * A one-use invite: it authenticates only the exchange that replaces it with a fresh token of
+     * the same label, so the secret an organiser shares never becomes the one a browser keeps.
+     */
+    invite: integer('invite', { mode: 'boolean' }).notNull().default(false),
   },
   (table) => [
-    check('access_tokens_scope_check', sql`${table.scope} IN ('read', 'report', 'admin')`),
+    check(
+      'access_tokens_scope_check',
+      sql`${table.scope} IN ('read', 'report', 'event_runner', 'admin')`,
+    ),
+    // Only event runners are invited; every other scope is minted ready to use.
+    check(
+      'access_tokens_invite_check',
+      sql`${table.invite} IN (0, 1) AND (${table.invite} = 0 OR ${table.scope} = 'event_runner')`,
+    ),
   ],
 )
 

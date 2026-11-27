@@ -31,7 +31,7 @@ declare module 'hono' {
 }
 
 /** Only the `Bearer <token>` form. `Basic` and bare tokens are not accepted. */
-const bearerToken = (header: string | undefined): string | null => {
+export const bearerToken = (header: string | undefined): string | null => {
   if (header === undefined) return null
   const [scheme, ...rest] = header.split(' ')
   if (scheme?.toLowerCase() !== 'bearer' || rest.length !== 1) return null
@@ -142,7 +142,9 @@ export const authenticateRequest = (
     const sql = yield* SqlStoreService
     const token = yield* storage('readAccessToken', () => sql.readAccessToken(tokenHash))
     if (token === null) return yield* Effect.fail(new UnauthorizedError())
-    if (!satisfiesScope(token.scope, required)) return yield* Effect.fail(new ForbiddenError())
+    // An invite is good for its own exchange and nothing else, which `exchangeInvite` handles.
+    if (token.invite === true || !satisfiesScope(token.scope, required))
+      return yield* Effect.fail(new ForbiddenError())
     return { scope: token.scope, token, tokenHash, canSeeDrafts: token.scope === 'admin' }
   })
 

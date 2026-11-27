@@ -592,7 +592,7 @@ export class PresenceCoordinator<Client> {
       const actor = {
         sessionId: attachment.sessionId,
         painter: attachment.painter,
-        admin: attachment.credentialScope === 'admin',
+        scope: attachment.credentialScope,
       }
       this.updateCapture((run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
       return

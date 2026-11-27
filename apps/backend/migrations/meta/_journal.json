@@ -253,6 +253,13 @@
       "when": 1793995255191,
       "tag": "0035_work_regions_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1795814001814,
+      "tag": "0036_event_runner_invites",
+      "breakpoints": true
     }
   ]
 }
