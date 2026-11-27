@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { CAPTURE_STAGGER_STEP_MS, MAX_CAPTURE_STAGGER_MS, MIN_CAPTURE_STAGGER_MS } from '@caelestis/shared'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import type { CaptureRunIntent, CaptureRunModel } from './model.js'
@@ -89,6 +90,12 @@
           <output class="caelestis-field">{model.guards}</output>
           <Button label="More guards" kind="ghost" size="small" iconOnly disabled={model.guards >= model.maxGuards} onclick={() => onIntent({ type: 'set-guards', guards: model.guards + 1 })}><Icon name="add" /></Button>
         </div>
+        <span class="label" id="capture-run-stagger">Stagger</span>
+        <div class="stepper" role="group" aria-labelledby="capture-run-stagger">
+          <Button label="Shorter stagger" kind="ghost" size="small" iconOnly disabled={model.staggerMs <= MIN_CAPTURE_STAGGER_MS} onclick={() => onIntent({ type: 'set-stagger', staggerMs: model.staggerMs - CAPTURE_STAGGER_STEP_MS })}><Icon name="remove" /></Button>
+          <output class="caelestis-field wide">{model.staggerMs} ms</output>
+          <Button label="Longer stagger" kind="ghost" size="small" iconOnly disabled={model.staggerMs >= MAX_CAPTURE_STAGGER_MS} onclick={() => onIntent({ type: 'set-stagger', staggerMs: model.staggerMs + CAPTURE_STAGGER_STEP_MS })}><Icon name="add" /></Button>
+        </div>
         <Button label="Open run" kind="primary" size="small" onclick={() => onIntent({ type: 'open' })} />
       </div>
     {/if}
@@ -121,6 +128,7 @@
             {#if member.guard}<span class="place" aria-label="Anchor guard" title="Anchor guard">G</span>{:else}<span class="place">{index + 1}</span>{/if}
             <span class="swatch" style:background-color={member.colour} aria-hidden="true"></span>
             <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
+            {#if member.closes}<span class="closes">Closes wall</span>{/if}
             {#if member.length > 0}
               <span class="ready" class:done={ready} aria-label={`${member.drafted} of ${member.length} pixels drafted`}>{#if ready}<Icon name="check" size="0.875rem" />{/if}{member.drafted}/{member.length}</span>
             {/if}
@@ -128,9 +136,12 @@
               <Button label="Show my line" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'show-line' })}><Icon name="flyTo" size="0.875rem" /></Button>
             {/if}
             {#if model.admin && gathering}
+              {@const before = model.members[index - 1]}
+              {@const after = model.members[index + 1]}
+              <!-- The closer keeps their place, so no move into or out of it does anything. -->
               <span class="order">
-                <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={index === 0} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
-                <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={index === model.members.length - 1} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
+                <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={before === undefined || before.closes || member.closes} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
+                <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={after === undefined || after.closes || member.closes} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
               </span>
             {/if}
           </li>
@@ -234,6 +245,7 @@
     font: 600 0.875rem/1 var(--caelestis-font);
     font-variant-numeric: tabular-nums;
   }
+  .open .stepper output.wide { inline-size: 4.5rem; }
   .stepper { display: flex; flex: 1; align-items: center; gap: 0.125rem; }
   .stepper input {
     inline-size: 3rem;
@@ -274,6 +286,7 @@
   .swatch { flex: none; inline-size: 0.75rem; block-size: 0.75rem; border: 1px solid color-mix(in oklab, var(--caelestis-text) 30%, transparent); border-radius: 2px; }
   .name { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .you { margin-inline-start: 0.25em; color: var(--caelestis-muted-text); }
+  .closes { flex: none; color: var(--caelestis-muted-text); font-size: 0.75rem; }
   .ready { display: inline-flex; align-items: center; gap: 0.125rem; color: var(--caelestis-muted-text); }
   .ready.done { color: var(--caelestis-success); }
   .order { display: inline-flex; }

@@ -50,6 +50,7 @@ it('sends the run of the team a session switched to, never a late read of the on
   const green: CaptureRun = {
     id: uuidV7(),
     team: GREEN,
+    coordinator: null,
     painters: 1,
     guards: 0,
     members: [],

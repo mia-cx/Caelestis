@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   CAPTURE_LEAD_MS,
   type CaptureRun,
+  captureSlot,
   PRESENCE_PROTOCOL_V1,
   type PresenceClientEvent,
   type PresenceServerEvent,
@@ -238,11 +239,56 @@ it('lets an event runner run a capture that a reporter cannot open', async () =>
   await vi.waitFor(() => expect(painter.run()?.members).toHaveLength(1))
   runner.send({ type: 'capture-plan', lines: [line(1_028_000)] })
   await vi.waitFor(() => expect(painter.run()?.lines).toHaveLength(1))
+  painter.send({ type: 'capture-drafted', drafted: 2 })
+  await vi.waitFor(() => expect(painter.run()?.members[0]?.drafted).toBe(2))
   painter.send({ type: 'capture-close' })
   runner.send({ type: 'capture-go' })
   await vi.waitFor(() => expect(painter.run()?.startsAt).not.toBeNull())
   runner.send({ type: 'capture-close' })
   await vi.waitFor(() => expect(painter.run()).toBeNull())
+})
+
+it('starts once every painter has drafted, with the coordinator closing at their stagger', async () => {
+  const server = await start()
+  const runner = await server.runner(GREEN)
+  const first = await server.painter(GREEN)
+  const second = await server.painter(GREEN)
+  const guard = await server.painter(GREEN)
+
+  runner.send({ type: 'capture-open', painters: 3, guards: 1, staggerMs: 750 })
+  await vi.waitFor(() => expect(runner.run()).toMatchObject({ painters: 3, staggerMs: 750 }))
+  const id = runner.run()?.id ?? ''
+  // The coordinator joins first, yet ends up painting the last painter's line.
+  for (const session of [runner, first, second, guard]) {
+    session.send({ type: 'capture-join', run: id })
+    await vi.waitFor(() =>
+      expect(runner.run()?.members.map((m) => m.sessionId)).toContain(session.sessionId),
+    )
+  }
+  expect(runner.run()?.members.map((m) => m.sessionId)).toEqual([
+    first.sessionId,
+    second.sessionId,
+    runner.sessionId,
+    guard.sessionId,
+  ])
+  runner.send({ type: 'capture-plan', lines: [1, 2, 3, 4].map((at) => line(1_028_000 + at)) })
+  await vi.waitFor(() => expect(runner.run()?.lines).toHaveLength(4))
+
+  // The coordinator is one pixel short; the guard's draft never holds Go.
+  first.send({ type: 'capture-drafted', drafted: 2 })
+  second.send({ type: 'capture-drafted', drafted: 2 })
+  runner.send({ type: 'capture-drafted', drafted: 1 })
+  await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([2, 2, 1, 0]))
+  runner.send({ type: 'capture-go' })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(runner.run()?.startsAt).toBeNull()
+
+  runner.send({ type: 'capture-drafted', drafted: 2 })
+  runner.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(guard.run()?.startsAt).not.toBeNull())
+  const run = guard.run()
+  if (run == null || run.startsAt === null) throw new Error('Expected a started run')
+  expect(captureSlot(run, 2)).toBe(run.startsAt + 750)
 })
 
 it('answers clock requests with the server time', async () => {

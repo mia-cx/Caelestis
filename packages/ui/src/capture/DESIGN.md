@@ -10,8 +10,8 @@ The host decides visibility: non-administrators only get the element while a run
 
 ## States
 
-- **none** (administrator): a group size stepper, 1 to `maxPainters`, and Open run.
-- **gathering**: the paint order as numbered rows: colour swatch, name, drafted/length with a check once ready, and a button to fly to your own line. The administrator gets move up/down per row, Propose plans with the plan list (where it goes, territory gained, pixels painted, Publish or Published), Close run and Go. Painters get Join run or Leave run.
+- **none** (administrator): steppers for painters (1 to `maxPainters`), anchor guards, and the stagger between steps (200 to 2,000 ms in 50 ms steps), and Open run.
+- **gathering**: the paint order as numbered rows: colour swatch, name, drafted/length with a check once ready, and a button to fly to your own line. The administrator who opened the run reads "Closes wall" on their row: they keep the last painter's place, so moves into or out of it are disabled. The administrator gets move up/down per row, Propose plans with the plan list (where it goes, territory gained, pixels painted, Publish or Published), Close run and Go. Go stays disabled until every painter's row shows their line drafted; guards don't hold it. Painters get Join run or Leave run.
 - **countdown**: the clock reads `mm:ss.mmm` in large tabular numerals, counting to this painter's slot (`mySlotAt`), or to the first painter (`startsAt`) for everyone else. It clamps at `00:00.000`; at a member's slot the lead reads "Paint now" and the clock turns primary.
 - **done**: "Run finished" and the final order.
 

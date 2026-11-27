@@ -1,7 +1,11 @@
 import plannerSource from 'worker:capture-planner'
 import {
   CAPTURE_LEAD_MS,
+  CAPTURE_STAGGER_MS,
+  CAPTURE_STAGGER_STEP_MS,
   type CaptureRun,
+  captureCoordinatorIndex,
+  capturePaintersDrafted,
   captureSlot,
   captureStep,
   captureSteps,
@@ -12,6 +16,8 @@ import {
   latLngToCanvasPixel,
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
+  MAX_CAPTURE_STAGGER_MS,
+  MIN_CAPTURE_STAGGER_MS,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -109,6 +115,7 @@ interface Proposal extends CaptureProposal {
 
 let painters = 3
 let guards = MAX_CAPTURE_GUARDS
+let staggerMs = CAPTURE_STAGGER_MS
 let proposals: readonly Proposal[] = []
 let message: string | undefined
 let element: CaelestisElement<'caelestis-capture-run'> | null = null
@@ -790,6 +797,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
   const slot = run !== null && mine >= 0 && !idle ? captureSlot(run, mine) : null
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
+  const closer = run === null ? -1 : captureCoordinatorIndex(run)
   return {
     phase,
     admin,
@@ -797,6 +805,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
     maxPainters: MAX_CAPTURE_PAINTERS,
     guards: run?.guards ?? guards,
     maxGuards: MAX_CAPTURE_GUARDS,
+    staggerMs: run?.staggerMs ?? staggerMs,
     anchor:
       run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
         ? anchor
@@ -809,6 +818,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       length: (run?.lines[index]?.length ?? 0) / 2,
       me: index === mine,
       guard: run !== null && isCaptureGuard(run, index),
+      closes: index === closer,
     })),
     joined: mine >= 0,
     role: run === null || mine < 0 ? null : isCaptureGuard(run, mine) ? 'guard' : 'painter',
@@ -831,7 +841,8 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       run !== null &&
       run.startsAt === null &&
       run.lines.length > 0 &&
-      run.members.length >= run.lines.length,
+      run.members.length >= run.lines.length &&
+      capturePaintersDrafted(run),
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
     myTurn:
       run !== null && mine >= 0 && !idle && !isCaptureGuard(run, mine)
@@ -856,6 +867,14 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       guards = Math.min(MAX_CAPTURE_GUARDS, Math.max(0, Math.round(intent.guards)))
       proposals = []
       break
+    case 'set-stagger': {
+      const steps = Math.round(intent.staggerMs / CAPTURE_STAGGER_STEP_MS)
+      staggerMs = Math.min(
+        MAX_CAPTURE_STAGGER_MS,
+        Math.max(MIN_CAPTURE_STAGGER_MS, steps * CAPTURE_STAGGER_STEP_MS),
+      )
+      break
+    }
     case 'open': {
       // The run is for this administrator's team.
       void refreshTeam()
@@ -866,7 +885,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
           if (team === null) message = 'Join a team in the event first.'
           else {
             proposals = []
-            sendCapture(server, { type: 'capture-open', painters, guards })
+            sendCapture(server, { type: 'capture-open', painters, guards, staggerMs })
           }
         })
         .catch(() => {
