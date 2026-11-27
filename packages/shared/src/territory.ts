@@ -278,10 +278,10 @@ export const simulateCapture = (
  *   about 930 to 630. Corners on the arena edge are reachable from one side only and stay square.
  *
  * Every candidate costs O(1) through prefix sums, so the full arena searches in well under a
- * second. Candidates are then filled within their own bounds to count what they enclose, best
- * estimate first and one try per stretch of border each round. The first that closes and holds the
- * focus takes its stretch; one that does not leaves the stretch's other candidates as fallbacks.
- * Walls from different facings that overlap are settled by what they enclose.
+ * second. Up to `KEEP` candidates are then filled within their own bounds to count what they
+ * enclose, best estimate first and one per stretch of border each round. Of the walls that close
+ * and hold the focus, the best enclosure goes first and each later one is kept unless it overlaps
+ * one already kept.
  */
 
 /** A border starts where at least this many of the team's pixels run in a row. */
@@ -677,8 +677,7 @@ const overlaps = (a: Box, b: Box): boolean =>
 /**
  * The default planner: the best few distinct walls against the team's border, each chamfered where
  * the budget allows and ranked by what it encloses, split into paired lines, with guard zones on
- * the team's cells beside each anchor. With a focus, a wall that does not hold it is skipped, and
- * an overlapping candidate takes its place.
+ * the team's cells beside each anchor. With a focus, a wall that does not hold it is skipped.
  */
 export const borderBoxPlanner: CapturePlanner = ({
   map,
@@ -691,23 +690,26 @@ export const borderBoxPlanner: CapturePlanner = ({
   const budget = painters * charges
   const unpainted = (wall: readonly ArenaPixel[]) => wall.filter((cell) => !owns(map, team, cell))
   const walls: { candidate: Candidate; wall: ArenaPixel[]; bounds: Box; score: number }[] = []
-  const failed: Candidate[] = []
-  const shares = (a: Candidate) => (b: Candidate) =>
-    a.front === b.front && a.from <= b.to && b.from <= a.to
-  // Fills go round the stretches of border, best estimate first: each round, every stretch that
-  // has no wall yet gets one more try, so one that fails again and again cannot use them all.
+  const filled: Candidate[] = []
+  // Fills go round the stretches of border, best estimate first: each round, every stretch gets
+  // one more, so near-copies of one wall cannot use them all, and a stretch that leaks keeps its
+  // fallbacks.
   let pending = bestWalls(map, team, budget, focus)
-  for (let round = 0; pending.length > 0 && walls.length + failed.length < KEEP; round++) {
+  for (let round = 0; pending.length > 0 && filled.length < KEEP; round++) {
     const later: Candidate[] = []
     for (const candidate of pending) {
-      if (walls.length + failed.length === KEEP) break
-      // A wall that closes and holds the focus takes its stretch of border.
-      const rival = shares(candidate)
-      if (walls.some(({ candidate: other }) => rival(other))) continue
-      if (failed.filter(rival).length > round) {
+      if (filled.length === KEEP) break
+      const shared = filled.filter(
+        (other) =>
+          other.front === candidate.front &&
+          other.from <= candidate.to &&
+          candidate.from <= other.to,
+      ).length
+      if (shared > round) {
         later.push(candidate)
         continue
       }
+      filled.push(candidate)
       const bounds = boundsOf(candidate)
       const square = wallOf(candidate)
       // A chamfer can trade the team's cells for ones to paint; keep the square wall past the
@@ -715,12 +717,12 @@ export const borderBoxPlanner: CapturePlanner = ({
       const chamfered = chamferWall(square, map.size)
       const wall = unpainted(chamfered).length <= budget ? chamfered : square
       const { won, holds } = enclosure(map, team, bounds, wall)
-      if (won === 0 || (focus !== undefined && !holds(focus))) failed.push(candidate)
-      else walls.push({ candidate, wall, bounds, score: won * candidate.reach })
+      if (won > 0 && (focus === undefined || holds(focus)))
+        walls.push({ candidate, wall, bounds, score: won * candidate.reach })
     }
     pending = later
   }
-  // Walls on different facings may overlap; the one that encloses more wins.
+  // Best enclosure first, each wall kept unless it overlaps one already kept.
   walls.sort((a, b) => b.score - a.score)
   const chosen: typeof walls = []
   for (const wall of walls)

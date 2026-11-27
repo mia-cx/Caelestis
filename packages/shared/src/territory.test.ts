@@ -262,6 +262,22 @@ describe('borderBoxPlanner', () => {
     expect(simulateCapture(map, GREEN, plan).gained).toBeGreaterThanOrEqual(8781)
   })
 
+  it('still proposes a wall whose overlapping rival loses to a wall on another facing', () => {
+    // A top-facing wall over x 0 to 45 loses to a left-facing one from x 43; the top-facing wall
+    // over x 0 to 42 overlaps neither and is still worth proposing.
+    const map = greenRects(160, [
+      [0, 111, 159, 159],
+      [135, 0, 159, 131],
+    ])
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 3, guards: 0, charges: 60 })
+    expect(plans.length).toBeGreaterThanOrEqual(2)
+    for (const plan of plans) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.refused).toBe(0)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+    }
+  })
+
   it("starts each guard's zone beside the first pixel its painter places, on a slope", () => {
     const map = greenWhere(200, (x, y) => y >= 25 + x)
     const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
