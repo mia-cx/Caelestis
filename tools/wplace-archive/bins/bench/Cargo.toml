@@ -1,0 +1,11 @@
+[package]
+name = "wpa-bench"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "wpa-bench"
+path = "src/main.rs"
+
+[dependencies]

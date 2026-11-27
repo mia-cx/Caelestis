@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "bins/*"]
+
+[workspace.package]
+edition = "2024"
+version = "0.0.0"
+license = "MIT"
+repository = "https://github.com/mia-cx/Caelestis"
+rust-version = "1.85"
+
+# Shared deps. Crates opt in with `foo.workspace = true` as they grow — the
+# scaffold itself pulls in nothing heavy so `cargo check` stays instant.
+[workspace.dependencies]
+tokio = { version = "1.43.0", features = ["full"] }
+serde = { version = "1.0.217", features = ["derive"] }
+toml = "0.8.19"
+anyhow = "1.0.95"
+thiserror = "2.0.11"
+tracing = "0.1.41"
+# internal crates (path deps)
+wpa-contracts   = { path = "crates/contracts" }
+wpa-config      = { path = "crates/config" }
+wpa-classify    = { path = "crates/classify" }
+wpa-ratelimit   = { path = "crates/ratelimit" }
+wpa-state-index = { path = "crates/state-index" }
+wpa-metrics     = { path = "crates/metrics" }
+wpa-lanes       = { path = "crates/lanes" }
+wpa-fetch       = { path = "crates/fetch" }
+wpa-store       = { path = "crates/store" }
+wpa-schedule    = { path = "crates/schedule" }
+wpa-temporal    = { path = "crates/temporal" }

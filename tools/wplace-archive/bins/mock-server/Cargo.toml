@@ -1,0 +1,11 @@
+[package]
+name = "wpa-mock"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "wpa-mock"
+path = "src/main.rs"
+
+[dependencies]

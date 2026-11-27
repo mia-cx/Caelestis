@@ -1,0 +1,7 @@
+[package]
+name = "wpa-store"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]

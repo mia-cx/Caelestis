@@ -1,0 +1,40 @@
+# wplace-archive — example configuration. Copy to config.toml and edit.
+
+[source]
+# Point at the local mock while prototyping so no test traffic hits Wplace.
+# Production: "https://backend.wplace.live"
+base_url  = "http://127.0.0.1:8787"
+path_tmpl = "/files/s0/tiles/{x}/{y}.png"
+
+[runtime]
+workers           = 8     # decode/write thread pool (~= physical cores)
+fetch_concurrency = 512   # max in-flight requests (I/O-bound; independent of workers)
+
+# Egress is local IPv6 only — no VPS, no proxies.
+[egress]
+prefix        = "2001:db8::/56"  # your routed home prefix
+addresses     = 4000             # source addresses to derive
+spread        = "per_64"         # distribute across the /56's /64s (per-/64 insurance)
+per_lane_rate = 24               # req/s per address (< ~28.5 limit, margin)
+
+[politeness]
+global_max_rate     = 60000      # hard ceiling across all lanes, req/s
+min_poll_interval   = "5s"       # physical floor = CDN s-maxage; never below
+respect_retry_after = true
+user_agent          = "wplace-archive/0.1"
+
+[baseline]
+sweep_rate        = 40000        # req/s for the initial full-canvas enumeration
+refetch_404_every = "6h"         # re-probe empty tiles to catch new paint (frontier)
+
+[storage]
+path     = "/var/lib/wplace-archive"  # local NVMe during a run; sync to NAS after
+encoding = "palette"
+dedup    = true
+
+# ── Mock server (prototyping only) ──────────────────────────────────
+[mock]
+listen         = "127.0.0.1:8787"
+snapshot_dir   = ""              # serve real tiles from an existing snapshot on disk
+sample_dir     = "./samples"     # ...or random PNGs from a small set
+inject_latency = "15ms"          # replay measured Wplace RTT so benches are realistic
