@@ -279,9 +279,10 @@ export const simulateCapture = (
  *
  * Every candidate costs O(1) through prefix sums, so the full arena searches in well under a
  * second. Up to `KEEP` candidates are then filled within their own bounds to count what they
- * enclose, best estimate first and one per stretch of border each round. Of the walls that close
- * and hold the focus, the best enclosure goes first and each later one is kept unless it overlaps
- * one already kept.
+ * enclose, best estimate first and one per stretch of border each round; until there are enough
+ * distinct walls to propose, candidates apart from every closed wall go before those overlapping
+ * one. Of the walls that close and hold the focus, the best enclosure goes first and each later
+ * one is kept unless it overlaps one already kept.
  */
 
 /** A border starts where at least this many of the team's pixels run in a row. */
@@ -691,37 +692,62 @@ export const borderBoxPlanner: CapturePlanner = ({
   const unpainted = (wall: readonly ArenaPixel[]) => wall.filter((cell) => !owns(map, team, cell))
   const walls: { candidate: Candidate; wall: ArenaPixel[]; bounds: Box; score: number }[] = []
   const filled: Candidate[] = []
-  // Fills go round the stretches of border, best estimate first: each round, every stretch gets
-  // one more, so near-copies of one wall cannot use them all, and a stretch that leaks keeps its
-  // fallbacks.
-  let pending = bestWalls(map, team, budget, focus)
-  for (let round = 0; pending.length > 0 && filled.length < KEEP; round++) {
-    const later: Candidate[] = []
-    for (const candidate of pending) {
-      if (filled.length === KEEP) break
-      const shared = filled.filter(
-        (other) =>
-          other.front === candidate.front &&
-          other.from <= candidate.to &&
-          candidate.from <= other.to,
-      ).length
-      if (shared > round) {
-        later.push(candidate)
-        continue
-      }
-      filled.push(candidate)
-      const bounds = boundsOf(candidate)
-      const square = wallOf(candidate)
-      // A chamfer can trade the team's cells for ones to paint; keep the square wall past the
-      // budget.
-      const chamfered = chamferWall(square, map.size)
-      const wall = unpainted(chamfered).length <= budget ? chamfered : square
-      const { won, holds } = enclosure(map, team, bounds, wall)
-      if (won > 0 && (focus === undefined || holds(focus)))
-        walls.push({ candidate, wall, bounds, score: won * candidate.reach })
-    }
-    pending = later
+  // Closed walls that overlap no earlier one: the distinct proposals found so far.
+  const distinct: Box[] = []
+  const boxes = new Map<Candidate, Box>()
+  const boxOf = (candidate: Candidate): Box => {
+    const known = boxes.get(candidate)
+    if (known !== undefined) return known
+    const bounds = boundsOf(candidate)
+    boxes.set(candidate, bounds)
+    return bounds
   }
+  const fill = (candidate: Candidate) => {
+    filled.push(candidate)
+    const bounds = boxOf(candidate)
+    const square = wallOf(candidate)
+    // A chamfer can trade the team's cells for ones to paint; keep the square wall past the budget.
+    const chamfered = chamferWall(square, map.size)
+    const wall = unpainted(chamfered).length <= budget ? chamfered : square
+    const { won, holds } = enclosure(map, team, bounds, wall)
+    if (won === 0 || (focus !== undefined && !holds(focus))) return
+    walls.push({ candidate, wall, bounds, score: won * candidate.reach })
+    if (!distinct.some((other) => overlaps(other, bounds))) distinct.push(bounds)
+  }
+  /**
+   * Fill `queue` round the stretches of border, best estimate first: each round, every stretch
+   * gets one more, so near-copies of one wall cannot use the fills and a stretch that leaks keeps
+   * its fallbacks. With `apart`, while proposal slots remain, a candidate that overlaps a closed
+   * wall waits in the returned list, so every wall that could add a proposal gets its turn first.
+   */
+  const rounds = (queue: Candidate[], apart: boolean): Candidate[] => {
+    const crowded: Candidate[] = []
+    for (let round = 0; queue.length > 0 && filled.length < KEEP; round++) {
+      const later: Candidate[] = []
+      for (const candidate of queue) {
+        if (filled.length === KEEP) break
+        if (
+          apart &&
+          distinct.length < PROPOSALS &&
+          walls.some((other) => overlaps(other.bounds, boxOf(candidate)))
+        ) {
+          crowded.push(candidate)
+          continue
+        }
+        const shared = filled.filter(
+          (other) =>
+            other.front === candidate.front &&
+            other.from <= candidate.to &&
+            candidate.from <= other.to,
+        ).length
+        if (shared > round) later.push(candidate)
+        else fill(candidate)
+      }
+      queue = later
+    }
+    return crowded
+  }
+  rounds(rounds(bestWalls(map, team, budget, focus), true), false)
   // Best enclosure first, each wall kept unless it overlaps one already kept.
   walls.sort((a, b) => b.score - a.score)
   const chosen: typeof walls = []

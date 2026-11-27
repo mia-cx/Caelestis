@@ -278,6 +278,22 @@ describe('borderBoxPlanner', () => {
     }
   })
 
+  it('gives a wall apart from the first one a fill before more copies of the first', () => {
+    // Two overlapping blocks stand on the base; most good walls crowd one notch between them.
+    const map = greenRects(160, [
+      [0, 107, 159, 159],
+      [32, 27, 100, 114],
+      [64, 12, 126, 97],
+    ])
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 4, guards: 0, charges: 60 })
+    expect(plans.length).toBeGreaterThanOrEqual(2)
+    for (const plan of plans) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.refused).toBe(0)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+    }
+  })
+
   it("starts each guard's zone beside the first pixel its painter places, on a slope", () => {
     const map = greenWhere(200, (x, y) => y >= 25 + x)
     const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
