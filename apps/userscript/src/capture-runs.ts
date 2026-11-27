@@ -159,7 +159,9 @@ let myTeam: TerritoryTeam | null = null
 const refreshTeam = async (): Promise<TerritoryTeam | null> => {
   if (myTeam !== null) return myTeam
   teamTriedAt = localClock()
-  myTeam = await loadTeam()
+  const team = await loadTeam()
+  // Lookups can overlap; a late answer from before the painter joined never undoes a known team.
+  myTeam ??= team
   return myTeam
 }
 
