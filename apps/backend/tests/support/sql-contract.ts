@@ -380,7 +380,6 @@ export const teamBindingContractExpected = {
  * then never changes, and an invite's redemption binds the token it is traded for.
  */
 export const runTeamBindingContract = async (sql: SqlStore) => {
-  // Hashes no other contract uses: the integration suite shares one database between cases.
   const hash = (digit: string) => digit.repeat(64)
   const token = (tokenHash: string, scope: 'report' | 'admin' | 'event_runner') => ({
     tokenHash,
