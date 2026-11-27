@@ -104,7 +104,7 @@ for (const renewing of ['observer', 'mover'] as const)
   })
 
 /** A room over `sockets`, with every credential it routes revocation to recorded in `routed`. */
-const openRoom = async (sockets: Socket[]) => {
+const openRoom = async (sockets: Socket[], eventServer = false) => {
   const store = openMemoryDatabase()
   const database = coordinatorDatabase(store.connection)
   await SqlCoordinatorStorage.initialize(database)
@@ -128,6 +128,7 @@ const openRoom = async (sockets: Socket[]) => {
     async (tokenHash) => {
       routed.push(tokenHash)
     },
+    eventServer,
   )
   coordinator.stop()
   return { store, coordinator, routed }
@@ -139,6 +140,47 @@ it('serves the room around a socket whose attachment an earlier deploy wrote', a
   try {
     await coordinator.alarm()
     expect(observer.events.at(-1)).toMatchObject({ type: 'presence-ready', online: 1 })
+  } finally {
+    await store.close()
+  }
+})
+
+it('sends the nearest teammates, ties by session ID, up to the peer cap', async () => {
+  const placed = (index: number, x: number, y: number, team?: number) => {
+    const socket = session(index, { x, y }, Date.now())
+    socket.serializeAttachment({ ...(socket.deserializeAttachment() as object), team })
+    return socket
+  }
+  const observer = placed(1, 0, 0, 0)
+  // Pairs of teammates at equal distances, listed against session-ID order, beyond the cap.
+  const teammates = Array.from({ length: 35 }, (_, step) => [
+    placed(200 + step, step * 16, 0, 0),
+    placed(100 + step, 0, step * 16, 0),
+  ]).flat()
+  // Nearer than every teammate, but on another team or on none.
+  const strangers = [placed(300, 0, 0, 1), placed(301, 0, 0)]
+  const { store, coordinator } = await openRoom([observer, ...teammates, ...strangers], true)
+  const id = (index: number) => String(index).padStart(16, '0')
+  try {
+    await coordinator.alarm()
+    const nearest = Array.from({ length: 32 }, (_, step) => [id(100 + step), id(200 + step)]).flat()
+    const ready = observer.events.at(-1)
+    expect(ready?.type).toBe('presence-ready')
+    expect(ready?.type === 'presence-ready' && ready.peers.map((peer) => peer.sessionId)).toEqual(
+      nearest,
+    )
+
+    // The farthest teammate moves next to the observer and displaces the 64th.
+    coordinator.webSocketMessage(
+      teammates.at(-1) as Socket,
+      JSON.stringify({ type: 'presence-update', viewport: { x: 0, y: 0, w: 800, h: 800 } }),
+    )
+    await coordinator.alarm()
+    expect(observer.events.at(-1)).toMatchObject({
+      type: 'presence-delta',
+      upsert: [{ sessionId: id(134) }],
+      remove: [id(231)],
+    })
   } finally {
     await store.close()
   }

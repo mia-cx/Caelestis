@@ -250,22 +250,38 @@ export class PresenceCoordinator<Client> {
   }
 
   /**
-   * The peers a subscriber sees, nearest first. On an event server `teams` maps each session to
-   * the team it reported, and only the subscriber's own team is visible.
+   * The peers each subscriber may see, as one grid per visibility group: the whole room, or on an
+   * event server one grid per event team, so selection never walks another team's sessions.
+   * Sessions without a team on an event server join no grid and see nobody.
    */
-  private relevant(
-    subscriber: Attachment,
-    peers: PeerGrid,
-    teams: ReadonlyMap<string, TerritoryTeam | undefined> | undefined,
-  ): PresencePeer[] {
+  private peerGrids(open: readonly LiveSession[]): Map<TerritoryTeam | undefined, PeerGrid> {
+    const groups = new Map<TerritoryTeam | undefined, PresencePeer[]>()
+    for (const { held } of open) {
+      const team = this.eventServer ? held.team : undefined
+      if (this.eventServer && team === undefined) continue
+      let group = groups.get(team)
+      if (group === undefined) {
+        group = []
+        groups.set(team, group)
+      }
+      group.push(this.peer(held))
+    }
+    return new Map([...groups].map(([team, peers]) => [team, new PeerGrid(peers)]))
+  }
+
+  /**
+   * The nearest `MAX_PRESENCE_PEERS` peers in `peers` that a subscriber's interest area reaches,
+   * nearest first, ties by session ID. A bounded insertion keeps the order a full stable sort
+   * would give without sorting every candidate.
+   */
+  private relevant(subscriber: Attachment, peers: PeerGrid): PresencePeer[] {
     const viewport = subscriber.viewport
     if (viewport === null) return []
-    if (teams !== undefined && subscriber.team === undefined) return []
     const interest = padRect(viewport, PRESENCE_INTEREST_PADDING)
-    const candidates: { peer: PresencePeer; distance: number }[] = []
+    const nearest: PresencePeer[] = []
+    const distances: number[] = []
     for (const peer of peers.near(interest)) {
       if (peer.sessionId === subscriber.sessionId) continue
-      if (teams !== undefined && teams.get(peer.sessionId) !== subscriber.team) continue
       const other = peer.viewport
       const draft = peer.draft?.rect
       const quickClaims = peer.quickClaims ?? []
@@ -275,19 +291,29 @@ export class PresenceCoordinator<Client> {
         !quickClaims.some((rect) => rectsIntersect(interest, rect))
       )
         continue
-      candidates.push({
-        peer,
-        distance: Math.min(
-          other === null ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, other),
-          draft === undefined ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, draft),
-          ...quickClaims.map((rect) => rectCentreDistance(viewport, rect)),
-        ),
-      })
+      let distance = other === null ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, other)
+      if (draft !== undefined) distance = Math.min(distance, rectCentreDistance(viewport, draft))
+      for (const rect of quickClaims)
+        distance = Math.min(distance, rectCentreDistance(viewport, rect))
+      let at = nearest.length
+      while (at > 0) {
+        const gap = distance - (distances[at - 1] ?? 0)
+        if (
+          gap > 0 ||
+          (gap === 0 && peer.sessionId.localeCompare(nearest[at - 1]?.sessionId ?? '') >= 0)
+        )
+          break
+        at--
+      }
+      if (at === MAX_PRESENCE_PEERS) continue
+      nearest.splice(at, 0, peer)
+      distances.splice(at, 0, distance)
+      if (nearest.length > MAX_PRESENCE_PEERS) {
+        nearest.pop()
+        distances.pop()
+      }
     }
-    return candidates
-      .sort((a, b) => a.distance - b.distance || a.peer.sessionId.localeCompare(b.peer.sessionId))
-      .slice(0, MAX_PRESENCE_PEERS)
-      .map(({ peer }) => peer)
+    return nearest
   }
 
   private send({ socket, held }: LiveSession, event: PresenceServerEvent): void {
@@ -437,10 +463,17 @@ export class PresenceCoordinator<Client> {
         this.dirty.clear()
         const online = open.length
         // Built on demand: a heartbeat-only tick selects nobody.
-        let peers: PeerGrid | undefined
-        const teams = this.eventServer
-          ? new Map(open.map(({ held }) => [held.sessionId, held.team]))
-          : undefined
+        let grids: Map<TerritoryTeam | undefined, PeerGrid> | undefined
+        // Each peer is encoded once per tick, however many subscribers its delta reaches.
+        const encoded = new Map<string, string>()
+        const encode = (peer: PresencePeer) => {
+          let json = encoded.get(peer.sessionId)
+          if (json === undefined) {
+            json = JSON.stringify(peer)
+            encoded.set(peer.sessionId, json)
+          }
+          return json
+        }
         for (const session of open) {
           const subscriber = session.held
           const local = this.localState(subscriber.sessionId)
@@ -448,9 +481,10 @@ export class PresenceCoordinator<Client> {
           // Heartbeats only refresh liveness. Recovery, membership changes and dirty peer state
           // still recompute every recipient so moving viewports can discover previously unseen peers.
           if (previous !== undefined && dirty.size === 0 && local.onlineSent === online) continue
-          peers ??= new PeerGrid(open.map(({ held }) => this.peer(held)))
+          grids ??= this.peerGrids(open)
+          const peers = grids.get(this.eventServer ? subscriber.team : undefined)
           const started = performance.now()
-          const relevant = this.relevant(subscriber, peers, teams)
+          const relevant = peers === undefined ? [] : this.relevant(subscriber, peers)
           this.timings.record('presence', 'select', performance.now() - started)
           const next = new Set(relevant.map((peer) => peer.sessionId))
           local.sent = next
@@ -473,8 +507,12 @@ export class PresenceCoordinator<Client> {
           const remove = [...previous].filter((id) => !next.has(id))
           const onlineChanged = local.onlineSent !== online
           local.onlineSent = online
-          if (upsert.length || remove.length || onlineChanged)
-            this.send(session, { type: 'presence-delta', online, upsert, remove })
+          if (!upsert.length && !remove.length && !onlineChanged) continue
+          const encoding = performance.now()
+          // The bytes JSON.stringify gives the whole event, with every peer encoded only once.
+          const payload = `{"type":"presence-delta","online":${online},"upsert":[${upsert.map(encode).join(',')}],"remove":${JSON.stringify(remove)}}`
+          this.timings.record('presence', 'serialize', performance.now() - encoding)
+          this.sendEncoded(session.socket, payload)
         }
         await this.armAlarm(open)
       }),
