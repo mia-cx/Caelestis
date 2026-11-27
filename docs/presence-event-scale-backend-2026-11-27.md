@@ -106,7 +106,7 @@ percentiles of all observers' gaps pooled into one distribution per run.
 | 2,048: gap p50 | 455 / 458 / 457 ms | 301 / 301 / 300 ms |
 | 2,048: gap p95 | 497 / 476 / 598 ms | 313 / 315 / 325 ms |
 | 2,048: gap max | 757 / 601 / 778 ms | 451 / 479 / 527 ms |
-| 2,048: ticks per 100 intervals | 66 / 66 / 65 | 101 / 102 / 103 |
+| 2,048: ticks in the measured 100 intervals | 66 / 66 / 65 | 101 / 102 / 103 |
 | 2,048: tick p95 | 189 / 174 / 319 ms | 153 / 156 / 163 ms |
 | 2,048: gaps per team | 2,080 / 2,080 / 2,048 | 3,200 / 3,232 / 3,264 |
 | 1,024: gap p50 | 361 / 361 / 370 ms | 301 / 301 / 301 ms |
@@ -114,9 +114,12 @@ percentiles of all observers' gaps pooled into one distribution per run.
 | 1,024: gaps per team | 1,296 / 1,328 / 1,280 | 1,616 / 1,600 / 1,616 |
 
 The archive keeps only the pooled distribution, with no percentiles per observer or per team. Its
-gap counts still show coverage. In each of these runs the count is exactly observers × (ticks − 1).
-An observer receives at most one delta per tick, so every observer received one on every measured
-tick, and each team's observers contributed exactly a quarter of the gaps. That quarter is the per-team row above. Since
+gap counts still show coverage. An observer receives at most one delta per tick, so across `t`
+measured ticks it can record at most `t − 1` gaps, and 128 observers at most `128 × (t − 1)`. Every
+run reaches that maximum exactly: at 2,048 sessions the tick-work runs record 8,320, 8,320 and 8,192
+gaps over 66, 66 and 65 ticks (128 × 65, 128 × 65, 128 × 64). A total can only reach the maximum if
+no observer missed a tick, so every observer received a delta on every measured tick, and each
+team's observers contributed exactly a quarter of the gaps. That quarter is the per-team row above. Since
 every observer receives a delta from each tick, two observers' gaps between the same two ticks
 differ by at most the time those ticks spent sending. A per-observer or per-team spread would need
 a rerun that records it.
