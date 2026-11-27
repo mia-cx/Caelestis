@@ -1,7 +1,9 @@
 # Presence fan-out at event scale
 
-Each session in an event server's presence room with 2,048 sessions now receives a delta every
-300 ms, at the median. Before these changes, a cadence replay measured a median gap of 764 ms. Two problems stretched it:
+The benchmark replays an event server's presence room with 2,048 sessions. It measures the gap
+between consecutive deltas at 128 observer sessions, 32 per team, and pools those gaps into one
+distribution per run. With these changes the pooled median is 300–301 ms. Before them, one such
+replay pooled a median of 764 ms. Two problems stretched the gap:
 
 - A 2,048-session tick took a median 430 ms of work.
 - The next tick's timer only started after that work finished, so the work added to every
@@ -26,7 +28,8 @@ the commands and the workload model. In short:
 The harness has two modes:
 
 - **Cadence** (`BENCH_CADENCE=1`) keeps the coordinator's own timer running while updates arrive
-  on a fixed schedule. It measures the gap between consecutive deltas at each observer session.
+  on a fixed schedule. It records the gap between consecutive deltas at each observer session and
+  pools every observer's gaps into one distribution per run.
   If the process stalls for longer than one interval, the driver restarts its schedule instead of
   replaying the backlog as a burst, which the room's eight-per-second rate limit would refuse. The
   results count these restarts as stalls.
@@ -94,8 +97,9 @@ which build runs first.
 ### Delivery cadence
 
 This table compares the tick-work build with the final build, in cadence mode, over three pairs.
-Gaps are measured between consecutive deltas at every observer: 128 at 2,048 sessions and 64 at
-1,024.
+There are 128 observers at 2,048 sessions and 64 at 1,024, an equal number on each team. Each
+observer contributes the gap between every two consecutive deltas it receives. The gap rows are
+percentiles of all observers' gaps pooled into one distribution per run.
 
 | Metric | Tick work | Final |
 | --- | --- | --- |
@@ -104,21 +108,34 @@ Gaps are measured between consecutive deltas at every observer: 128 at 2,048 ses
 | 2,048: gap max | 757 / 601 / 778 ms | 451 / 479 / 527 ms |
 | 2,048: ticks per 100 intervals | 66 / 66 / 65 | 101 / 102 / 103 |
 | 2,048: tick p95 | 189 / 174 / 319 ms | 153 / 156 / 163 ms |
+| 2,048: gaps per team | 2,080 / 2,080 / 2,048 | 3,200 / 3,232 / 3,264 |
 | 1,024: gap p50 | 361 / 361 / 370 ms | 301 / 301 / 301 ms |
 | 1,024: gap p95 | 511 / 379 / 439 ms | 351 / 318 / 357 ms |
+| 1,024: gaps per team | 1,296 / 1,328 / 1,280 | 1,616 / 1,600 / 1,616 |
 
-The median gap drops to the 300 ms interval in every pair, at both sizes. In the tick-work
+The archive keeps only the pooled distribution, with no percentiles per observer or per team. Its
+gap counts still show coverage. In each of these runs the count is exactly observers × (ticks − 1).
+An observer receives at most one delta per tick, so every observer received one on every measured
+tick, and each team's observers contributed exactly a quarter of the gaps. That quarter is the per-team row above. Since
+every observer receives a delta from each tick, two observers' gaps between the same two ticks
+differ by at most the time those ticks spent sending. A per-observer or per-team spread would need
+a rerun that records it.
+
+The pooled median gap drops to the 300 ms interval in every pair, at both sizes. In the tick-work
 build each gap is 300 ms plus the tick's work. Pullfrog's replay of the same build measured
 502–527 ms on its machine. The final build's tail comes from single slow ticks and stalls on the loaded
 machine. Each run records up to two stalls in either build.
 
 Delivering every interval sends more traffic, because each tick carries about the same bytes:
-about 70 MB across all sessions at 2,048. Outbound traffic at 2,048 sessions rises from 157 MB/s to 238 MB/s.
-That is the volume the protocol's 300 ms tick implies, and it is the same volume the driven-tick
-runs below measure for every build.
+about 70 MB across all sessions at 2,048. Divided by each run's elapsed time, measured outbound
+traffic at 2,048 sessions rises from 150.0–155.9 MB/s to 230.1–233.8 MB/s. At exactly one tick
+per 300 ms, 70 MB per tick projects to about 234 MB/s.
+
+The archive's `bytesPerSecond` field divides bytes by the scheduled 30 s rather than the elapsed
+time, so it reads slightly higher. This report uses it only where it is labelled as projected.
 
 One cadence pair against the original build shows where these changes started. At 2,048 sessions
-the original's gap p50 is 764 ms and its p95 is 1,339 ms. The driver had to restart its schedule
+the original's pooled gap p50 is 764 ms and its p95 is 1,339 ms. The driver had to restart its schedule
 34 times in 100 intervals because the room could not keep up. The final build in the same pair
 records a 300 ms p50, a 313 ms p95, and one stall.
 
@@ -156,8 +173,10 @@ sessions is about 60 MiB higher with the changes. Each tick now holds the peers'
 allocation runs faster between collections. The machine was too loaded to separate those two
 causes with heap profiles.
 
-In driven-tick mode, messages and bytes are identical across builds: 204,800 deltas and 238.0 MB/s
-at 2,048 sessions, and 102,400 deltas and 118.7 MB/s at 1,024. Every delta carries all 64 moving
+In driven-tick mode, messages and bytes are identical across builds: 204,800 deltas and 7.14 GB
+at 2,048 sessions, and 102,400 deltas and 3.56 GB at 1,024. At one tick per 300 ms, those totals
+project to 238.0 and 118.7 MB/s. They are not measured rates: the driver waits out each interval
+before ticking, so these runs took 46–84 s at 2,048 sessions instead of the scheduled 30 s. Every delta carries all 64 moving
 peers, at about 540 bytes each. About 270 of those bytes are the draft mask.
 
 ## Correctness
@@ -202,8 +221,8 @@ These checks pass on `main` at `e270bfd5`:
 - Worker tests: 15, on the Durable Object host.
 - Shared tests: 123.
 
-A cadence run of that build at 2,048 sessions, over 40 measured intervals, records a gap p50 of
-301 ms and a p95 of 310 ms, with no stalls.
+A cadence run of that build at 2,048 sessions, over 40 measured intervals, records a pooled gap
+p50 of 301 ms and a p95 of 310 ms, with no stalls.
 
 ## Next
 
