@@ -1,5 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { adminToken, backendFetch, createTestBackend, readToken } from './backend.js'
+import {
+  adminToken,
+  backendFetch,
+  createTestBackend,
+  mintEventRunnerInvite,
+  readToken,
+  reportToken,
+} from './backend.js'
 import { importStateModules } from './state-modules.js'
 
 const origin = 'https://invite.test'
@@ -41,6 +48,40 @@ it('connects a new server with the invite token and tells connect listeners', as
   ])
   expect(invite.connected).toHaveBeenCalledExactlyOnceWith(invite.getState().servers[0])
   expect(invite.clearHash).toHaveBeenCalledOnce()
+})
+
+it('trades a one-use event-runner invite for a kept token that runs captures', async () => {
+  const fetch = await installBackend()
+  const invite = await load()
+  const inviteToken = await mintEventRunnerInvite(fetch, origin)
+
+  const outcome = await invite.accept(inviteToken)
+
+  expect(outcome?.kind).toBe('connected')
+  const [server] = invite.getState().servers
+  expect(server).toMatchObject({ status: 'connected', isAdmin: false, canRunCaptures: true })
+  expect(server?.token).toEqual(expect.any(String))
+  expect(server?.token).not.toBe(inviteToken)
+  expect(server !== undefined && invite.canRunServerCaptures(server)).toBe(true)
+  const spent = await fetch(`${origin}/v1/auth/exchange`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${inviteToken}` },
+  })
+  expect(spent.status).toBe(401)
+})
+
+it.each([
+  [reportToken, false],
+  [adminToken, true],
+])('offers capture control to %s only when its scope reaches event runner', async (token, runs) => {
+  await installBackend()
+  const invite = await load()
+
+  await invite.accept(token)
+
+  const [server] = invite.getState().servers
+  expect(server?.token).toBe(token)
+  expect(server !== undefined && invite.canRunServerCaptures(server)).toBe(runs)
 })
 
 it('leaves a fragment that is not an invite alone', async () => {

@@ -54,7 +54,7 @@ import {
   syncCaptureClock,
 } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
-import { hasServerAdminToken } from './server-connections.js'
+import { canRunServerCaptures } from './server-connections.js'
 import { getState, onStateChange } from './settings.js'
 import { navigateTo } from './templates/navigate.js'
 import { applyWplaceTheme } from './ui/theme.js'
@@ -123,12 +123,13 @@ let lastDrafted = -1
 
 /**
  * The event server this tab coordinates on, with its run: the one whose run it has joined, else one
- * it administers, one with a run first, else the first. A tab works on one event server at a time,
- * so runs on any other stay out of the card rather than competing for it.
+ * it runs captures on (as an administrator or event runner), one with a run first, else the first.
+ * A tab works on one event server at a time, so runs on any other stay out of the card rather than
+ * competing for it.
  */
 const active = (): CaptureView | null => {
   const views = captureViews().filter((view) => view.server.info?.capture === 1)
-  const administered = views.filter((view) => hasServerAdminToken(view.server))
+  const administered = views.filter((view) => canRunServerCaptures(view.server))
   return (
     views.find((view) => memberIndex(view) >= 0) ??
     administered.find((view) => view.run !== null) ??
@@ -609,7 +610,7 @@ const startPlanning = (view: CaptureView, run: CaptureRun): void => {
       now.server.url !== bound.server ||
       current.id !== bound.run ||
       current.startsAt !== null ||
-      !hasServerAdminToken(now.server)
+      !canRunServerCaptures(now.server)
     ) {
       stopPlanning()
       render()
@@ -723,7 +724,7 @@ const phaseOf = (view: CaptureView | null): CaptureRunModel['phase'] => {
 const model = (view: CaptureView | null): CaptureRunModel | null => {
   if (view === null) return null
   const run = view.run
-  const admin = hasServerAdminToken(view.server)
+  const admin = canRunServerCaptures(view.server)
   if (run === null && !admin) return null
   const mine = memberIndex(view)
   const phase = phaseOf(view)

@@ -1,4 +1,4 @@
-import { canonicalServerUrl } from '@caelestis/shared'
+import { canonicalServerUrl, isRecord, SCOPES, type Scope, satisfiesScope } from '@caelestis/shared'
 import { mapLimit } from './concurrency.js'
 import { log, warn } from './debug.js'
 import { notifyListeners } from './listeners.js'
@@ -55,6 +55,7 @@ export const sameServerConnection = (left: ServerConnection, right: ServerConnec
   (left.tokenUsable !== false) === (right.tokenUsable !== false) &&
   left.status === right.status &&
   left.isAdmin === right.isAdmin &&
+  left.canRunCaptures === right.canRunCaptures &&
   left.season === right.season &&
   (left.info === null
     ? right.info === null
@@ -115,6 +116,12 @@ export const serverLabel = (server: ServerConnection): string => server.info?.na
 /** Whether this connection has a usable token whose admin scope the server has verified. */
 export const hasServerAdminToken = (server: ServerConnection): boolean =>
   server.status === 'connected' && server.isAdmin && Boolean(activeServerToken(server))
+
+/** Whether this connection has a usable token the server says may run capture runs. */
+export const canRunServerCaptures = (server: ServerConnection): boolean =>
+  server.status === 'connected' &&
+  server.canRunCaptures === true &&
+  Boolean(activeServerToken(server))
 
 /** Whether this immutable connection snapshot is still the configured lifetime for its URL. */
 export const isCurrentServerConnection = (server: ServerConnection): boolean => {
@@ -272,7 +279,8 @@ export type ConnectOutcome =
  *
  * Without a token an address already configured is `already` connected, and a server that asks for
  * one is stored so its row can ask. With a token only a verified connection is stored, and a refused
- * token leaves the stored row and its credential alone. `requireToken` also refuses a connection
+ * token leaves the stored row and its credential alone. A token the server takes as a one-use
+ * invite is exchanged first, and the row stores what it was traded for. `requireToken` also refuses a connection
  * that works only without the token, and treats a row already connected with it as `already`.
  * A connect or disconnect running for the same URL makes this `busy`; one superseded by a newer
  * probe, or whose row was disconnected meanwhile, is `superseded` and changes nothing.
@@ -299,7 +307,9 @@ export const connectServer = async (
     return { kind: 'busy', url: canonical, disconnecting: removing.has(canonical) }
   if (canonical !== null) connecting.add(canonical)
   try {
-    const probed = await probeServer(url, token)
+    const credential =
+      token === null || canonical === null ? token : await redeemInvite(canonical, token)
+    const probed = await probeServer(url, credential)
     if (probed.superseded === true) return { kind: 'superseded' }
     // The panel stays usable during the probe; a server disconnected meanwhile must not come back.
     if (existing !== undefined && !isCurrentServerConnection(existing))
@@ -333,6 +343,51 @@ export const noteAuthFailure = (server: ServerConnection, status: number): void 
     error: needsToken ? 'authorization expired' : 'admin access required',
     isAdmin: false,
   })
+}
+
+/**
+ * The scope the server reports for `token`, or null when it reports none. Servers older than
+ * `GET /auth` answer 404 and are asked the one question they can answer: whether it is admin.
+ */
+const probeScope = async (
+  base: string,
+  apiVersion: ServerApiVersion,
+  token: string | null,
+  season: number,
+  signal: AbortSignal,
+): Promise<Scope | null> => {
+  try {
+    const { response, body } = await sendServerRequest(
+      endpointUrl(base, '/auth', apiVersion),
+      { headers: bearer(token), signal },
+      { limits: 'metadata', read: 'json' },
+    )
+    if (response.status === 404)
+      return (await probeAdminScope(base, apiVersion, token, season, signal)) ? 'admin' : null
+    if (!response.ok || !isRecord(body)) return null
+    return SCOPES.find((scope) => scope === body.scope) ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Trade a one-use invite for the token this browser keeps, or return `token` unchanged when the
+ * server does not take it as an invite. The kept token exists only in the exchange's response,
+ * so it goes straight into the connection and is never shown.
+ */
+const redeemInvite = async (base: string, token: string): Promise<string> => {
+  try {
+    const { response, body } = await sendServerRequest(
+      endpointUrl(base, '/auth/exchange', 'v1'),
+      { method: 'POST', headers: bearer(token) },
+      { limits: 'metadata', read: 'json' },
+    )
+    return response.ok && isRecord(body) && typeof body.token === 'string' ? body.token : token
+  } catch {
+    // The probe that follows reports whatever stopped this request.
+    return token
+  }
 }
 
 /** Establish admin scope without downloading the same tree a second time after the manifest. */
@@ -480,7 +535,7 @@ export const probeServer = async (
       return failedProbe(base, token, 'unreachable', { info, error: `HTTP ${authed.status}` })
     const manifest = parseServerManifest(manifestBody, info)
     if (manifest === null) throw new TypeError('server returned an invalid manifest')
-    const isAdmin = await probeAdminScope(base, apiVersion, effectiveToken, manifest.season, signal)
+    const scope = await probeScope(base, apiVersion, effectiveToken, manifest.season, signal)
     if (signal.aborted) throw signal.reason
     const connected: ConnectedServer = {
       url: base,
@@ -488,7 +543,10 @@ export const probeServer = async (
       token,
       ...(effectiveToken === null && token !== null ? { tokenUsable: false as const } : {}),
       status: 'connected',
-      isAdmin,
+      isAdmin: scope === 'admin',
+      ...(scope !== null && satisfiesScope(scope, 'event_runner')
+        ? { canRunCaptures: true as const }
+        : {}),
       season: manifest.season,
       lastVerified: { serverId: info.id, season: manifest.season },
       ...version,

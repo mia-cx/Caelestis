@@ -1,6 +1,8 @@
 import {
   isRecord,
   parseTemplateTags,
+  SCOPES,
+  type Scope,
   SERVER_ASSET_MAX_BYTES,
   type ServerAssetKind,
   type TemplateSurface,
@@ -716,7 +718,7 @@ export const uploadTemplateVersion = async (
 interface StoredAccessToken {
   readonly tokenHash: string
   readonly label: string
-  readonly scope: 'read' | 'report' | 'admin'
+  readonly scope: Scope
   readonly createdWithToken: string
   readonly createdAt: number
   readonly bootstrap?: false
@@ -737,7 +739,6 @@ export interface AccessTokenPage {
   readonly nextCursor: string | null
 }
 
-const SCOPES: readonly string[] = ['read', 'report', 'admin']
 const TOKEN_CURSOR = /^(0|[1-9]\d*):[0-9a-f]{64}$/
 
 /**
@@ -746,15 +747,16 @@ const TOKEN_CURSOR = /^(0|[1-9]\d*):[0-9a-f]{64}$/
  */
 const asAccessToken = (value: unknown): AccessToken | null => {
   if (!isRecord(value)) return null
-  const { label, scope, createdAt, bootstrap, tokenHash, createdWithToken } = value
+  const { label, createdAt, bootstrap, tokenHash, createdWithToken } = value
   if (typeof label !== 'string' || typeof createdAt !== 'number') return null
-  if (typeof scope !== 'string' || !SCOPES.includes(scope)) return null
+  const scope = SCOPES.find((known) => known === value.scope)
+  if (scope === undefined) return null
   if (bootstrap === true) return { label, scope: 'admin', createdAt, bootstrap: true }
   if (typeof tokenHash !== 'string' || !/^[0-9a-f]{1,128}$/.test(tokenHash)) return null
   return {
     tokenHash,
     label,
-    scope: scope as StoredAccessToken['scope'],
+    scope,
     createdWithToken: typeof createdWithToken === 'string' ? createdWithToken : '',
     createdAt,
   }
