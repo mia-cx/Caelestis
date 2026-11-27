@@ -294,6 +294,21 @@ describe('borderBoxPlanner', () => {
     }
   })
 
+  it('fills the waiting walls best estimate first, so a focused wall keeps its strongest form', () => {
+    const map = greenRects(175, [
+      [0, 134, 174, 174],
+      [154, 45, 174, 86],
+      [169, 45, 174, 134],
+    ])
+    const focus = { x: 39, y: 68 }
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 5, guards: 0, charges: 60, focus })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const outcome = simulateCapture(map, GREEN, plan)
+    expect(outcome.refused).toBe(0)
+    // Filled in round order, a weaker wall took the last fill and gained only 5,160.
+    expect(outcome.gained).toBeGreaterThanOrEqual(17263)
+  })
+
   it("starts each guard's zone beside the first pixel its painter places, on a slope", () => {
     const map = greenWhere(200, (x, y) => y >= 25 + x)
     const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })

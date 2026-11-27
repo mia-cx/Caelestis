@@ -745,7 +745,8 @@ export const borderBoxPlanner: CapturePlanner = ({
       }
       queue = later
     }
-    return crowded
+    // Waiting walls collect in round order; their turn comes best estimate first again.
+    return crowded.sort((a, b) => b.score - a.score)
   }
   rounds(rounds(bestWalls(map, team, budget, focus), true), false)
   // Best enclosure first, each wall kept unless it overlaps one already kept.
