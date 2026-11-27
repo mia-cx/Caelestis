@@ -68,6 +68,8 @@ const RECONNECT_JITTER_MS = 500
 /** Round trips per clock sync, and the gap between them: under the server's message rate limit. */
 const CLOCK_PINGS = 6
 const CLOCK_PING_GAP_MS = 250
+/** The shortest time between two sync bursts on one socket. */
+const CLOCK_RESYNC_MS = CLOCK_PINGS * CLOCK_PING_GAP_MS + 1_000
 
 /**
  * This tab's clock for capture timing: wall time at page load plus monotonic time since, so a
@@ -108,6 +110,8 @@ interface Connection {
   peers: Map<string, PresencePeer>
   capture: CaptureRun | null
   clock: ClockSample | null
+  /** When the last clock sync burst started, so callers may ask as often as they like. */
+  clockSyncAt: number
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -507,6 +511,7 @@ const reconcile = (): void => {
       peers: new Map(),
       capture: null,
       clock: null,
+      clockSyncAt: Number.NEGATIVE_INFINITY,
       attempts: 0,
       reconnectTimer: null,
       heartbeatTimer: null,
@@ -624,11 +629,15 @@ export const sendCapture = (server: ServerConnection, event: CaptureClientEvent)
 
 /**
  * Measure a server's clock against this tab's with a burst of round trips. Each sample keeps the
- * quickest trip seen on this socket, so later bursts only ever tighten the estimate.
+ * quickest trip seen on this socket, so later bursts only ever tighten the estimate. A call while
+ * a burst is still running, or just after, does nothing: the server closes a socket that sends
+ * more than its message rate allows.
  */
 export const syncCaptureClock = (server: ServerConnection): void => {
   const connection = connectionFor(server)
-  if (connection === undefined) return
+  const now = localClock()
+  if (connection === undefined || now - connection.clockSyncAt < CLOCK_RESYNC_MS) return
+  connection.clockSyncAt = now
   for (let ping = 0; ping < CLOCK_PINGS; ping++)
     setTimeout(() => {
       if (isOpen(connection)) send(connection, { type: 'clock', sent: Math.round(localClock()) })
