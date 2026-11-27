@@ -1,15 +1,14 @@
 import {
   MAX_PRESENCE_MESSAGES_PER_SECOND,
   MAX_QUICK_CLAIMS,
-  PRESENCE_PROTOCOL_V1,
   PRESENCE_QUICK_CLAIMS_MIN_MS,
   type PresenceRect,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
+import { connectPresence, FakeWebSocket, SERVER_ID } from './presence-socket.js'
 import { importStateModules } from './state-modules.js'
 
-const SERVER_ID = '018f4f2a-1234-7abc-8def-0123456789ab'
 const painter = { wplaceUserId: 42, displayName: 'Mia' }
 const other = { wplaceUserId: 7, displayName: 'Other painter' }
 
@@ -17,60 +16,6 @@ vi.mock('../src/wplace-account.js', () => ({
   accountIdentity: () => painter,
   loadAccount: async () => undefined,
 }))
-
-class FakeWebSocket extends EventTarget {
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSING = 2
-  static readonly CLOSED = 3
-  static instances: FakeWebSocket[] = []
-
-  readonly sent: string[] = []
-  protocol = ''
-  readyState = FakeWebSocket.CONNECTING
-
-  constructor() {
-    super()
-    FakeWebSocket.instances.push(this)
-  }
-
-  send(data: string): void {
-    if (this.readyState !== FakeWebSocket.OPEN) throw new Error('socket is not open')
-    this.sent.push(data)
-  }
-
-  close(): void {
-    if (this.readyState >= FakeWebSocket.CLOSING) return
-    this.readyState = FakeWebSocket.CLOSED
-    this.dispatchEvent(new Event('close'))
-  }
-
-  open(canWrite?: boolean): void {
-    this.protocol = PRESENCE_PROTOCOL_V1
-    this.readyState = FakeWebSocket.OPEN
-    this.dispatchEvent(new Event('open'))
-    this.receive({
-      type: 'presence-ready',
-      sessionId: 'a'.repeat(16),
-      online: 1,
-      peers: [],
-      regions: [],
-      ...(canWrite === undefined ? {} : { canWrite }),
-    })
-  }
-
-  receive(event: unknown): void {
-    this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(event) }))
-  }
-
-  /** Every quick-claim list this socket sent, in order. */
-  quickClaims(): unknown[] {
-    return this.sent
-      .map((data) => JSON.parse(data) as { quickClaims?: unknown })
-      .filter((event) => 'quickClaims' in event)
-      .map((event) => event.quickClaims)
-  }
-}
 
 let dispose: (() => void) | undefined
 
@@ -92,36 +37,9 @@ const connect = async ({
   event?: boolean
   canWrite?: boolean
 } = {}) => {
-  vi.useFakeTimers()
-  vi.stubGlobal('WebSocket', FakeWebSocket)
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => Response.json({ regions: [] })),
-  )
-  const state = await importStateModules()
-  const presence = await import('../src/presence-client.js')
-  const server = {
-    url: 'https://presence.test',
-    info: {
-      id: SERVER_ID,
-      name: 'Presence test',
-      auth: 'none' as const,
-      presence: 1 as const,
-      ...(event ? { capture: 1 as const } : {}),
-    },
-    token: null,
-    status: 'connected' as const,
-    isAdmin: false,
-    season: 1,
-  }
-  dispose = () => state.removeServer(server.url)
-  state.upsertServer(server)
-  presence.installPresence()
-  const socket = FakeWebSocket.instances[0]
-  if (socket === undefined) throw new Error('presence did not open a socket')
-  socket.open(canWrite)
-  await vi.advanceTimersByTimeAsync(0)
-  return { presence, state, socket }
+  const connected = await connectPresence({ ...(event ? { capture: 1 as const } : {}), canWrite })
+  dispose = connected.dispose
+  return connected
 }
 
 const rect = (x: number): PresenceRect => ({ x, y: 10, w: 4, h: 3 })

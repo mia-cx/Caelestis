@@ -1,8 +1,9 @@
-import type {
-  PainterIdentity,
-  PresencePeer,
-  PresenceRect,
-  RegionShapePixels,
+import {
+  type PainterIdentity,
+  type PresencePeer,
+  type PresenceRect,
+  type RegionShapePixels,
+  sameRect,
 } from '@caelestis/shared'
 import { captureItems } from './capture-runs.js'
 import type { CaptureItem } from './capture-scene.js'
@@ -199,18 +200,54 @@ export const sceneItems = (inputs: SceneInputs): SceneItem[] => {
   return items
 }
 
-/** The scene as the page has it now. */
-export const presenceScene = (): SceneItem[] =>
-  sceneItems({
+const NO_TOOL: readonly RegionShapePixels[] = []
+
+/** Whether two inputs build the same scene: the same sources, unchanged. */
+const sameInputs = (left: SceneInputs, right: SceneInputs): boolean =>
+  left.view.peers === right.view.peers &&
+  left.view.regions === right.view.regions &&
+  left.view.me === right.view.me &&
+  left.flags.showPresence === right.flags.showPresence &&
+  left.flags.showPresenceViewports === right.flags.showPresenceViewports &&
+  left.flags.showPresenceClaims === right.flags.showPresenceClaims &&
+  left.flags.showPresenceClaimsOnlyWhilePainting ===
+    right.flags.showPresenceClaimsOnlyWhilePainting &&
+  left.paintOpen === right.paintOpen &&
+  left.editingIds === right.editingIds &&
+  left.quickClaims === right.quickClaims &&
+  sameRect(left.quickPreview, right.quickPreview) &&
+  left.tool === right.tool &&
+  left.capture === right.capture
+
+let built: { readonly inputs: SceneInputs; readonly items: readonly SceneItem[] } | null = null
+
+/**
+ * The scene as the page has it now. The layer and the name tags both ask every frame, and peers
+ * move only a few times a second, so the last scene is returned again, the same array, until one
+ * of its sources changes.
+ */
+export const presenceScene = (): readonly SceneItem[] => {
+  const state = getState()
+  const inputs: SceneInputs = {
     view: presenceView(),
-    flags: getState(),
+    // Copied out: the scene depends on these four, not on the rest of the state.
+    flags: {
+      showPresence: state.showPresence,
+      showPresenceViewports: state.showPresenceViewports,
+      showPresenceClaims: state.showPresenceClaims,
+      showPresenceClaimsOnlyWhilePainting: state.showPresenceClaimsOnlyWhilePainting,
+    },
     paintOpen: isPaintOpen(),
     editingIds: claimEditorEditingIds(),
     quickClaims: presenceQuickClaims(),
     quickPreview: quickClaimPreview(),
-    tool: claimEditorPixels()?.parts ?? [],
+    tool: claimEditorPixels()?.parts ?? NO_TOOL,
     capture: captureItems(),
-  })
+  }
+  if (built === null || !sameInputs(built.inputs, inputs))
+    built = { inputs, items: sceneItems(inputs) }
+  return built.items
+}
 
 let motion: ((id: SceneItemId) => PresenceRect | null) | null = null
 
