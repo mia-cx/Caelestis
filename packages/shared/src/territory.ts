@@ -259,99 +259,50 @@ export const simulateCapture = (
 /*
  * The border-box planner.
  *
- * A capture is a box set against the team's border: its inner side lies on territory the team
- * already holds, so only the other three sides are painted. Against a straight border the best box
- * is the half-square (legs a quarter of the budget, the long side half); next to an earlier claim
- * the same search fills the notch, and where the border bulges the box spends the pixels it saves
- * on longer legs.
+ * A capture is a wall set against the team's border: a straight far side, and two legs that run
+ * from its ends back to the team's territory, each along its own row or column. Each leg ends where
+ * it meets the border, so on a slanted or stepped border the legs differ in length and the claim
+ * hugs the real border; where the far side runs into the territory itself, that leg is empty.
+ * Against a straight border the best wall is the half-square (legs a quarter of the budget, the far
+ * side half); next to an earlier claim the same search fills the notch, and where the border bulges
+ * the far side crosses it for free.
  *
  * The defence is in the shape, so nothing is simulated while searching:
- * - Boxes score by what they enclose, scaled down while their `contact` (outline the team already
- *   holds, plus outline on the arena edge) is under three quarters of the budget. That is what an
- *   enemy must repaint to take the claim back whole, and three quarters is what a half-square with
- *   one leg on the canvas edge reaches, so edge boxes win without a special case.
+ * - Walls score by what they enclose, scaled down while their `contact` (the border between the
+ *   anchors, wall the team already holds, and wall on the arena edge) is under three quarters of
+ *   the budget. That is what an enemy must repaint to take the claim back whole, and three quarters
+ *   is what a half-square with one leg on the canvas edge reaches, so edge walls win without a
+ *   special case.
  * - Corners an enemy can reach from two sides become 45° staircases of 24 steps: the same pixel
  *   count and about 300 px less area, and the worst bite one enemy painter can take falls from
  *   about 930 to 630. Corners on the arena edge are reachable from one side only and stay square.
  *
- * Every box costs O(1) through prefix sums, so the full arena searches in well under a second.
+ * Every candidate costs O(1) through prefix sums, so the full arena searches in well under a
+ * second. Only the best candidate on each stretch of border is kept, and the best few of those are
+ * filled within their own bounds to count exactly what they enclose.
  */
 
 /** A border starts where at least this many of the team's pixels run in a row. */
 const SOLID = 8
-/** Long-side lengths tried per facing, spaced geometrically from an eighth of the budget to 0.9. */
+/** Far-side lengths tried per facing, spaced geometrically from an eighth of the budget to 0.9. */
 const SIDE_LENGTHS = 24
-/** The share of the budget `contact` must reach for a box to score its full area. */
+/** The share of the budget `contact` must reach for a wall to score its full area. */
 const CONTACT_TARGET = 0.75
-/** The best boxes checked for an outline that closes into a wall. */
+/** The best candidates, one per stretch of border, filled to count what they enclose. */
 const KEEP = 40
 /** Steps in a corner's 45° staircase. */
 const CHAMFER = 24
-/** Cells a guard's zone runs along the team's own border from an anchor. */
+/** The area one chamfered corner gives up. */
+const CHAMFER_CUT = (CHAMFER * (CHAMFER + 1)) / 2
+/**
+ * How far a guard's zone runs from its anchor: lines along the team's own border, or cells along
+ * the territory that an empty leg's far side meets.
+ */
 export const GUARD_MARGIN = 15
-/** Proposals returned: the best few distinct boxes. */
+/** Proposals returned: the best few distinct walls. */
 const PROPOSALS = 3
 
 type Facing = 'left' | 'right' | 'top' | 'bottom'
-
-/** Prefix sums of the cells the team does not hold, which a box must paint or wins. */
-interface NeedSums {
-  readonly size: number
-  /** Per row, running count along x: `row[y * (size + 1) + x]` counts cells before x. */
-  readonly row: Int32Array
-  /** Per column, running count along y. */
-  readonly col: Int32Array
-  /** Two-dimensional: `area[y * (size + 1) + x]` counts cells above y and left of x. */
-  readonly area: Int32Array
-}
-
-const needSums = ({ size, owner }: TerritoryMap, team: TerritoryTeam): NeedSums => {
-  const stride = size + 1
-  const row = new Int32Array(size * stride)
-  const col = new Int32Array(size * stride)
-  const area = new Int32Array(stride * stride)
-  for (let y = 0; y < size; y++) {
-    let run = 0
-    for (let x = 0; x < size; x++) {
-      const need = owner[y * size + x] === team ? 0 : 1
-      run += need
-      row[y * stride + x + 1] = run
-      col[x * stride + y + 1] = (col[x * stride + y] as number) + need
-      area[(y + 1) * stride + x + 1] = (area[y * stride + x + 1] as number) + run
-    }
-  }
-  return { size, row, col, area }
-}
-
-/** Outline cells of a box the team does not hold yet, corners counted once: what painters spend. */
-const boxCost = (s: NeedSums, x0: number, y0: number, x1: number, y1: number): number => {
-  const k = s.size + 1
-  const r = s.row
-  const c = s.col
-  return (
-    (r[y0 * k + x1 + 1] as number) -
-    (r[y0 * k + x0] as number) +
-    (r[y1 * k + x1 + 1] as number) -
-    (r[y1 * k + x0] as number) +
-    (c[x0 * k + y1] as number) -
-    (c[x0 * k + y0 + 1] as number) +
-    (c[x1 * k + y1] as number) -
-    (c[x1 * k + y0 + 1] as number)
-  )
-}
-
-/** Cells strictly inside a box the team does not hold yet: what closing it wins. */
-const boxGain = (s: NeedSums, x0: number, y0: number, x1: number, y1: number): number => {
-  if (x1 - x0 < 2 || y1 - y0 < 2) return 0
-  const k = s.size + 1
-  const a = s.area
-  return (
-    (a[y1 * k + x1] as number) -
-    (a[y1 * k + x0 + 1] as number) -
-    (a[(y0 + 1) * k + x1] as number) +
-    (a[(y0 + 1) * k + x0 + 1] as number)
-  )
-}
 
 /**
  * Where the team's solid territory starts along every row (left, right) and column (top, bottom):
@@ -382,35 +333,201 @@ const borderProfiles = (
 }
 
 /**
- * The inner side's position for every window of `span` rows or columns: the profile's max over the
- * window facing left or up, its min facing right or down, so the side sits on the border all along.
- * Van Herk's block prefix and suffix make every window O(1). -1 where any row lacks a border.
+ * One facing of the team's border, turned so the team lies deeper: lines run along the border (rows
+ * facing left or right, columns facing up or down), and depth runs from the arena edge in front of
+ * the border towards the team.
  */
-const slideBorder = (profile: Int32Array, span: number, takeMax: boolean): Int32Array => {
-  const n = profile.length
-  if (n < span) return new Int32Array(0)
-  const fill = takeMax ? -1 : 1 << 30
-  const pick = takeMax ? Math.max : Math.min
-  const value = (i: number) =>
-    i < n && (profile[i] as number) >= 0 ? (profile[i] as number) : fill
-  const padded = Math.ceil(n / span) * span
-  const pre = new Int32Array(padded)
-  const suf = new Int32Array(padded)
-  for (let i = 0; i < padded; i++)
-    pre[i] = i % span === 0 ? value(i) : pick(pre[i - 1] as number, value(i))
-  for (let i = padded - 1; i >= 0; i--)
-    suf[i] = i % span === span - 1 ? value(i) : pick(suf[i + 1] as number, value(i))
-  const inner = new Int32Array(n - span + 1)
-  let gaps = 0
-  for (let i = 0; i < span; i++) if ((profile[i] as number) < 0) gaps++
-  for (let a = 0; a <= n - span; a++) {
-    if (a > 0) {
-      if ((profile[a - 1] as number) < 0) gaps--
-      if ((profile[a + span - 1] as number) < 0) gaps++
+interface Front {
+  /** Per line, the depth where the team's solid territory starts; -1 where the line has none. */
+  readonly border: Int32Array
+  /** The arena pixel at a line and depth. */
+  readonly cell: (line: number, depth: number) => ArenaPixel
+  /** A pixel's line and depth. */
+  readonly locate: (pixel: ArenaPixel) => readonly [number, number]
+  /** Cells the team does not hold in lines `l0` to `l1` and depths `d0` to `d1`, ends excluded. */
+  readonly need: (l0: number, l1: number, d0: number, d1: number) => number
+}
+
+/** The team's four fronts, sharing one prefix sum of the cells the team does not hold. */
+const frontsOf = (map: TerritoryMap, team: TerritoryTeam): Front[] => {
+  const { size, owner } = map
+  const k = size + 1
+  // `sums[y * k + x]` counts the cells above y and left of x that the team does not hold.
+  const sums = new Int32Array(k * k)
+  for (let y = 0; y < size; y++) {
+    let run = 0
+    for (let x = 0; x < size; x++) {
+      run += owner[y * size + x] === team ? 0 : 1
+      sums[(y + 1) * k + x + 1] = (sums[y * k + x + 1] as number) + run
     }
-    inner[a] = gaps > 0 ? -1 : pick(suf[a] as number, pre[a + span - 1] as number)
   }
-  return inner
+  const rect = (x0: number, x1: number, y0: number, y1: number) =>
+    (sums[y1 * k + x1] as number) -
+    (sums[y0 * k + x1] as number) -
+    (sums[y1 * k + x0] as number) +
+    (sums[y0 * k + x0] as number)
+  const profiles = borderProfiles(map, team)
+  const last = size - 1
+  const flip = (profile: Int32Array) => profile.map((at) => (at < 0 ? -1 : last - at))
+  return [
+    {
+      border: profiles.left,
+      cell: (line, depth) => ({ x: depth, y: line }),
+      locate: ({ x, y }) => [y, x],
+      need: (l0, l1, d0, d1) => rect(d0, d1, l0, l1),
+    },
+    {
+      border: flip(profiles.right),
+      cell: (line, depth) => ({ x: last - depth, y: line }),
+      locate: ({ x, y }) => [y, last - x],
+      need: (l0, l1, d0, d1) => rect(size - d1, size - d0, l0, l1),
+    },
+    {
+      border: profiles.top,
+      cell: (line, depth) => ({ x: line, y: depth }),
+      locate: ({ x, y }) => [x, y],
+      need: (l0, l1, d0, d1) => rect(l0, l1, d0, d1),
+    },
+    {
+      border: flip(profiles.bottom),
+      cell: (line, depth) => ({ x: line, y: last - depth }),
+      locate: ({ x, y }) => [x, last - y],
+      need: (l0, l1, d0, d1) => rect(l0, l1, size - d1, size - d0),
+    },
+  ]
+}
+
+/** A wall on one front: leg A on line `from`, leg B on line `to`, the far side at depth `far`. */
+interface Candidate {
+  readonly front: Front
+  readonly from: number
+  readonly to: number
+  readonly far: number
+  /** `contact` over its target, at most 1: the share of what it encloses a wall scores. */
+  readonly reach: number
+  readonly score: number
+}
+
+/** The best `KEEP` walls the budget can pay for, and that hold `focus` when set, best first. */
+const bestWalls = (
+  map: TerritoryMap,
+  team: TerritoryTeam,
+  budget: number,
+  focus?: ArenaPixel,
+): Candidate[] => {
+  const { size } = map
+  const spans = new Set<number>()
+  for (let k = 0; k < SIDE_LENGTHS; k++)
+    spans.add(Math.floor((budget / 8) * (0.9 * 8) ** (k / (SIDE_LENGTHS - 1))) + 2)
+  const best: Candidate[] = []
+  for (const front of frontsOf(map, team)) {
+    const { border, need } = front
+    // Running counts per line: lines without a border, cells in front of the border, and how far
+    // the border steps in depth from the line before.
+    const gaps = new Int32Array(size + 1)
+    const ahead = new Int32Array(size + 1)
+    const steps = new Int32Array(size)
+    for (let line = 0; line < size; line++) {
+      const at = border[line] as number
+      const before = line === 0 ? -1 : (border[line - 1] as number)
+      gaps[line + 1] = (gaps[line] as number) + (at < 0 ? 1 : 0)
+      ahead[line + 1] = (ahead[line] as number) + (at < 0 ? 0 : need(line, line + 1, 0, at))
+      if (line > 0)
+        steps[line] =
+          (steps[line - 1] as number) + (at < 0 || before < 0 ? 0 : Math.abs(at - before))
+    }
+    const [focusLine, focusDepth] = focus === undefined ? [-1, -1] : front.locate(focus)
+    /** Score one wall and keep it if it ranks; returns its cost, or -1 when it does not fit. */
+    const consider = (from: number, to: number, far: number): number => {
+      const a = border[from] as number
+      const b = border[to] as number
+      // A leg is empty where the far side meets the team's territory on that line itself.
+      const fits = (line: number, depth: number) =>
+        far < depth || need(line, line + 1, far, far + 1) === 0
+      if (far >= Math.max(a, b) || !fits(from, a) || !fits(to, b)) return -1
+      const legA = Math.max(0, a - far)
+      const legB = Math.max(0, b - far)
+      // The corners `chamferWall` will cut: away from the edge, with `CHAMFER` straight cells on
+      // the leg and on the far side, past corner A's staircase for corner B. Neither may cut the
+      // focus out.
+      const cutA = legA > CHAMFER && to - from >= CHAMFER && far > 0 && from > 0
+      const cutB =
+        legB > CHAMFER && to - from >= (cutA ? 2 : 1) * CHAMFER && far > 0 && to < size - 1
+      const near = (end: number) => Math.abs(focusLine - end) + focusDepth - far <= CHAMFER
+      if (
+        focus !== undefined &&
+        (focusLine <= from ||
+          focusLine >= to ||
+          focusDepth <= far ||
+          focusDepth >= (border[focusLine] as number) ||
+          (cutA && near(from)) ||
+          (cutB && near(to)))
+      )
+        return -1
+      const cost =
+        (legA > 0 ? need(from, from + 1, far, a) : 0) +
+        (legB > 0 ? need(to, to + 1, far, b) : 0) +
+        need(from + 1, to, far, far + 1)
+      if (cost <= 0 || cost > budget) return -1
+      // On every line between the legs, what lies from the far side to the border, less what the
+      // chamfered corners give up.
+      const gain =
+        (ahead[to] as number) -
+        (ahead[from + 1] as number) -
+        need(from + 1, to, 0, far + 1) -
+        (Number(cutA) + Number(cutB)) * CHAMFER_CUT
+      const length = legA + legB + to - from - 1
+      const edge =
+        (far === 0 ? to - from - 1 : 0) + (from === 0 ? legA : 0) + (to === size - 1 ? legB : 0)
+      // The border's length from anchor A to anchor B, the wall's cells the team holds, the edge.
+      const held = to - from + (steps[to] as number) - (steps[from] as number)
+      const contact = held + length - cost + edge
+      const reach = Math.min(1, contact / (CONTACT_TARGET * budget))
+      const score = gain * reach
+      if (score <= 0 || (best.length === KEEP && score <= (best.at(-1) as Candidate).score))
+        return cost
+      // One candidate per stretch of border: a better one on shared lines displaces the rest.
+      const rivals = (other: Candidate) =>
+        other.front === front && other.from <= to && from <= other.to
+      if (best.some((other) => rivals(other) && other.score >= score)) return cost
+      for (let i = best.length - 1; i >= 0; i--) if (rivals(best[i] as Candidate)) best.splice(i, 1)
+      let at = best.length
+      while (at > 0 && (best[at - 1] as Candidate).score < score) at--
+      best.splice(at, 0, { front, from, to, far, reach, score })
+      if (best.length > KEEP) best.pop()
+      return cost
+    }
+    for (const span of spans)
+      for (let from = 0; from + span <= size; from++) {
+        const to = from + span - 1
+        if (gaps[to + 1] !== gaps[from]) continue
+        // The far side sits where legs that end on the border at their own lines spend the budget.
+        // Past the nearer border that leg is empty, and the other spends it all.
+        const a = border[from] as number
+        const b = border[to] as number
+        const legs = budget - (span - 2)
+        const even = Math.ceil((a + b - legs) / 2)
+        const far = Math.max(0, even < Math.min(a, b) ? even : Math.max(a, b) - legs)
+        const cost = consider(from, to, far)
+        // The team's specks on the wall cost nothing; spend what they save on longer legs.
+        const spare = Math.floor((budget - cost) / 2)
+        if (cost >= 0 && far > 0 && spare > 0) consider(from, to, Math.max(0, far - spare))
+      }
+  }
+  return best
+}
+
+/**
+ * A candidate's wall from anchor A to anchor B: out along leg A, the far side, back along leg B. An
+ * empty leg leaves the team's own cell at that end of the far side, which is never painted.
+ */
+const wallOf = ({ front, from, to, far }: Candidate): ArenaPixel[] => {
+  const { border, cell } = front
+  const wall: ArenaPixel[] = []
+  for (let depth = (border[from] as number) - 1; depth > far; depth--) wall.push(cell(from, depth))
+  for (let line = from; line <= to; line++) wall.push(cell(line, far))
+  for (let depth = far + 1; depth < (border[to] as number); depth++) wall.push(cell(to, depth))
+  return wall
 }
 
 interface Box {
@@ -420,157 +537,72 @@ interface Box {
   readonly y1: number
 }
 
-/** The box with its inner side at `inner`, legs of `leg` away from the team, over `span` lines from `a`. */
-const placeBox = (
-  facing: Facing,
-  inner: number,
-  a: number,
-  span: number,
-  leg: number,
-  size: number,
-): Box | null => {
-  const outer = facing === 'left' || facing === 'top' ? inner - leg : inner + leg
-  const lo = Math.max(0, Math.min(inner, outer))
-  const hi = Math.min(size - 1, Math.max(inner, outer))
-  if (hi - lo < 2) return null
-  return facing === 'left' || facing === 'right'
-    ? { x0: lo, y0: a, x1: hi, y1: a + span - 1 }
-    : { x0: a, y0: lo, x1: a + span - 1, y1: hi }
-}
-
-interface Candidate extends Box {
-  readonly score: number
-  readonly contact: number
-}
-
-/** The best `KEEP` boxes the budget can pay for, and that hold `focus` when set, best first. */
-const bestBoxes = (
-  map: TerritoryMap,
-  team: TerritoryTeam,
-  budget: number,
-  focus?: ArenaPixel,
-): Candidate[] => {
-  const { size } = map
-  const sums = needSums(map, team)
-  const profiles = borderProfiles(map, team)
-  const sides = new Set<number>()
-  for (let k = 0; k < SIDE_LENGTHS; k++)
-    sides.add(Math.floor((budget / 8) * (0.9 * 8) ** (k / (SIDE_LENGTHS - 1))))
-  const best: Candidate[] = []
-  const consider = (box: Box | null) => {
-    if (box === null) return
-    const { x0, y0, x1, y1 } = box
-    if (focus !== undefined && (focus.x < x0 || focus.x > x1 || focus.y < y0 || focus.y > y1))
-      return
-    const cost = boxCost(sums, x0, y0, x1, y1)
-    if (cost <= 0 || cost > budget) return
-    const outline = 2 * (x1 - x0 + y1 - y0)
-    const edge =
-      (x0 === 0 ? y1 - y0 : 0) +
-      (x1 === size - 1 ? y1 - y0 : 0) +
-      (y0 === 0 ? x1 - x0 : 0) +
-      (y1 === size - 1 ? x1 - x0 : 0)
-    const contact = outline - cost + edge
-    const score = boxGain(sums, x0, y0, x1, y1) * Math.min(1, contact / (CONTACT_TARGET * budget))
-    if (score <= 0 || (best.length === KEEP && score <= (best.at(-1) as Candidate).score)) return
-    let at = best.length
-    while (at > 0 && (best[at - 1] as Candidate).score < score) at--
-    best.splice(at, 0, { ...box, score, contact })
-    if (best.length > KEEP) best.pop()
+/** The box around a candidate's claim: its lines, from the far side to the deepest border. */
+const boundsOf = ({ front, from, to, far }: Candidate): Box => {
+  let deepest = 0
+  for (let line = from; line <= to; line++)
+    deepest = Math.max(deepest, front.border[line] as number)
+  const a = front.cell(from, far)
+  const b = front.cell(to, deepest)
+  return {
+    x0: Math.min(a.x, b.x),
+    y0: Math.min(a.y, b.y),
+    x1: Math.max(a.x, b.x),
+    y1: Math.max(a.y, b.y),
   }
-  for (const facing of ['left', 'right', 'top', 'bottom'] as const) {
-    const takeMax = facing === 'left' || facing === 'top'
-    for (const side of sides) {
-      const span = side + 2
-      const inner = slideBorder(profiles[facing], span, takeMax)
-      const leg = Math.max(Math.floor((budget - side) / 2), 2)
-      for (let a = 0; a < inner.length; a++) {
-        const at = inner[a] as number
-        if (at < 0) continue
-        const box = placeBox(facing, at, a, span, leg, size)
-        consider(box)
-        if (box === null) continue
-        // Where the real border saves pixels, spend them on longer legs.
-        const spare = Math.max(
-          0,
-          Math.floor((budget - boxCost(sums, box.x0, box.y0, box.x1, box.y1)) / 2),
-        )
-        if (spare > 0) consider(placeBox(facing, at, a, span, leg + spare, size))
-      }
-    }
-  }
-  return best
-}
-
-/** A box's outline, clockwise from its top-left corner. */
-const outlineOf = ({ x0, y0, x1, y1 }: Box): ArenaPixel[] => {
-  const cells: ArenaPixel[] = []
-  for (let x = x0; x <= x1; x++) cells.push({ x, y: y0 })
-  for (let y = y0 + 1; y <= y1; y++) cells.push({ x: x1, y })
-  for (let x = x1 - 1; x >= x0; x--) cells.push({ x, y: y1 })
-  for (let y = y1 - 1; y > y0; y--) cells.push({ x: x0, y })
-  return cells
 }
 
 const owns = (map: TerritoryMap, team: TerritoryTeam, { x, y }: ArenaPixel): boolean =>
   map.owner[y * map.size + x] === team
 
-interface Outline {
-  /** From anchor A to anchor B, the long way round. */
-  readonly wall: ArenaPixel[]
-  /** The inner side from beside anchor B to beside anchor A: the team's own cells. */
-  readonly inner: ArenaPixel[]
-}
+const OPEN = 1
+const WALL = 2
 
 /**
- * A box's outline split at its longest stretch of the team's cells, which is the inner side, into
- * that side and the wall; null when the outline is all or none of the team's. Specks of the team
- * elsewhere on the wall, as on a ragged border at the arena edge, stay in it for its shape and are
- * dropped before painting.
+ * What a wall encloses within `bounds`, which hold the wall and the border it closes against. A fill
+ * from the bounds' rim, through cells neither the team's nor the wall's in all eight directions,
+ * marks what stays open. Any way out of the bounds crosses the rim, so the rest is enclosed exactly.
+ * Returns the cells the team would win, and whether a pixel ends up the team's.
  */
-const wallOf = (map: TerritoryMap, team: TerritoryTeam, box: Box): Outline | null => {
-  const loop = outlineOf(box)
-  const ours = loop.map((cell) => owns(map, team, cell))
-  const n = loop.length
-  let inner = 0
-  let end = 0
-  for (let i = 0, run = 0; i < 2 * n; i++) {
-    run = ours[i % n] ? run + 1 : 0
-    if (run > inner) [inner, end] = [run, i % n]
+const enclosure = (
+  map: TerritoryMap,
+  team: TerritoryTeam,
+  bounds: Box,
+  wall: readonly ArenaPixel[],
+): { readonly won: number; readonly holds: (pixel: ArenaPixel) => boolean } => {
+  const { x0, y0, x1, y1 } = bounds
+  const width = x1 - x0 + 1
+  const index = (x: number, y: number) => (y - y0) * width + x - x0
+  const state = new Uint8Array(width * (y1 - y0 + 1))
+  for (const { x, y } of wall) state[index(x, y)] = WALL
+  const stack: number[] = []
+  const seed = (x: number, y: number) => {
+    const at = index(x, y)
+    if (state[at] !== 0 || owns(map, team, { x, y })) return
+    state[at] = OPEN
+    stack.push(at)
   }
-  if (inner === 0 || inner >= n) return null
-  const around = (from: number, length: number) =>
-    Array.from({ length }, (_, k) => loop[(from + k) % n] as ArenaPixel)
-  return { wall: around(end + 1, n - inner), inner: around(end - inner + 1 + n, inner) }
-}
-
-/**
- * Whether a closed wall holds `focus`: a four-connected walk from it, stepping over neither the
- * wall nor the inner side, cannot leave the box.
- */
-const holds = (box: Box, closed: readonly ArenaPixel[], focus: ArenaPixel): boolean => {
-  const width = box.x1 - box.x0 + 1
-  const at = ({ x, y }: ArenaPixel) => (y - box.y0) * width + (x - box.x0)
-  const seen = new Uint8Array(width * (box.y1 - box.y0 + 1))
-  for (const cell of closed) seen[at(cell)] = 1
-  if (seen[at(focus)] === 1) return true
-  const queue = [focus]
-  seen[at(focus)] = 1
-  for (let head = 0; head < queue.length; head++) {
-    const { x, y } = queue[head] as ArenaPixel
-    for (const next of [
-      { x: x + 1, y },
-      { x: x - 1, y },
-      { x, y: y + 1 },
-      { x, y: y - 1 },
-    ]) {
-      if (next.x < box.x0 || next.x > box.x1 || next.y < box.y0 || next.y > box.y1) return false
-      if (seen[at(next)] === 1) continue
-      seen[at(next)] = 1
-      queue.push(next)
-    }
+  for (let x = x0; x <= x1; x++) {
+    seed(x, y0)
+    seed(x, y1)
   }
-  return true
+  for (let y = y0; y <= y1; y++) {
+    seed(x0, y)
+    seed(x1, y)
+  }
+  while (stack.length > 0) {
+    const at = stack.pop() as number
+    const x = x0 + (at % width)
+    const y = y0 + Math.floor(at / width)
+    for (let ny = Math.max(y0, y - 1); ny <= Math.min(y1, y + 1); ny++)
+      for (let nx = Math.max(x0, x - 1); nx <= Math.min(x1, x + 1); nx++) seed(nx, ny)
+  }
+  let won = 0
+  for (let y = y0; y <= y1; y++)
+    for (let x = x0; x <= x1; x++) if (state[index(x, y)] === 0 && !owns(map, team, { x, y })) won++
+  const holds = ({ x, y }: ArenaPixel) =>
+    x >= x0 && x <= x1 && y >= y0 && y <= y1 && state[index(x, y)] !== OPEN
+  return { won, holds }
 }
 
 /**
@@ -650,9 +682,10 @@ const overlaps = (a: Box, b: Box): boolean =>
   a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1
 
 /**
- * The default planner: the best few distinct boxes against the team's border whose outline closes
- * into a wall, each chamfered where the budget allows, split into paired lines, with guard zones
- * along the inner side from each anchor. With a focus, a wall that does not hold it is skipped.
+ * The default planner: the best few distinct walls against the team's border, each chamfered where
+ * the budget allows and ranked by what it encloses, split into paired lines, with guard zones on
+ * the team's border cells along the first lines from each anchor. With a focus, a wall that does
+ * not hold it is skipped.
  */
 export const borderBoxPlanner: CapturePlanner = ({
   map,
@@ -663,22 +696,40 @@ export const borderBoxPlanner: CapturePlanner = ({
   focus,
 }) => {
   const budget = painters * charges
+  const unpainted = (wall: readonly ArenaPixel[]) => wall.filter((cell) => !owns(map, team, cell))
+  const walls = bestWalls(map, team, budget, focus).flatMap((candidate) => {
+    const square = wallOf(candidate)
+    // A chamfer can trade the team's cells for ones to paint; keep the square wall past the budget.
+    const chamfered = chamferWall(square, map.size)
+    const wall = unpainted(chamfered).length <= budget ? chamfered : square
+    const bounds = boundsOf(candidate)
+    const { won, holds } = enclosure(map, team, bounds, wall)
+    if (won === 0 || (focus !== undefined && !holds(focus))) return []
+    return [{ candidate, wall, bounds, score: won * candidate.reach }]
+  })
+  walls.sort((a, b) => b.score - a.score)
   const plans: CapturePlan[] = []
   const taken: Box[] = []
-  for (const box of bestBoxes(map, team, budget, focus)) {
+  for (const { candidate, wall, bounds } of walls) {
     if (plans.length === PROPOSALS) break
-    if (taken.some((other) => overlaps(other, box))) continue
-    const found = wallOf(map, team, box)
-    if (found === null || found.wall.length < 2) continue
-    const unpainted = (wall: readonly ArenaPixel[]) => wall.filter((cell) => !owns(map, team, cell))
-    // A chamfer can trade the team's cells for ones to paint; keep the square wall past the budget.
-    const chamfered = chamferWall(found.wall, map.size)
-    const wall = unpainted(chamfered).length <= budget ? chamfered : found.wall
-    if (focus !== undefined && !holds(box, [...wall, ...found.inner], focus)) continue
-    const zones = [found.inner.slice(-GUARD_MARGIN).reverse(), found.inner.slice(0, GUARD_MARGIN)]
+    if (taken.some((other) => overlaps(other, bounds))) continue
+    const { front, from, to, far } = candidate
+    const { border, cell } = front
+    // The border along the first lines from the anchor; past an empty leg, the territory the far
+    // side meets, deeper along that line.
+    const zone = (end: number, inward: number) =>
+      far >= (border[end] as number)
+        ? Array.from({ length: Math.min(GUARD_MARGIN, map.size - far) }, (_, k) =>
+            cell(end, far + k),
+          ).filter((pixel) => owns(map, team, pixel))
+        : Array.from({ length: Math.min(GUARD_MARGIN, to - from + 1) }, (_, k) => {
+            const line = end + inward * k
+            return cell(line, border[line] as number)
+          })
+    const zones = [zone(from, 1), zone(to, -1)]
     const guardZones = guards === 0 ? [] : guards === 1 ? [zones.flat()] : zones
     plans.push({ lines: pairLines(unpainted(wall), painters, charges), guardZones })
-    taken.push(box)
+    taken.push(bounds)
   }
   return plans
 }

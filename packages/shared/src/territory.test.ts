@@ -65,6 +65,29 @@ describe('borderBoxPlanner', () => {
     }
   })
 
+  it('ends each leg on the border at its own line, spending the whole budget on a stepped border', () => {
+    // Green's top border drops from y 70 to y 120 at x 100.
+    const map = greenWhere(200, (x, y) => y >= (x < 100 ? 70 : 120))
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const outcome = simulateCapture(map, GREEN, plan)
+    expect(outcome).toMatchObject({ painted: 120, refused: 0 })
+    // Legs that end on one line put both anchors on one row or column; these share neither.
+    const [a, b] = plan.lines.map((line) => line[0] as ArenaPixel)
+    if (a === undefined || b === undefined) throw new Error('Expected two lines')
+    expect(a.x === b.x || a.y === b.y).toBe(false)
+    // A box with equal legs L and far side W, 2L + W = budget, wins at most budget² / 8 plus its
+    // own pixels: 16 per pixel here.
+    expect(outcome.gained / outcome.painted).toBeGreaterThan(120 / 8 + 1)
+    // Each guard's zone starts on the team's cell beside its anchor.
+    plan.guardZones.forEach((zone, k) => {
+      const anchor = k === 0 ? a : b
+      const first = zone[0] as ArenaPixel
+      expect(Math.abs(first.x - anchor.x) + Math.abs(first.y - anchor.y)).toBe(1)
+      for (const { x, y } of zone) expect(map.owner[y * 200 + x]).toBe(GREEN)
+    })
+  })
+
   it('keeps the whole wall within the budget when a chamfer would cost more', () => {
     // A thin Green arm reaches up from the base and along row 37, so a chamfered corner would
     // trade the arm's cells for ones to paint.
