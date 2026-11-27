@@ -143,8 +143,15 @@ describe('borderBoxPlanner', () => {
 
   it('plans around the view centre, which falls between pixels', () => {
     const world = arenaToWorld({ x: 30, y: 17 })
-    const focus = worldToArena({ x: world.x + 0.4, y: world.y + 0.6 }) ?? undefined
-    const request = { map: quadrantMap(), team: GREEN, painters: 1, guards: 1, charges: 60 }
+    const focus = worldToArena({ x: world.x + 0.4, y: world.y + 0.6 })
+    if (focus === null) throw new Error('Expected the centre inside the arena')
+    const request = {
+      map: quadrantMap(),
+      team: GREEN,
+      painters: 1,
+      guards: 1,
+      charges: 60,
+    } as const
     expect(borderBoxPlanner({ ...request, focus })).toEqual(
       borderBoxPlanner({ ...request, focus: { x: 30, y: 17 } }),
     )
