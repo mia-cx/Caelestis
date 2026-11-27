@@ -681,9 +681,13 @@ export class PresenceCoordinator<Client> {
       const left = attachment.team
       if (left !== undefined)
         this.updateCapture(left, (run) => run && leaveCapture(run, attachment.sessionId))
-      void this.captureRun(team).then((run) =>
-        this.send({ socket, held: updated }, { type: 'capture', run }),
-      )
+      void this.captureRun(team).then((run) => {
+        // The read can finish after the session closed or switched again; then it is not theirs.
+        if (socket.readyState !== 1) return
+        const held = attachmentOf(socket)
+        if (held === null || held.closed || held.team !== team) return
+        this.send({ socket, held }, { type: 'capture', run })
+      })
     }
     this.dirty.add(attachment.sessionId)
     this.armTick()
