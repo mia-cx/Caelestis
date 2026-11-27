@@ -3,6 +3,7 @@ import {
   type ArenaPixel,
   arenaToWorld,
   borderBoxPlanner,
+  type CapturePlan,
   chamferWall,
   NO_TEAM,
   pairLines,
@@ -63,6 +64,29 @@ describe('borderBoxPlanner', () => {
       expect(zone.length).toBeGreaterThan(0)
       for (const { x, y } of zone) expect(map.owner[y * 120 + x]).toBe(GREEN)
     }
+  })
+
+  it('ends each leg on the border at its own line, spending the whole budget on a stepped border', () => {
+    // Green's top border drops from y 70 to y 120 at x 100.
+    const map = greenWhere(200, (x, y) => y >= (x < 100 ? 70 : 120))
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const outcome = simulateCapture(map, GREEN, plan)
+    expect(outcome).toMatchObject({ painted: 120, refused: 0 })
+    // Legs that end on one line put both anchors on one row or column; these share neither.
+    const [a, b] = plan.lines.map((line) => line[0] as ArenaPixel)
+    if (a === undefined || b === undefined) throw new Error('Expected two lines')
+    expect(a.x === b.x || a.y === b.y).toBe(false)
+    // A box with equal legs L and far side W, 2L + W = budget, wins at most budget² / 8 plus its
+    // own pixels: 16 per pixel here.
+    expect(outcome.gained / outcome.painted).toBeGreaterThan(120 / 8 + 1)
+    // Each guard's zone starts on the team's cell beside its anchor.
+    plan.guardZones.forEach((zone, k) => {
+      const anchor = k === 0 ? a : b
+      const first = zone[0] as ArenaPixel
+      expect(Math.abs(first.x - anchor.x) + Math.abs(first.y - anchor.y)).toBe(1)
+      for (const { x, y } of zone) expect(map.owner[y * 200 + x]).toBe(GREEN)
+    })
   })
 
   it('keeps the whole wall within the budget when a chamfer would cost more', () => {
@@ -165,6 +189,144 @@ describe('borderBoxPlanner', () => {
     expect(plans.length).toBeGreaterThan(0)
     for (const plan of plans)
       expect(simulateCapture(map, GREEN, plan).map.owner[focus.y * 180 + focus.x]).toBe(GREEN)
+  })
+
+  /** Every plan paints without refusals and leaves `focus` the team's. */
+  const expectHeld = (map: TerritoryMap, focus: ArenaPixel, plans: readonly CapturePlan[]) => {
+    expect(plans.length).toBeGreaterThan(0)
+    for (const plan of plans) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.refused).toBe(0)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+      expect(outcome.map.owner[focus.y * map.size + focus.x]).toBe(GREEN)
+    }
+  }
+
+  it('proposes a wall that paints the focus itself, also on the arena edge', () => {
+    const map = greenWhere(200, (x, y) => x >= 100 && y >= 100)
+    const focus = { x: 199, y: 90 }
+    expectHeld(
+      map,
+      focus,
+      borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 60, focus }),
+    )
+  })
+
+  it('falls back to an overlapping wall when the best estimate leaks', () => {
+    // A shelf at y 40 to 47 overhangs open ground, so a leg that stops on it leaves a way out.
+    const map = greenWhere(
+      160,
+      (x, y) => y >= 110 || (x >= 150 && y >= 40) || (x >= 45 && y >= 40 && y < 48),
+    )
+    const focus = { x: 48, y: 29 }
+    expectHeld(
+      map,
+      focus,
+      borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 60, focus }),
+    )
+  })
+
+  /** A map of `size` where Green holds these inclusive `[x0, y0, x1, y1]` rectangles. */
+  const greenRects = (size: number, rects: readonly (readonly number[])[]) =>
+    greenWhere(size, (x, y) =>
+      rects.some(([x0 = 0, y0 = 0, x1 = 0, y1 = 0]) => x >= x0 && x <= x1 && y >= y0 && y <= y1),
+    )
+
+  it('checks other stretches of border when one leaks on every try', () => {
+    // A pillar hangs from y 7 to the base beside an overhang: many walls against it leak.
+    const map = greenRects(160, [
+      [0, 122, 159, 159],
+      [141, 93, 159, 159],
+      [68, 93, 141, 108],
+      [41, 7, 49, 122],
+    ])
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 60 })
+    expect(plans.length).toBeGreaterThan(0)
+    for (const plan of plans) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.refused).toBe(0)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+    }
+  })
+
+  it('ranks overlapping walls from different facings by what they enclose', () => {
+    const map = greenRects(160, [
+      [0, 140, 159, 159],
+      [95, 77, 159, 159],
+      [76, 23, 91, 140],
+      [6, 77, 95, 105],
+    ])
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 4, guards: 0, charges: 60 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    // A wall facing another way encloses 8,781 here; one found first encloses less.
+    expect(simulateCapture(map, GREEN, plan).gained).toBeGreaterThanOrEqual(8781)
+  })
+
+  it('still proposes a wall whose overlapping rival loses to a wall on another facing', () => {
+    // A top-facing wall over x 0 to 45 loses to a left-facing one from x 43; the top-facing wall
+    // over x 0 to 42 overlaps neither and is still worth proposing.
+    const map = greenRects(160, [
+      [0, 111, 159, 159],
+      [135, 0, 159, 131],
+    ])
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 3, guards: 0, charges: 60 })
+    expect(plans.length).toBeGreaterThanOrEqual(2)
+    for (const plan of plans) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.refused).toBe(0)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+    }
+  })
+
+  it('gives a wall apart from the first one a fill before more copies of the first', () => {
+    // Two overlapping blocks stand on the base; most good walls crowd one notch between them.
+    const map = greenRects(160, [
+      [0, 107, 159, 159],
+      [32, 27, 100, 114],
+      [64, 12, 126, 97],
+    ])
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 4, guards: 0, charges: 60 })
+    expect(plans.length).toBeGreaterThanOrEqual(2)
+    for (const plan of plans) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.refused).toBe(0)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+    }
+  })
+
+  it('fills the waiting walls best estimate first, so a focused wall keeps its strongest form', () => {
+    const map = greenRects(175, [
+      [0, 134, 174, 174],
+      [154, 45, 174, 86],
+      [169, 45, 174, 134],
+    ])
+    const focus = { x: 39, y: 68 }
+    const [plan] = borderBoxPlanner({
+      map,
+      team: GREEN,
+      painters: 5,
+      guards: 0,
+      charges: 60,
+      focus,
+    })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const outcome = simulateCapture(map, GREEN, plan)
+    expect(outcome.refused).toBe(0)
+    // Filled in round order, a weaker wall took the last fill and gained only 5,160.
+    expect(outcome.gained).toBeGreaterThanOrEqual(17263)
+  })
+
+  it("starts each guard's zone beside the first pixel its painter places, on a slope", () => {
+    const map = greenWhere(200, (x, y) => y >= 25 + x)
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
+    expect(plans.length).toBeGreaterThan(0)
+    for (const plan of plans)
+      plan.guardZones.forEach((zone, k) => {
+        const start = plan.lines[k]?.[0] as ArenaPixel
+        const first = zone[0] as ArenaPixel
+        expect(Math.abs(first.x - start.x) + Math.abs(first.y - start.y)).toBe(1)
+        for (const { x, y } of zone) expect(map.owner[y * 200 + x]).toBe(GREEN)
+      })
   })
 
   it('returns nothing when the budget cannot close any box', () => {
