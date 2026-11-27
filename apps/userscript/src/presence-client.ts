@@ -1,4 +1,6 @@
 import {
+  type CaptureClientEvent,
+  type CaptureRun,
   decodePresenceServerEvent,
   liveCredentialProtocol,
   type PainterIdentity,
@@ -63,6 +65,15 @@ const MAX_RECONNECT_MS = 30_000
 const INITIAL_RECONNECT_MS = 1_000
 const MAX_RECONNECT_ATTEMPTS = 10
 const RECONNECT_JITTER_MS = 500
+/** Round trips per clock sync, and the gap between them: under the server's message rate limit. */
+const CLOCK_PINGS = 6
+const CLOCK_PING_GAP_MS = 250
+
+/**
+ * This tab's clock for capture timing: wall time at page load plus monotonic time since, so a
+ * system clock change mid-countdown cannot move it.
+ */
+export const localClock = (): number => performance.timeOrigin + performance.now()
 
 /** What was last sent on a socket. `undefined` means nothing yet; a new session has no quick claims. */
 interface Sent {
@@ -83,11 +94,20 @@ const nothingSent = (): Sent => ({
   quickClaimsAt: Number.NEGATIVE_INFINITY,
 })
 
+/** The server clock against this tab's monotonic clock, from the quickest `clock` round trip. */
+interface ClockSample {
+  /** Server time minus local time, in milliseconds. */
+  readonly offset: number
+  readonly rtt: number
+}
+
 interface Connection {
   readonly server: ServerConnection
   socket: WebSocket | null
   sessionId: string | null
   peers: Map<string, PresencePeer>
+  capture: CaptureRun | null
+  clock: ClockSample | null
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -304,6 +324,17 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
     case 'claims-renewed':
       renewClaims(server, event.ids, event.expiresAt)
       return true
+    case 'capture':
+      connection.capture = event.run
+      return false
+    case 'clock': {
+      // The server answered halfway through the round trip, as near as one trip can tell; the
+      // quickest trip bounds that error tightest, so it alone is kept.
+      const rtt = localClock() - event.sent
+      if (rtt < 0 || (connection.clock !== null && rtt >= connection.clock.rtt)) return false
+      connection.clock = { offset: event.at - (event.sent + rtt / 2), rtt }
+      return false
+    }
   }
 }
 
@@ -322,6 +353,8 @@ const closeConnection = (connection: Connection): void => {
   const socket = connection.socket
   connection.socket = null
   connection.sessionId = null
+  connection.capture = null
+  connection.clock = null
   revision++
   if (socket !== null && socket.readyState < WebSocket.CLOSING) {
     try {
@@ -440,6 +473,8 @@ const open = (connection: Connection): void => {
     if (connection.socket !== socket) return
     connection.socket = null
     connection.sessionId = null
+    connection.capture = null
+    connection.clock = null
     endLiveClaims(server)
     clearTimers(connection)
     connection.peers = new Map()
@@ -470,6 +505,8 @@ const reconcile = (): void => {
       socket: null,
       sessionId: null,
       peers: new Map(),
+      capture: null,
+      clock: null,
       attempts: 0,
       reconnectTimer: null,
       heartbeatTimer: null,
@@ -549,6 +586,53 @@ export const presenceView = (): PresenceView => {
     connected: open.includes(true),
     me: accountIdentity(),
   }
+}
+
+/** A server's capture run, as one connected socket sees it. */
+export interface CaptureView {
+  readonly server: ServerConnection
+  readonly run: CaptureRun | null
+  /** This tab's session on the server, which is how the run names it. */
+  readonly sessionId: string
+  /** Server time minus `localClock()`, once a clock sync has answered. */
+  readonly clockOffset: number | null
+}
+
+/** Every open presence socket and the capture run it holds, if any. */
+export const captureViews = (): readonly CaptureView[] =>
+  [...connections.values()].flatMap((connection) =>
+    isOpen(connection) && connection.sessionId !== null
+      ? [
+          {
+            server: connection.server,
+            run: connection.capture,
+            sessionId: connection.sessionId,
+            clockOffset: connection.clock?.offset ?? null,
+          },
+        ]
+      : [],
+  )
+
+const connectionFor = (server: ServerConnection): Connection | undefined =>
+  [...connections.values()].find((connection) => connection.server.url === server.url)
+
+/** Send a capture event on a server's presence socket. False when it has none open. */
+export const sendCapture = (server: ServerConnection, event: CaptureClientEvent): boolean => {
+  const connection = connectionFor(server)
+  return connection !== undefined && send(connection, event)
+}
+
+/**
+ * Measure a server's clock against this tab's with a burst of round trips. Each sample keeps the
+ * quickest trip seen on this socket, so later bursts only ever tighten the estimate.
+ */
+export const syncCaptureClock = (server: ServerConnection): void => {
+  const connection = connectionFor(server)
+  if (connection === undefined) return
+  for (let ping = 0; ping < CLOCK_PINGS; ping++)
+    setTimeout(() => {
+      if (isOpen(connection)) send(connection, { type: 'clock', sent: Math.round(localClock()) })
+    }, ping * CLOCK_PING_GAP_MS)
 }
 
 /** Publish this tab's viewport. */
