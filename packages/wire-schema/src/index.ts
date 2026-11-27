@@ -242,9 +242,8 @@ export const PresenceClientEvent = Schema.Union([
     type: Schema.Literal('capture-open'),
     painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
     guards: integerBetween(0, MAX_CAPTURE_GUARDS),
-    team: TerritoryTeam,
   }),
-  Schema.Struct({ type: Schema.Literal('capture-join'), team: TerritoryTeam, run: Identifier }),
+  Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
   Schema.Struct({
     type: Schema.Literal('capture-order'),
@@ -266,6 +265,7 @@ export const PresenceClientEvent = Schema.Union([
     viewport: Schema.optionalKey(Schema.NullOr(PresenceRect)),
     draft: Schema.optionalKey(Schema.NullOr(PresenceDraft)),
     quickClaims: Schema.optionalKey(QuickClaims),
+    team: Schema.optionalKey(TerritoryTeam),
   }),
 ])
 

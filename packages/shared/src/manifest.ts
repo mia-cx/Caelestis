@@ -44,7 +44,10 @@ export interface ServerInfo {
   readonly liveTileOffers?: 1
   /** Present when `/telemetry/presence` accepts the live painter presence protocol. */
   readonly presence?: 1
-  /** Present when presence rooms run capture runs for Wplace's territory event. */
+  /**
+   * Present on an event server (`EVENT_SERVER=true`), whose presence rooms run capture runs for
+   * Wplace's territory event; see `isEventServer`.
+   */
   readonly capture?: 1
   /** Present when the server mints one-use `event_runner` invites and exchanges them at `/auth/exchange`. */
   readonly eventRunners?: 1
@@ -156,3 +159,10 @@ export const templatesInFolderSubtree = <T extends { readonly nodeId: string | n
   }
   return templates.filter((template) => template.nodeId !== null && within.has(template.nodeId))
 }
+
+/**
+ * Whether a server is an event server: it runs capture runs, shares presence within each event
+ * team only, and takes no claims.
+ */
+export const isEventServer = (info: Pick<ServerInfo, 'capture'> | null | undefined): boolean =>
+  info?.capture === 1

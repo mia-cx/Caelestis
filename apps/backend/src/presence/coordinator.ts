@@ -22,6 +22,7 @@ import {
   rectCentreDistance,
   rectsIntersect,
   sameRect,
+  type TerritoryTeam,
   uuidV7,
 } from '@caelestis/shared'
 import { PresenceClientEvent } from '@caelestis/wire-schema'
@@ -47,6 +48,8 @@ interface Attachment extends PresenceConnection {
   readonly lastSeenAt: number
   readonly closed?: boolean
   readonly renewedAt?: number
+  /** On an event server, the event team the session last reported. */
+  readonly team?: TerritoryTeam
 }
 
 /**
@@ -95,8 +98,8 @@ interface LiveSession {
 }
 
 const CLAIM_RENEW_INTERVAL_MS = 60 * 60 * 1_000
-/** Storage key of the room's capture run, so it survives hibernation. */
-const CAPTURE_KEY = 'capture-run'
+/** Storage key of one team's capture run in the room, so it survives hibernation. */
+const captureKey = (team: TerritoryTeam): string => `capture-run:${team}`
 /** The earliest claim expiry. The room's identity is stored beside it but read from the room. */
 interface RegionExpiry extends PresenceRoomId {
   readonly at: number | null
@@ -137,8 +140,8 @@ export class PresenceCoordinator<Client> {
   private regionVersion = 0
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = false
-  /** Capture run changes, one at a time, each reading the run the previous one stored. */
-  private captureQueue: Promise<CaptureRun | null> | null = null
+  /** Per team, capture run changes one at a time, each reading the run the previous one stored. */
+  private readonly captureQueues = new Map<TerritoryTeam, Promise<CaptureRun | null>>()
 
   constructor(
     private readonly state: PresenceHost<Client>,
@@ -151,8 +154,11 @@ export class PresenceCoordinator<Client> {
      * while it hibernates.
      */
     private readonly routeRevocation: (tokenHash: string) => Promise<void>,
-    /** Whether this is an event server, the only kind that runs capture runs. */
-    private readonly captureRuns = false,
+    /**
+     * Whether this is an event server: it runs one capture run per event team, shares viewports and
+     * drafts within each team only, and takes no quick claims.
+     */
+    private readonly eventServer = false,
   ) {}
 
   readIngestTimings(reset: boolean): IngestTimingSnapshot {
@@ -168,29 +174,40 @@ export class PresenceCoordinator<Client> {
     return held
   }
 
-  /** The room's capture run as last stored, after any change still being applied. */
-  private captureRun(): Promise<CaptureRun | null> {
-    this.captureQueue ??= this.state.storage.get<CaptureRun>(CAPTURE_KEY).then((run) => run ?? null)
-    return this.captureQueue
+  /** A team's capture run as last stored, after any change still being applied. */
+  private captureRun(team: TerritoryTeam): Promise<CaptureRun | null> {
+    let queued = this.captureQueues.get(team)
+    if (queued === undefined) {
+      queued = this.state.storage.get<CaptureRun>(captureKey(team)).then((run) => run ?? null)
+      this.captureQueues.set(team, queued)
+    }
+    return queued
   }
 
-  /** Apply one change to the run, store it, and send it to every session when it changed. */
-  private updateCapture(change: (run: CaptureRun | null) => CaptureRun | null): void {
-    const previous = this.captureRun()
+  /** Apply one change to a team's run, store it, and send it to that team's sessions if changed. */
+  private updateCapture(
+    team: TerritoryTeam,
+    change: (run: CaptureRun | null) => CaptureRun | null,
+  ): void {
+    const previous = this.captureRun(team)
     const next = previous.then(async (run) => {
       const updated = change(run)
       if (updated === run) return run
-      if (updated === null) await this.state.storage.delete(CAPTURE_KEY)
-      else await this.state.storage.put(CAPTURE_KEY, updated)
+      if (updated === null) await this.state.storage.delete(captureKey(team))
+      else await this.state.storage.put(captureKey(team), updated)
       const payload = JSON.stringify({
         type: 'capture',
         run: updated,
       } satisfies PresenceServerEvent)
-      for (const { socket } of this.sessionsOpen()) this.sendEncoded(socket, payload)
+      for (const { socket, held } of this.sessionsOpen())
+        if (held.team === team) this.sendEncoded(socket, payload)
       return updated
     })
     // A failed write keeps the run as it was, so the next change starts from what is stored.
-    this.captureQueue = next.catch(() => previous)
+    this.captureQueues.set(
+      team,
+      next.catch(() => previous),
+    )
     this.state.waitUntil(next)
   }
 
@@ -232,13 +249,23 @@ export class PresenceCoordinator<Client> {
     }
   }
 
-  private relevant(subscriber: Attachment, peers: PeerGrid): PresencePeer[] {
+  /**
+   * The peers a subscriber sees, nearest first. On an event server `teams` maps each session to
+   * the team it reported, and only the subscriber's own team is visible.
+   */
+  private relevant(
+    subscriber: Attachment,
+    peers: PeerGrid,
+    teams: ReadonlyMap<string, TerritoryTeam | undefined> | undefined,
+  ): PresencePeer[] {
     const viewport = subscriber.viewport
     if (viewport === null) return []
+    if (teams !== undefined && subscriber.team === undefined) return []
     const interest = padRect(viewport, PRESENCE_INTEREST_PADDING)
     const candidates: { peer: PresencePeer; distance: number }[] = []
     for (const peer of peers.near(interest)) {
       if (peer.sessionId === subscriber.sessionId) continue
+      if (teams !== undefined && teams.get(peer.sessionId) !== subscriber.team) continue
       const other = peer.viewport
       const draft = peer.draft?.rect
       const quickClaims = peer.quickClaims ?? []
@@ -402,6 +429,9 @@ export class PresenceCoordinator<Client> {
         const online = open.length
         // Built on demand: a heartbeat-only tick selects nobody.
         let peers: PeerGrid | undefined
+        const teams = this.eventServer
+          ? new Map(open.map(({ held }) => [held.sessionId, held.team]))
+          : undefined
         for (const session of open) {
           const subscriber = session.held
           const local = this.localState(subscriber.sessionId)
@@ -411,7 +441,7 @@ export class PresenceCoordinator<Client> {
           if (previous !== undefined && dirty.size === 0 && local.onlineSent === online) continue
           peers ??= new PeerGrid(open.map(({ held }) => this.peer(held)))
           const started = performance.now()
-          const relevant = this.relevant(subscriber, peers)
+          const relevant = this.relevant(subscriber, peers, teams)
           this.timings.record('presence', 'select', performance.now() - started)
           const next = new Set(relevant.map((peer) => peer.sessionId))
           local.sent = next
@@ -449,8 +479,8 @@ export class PresenceCoordinator<Client> {
     this.local.delete(attachment.sessionId)
     this.dirty.add(attachment.sessionId)
     this.armTick()
-    if (this.captureRuns)
-      this.updateCapture((run) => run && leaveCapture(run, attachment.sessionId))
+    if (attachment.team !== undefined)
+      this.updateCapture(attachment.team, (run) => run && leaveCapture(run, attachment.sessionId))
   }
 
   private close(socket: LiveSocket, code: number, reason: string): void {
@@ -523,10 +553,7 @@ export class PresenceCoordinator<Client> {
             canWrite: credentialScope !== 'read' && !anonymous,
           },
         )
-        // A run saved while this was an event server stays stored but unread once it is not.
-        const run = this.captureRuns ? await this.captureRun() : null
-        if (run !== null)
-          this.send({ socket: pair.server, held: attachment }, { type: 'capture', run })
+        // A capture run reaches the session once it reports its team.
         this.dirty.add(sessionId)
         this.armTick()
         await this.armAlarm(open)
@@ -582,23 +609,28 @@ export class PresenceCoordinator<Client> {
       return
     }
     // Capture runs and their clock sync exist only on an event server.
-    if (!this.captureRuns && event.type !== 'presence-update') return
+    if (!this.eventServer && event.type !== 'presence-update') return
     if (event.type === 'clock') {
       this.send({ socket, held: attachment }, { type: 'clock', sent: event.sent, at: Date.now() })
       return
     }
     if (attachment.credentialScope === 'read') return
     if (event.type !== 'presence-update') {
+      const { team } = attachment
+      if (team === undefined) return
       const actor = {
         sessionId: attachment.sessionId,
         painter: attachment.painter,
         scope: attachment.credentialScope,
+        team,
       }
-      this.updateCapture((run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
+      this.updateCapture(team, (run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
       return
     }
     // Anonymous sessions are read scope, so the early return above keeps their quick claims out.
-    const quickClaims = event.quickClaims
+    // An event server takes no claims at all.
+    const quickClaims = this.eventServer ? undefined : event.quickClaims
+    const team = this.eventServer ? (event.team ?? attachment.team) : undefined
     const { surface } = this.room
     const viewport =
       event.viewport === undefined
@@ -621,7 +653,7 @@ export class PresenceCoordinator<Client> {
     )
       return
     if (draft !== undefined) local.mask = draft?.mask
-    socket.serializeAttachment({
+    const updated = {
       ...attachment,
       viewport,
       draftRect: draft === undefined ? attachment.draftRect : (draft?.rect ?? null),
@@ -629,8 +661,19 @@ export class PresenceCoordinator<Client> {
       ...(quickClaims === undefined
         ? {}
         : { quickClaims: quickClaims.map(({ x, y, w, h }) => [x, y, w, h] as const) }),
+      ...(team === undefined ? {} : { team }),
       lastSeenAt: now,
-    } satisfies Attachment)
+    } satisfies Attachment
+    socket.serializeAttachment(updated)
+    if (team !== undefined && team !== attachment.team) {
+      // A new team, as after switching Wplace accounts: leave the old team's run, see the new one's.
+      const left = attachment.team
+      if (left !== undefined)
+        this.updateCapture(left, (run) => run && leaveCapture(run, attachment.sessionId))
+      void this.captureRun(team).then((run) =>
+        this.send({ socket, held: updated }, { type: 'capture', run }),
+      )
+    }
     this.dirty.add(attachment.sessionId)
     this.armTick()
   }

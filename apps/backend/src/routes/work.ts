@@ -73,9 +73,9 @@ const readJson = async (
 
 /**
  * Shared coordination routes, under a `read` mount. Read-only frontend proxy credentials never
- * authorize mutations, which require `report`.
+ * authorize mutations, which require `report`. An event server (`claims: false`) takes no claims.
  */
-export const createWorkRoutes = (runtime: BackendRuntime) => {
+export const createWorkRoutes = (runtime: BackendRuntime, { claims }: { claims: boolean }) => {
   const routes = new Hono()
   routes.get('/regions', async (c) => {
     const season = parseWholeNumber(c.req.query('season'))
@@ -102,6 +102,7 @@ export const createWorkRoutes = (runtime: BackendRuntime) => {
     )
   })
   routes.put('/regions/:id', requireScope('report'), async (c) => {
+    if (!claims) return c.json({ error: 'This event server takes no claims' }, 403)
     const id = c.req.param('id')
     const season = parseWholeNumber(c.req.query('season'))
     const surface = querySurface(c.req)
