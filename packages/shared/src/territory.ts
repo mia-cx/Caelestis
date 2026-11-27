@@ -65,11 +65,14 @@ export const arenaToWorld = ({ x, y }: ArenaPixel): ArenaPixel => ({
   y: TERRITORY_ARENA.tileY * TILE_SIZE + y,
 })
 
-/** The arena pixel a world pixel is, or null outside the arena. */
+/**
+ * The arena pixel a world point falls in, or null outside the arena. A fractional point, such as
+ * the view's centre, lands on the whole pixel under it.
+ */
 export const worldToArena = ({ x, y }: ArenaPixel): ArenaPixel | null => {
   const local = {
-    x: x - TERRITORY_ARENA.tileX * TILE_SIZE,
-    y: y - TERRITORY_ARENA.tileY * TILE_SIZE,
+    x: Math.floor(x) - TERRITORY_ARENA.tileX * TILE_SIZE,
+    y: Math.floor(y) - TERRITORY_ARENA.tileY * TILE_SIZE,
   }
   const inside = (value: number) => value >= 0 && value < TERRITORY_ARENA.size
   return inside(local.x) && inside(local.y) ? local : null
