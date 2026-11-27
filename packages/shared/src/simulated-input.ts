@@ -107,6 +107,13 @@ const SIMULATED_INPUT_TABLE = {
     flags: ['UntrustedPaintSubmit'],
     shortcuts: { 'paint-action': { part: 'Committing' } },
   },
+  'capture-paint': {
+    label: 'Paint at my capture slot',
+    hint: [
+      "In a capture run, Caelestis clicks Wplace's Paint button at your slot, to the millisecond.",
+    ],
+    flags: ['UntrustedPaintSubmit'],
+  },
 } as const satisfies Record<string, SimulatedInputDefinition<string>>
 
 export type SimulatedInput = keyof typeof SIMULATED_INPUT_TABLE

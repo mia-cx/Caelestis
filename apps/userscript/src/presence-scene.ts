@@ -4,6 +4,7 @@ import type {
   PresenceRect,
   RegionShapePixels,
 } from '@caelestis/shared'
+import { type CaptureLineItem, captureLines } from './capture-runs.js'
 import { claimEditorEditingIds, claimEditorPixels } from './claim-editor.js'
 import { notifyListeners } from './listeners.js'
 import { claimsVisible, type DisplayClaim, displayClaims } from './presence-claims.js'
@@ -14,7 +15,7 @@ import { isPaintOpen } from './wplace-paint.js'
 
 /**
  * Everything presence puts over the map, as one list: other painters' viewports and drafts, region
- * claims, quick claims, and the claim being edited. The presence layer draws it and the name tags
+ * claims, quick claims, the claim being edited, and a capture run's lines. The presence layer draws it and the name tags
  * hit-test it, so both always agree on what is there and under which id.
  */
 
@@ -26,8 +27,9 @@ export type SceneItemId =
   | 'quick:me:preview'
   | `quick:${string}:${number}`
   | `tool:${number}`
+  | `capture:${number}`
 
-export type SceneKind = 'viewport' | 'painting' | 'draft' | 'region' | 'quick' | 'tool'
+export type SceneKind = 'viewport' | 'painting' | 'draft' | 'region' | 'quick' | 'tool' | 'capture'
 
 /** What an item stands for, for its name tag. */
 export type SceneSource =
@@ -35,6 +37,7 @@ export type SceneSource =
   | { readonly kind: 'claim'; readonly claim: DisplayClaim }
   | { readonly kind: 'quick' }
   | { readonly kind: 'tool' }
+  | { readonly kind: 'capture' }
 
 export interface SceneItem {
   readonly id: SceneItemId
@@ -67,6 +70,8 @@ export interface SceneInputs {
   readonly quickClaims: readonly PresenceRect[]
   readonly quickPreview: PresenceRect | null
   readonly tool: readonly RegionShapePixels[]
+  /** A capture run's lines, one per painter, or the plan an administrator is previewing. */
+  readonly capture: readonly CaptureLineItem[]
 }
 
 const peerItems = (peer: PresencePeer): SceneItem[] => {
@@ -158,6 +163,21 @@ export const sceneItems = (inputs: SceneInputs): SceneItem[] => {
       source: { kind: 'tool' },
     })
   }
+  // A capture run's lines show whatever the visibility switches say: the run needs them seen.
+  for (const [index, line] of inputs.capture.entries()) {
+    const id = `capture:${index}` as const
+    items.push({
+      id,
+      kind: 'capture',
+      rect: line.pixels.rect,
+      painter: line.painter,
+      mask: line.pixels,
+      mine: line.mine,
+      aside: id,
+      follows: false,
+      source: { kind: 'capture' },
+    })
+  }
   return items
 }
 
@@ -171,6 +191,7 @@ export const presenceScene = (): SceneItem[] =>
     quickClaims: presenceQuickClaims(),
     quickPreview: quickClaimPreview(),
     tool: claimEditorPixels()?.parts ?? [],
+    capture: captureLines(),
   })
 
 let motion: ((id: SceneItemId) => PresenceRect | null) | null = null

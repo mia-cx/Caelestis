@@ -54,6 +54,8 @@ import {
  *   shader by sampling the mask a stroke-width away in screen space, so it never claims a pixel
  *   of its own and stays the same thickness at every zoom.
  * - The claim being edited: the same as a claim, from the editor's working document.
+ * - A capture run's lines: each painter's line drawn like their draft. Your own line steps aside
+ *   under the pointer, like your claims, so you can see the pixels you draft over it.
  *
  * Everything arrives and leaves on the shared fade ramp so a painter closing their tab does not
  * blink out.
@@ -211,6 +213,17 @@ const STYLES: Record<SceneKind, Style> = {
     pattern: 1,
     patternAlpha: 0.3,
     contrast: 0,
+  },
+  // A capture run's line: a draft's look, so a painter traces it exactly, on any team's colour.
+  capture: {
+    fill: 0,
+    border: 1,
+    borderWidth: 1.5,
+    dash: 0,
+    maskAlpha: 0.7,
+    pattern: 0,
+    patternAlpha: 0,
+    contrast: 0.7,
   },
   tool: {
     fill: 0,

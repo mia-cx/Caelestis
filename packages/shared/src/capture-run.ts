@@ -17,8 +17,8 @@ export const MAX_CAPTURE_PAINTERS = 16
 export const MAX_CAPTURE_LINE_PIXELS = 60
 /** Time between consecutive painters, long enough for the previous paint to land. */
 export const CAPTURE_STAGGER_MS = 500
-/** Time from Go to the first painter's slot, for every client to show the countdown. */
-export const CAPTURE_LEAD_MS = 5_000
+/** Time from Go to the first painter's slot: the first painter's ten-second countdown. */
+export const CAPTURE_LEAD_MS = 10_000
 
 export interface CaptureMember {
   readonly sessionId: string

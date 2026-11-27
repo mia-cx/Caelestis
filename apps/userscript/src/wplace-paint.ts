@@ -107,6 +107,15 @@ export const performPaintAction = (): boolean => {
   return button !== null
 }
 
+/**
+ * Submit the open draft through the drawer's Paint button, for a capture run's slot. The caller
+ * checks the `capture-paint` switch; Wplace flags the click as `UntrustedPaintSubmit`.
+ */
+export const submitPaintDraft = (): boolean => {
+  const drawer = paintDrawer(activePaintRoot())
+  return clickEnabled(drawer === null ? null : paintDrawerCommitButton(drawer))
+}
+
 /** Discard the current native Wplace draft, leaving unrelated Escape handling alone when closed. */
 export const cancelPaintDraft = (): boolean => {
   const drawer = paintDrawer(activePaintRoot())

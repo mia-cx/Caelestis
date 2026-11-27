@@ -1,4 +1,5 @@
 import { currentSurface } from './alliance-surface.js'
+import { installCaptureRuns } from './capture-runs.js'
 import { onMapFrame, requestMapFrame, screenProjection } from './map-view.js'
 import { presenceMaskMemoryBytes } from './presence-claims.js'
 import { installPresence, onPresenceChange } from './presence-client.js'
@@ -12,6 +13,7 @@ export const installPresenceFeatures = (): void => {
   registerProfileMemorySource('Presence region masks', presenceMaskMemoryBytes)
   registerProfileMemorySource('Presence component labels', presenceLabelMemoryBytes)
   installPresence()
+  installCaptureRuns()
   // MapLibre coalesces message bursts into one frame, which also refreshes the screen controls.
   onPresenceChange(requestMapFrame)
   onSceneHoverChange(requestMapFrame)
