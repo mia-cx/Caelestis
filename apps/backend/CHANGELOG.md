@@ -1,5 +1,11 @@
 # @caelestis/backend
 
+## 1.2.1
+
+### Patch Changes
+
+- 658019a: The server release publishes its container images again, so self-hosted and Helm deployments can run this version.
+
 ## 1.2.0
 
 ### Minor Changes
