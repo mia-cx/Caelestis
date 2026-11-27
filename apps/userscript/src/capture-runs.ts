@@ -1,7 +1,11 @@
 import plannerSource from 'worker:capture-planner'
 import {
   CAPTURE_LEAD_MS,
+  CAPTURE_STAGGER_MS,
+  CAPTURE_STAGGER_STEP_MS,
   type CaptureRun,
+  captureCoordinatorIndex,
+  capturePaintersDrafted,
   captureSlot,
   captureStep,
   captureSteps,
@@ -12,6 +16,9 @@ import {
   latLngToCanvasPixel,
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
+  MAX_CAPTURE_STAGGER_MS,
+  MIN_CAPTURE_STAGGER_MS,
+  moveCaptureMember,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -109,6 +116,7 @@ interface Proposal extends CaptureProposal {
 
 let painters = 3
 let guards = MAX_CAPTURE_GUARDS
+let staggerMs = CAPTURE_STAGGER_MS
 let proposals: readonly Proposal[] = []
 let message: string | undefined
 let element: CaelestisElement<'caelestis-capture-run'> | null = null
@@ -121,7 +129,6 @@ let disarm: () => void = () => {}
 let draftedSentAt = Number.NEGATIVE_INFINITY
 let teamTriedAt = Number.NEGATIVE_INFINITY
 let joinedRun: string | null = null
-let lastDrafted = -1
 
 /**
  * The event server this tab coordinates on, with its run: the one whose run it has joined, else one
@@ -790,6 +797,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
   const slot = run !== null && mine >= 0 && !idle ? captureSlot(run, mine) : null
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
+  const closer = run === null ? -1 : captureCoordinatorIndex(run)
   return {
     phase,
     admin,
@@ -797,6 +805,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
     maxPainters: MAX_CAPTURE_PAINTERS,
     guards: run?.guards ?? guards,
     maxGuards: MAX_CAPTURE_GUARDS,
+    staggerMs: run?.staggerMs ?? staggerMs,
     anchor:
       run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
         ? anchor
@@ -809,6 +818,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       length: (run?.lines[index]?.length ?? 0) / 2,
       me: index === mine,
       guard: run !== null && isCaptureGuard(run, index),
+      closes: index === closer,
     })),
     joined: mine >= 0,
     role: run === null || mine < 0 ? null : isCaptureGuard(run, mine) ? 'guard' : 'painter',
@@ -831,7 +841,8 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       run !== null &&
       run.startsAt === null &&
       run.lines.length > 0 &&
-      run.members.length >= run.lines.length,
+      run.members.length >= run.lines.length &&
+      capturePaintersDrafted(run),
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
     myTurn:
       run !== null && mine >= 0 && !idle && !isCaptureGuard(run, mine)
@@ -856,6 +867,14 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       guards = Math.min(MAX_CAPTURE_GUARDS, Math.max(0, Math.round(intent.guards)))
       proposals = []
       break
+    case 'set-stagger': {
+      const steps = Math.round(intent.staggerMs / CAPTURE_STAGGER_STEP_MS)
+      staggerMs = Math.min(
+        MAX_CAPTURE_STAGGER_MS,
+        Math.max(MIN_CAPTURE_STAGGER_MS, steps * CAPTURE_STAGGER_STEP_MS),
+      )
+      break
+    }
     case 'open': {
       // The run is for this administrator's team.
       void refreshTeam()
@@ -866,7 +885,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
           if (team === null) message = 'Join a team in the event first.'
           else {
             proposals = []
-            sendCapture(server, { type: 'capture-open', painters, guards })
+            sendCapture(server, { type: 'capture-open', painters, guards, staggerMs })
           }
         })
         .catch(() => {
@@ -886,12 +905,8 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       sendCapture(server, { type: 'capture-leave' })
       break
     case 'move': {
-      const order = view.run?.members.map(({ sessionId }) => sessionId) ?? []
-      const from = order.indexOf(intent.id)
-      const to = from + intent.by
-      if (from < 0 || to < 0 || to >= order.length) break
-      order.splice(to, 0, ...order.splice(from, 1))
-      sendCapture(server, { type: 'capture-order', order })
+      const order = view.run === null ? null : moveCaptureMember(view.run, intent.id, intent.by)
+      if (order !== null) sendCapture(server, { type: 'capture-order', order })
       break
     }
     case 'propose':
@@ -953,13 +968,11 @@ const tick = (): void => {
         syncCaptureClock(view.server)
       }
       const line = run.lines[mine]
-      // Report only what the run does not already say, once per value until it does.
+      // Report whatever the run does not already say, including after the server resets it for a
+      // new line; the report interval keeps a report still in flight from repeating often.
       const drafted = line === undefined ? 0 : draftedOn(run.team, line)
-      const reported = run.members[mine]?.drafted
       const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
-      if (drafted === reported) lastDrafted = drafted
-      else if (drafted !== lastDrafted && run.startsAt === null && due) {
-        lastDrafted = drafted
+      if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
         draftedSentAt = localClock()
         sendCapture(view.server, { type: 'capture-drafted', drafted })
       }
@@ -1033,10 +1046,7 @@ export const installCaptureRuns = (): void => {
     if (view !== null && run !== null && key !== lastRun && run.startsAt !== null)
       syncCaptureClock(view.server)
     lastRun = key
-    if (run === null) {
-      lastDrafted = -1
-      disarm()
-    }
+    if (run === null) disarm()
     watchAnchor(view, run, view === null ? -1 : memberIndex(view))
     render()
   })

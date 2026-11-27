@@ -19,6 +19,8 @@ export interface CaptureRunMember {
   readonly me: boolean
   /** An anchor guard: thickens one end of the wall at the start, then holds it. */
   readonly guard: boolean
+  /** The administrator who opened the run: they keep the last painter's place and close the wall. */
+  readonly closes: boolean
 }
 
 export interface CaptureProposal {
@@ -51,6 +53,8 @@ export interface CaptureRunModel {
   /** Anchor guards on top of the painters, likewise. */
   readonly guards: number
   readonly maxGuards: number
+  /** Time between countdown steps, likewise; within the shared capture stagger bounds. */
+  readonly staggerMs: number
   /**
    * For a guard once the run has started: whether their anchor still belongs to the team. `cut`
    * also plays an alarm; the guard repaints it from their line.
@@ -70,7 +74,10 @@ export interface CaptureRunModel {
    * pressed, or `propose` stops it.
    */
   readonly proposing: boolean
-  /** Administrator only: Go is allowed (a plan is published and every line has a painter). */
+  /**
+   * Administrator only: Go is allowed: a plan is published, every line has a painter, and every
+   * painter has drafted their line.
+   */
   readonly canStart: boolean
   /**
    * When this tab's painter paints, as a `performance.now()` time, while counting down and they
@@ -91,6 +98,7 @@ export interface CaptureRunModel {
 export type CaptureRunIntent =
   | { readonly type: 'set-painters'; readonly painters: number }
   | { readonly type: 'set-guards'; readonly guards: number }
+  | { readonly type: 'set-stagger'; readonly staggerMs: number }
   | { readonly type: 'open' }
   | { readonly type: 'join' }
   | { readonly type: 'leave' }

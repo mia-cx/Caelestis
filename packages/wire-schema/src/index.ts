@@ -1,5 +1,6 @@
 import type * as Shared from '@caelestis/shared'
 import {
+  CAPTURE_STAGGER_STEP_MS,
   isCompactCaptureLine,
   isPresenceDraft,
   isRegionDocument,
@@ -8,6 +9,7 @@ import {
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_LINE_PIXELS,
   MAX_CAPTURE_PAINTERS,
+  MAX_CAPTURE_STAGGER_MS,
   MAX_DESCRIPTION_LENGTH,
   MAX_HOME_COPY_LENGTH,
   MAX_LIVE_MESSAGE_BYTES,
@@ -30,6 +32,7 @@ import {
   MAX_REGION_SHAPE_EXTENT,
   MAX_STROKE_WIDTH,
   MAX_TILE_OFFERS,
+  MIN_CAPTURE_STAGGER_MS,
   MIN_REGION_SHAPE_CORNERS,
   PALETTE_SIZE,
   parseDiscordInviteUrl,
@@ -218,9 +221,17 @@ const Epoch = integerBetween(0, Number.MAX_SAFE_INTEGER)
 
 const TerritoryTeam = Schema.Literals([0, 1, 2, 3])
 
+const CaptureStagger = integerBetween(MIN_CAPTURE_STAGGER_MS, MAX_CAPTURE_STAGGER_MS).check(
+  booleanFilter(
+    (ms: number) => ms % CAPTURE_STAGGER_STEP_MS === 0,
+    `a capture stagger is a multiple of ${CAPTURE_STAGGER_STEP_MS} ms`,
+  ),
+)
+
 export const CaptureRun = Schema.Struct({
   id: Identifier,
   team: TerritoryTeam,
+  coordinator: Schema.NullOr(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
   guards: integerBetween(0, MAX_CAPTURE_GUARDS),
   members: boundedArray(
@@ -233,7 +244,7 @@ export const CaptureRun = Schema.Struct({
   ),
   lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
   startsAt: Schema.NullOr(Epoch),
-  staggerMs: integerBetween(0, 10_000),
+  staggerMs: CaptureStagger,
 })
 
 export const PresenceClientEvent = Schema.Union([
@@ -242,6 +253,7 @@ export const PresenceClientEvent = Schema.Union([
     type: Schema.Literal('capture-open'),
     painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
     guards: integerBetween(0, MAX_CAPTURE_GUARDS),
+    staggerMs: Schema.optionalKey(CaptureStagger),
   }),
   Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),

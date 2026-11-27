@@ -11,7 +11,8 @@ import { isWorkIdentity } from './work.js'
  * administrator publishes the plan and starts it; the server stamps the start time. Painters go in
  * pairs from the wall's two anchors: painter `i` (from 0) paints line `i` at
  * `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which each client estimates with
- * `clock` round trips.
+ * `clock` round trips. An administrator who joins their own run always paints in the last step,
+ * so the closing line, and the captured area, is theirs.
  *
  * The last `guards` members are anchor guards, outside the stagger: each paints a strip that
  * thickens the wall where one end meets the team's territory, at `startsAt` with the first painter,
@@ -26,8 +27,13 @@ export const MAX_CAPTURE_LINE_SPAN = 1_024
 export const MAX_CAPTURE_LINE_AREA = 1 << 18
 /** Pixels in one line: a painter's full charges in the territory event. */
 export const MAX_CAPTURE_LINE_PIXELS = 60
-/** Time between consecutive painters, long enough for the previous paint to land. */
+/** Default time between consecutive steps, long enough for the previous paint to land. */
 export const CAPTURE_STAGGER_MS = 500
+/** The shortest stagger: Wplace's event canvas pushes updates every 200 ms, so no step lands sooner. */
+export const MIN_CAPTURE_STAGGER_MS = 200
+export const MAX_CAPTURE_STAGGER_MS = 2_000
+/** A run's stagger is a whole number of these. */
+export const CAPTURE_STAGGER_STEP_MS = 50
 /** Time from Go to the first painter's slot: the first painter's ten-second countdown. */
 export const CAPTURE_LEAD_MS = 10_000
 
@@ -45,6 +51,11 @@ export interface CaptureRun {
    * shares it with that team's sessions only, so every member draws and paints in its colours.
    */
   readonly team: TerritoryTeam
+  /**
+   * The Wplace user who opened the run. While they are a member they paint the last painter's
+   * line, so the captured area is attributed to them. Null on a run opened before it was recorded.
+   */
+  readonly coordinator: number | null
   /** Painters who build the wall, in turn. */
   readonly painters: number
   /** Anchor guards, after the painters in `members` and `lines`. */
@@ -59,7 +70,13 @@ export interface CaptureRun {
 
 export type CaptureClientEvent =
   /** Capture events act on the run of the team the session last reported in `presence-update`. */
-  | { readonly type: 'capture-open'; readonly painters: number; readonly guards: number }
+  | {
+      readonly type: 'capture-open'
+      readonly painters: number
+      readonly guards: number
+      /** Time between steps; `CAPTURE_STAGGER_MS` when omitted. */
+      readonly staggerMs?: number
+    }
   /** Joining names the run the painter chose, so a join that arrives after it was replaced joins nothing. */
   | { readonly type: 'capture-join'; readonly run: string }
   | { readonly type: 'capture-leave' }
@@ -89,6 +106,33 @@ export const captureSteps = (run: CaptureRun): number => Math.ceil(run.painters 
 /** When member `index` paints, on the server's clock; null until the run starts. */
 export const captureSlot = (run: CaptureRun, index: number): number | null =>
   run.startsAt === null ? null : run.startsAt + captureStep(run, index) * run.staggerMs
+
+/**
+ * The member order after moving member `id` one place earlier (-1) or later (1), as session ids.
+ * The coordinator keeps the last painter's place, so they don't move and a move steps over them.
+ * Null when the move has nowhere to go.
+ */
+export const moveCaptureMember = (run: CaptureRun, id: string, by: -1 | 1): string[] | null => {
+  const pinned = captureCoordinatorIndex(run)
+  const order = run.members.filter((_, index) => index !== pinned).map(({ sessionId }) => sessionId)
+  const from = order.indexOf(id)
+  const to = from + by
+  if (from < 0 || to < 0 || to >= order.length) return null
+  order.splice(to, 0, ...order.splice(from, 1))
+  return order
+}
+
+/** Whether every wall painter has drafted their whole line; guards don't count. */
+export const capturePaintersDrafted = (run: CaptureRun): boolean =>
+  run.members
+    .slice(0, run.painters)
+    .every((member, index) => member.drafted >= (run.lines[index]?.length ?? 0) / 2)
+
+/** The member index of the run's coordinator, or -1 when they have not joined. */
+export const captureCoordinatorIndex = (run: CaptureRun): number =>
+  run.coordinator === null
+    ? -1
+    : run.members.findIndex(({ painter }) => painter.wplaceUserId === run.coordinator)
 
 /**
  * Whether a line's pixels fit a box small enough to draw: a wall line is at most one line long, but
@@ -132,9 +176,12 @@ const isMember = (value: unknown): value is CaptureMember =>
 export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
   if (!isRecord(value)) return null
   const { id, team, painters, guards, members, lines, startsAt, staggerMs } = value
+  // An older server sends no coordinator.
+  const coordinator = value.coordinator ?? null
   if (
     typeof id !== 'string' ||
     !(team === 0 || team === 1 || team === 2 || team === 3) ||
+    !(coordinator === null || isSafeInteger(coordinator)) ||
     !isSafeInteger(painters) ||
     !isSafeInteger(guards) ||
     !Array.isArray(members) ||
@@ -146,5 +193,5 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !isSafeInteger(staggerMs)
   )
     return null
-  return { id, team, painters, guards, members, lines, startsAt, staggerMs }
+  return { id, team, coordinator, painters, guards, members, lines, startsAt, staggerMs }
 }

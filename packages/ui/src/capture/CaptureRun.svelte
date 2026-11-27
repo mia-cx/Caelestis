@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { CAPTURE_STAGGER_STEP_MS, MAX_CAPTURE_STAGGER_MS, MIN_CAPTURE_STAGGER_MS } from '@caelestis/shared'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import type { CaptureRunIntent, CaptureRunModel } from './model.js'
@@ -10,6 +11,8 @@
   const ANNOUNCED_SECONDS = [1, 2, 3, 5, 10] as const
 
   const gathering = $derived(model.phase === 'gathering')
+  /** The rows an administrator can move; the closer's place is fixed. */
+  const movable = $derived(model.members.filter((member) => !member.closes))
   const counting = $derived(model.phase === 'countdown')
   const ordinal = new Intl.PluralRules('en', { type: 'ordinal' })
   const SUFFIX: Partial<Record<Intl.LDMLPluralRule, string>> = { one: 'st', two: 'nd', few: 'rd' }
@@ -89,6 +92,12 @@
           <output class="caelestis-field">{model.guards}</output>
           <Button label="More guards" kind="ghost" size="small" iconOnly disabled={model.guards >= model.maxGuards} onclick={() => onIntent({ type: 'set-guards', guards: model.guards + 1 })}><Icon name="add" /></Button>
         </div>
+        <span class="label" id="capture-run-stagger">Stagger</span>
+        <div class="stepper" role="group" aria-labelledby="capture-run-stagger">
+          <Button label="Shorter stagger" kind="ghost" size="small" iconOnly disabled={model.staggerMs <= MIN_CAPTURE_STAGGER_MS} onclick={() => onIntent({ type: 'set-stagger', staggerMs: model.staggerMs - CAPTURE_STAGGER_STEP_MS })}><Icon name="remove" /></Button>
+          <output class="caelestis-field wide">{model.staggerMs} ms</output>
+          <Button label="Longer stagger" kind="ghost" size="small" iconOnly disabled={model.staggerMs >= MAX_CAPTURE_STAGGER_MS} onclick={() => onIntent({ type: 'set-stagger', staggerMs: model.staggerMs + CAPTURE_STAGGER_STEP_MS })}><Icon name="add" /></Button>
+        </div>
         <Button label="Open run" kind="primary" size="small" onclick={() => onIntent({ type: 'open' })} />
       </div>
     {/if}
@@ -120,17 +129,22 @@
           <li class:me={member.me}>
             {#if member.guard}<span class="place" aria-label="Anchor guard" title="Anchor guard">G</span>{:else}<span class="place">{index + 1}</span>{/if}
             <span class="swatch" style:background-color={member.colour} aria-hidden="true"></span>
-            <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
+            <span class="who">
+              <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
+              {#if member.closes}<span class="closes">Closes wall</span>{/if}
+            </span>
             {#if member.length > 0}
               <span class="ready" class:done={ready} aria-label={`${member.drafted} of ${member.length} pixels drafted`}>{#if ready}<Icon name="check" size="0.875rem" />{/if}{member.drafted}/{member.length}</span>
             {/if}
             {#if member.me && member.length > 0 && model.phase !== 'done'}
               <Button label="Show my line" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'show-line' })}><Icon name="flyTo" size="0.875rem" /></Button>
             {/if}
-            {#if model.admin && gathering}
+            <!-- The closer keeps their place: their row doesn't move, and moves step over it. -->
+            {#if model.admin && gathering && !member.closes}
+              {@const place = movable.indexOf(member)}
               <span class="order">
-                <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={index === 0} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
-                <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={index === model.members.length - 1} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
+                <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={place === 0} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
+                <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={place === movable.length - 1} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
               </span>
             {/if}
           </li>
@@ -234,6 +248,7 @@
     font: 600 0.875rem/1 var(--caelestis-font);
     font-variant-numeric: tabular-nums;
   }
+  .open .stepper output.wide { inline-size: 4.5rem; }
   .stepper { display: flex; flex: 1; align-items: center; gap: 0.125rem; }
   .stepper input {
     inline-size: 3rem;
@@ -272,8 +287,10 @@
   .members li.me { background: var(--caelestis-raised-surface); }
   .place { inline-size: 1rem; color: var(--caelestis-muted-text); text-align: end; }
   .swatch { flex: none; inline-size: 0.75rem; block-size: 0.75rem; border: 1px solid color-mix(in oklab, var(--caelestis-text) 30%, transparent); border-radius: 2px; }
-  .name { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; }
+  .name, .closes { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .you { margin-inline-start: 0.25em; color: var(--caelestis-muted-text); }
+  .closes { color: var(--caelestis-muted-text); font-size: 0.75rem; line-height: 1.2; }
   .ready { display: inline-flex; align-items: center; gap: 0.125rem; color: var(--caelestis-muted-text); }
   .ready.done { color: var(--caelestis-success); }
   .order { display: inline-flex; }
