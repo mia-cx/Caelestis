@@ -92,6 +92,22 @@ it('reads the painter’s event team from Wplace and binds the first invite they
   expect((await sql.readAccessToken(await hashToken(token)))?.team).toBe(2)
 })
 
+it('connects a token to an ordinary server without asking Wplace for a team', async () => {
+  const { app } = await createTestBackend()
+  const backend = backendFetch(app, origin)
+  const leaderboard = 'https://backend.wplace.live/territory/leaderboard'
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) =>
+    String(input) === leaderboard ? Response.json({ me: { team: 2 } }) : await backend(input, init),
+  )
+  vi.stubGlobal('fetch', fetch)
+  window.fetch = fetch
+  const invite = await load()
+
+  expect((await invite.accept(reportToken))?.kind).toBe('connected')
+
+  expect(fetch.mock.calls.map(([input]) => String(input))).not.toContain(leaderboard)
+})
+
 it('leaves an event-runner invite unspent when the connection list is full', async () => {
   const fetch = await installBackend()
   const invite = await load()
