@@ -105,7 +105,7 @@
       <div class="clock" class:now={atSlot} aria-hidden="true">
         <p class="lead">
           <span>{left > 0 ? (mine ? 'Paint in' : 'First painter in') : mine ? 'Paint now' : 'Painting'}</span>
-          {#if model.anchor !== null}<span class="turn">Anchor guard</span>{:else if model.myTurn !== null}<span class="turn">{nth(model.myTurn)} of {model.painters}</span>{/if}
+          {#if model.anchor !== null}<span class="turn">Anchor guard</span>{:else if model.myTurn !== null}<span class="turn">{nth(model.myTurn)} of {model.turns}</span>{/if}
         </p>
         <p class="big">{clock(left)}</p>
       </div>

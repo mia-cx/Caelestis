@@ -210,7 +210,7 @@ const CaptureLine = boundedArray(
 ).check(
   booleanFilter(
     (line: readonly number[]) => line.length % 2 === 0 && isCompactCaptureLine(line),
-    'a capture line is pairs of coordinates within one line-length box',
+    'a capture line is pairs of coordinates within a bounded box',
   ),
 )
 const Epoch = integerBetween(0, Number.MAX_SAFE_INTEGER)

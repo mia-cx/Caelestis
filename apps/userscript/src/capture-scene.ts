@@ -158,11 +158,26 @@ export const caterpillarFrames = (path: readonly Pixel[], line: readonly Pixel[]
   return spans.map(([from, to]) => route.slice(from, to + 1))
 }
 
-/** A guard's anchor: the strip they paint and the end of the wall it thickens, as one box. */
-export const anchorRect = (run: CaptureRun, index: number, strip: number): PresenceRect | null => {
-  const wall = run.lines.slice(0, run.painters).flatMap(linePixels)
-  const end = index === run.painters ? wall.slice(0, strip) : wall.slice(-strip)
-  const box = pixelMask([...linePixels(run.lines[index] ?? []), ...end])?.rect
-  // One pixel of margin so the dashed box sits around the pixels, not on them.
-  return box === undefined ? null : { x: box.x - 1, y: box.y - 1, w: box.w + 2, h: box.h + 2 }
+/**
+ * The wall cells nearest each anchor a guard holds, anchor first: from where line A1 starts and
+ * where line B1 starts. One guard holds both anchors; with two, the first holds A and the second B.
+ */
+const heldEnds = (run: CaptureRun, index: number, depth: number): Pixel[][] => {
+  const a = linePixels(run.lines[0] ?? [])
+  const b = run.painters > 1 ? linePixels(run.lines[1] ?? []) : [...a].reverse()
+  const ends = [a.slice(0, depth), b.slice(0, depth)].filter((end) => end.length > 0)
+  return run.guards === 1 ? ends : ends.slice(index - run.painters, index - run.painters + 1)
 }
+
+/** A dashed box around each anchor a guard holds, wide enough for their zone on either side. */
+export const anchorRects = (run: CaptureRun, index: number, margin: number): PresenceRect[] =>
+  heldEnds(run, index, 1).map(([anchor]) => {
+    const { x, y } = anchor as Pixel
+    return { x: x - margin, y: y - margin, w: 2 * margin + 1, h: 2 * margin + 1 }
+  })
+
+/** What a guard watches: their zone, and the wall's first cells from each anchor they hold. */
+export const anchorWatch = (run: CaptureRun, index: number, margin: number): Pixel[] => [
+  ...linePixels(run.lines[index] ?? []),
+  ...heldEnds(run, index, margin).flat(),
+]

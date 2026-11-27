@@ -1,19 +1,21 @@
 import {
   type ArenaPixel,
-  anchorStrips,
   arenaToWorld,
+  borderBoxPlanner,
   CAPTURE_LEAD_MS,
   type CaptureRun,
   captureSlot,
+  captureStep,
+  captureSteps,
   decodePng,
-  edgeRectanglePlanner,
+  GUARD_MARGIN,
   isCaptureGuard,
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
+  NO_TEAM,
   PALETTE_RGB,
   type RegionShapePixels,
   simulateCapture,
-  TERRITORY_ARENA,
   TERRITORY_CHARGES,
   TERRITORY_TEAMS,
   type TerritoryMap,
@@ -30,7 +32,8 @@ import type {
 } from '@caelestis/ui/elements'
 import { type CaptureCue, primeCaptureAudio, scheduleCaptureCues } from './capture-cues.js'
 import {
-  anchorRect,
+  anchorRects,
+  anchorWatch,
   approachPath,
   type CaptureItem,
   type CaptureItemKind,
@@ -72,8 +75,6 @@ import { BACKEND_ORIGIN } from './wplace-raster.js'
  */
 
 const ELEMENT_ID = 'caelestis-capture-run'
-/** Pixels in a guard's strip: half their charges, so the other half can repaint the anchor. */
-const GUARD_STRIP = TERRITORY_CHARGES / 2
 /** How often a guard reads Wplace's territory map: as often as Wplace refreshes it. */
 const WATCH_MS = 5_000
 /** How long after a guard's slot their anchor is first checked, so the start can land. */
@@ -284,11 +285,9 @@ export const captureItems = (): readonly CaptureItem[] => {
         items.push(masked(kind, pixels, kind === 'mine' ? colour : dark))
       }
     })
-    for (let index = run.painters; index < run.lines.length; index++) {
-      const rect = anchorRect(run, index, GUARD_STRIP)
-      if (rect !== null)
+    for (let index = run.painters; index < run.lines.length; index++)
+      for (const rect of anchorRects(run, index, GUARD_MARGIN))
         items.push({ kind: 'anchor', rect, pixels: null, colour: index === mine ? colour : dark })
-    }
     held = { key, items }
     itemsCache.set(run, held)
   }
@@ -311,19 +310,23 @@ export const captureItems = (): readonly CaptureItem[] => {
   return frame === null ? shown : [...shown, masked('demo', frame, colour)]
 }
 
-const edgeLabel = (lines: readonly (readonly number[])[]): string => {
-  const first = linePixels(lines[0] ?? [])[0]
-  if (first === undefined) return 'Wall'
-  const local = {
-    x: first.x - TERRITORY_ARENA.tileX * TILE_SIZE,
-    y: first.y - TERRITORY_ARENA.tileY * TILE_SIZE,
+/** What a proposal reads as: the team its wall cuts into, and whether it uses the canvas edge. */
+const proposalLabel = (map: TerritoryMap, wall: readonly ArenaPixel[]): string => {
+  const counts = new Map<number, number>()
+  let edge = false
+  const last = map.size - 1
+  for (const { x, y } of wall) {
+    const owner = map.owner[y * map.size + x] as number
+    counts.set(owner, (counts.get(owner) ?? 0) + 1)
+    edge ||= x === 0 || y === 0 || x === last || y === last
   }
-  const last = TERRITORY_ARENA.size - 1
-  if (local.y === last) return 'Along the bottom edge'
-  if (local.y === 0) return 'Along the top edge'
-  if (local.x === last) return 'Along the right edge'
-  if (local.x === 0) return 'Along the left edge'
-  return 'Wall'
+  const [enemy] =
+    [...counts].filter(([owner]) => owner !== NO_TEAM).sort((a, b) => b[1] - a[1])[0] ?? []
+  const name =
+    enemy === undefined
+      ? 'open ground'
+      : (TERRITORY_TEAMS[enemy as TerritoryTeam]?.key ?? 'open ground')
+  return `Into ${name}${edge ? ', on the canvas edge' : ''}`
 }
 
 /** This painter's team in the event, from Wplace's own leaderboard. */
@@ -360,19 +363,13 @@ let watcher: ReturnType<typeof setInterval> | null = null
 let watching: string | null = null
 
 /** The pixels a guard holds: their strip and the end of the wall it thickens. */
-const anchorPixels = (run: CaptureRun, index: number): { x: number; y: number }[] => {
-  const wall = run.lines.slice(0, run.painters).flatMap(linePixels)
-  const end = index === run.painters ? wall.slice(0, GUARD_STRIP) : wall.slice(-GUARD_STRIP)
-  return [...linePixels(run.lines[index] ?? []), ...end]
-}
-
 /** Read the map once and sound the alarm when any anchor pixel has left the team. */
 const checkAnchor = async (run: CaptureRun, index: number, key: string): Promise<void> => {
   const team = myTeam
   const map = team === null ? null : await loadTerritory()
   // The run may have closed or moved on while the map was on its way.
   if (map === null || team === null || watching !== key) return
-  const cut = anchorPixels(run, index).some((pixel) => {
+  const cut = anchorWatch(run, index, GUARD_MARGIN).some((pixel) => {
     const local = worldToArena(pixel)
     return local !== null && map.owner[local.y * map.size + local.x] !== team
   })
@@ -430,37 +427,37 @@ const propose = async (groupSize: number, guardCount: number): Promise<void> => 
       message = 'Wplace did not send the territory map. Try again.'
       return
     }
-    const plans = edgeRectanglePlanner({
+    const plans = borderBoxPlanner({
       map,
       team,
       painters: groupSize,
+      guards: guardCount,
       charges: TERRITORY_CHARGES,
     })
-    proposals = plans.map((plan, index) => {
-      // One simulation serves the score, the guards' strips and the hatched area. The strips sit
-      // inside what the wall encloses, so they change neither.
+    const toWorld = (line: readonly ArenaPixel[]) =>
+      line.flatMap((pixel) => {
+        const world = arenaToWorld(pixel)
+        return [world.x, world.y]
+      })
+    // The planner's shape is its defence; one simulation per plan only confirms it closes, and
+    // serves its score and hatched area.
+    proposals = plans.flatMap((plan, index) => {
       const outcome = simulateCapture(map, team, plan)
-      const strips =
-        guardCount === 0
-          ? []
-          : anchorStrips(map, team, plan, GUARD_STRIP, outcome.map).slice(0, guardCount)
-      const toWorld = (line: readonly ArenaPixel[]) =>
-        line.flatMap((pixel) => {
-          const world = arenaToWorld(pixel)
-          return [world.x, world.y]
-        })
+      if (outcome.refused > 0 || outcome.gained <= 0) return []
       const wall = plan.lines.map(toWorld)
-      return {
-        id: String(index),
-        label: edgeLabel(wall),
-        gained: outcome.gained,
-        pixels: outcome.painted + strips.reduce((sum, strip) => sum + strip.length, 0),
-        published: false,
-        lines: [...wall, ...strips.map(toWorld)],
-        area: enclosedArea(map, team, wall, outcome.map),
-      }
+      return [
+        {
+          id: String(index),
+          label: proposalLabel(map, plan.lines.flat()),
+          gained: outcome.gained,
+          pixels: outcome.painted,
+          published: false,
+          lines: [...wall, ...plan.guardZones.map(toWorld)],
+          area: enclosedArea(map, team, wall, outcome.map),
+        },
+      ]
     })
-    if (proposals.length === 0) message = 'No wall fits along an edge your team holds.'
+    if (proposals.length === 0) message = 'No wall fits this many painters along your border.'
     // Fly to the best plan, so the shape being chosen is on screen.
     const best = proposals[0]
     const box = best === undefined ? null : pixelMask(best.lines.flatMap(linePixels))?.rect
@@ -620,7 +617,9 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       run.lines.length > 0 &&
       run.members.length >= run.lines.length,
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
-    myTurn: run !== null && mine >= 0 && !isCaptureGuard(run, mine) ? mine + 1 : null,
+    myTurn:
+      run !== null && mine >= 0 && !isCaptureGuard(run, mine) ? captureStep(run, mine) + 1 : null,
+    turns: run === null ? Math.ceil(painters / 2) : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
     ...(message === undefined ? {} : { message }),
   }

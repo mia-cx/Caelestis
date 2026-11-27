@@ -3,6 +3,7 @@ import {
   type CaptureRun,
   decodePresenceServerEvent,
   liveCredentialProtocol,
+  MAX_PRESENCE_MESSAGES_PER_SECOND,
   type PainterIdentity,
   PRESENCE_DRAFT_MIN_MS,
   PRESENCE_HEARTBEAT_MS,
@@ -68,6 +69,9 @@ const RECONNECT_JITTER_MS = 500
 /** Round trips per clock sync, and the gap between them: under the server's message rate limit. */
 const CLOCK_PINGS = 6
 const CLOCK_PING_GAP_MS = 250
+/** The server's rate window, and the share of its limit this tab uses: one short, for headroom. */
+const RATE_WINDOW_MS = 1_000
+const SEND_BUDGET = MAX_PRESENCE_MESSAGES_PER_SECOND - 1
 /** The shortest time between two sync bursts on one socket. */
 const CLOCK_RESYNC_MS = CLOCK_PINGS * CLOCK_PING_GAP_MS + 1_000
 
@@ -114,6 +118,11 @@ interface Connection {
   clock: ClockSample | null
   /** When the last clock sync burst started, so callers may ask as often as they like. */
   clockSyncAt: number
+  /** When each message of the last second went, for the shared send budget. */
+  sentAt: number[]
+  /** Capture and clock messages waiting for budget, in order. */
+  outbox: (() => PresenceClientEvent)[]
+  outboxTimer: ReturnType<typeof setTimeout> | null
   attempts: number
   reconnectTimer: ReturnType<typeof setTimeout> | null
   heartbeatTimer: ReturnType<typeof setTimeout> | null
@@ -175,9 +184,29 @@ const sameDraft = (left: PresenceDraft | null, right: PresenceDraft | null): boo
 const sameRects = (left: readonly PresenceRect[], right: readonly PresenceRect[]): boolean =>
   left.length === right.length && left.every((rect, index) => sameRect(rect, right[index] ?? null))
 
+/** Messages sent in the last second, pruned; what the server's rate limit counts. */
+const recentSends = (connection: Connection, at = Date.now()): number[] => {
+  connection.sentAt = connection.sentAt.filter((sent) => at - sent < RATE_WINDOW_MS)
+  return connection.sentAt
+}
+
+/** Milliseconds until the socket may send again: zero while it is under its budget. */
+const sendWait = (connection: Connection): number => {
+  const at = Date.now()
+  const recent = recentSends(connection, at)
+  return recent.length < SEND_BUDGET ? 0 : (recent[0] as number) + RATE_WINDOW_MS - at
+}
+
+/**
+ * Send one event if the socket has budget for it. The server closes a socket past its message
+ * rate, and timers held back by a long task fire together, so every message counts against one
+ * budget; a caller told no tries again later.
+ */
 const send = (connection: Connection, event: PresenceClientEvent): boolean => {
   const socket = connection.socket
   if (socket === null || socket.readyState !== WebSocket.OPEN) return false
+  if (sendWait(connection) > 0) return false
+  connection.sentAt.push(Date.now())
   try {
     measureProfile('Presence send', () => {
       const payload = JSON.stringify(event)
@@ -199,14 +228,40 @@ const armHeartbeat = (connection: Connection): void => {
     // The full state goes with the heartbeat, so a server that hibernated and lost this session's
     // draft mask gets it back without any extra message.
     const draft = canPublish() ? (connection.sent.draft ?? null) : null
-    if (draft === null) send(connection, { type: 'presence-heartbeat' })
-    else
-      send(connection, {
-        type: 'presence-update',
-        viewport: connection.sent.viewport ?? null,
-        draft,
-      })
+    const sent =
+      draft === null
+        ? send(connection, { type: 'presence-heartbeat' })
+        : send(connection, {
+            type: 'presence-update',
+            viewport: connection.sent.viewport ?? null,
+            draft,
+          })
+    if (!sent && isOpen(connection))
+      connection.heartbeatTimer = setTimeout(() => armHeartbeat(connection), sendWait(connection))
   }, PRESENCE_HEARTBEAT_MS)
+}
+
+/**
+ * Queue a capture or clock message, built when it actually goes so a clock ping carries its true
+ * send time, and drain the queue as the budget allows.
+ */
+const enqueue = (connection: Connection, build: () => PresenceClientEvent): void => {
+  connection.outbox.push(build)
+  drain(connection)
+}
+
+const drain = (connection: Connection): void => {
+  if (connection.outboxTimer !== null) return
+  while (connection.outbox.length > 0 && isOpen(connection)) {
+    const next = connection.outbox[0] as () => PresenceClientEvent
+    if (!send(connection, next())) break
+    connection.outbox.shift()
+  }
+  if (connection.outbox.length === 0 || !isOpen(connection)) return
+  connection.outboxTimer = setTimeout(() => {
+    connection.outboxTimer = null
+    drain(connection)
+  }, sendWait(connection))
 }
 
 /** What this tab is willing to publish right now: the local state, or nothing at all. */
@@ -253,8 +308,14 @@ const flush = (connection: Connection): void => {
   const sendViewport = viewport.dirty && viewport.wait === 0
   const sendDraft = draft.dirty && draft.wait === 0
   const sendQuickClaims = quickClaims.dirty && quickClaims.wait === 0
+  const due = sendViewport || sendDraft || sendQuickClaims
+  if (due && sendWait(connection) > 0) {
+    // Over budget for this second: the same changes go as soon as there is room.
+    connection.flushTimer = setTimeout(() => flush(connection), sendWait(connection))
+    return
+  }
   if (
-    (sendViewport || sendDraft || sendQuickClaims) &&
+    due &&
     send(connection, {
       type: 'presence-update',
       ...(sendViewport ? { viewport: viewport.value } : {}),
@@ -346,6 +407,9 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
 }
 
 const clearTimers = (connection: Connection): void => {
+  if (connection.outboxTimer !== null) clearTimeout(connection.outboxTimer)
+  connection.outboxTimer = null
+  connection.outbox = []
   if (connection.reconnectTimer !== null) clearTimeout(connection.reconnectTimer)
   if (connection.heartbeatTimer !== null) clearTimeout(connection.heartbeatTimer)
   if (connection.flushTimer !== null) clearTimeout(connection.flushTimer)
@@ -516,6 +580,9 @@ const reconcile = (): void => {
       canWrite: false,
       clock: null,
       clockSyncAt: Number.NEGATIVE_INFINITY,
+      sentAt: [],
+      outbox: [],
+      outboxTimer: null,
       attempts: 0,
       reconnectTimer: null,
       heartbeatTimer: null,
@@ -631,7 +698,9 @@ const connectionFor = (server: ServerConnection): Connection | undefined =>
 /** Send a capture event on a server's presence socket. False when it has none open. */
 export const sendCapture = (server: ServerConnection, event: CaptureClientEvent): boolean => {
   const connection = connectionFor(server)
-  return connection !== undefined && send(connection, event)
+  if (connection === undefined || !isOpen(connection)) return false
+  enqueue(connection, () => event)
+  return true
 }
 
 /**
@@ -647,7 +716,8 @@ export const syncCaptureClock = (server: ServerConnection): void => {
   connection.clockSyncAt = now
   for (let ping = 0; ping < CLOCK_PINGS; ping++)
     setTimeout(() => {
-      if (isOpen(connection)) send(connection, { type: 'clock', sent: Math.round(localClock()) })
+      if (isOpen(connection))
+        enqueue(connection, () => ({ type: 'clock', sent: Math.round(localClock()) }))
     }, ping * CLOCK_PING_GAP_MS)
 }
 

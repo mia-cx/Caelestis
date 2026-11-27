@@ -75,8 +75,10 @@ export interface CaptureRunModel {
    * on its own, shown as `mm:ss.mmm`.
    */
   readonly mySlotAt: number | null
-  /** This painter's place in the order, from 1, while they are a member. */
+  /** This painter's countdown step, from 1, while they paint the wall; pairs share a step. */
   readonly myTurn: number | null
+  /** Countdown steps the wall takes: the painters in pairs. */
+  readonly turns: number
   /** When the first painter paints, as a `performance.now()` time, while counting down. */
   readonly startsAt: number | null
   /** A short status or error, e.g. "Your team holds no arena edge to build from." */

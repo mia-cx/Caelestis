@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   type ArenaPixel,
-  anchorStrips,
-  edgeRectanglePlanner,
+  borderBoxPlanner,
+  chamferWall,
   NO_TEAM,
+  pairLines,
   simulateCapture,
   type TerritoryMap,
 } from './territory.js'
@@ -42,40 +43,69 @@ describe('simulateCapture', () => {
   })
 })
 
-describe('edgeRectanglePlanner', () => {
-  it('plans walls each painter can place in turn that close and enclose territory', () => {
+describe('borderBoxPlanner', () => {
+  it('plans a wall the group can place in pairs from both anchors, which closes', () => {
     const map = quadrantMap()
-    const plans = edgeRectanglePlanner({ map, team: GREEN, painters: 2, charges: 15 })
-    expect(plans).toHaveLength(2)
-    for (const plan of plans) {
-      expect(plan.lines.length).toBeLessThanOrEqual(2)
-      for (const line of plan.lines) expect(line.length).toBeLessThanOrEqual(15)
-      const outcome = simulateCapture(map, GREEN, plan)
-      expect(outcome.refused).toBe(0)
-      expect(outcome.gained).toBeGreaterThan(outcome.painted * 4)
-    }
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 15 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    expect(plan.lines).toHaveLength(2)
+    for (const line of plan.lines) expect(line.length).toBeLessThanOrEqual(15)
+    const outcome = simulateCapture(map, GREEN, plan)
+    expect(outcome.refused).toBe(0)
+    expect(outcome.gained).toBeGreaterThan(outcome.painted)
+    // Both first lines start against green: the pair paints at the same moment.
+    for (const line of plan.lines)
+      expect(simulateCapture(map, GREEN, { lines: [line.slice(0, 1)] }).refused).toBe(0)
+    // Each guard's zone is green's own cells past one anchor.
+    expect(plan.guardZones).toHaveLength(2)
+    for (const zone of plan.guardZones)
+      for (const { x, y } of zone) expect(map.owner[y * SIZE + x]).toBe(GREEN)
+  })
+
+  it('returns nothing when the budget cannot close any box', () => {
+    expect(
+      borderBoxPlanner({ map: quadrantMap(), team: GREEN, painters: 1, guards: 0, charges: 2 }),
+    ).toEqual([])
   })
 })
 
-it('starts the wall where another team begins, past unowned gaps in its own land', () => {
-  const map = quadrantMap()
-  // A hole in green's bottom row, well inside its land, must not end green's reach there.
-  map.owner[(SIZE - 1) * SIZE + 30] = NO_TEAM
-  const plans = edgeRectanglePlanner({ map, team: GREEN, painters: 2, charges: 15 })
-  const starts = plans.map((plan) => plan.lines[0]?.[0])
-  expect(starts).toContainEqual({ x: SIZE / 2 - 1, y: SIZE - 1 })
+describe('chamferWall', () => {
+  // Up 30 cells, then right 30, well away from the arena edge.
+  const corner: ArenaPixel[] = [
+    ...Array.from({ length: 31 }, (_, i) => ({ x: 50, y: 100 - i })),
+    ...Array.from({ length: 30 }, (_, i) => ({ x: 51 + i, y: 70 })),
+  ]
+
+  it('turns an exposed corner into a 45 degree staircase with the same pixel count', () => {
+    const wall = chamferWall(corner, 200)
+    expect(wall).toHaveLength(corner.length)
+    expect(wall).not.toContainEqual({ x: 50, y: 70 })
+    expect(wall[0]).toEqual(corner[0])
+    expect(wall.at(-1)).toEqual(corner.at(-1))
+    for (let i = 1; i < wall.length; i++) {
+      const a = wall[i - 1] as ArenaPixel
+      const b = wall[i] as ArenaPixel
+      expect(Math.abs(a.x - b.x) + Math.abs(a.y - b.y)).toBe(1)
+    }
+  })
+
+  it('leaves a corner on the arena edge square, since only one side can reach it', () => {
+    const onEdge = corner.map(({ x, y }) => ({ x: x - 50, y }))
+    expect(chamferWall(onEdge, 200)).toEqual(onEdge)
+  })
 })
 
-describe('anchorStrips', () => {
-  it('thickens both ends of a wall with pixels the team can place before the wall exists', () => {
-    const map = quadrantMap()
-    const [plan] = edgeRectanglePlanner({ map, team: GREEN, painters: 2, charges: 15 })
-    if (plan === undefined) throw new Error('Expected a plan')
-    const strips = anchorStrips(map, GREEN, plan, 5)
-    for (const strip of strips) {
-      expect(strip.length).toBeGreaterThan(0)
-      expect(strip.length).toBeLessThanOrEqual(5)
-      expect(simulateCapture(map, GREEN, { lines: [strip] }).refused).toBe(0)
-    }
+describe('pairLines', () => {
+  const wall = Array.from({ length: 130 }, (_, x) => ({ x, y: 0 }))
+
+  it('alternates anchors, each B-line starting beside the one before it', () => {
+    const [a1, b1, a2] = pairLines(wall, 3, 60)
+    expect(a1?.[0]).toEqual({ x: 0, y: 0 })
+    expect(b1?.[0]).toEqual({ x: 129, y: 0 })
+    expect(a2).toEqual(wall.slice(60, 70))
+  })
+
+  it('gives every painter a line, empty once the wall runs out', () => {
+    expect(pairLines(wall, 4, 60).map((line) => line.length)).toEqual([60, 60, 10, 0])
   })
 })

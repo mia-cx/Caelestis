@@ -7,9 +7,10 @@ import { isWorkIdentity } from './work.js'
  * milliseconds apart, so each line lands next to the one before and the last closes the loop.
  *
  * It lives in a presence room. An administrator opens it with a group size, painters join, the
- * administrator publishes the plan and starts it; the server stamps the start time. Painter `i`
- * (from 0) paints line `i` at `startsAt + i * staggerMs`, on the server's clock, which each client
- * estimates with `clock` round trips.
+ * administrator publishes the plan and starts it; the server stamps the start time. Painters go in
+ * pairs from the wall's two anchors: painter `i` (from 0) paints line `i` at
+ * `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which each client estimates with
+ * `clock` round trips.
  *
  * The last `guards` members are anchor guards, outside the stagger: each paints a strip that
  * thickens the wall where one end meets the team's territory, at `startsAt` with the first painter,
@@ -19,6 +20,9 @@ import { isWorkIdentity } from './work.js'
 export const MAX_CAPTURE_PAINTERS = 16
 /** One guard for each end of the wall. */
 export const MAX_CAPTURE_GUARDS = 2
+/** The widest and tallest box a line's pixels may span, and its largest area, in pixels. */
+export const MAX_CAPTURE_LINE_SPAN = 1_024
+export const MAX_CAPTURE_LINE_AREA = 1 << 18
 /** Pixels in one line: a painter's full charges in the territory event. */
 export const MAX_CAPTURE_LINE_PIXELS = 60
 /** Time between consecutive painters, long enough for the previous paint to land. */
@@ -67,16 +71,21 @@ export type CaptureServerEvent =
 /** Whether member `index` is an anchor guard rather than a wall painter. */
 export const isCaptureGuard = (run: CaptureRun, index: number): boolean => index >= run.painters
 
+/** The countdown step member `index` paints at: pairs share one, guards paint with the first. */
+export const captureStep = (run: CaptureRun, index: number): number =>
+  isCaptureGuard(run, index) ? 0 : Math.floor(index / 2)
+
+/** Countdown steps the wall's painters take, the first pair's included. */
+export const captureSteps = (run: CaptureRun): number => Math.ceil(run.painters / 2)
+
 /** When member `index` paints, on the server's clock; null until the run starts. */
 export const captureSlot = (run: CaptureRun, index: number): number | null =>
-  run.startsAt === null
-    ? null
-    : run.startsAt + (isCaptureGuard(run, index) ? 0 : index * run.staggerMs)
+  run.startsAt === null ? null : run.startsAt + captureStep(run, index) * run.staggerMs
 
 /**
- * Whether a line's pixels fit in a box no wider or taller than a line can be long. A painter places
- * at most that many pixels, so anything wider is malformed, and bounding it bounds what a client
- * allocates to draw it.
+ * Whether a line's pixels fit a box small enough to draw: a wall line is at most one line long, but
+ * a lone guard's zone covers both ends of the wall, so the bound is on the box's sides and area
+ * rather than the line's length. It caps what a client allocates to draw a line from a server.
  */
 export const isCompactCaptureLine = (line: readonly number[]): boolean => {
   if (line.length === 0) return true
@@ -92,7 +101,9 @@ export const isCompactCaptureLine = (line: readonly number[]): boolean => {
     minY = Math.min(minY, y)
     maxY = Math.max(maxY, y)
   }
-  return maxX - minX < MAX_CAPTURE_LINE_PIXELS && maxY - minY < MAX_CAPTURE_LINE_PIXELS
+  const w = maxX - minX + 1
+  const h = maxY - minY + 1
+  return w <= MAX_CAPTURE_LINE_SPAN && h <= MAX_CAPTURE_LINE_SPAN && w * h <= MAX_CAPTURE_LINE_AREA
 }
 
 const isLine = (value: unknown): value is readonly number[] =>

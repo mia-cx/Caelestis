@@ -23,6 +23,7 @@ const counting = {
   canStart: false,
   mySlotAt: null,
   myTurn: 2,
+  turns: 2,
   startsAt: null,
 } satisfies CaptureRunModel
 
