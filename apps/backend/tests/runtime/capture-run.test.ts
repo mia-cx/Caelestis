@@ -4,10 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   CAPTURE_LEAD_MS,
-  type CaptureClientEvent,
   type CaptureRun,
+  captureSlot,
   PRESENCE_PROTOCOL_V1,
+  type PresenceClientEvent,
   type PresenceServerEvent,
+  type RegionClaim,
+  type TerritoryTeam,
   uuidV7,
 } from '@caelestis/shared'
 import { FilesystemObjectStorage } from '@caelestis/storage/filesystem'
@@ -61,15 +64,21 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     })
     return ((await minted.json()) as { token: string }).token
   }
+  /** Redeem a fresh event-runner invite, naming the redeemer's team when given one. */
+  const redeem = async (team?: TerritoryTeam) => {
+    const exchanged = await fetch(`${base}/auth/exchange`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${await mint('event_runner')}` },
+      ...(team === undefined ? {} : { body: JSON.stringify({ team }) }),
+    })
+    return ((await exchanged.json()) as { token: string }).token
+  }
   const painterToken = await mint('report')
-  const exchanged = await fetch(`${base}/auth/exchange`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${await mint('event_runner')}` },
-  })
-  const { token: runnerToken } = (await exchanged.json()) as { token: string }
+  const runnerToken = await redeem()
 
   let nextPainter = 1
-  const connect = async (token: string) => {
+  /** A session, which reports `team` as its event team first when given one. */
+  const connect = async (token: string, team?: TerritoryTeam) => {
     const painterId = nextPainter++
     const query = new URLSearchParams({
       season: '0',
@@ -90,15 +99,33 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     await once(socket, 'open')
     const event = JSON.parse(String((await ready)[0])) as PresenceServerEvent
     if (event.type !== 'presence-ready') throw new Error('Expected presence-ready')
+    const send = (message: PresenceClientEvent) => socket.send(JSON.stringify(message))
+    if (team !== undefined) send({ type: 'presence-update', team })
     return {
       sessionId: event.sessionId,
       events,
-      send: (message: CaptureClientEvent) => socket.send(JSON.stringify(message)),
+      send,
       close: () => socket.close(),
       /** The run as this socket last heard it. */
       run(): CaptureRun | null | undefined {
         const last = events.filter((e) => e.type === 'capture').at(-1)
         return last?.type === 'capture' ? last.run : undefined
+      },
+      /** The team the server last refused this socket for, naming its token's team. */
+      refusedFor(): TerritoryTeam | undefined {
+        const last = events.filter((e) => e.type === 'team-refused').at(-1)
+        return last?.type === 'team-refused' ? last.team : undefined
+      },
+      /** The peers this socket was last told it sees. */
+      peers(): string[] {
+        const seen = new Set<string>()
+        for (const e of events)
+          if (e.type === 'presence-ready') for (const peer of e.peers) seen.add(peer.sessionId)
+          else if (e.type === 'presence-delta') {
+            for (const peer of e.upsert) seen.add(peer.sessionId)
+            for (const id of e.remove) seen.delete(id)
+          }
+        return [...seen]
       },
     }
   }
@@ -106,11 +133,19 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     base,
     directory,
     stop,
-    admin: () => connect(ADMIN),
-    painter: () => connect(painterToken),
-    runner: () => connect(runnerToken),
+    painterToken,
+    mint,
+    redeem,
+    connect,
+    admin: (team?: TerritoryTeam) => connect(ADMIN, team),
+    /** A painter on a report token of their own, which binds to the first team it reports. */
+    painter: async (team?: TerritoryTeam) => connect(await mint('report'), team),
+    runner: (team?: TerritoryTeam) => connect(runnerToken, team),
   }
 }
+
+const GREEN = 2
+const ORANGE = 1
 
 const line = (y: number) => [636_000, y, 636_001, y]
 
@@ -120,8 +155,8 @@ it('runs no capture runs on a server that is not an event server', async () => {
     await fetch(`${server.base}/server`, { headers: { authorization: `Bearer ${ADMIN}` } })
   ).json()
   expect(info).not.toHaveProperty('capture')
-  const admin = await server.admin()
-  admin.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
+  const admin = await server.admin(GREEN)
+  admin.send({ type: 'capture-open', painters: 1, guards: 0 })
   admin.send({ type: 'clock', sent: 1 })
   await new Promise((resolve) => setTimeout(resolve, 300))
   expect(
@@ -131,8 +166,8 @@ it('runs no capture runs on a server that is not an event server', async () => {
 
 it('keeps a run saved as an event server from clients once it is not one', async () => {
   const before = await start()
-  const admin = await before.admin()
-  admin.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
+  const admin = await before.admin(GREEN)
+  admin.send({ type: 'capture-open', painters: 1, guards: 0 })
   await vi.waitFor(() => expect(admin.run()).not.toBeNull())
   admin.close()
   await before.stop()
@@ -145,25 +180,31 @@ it('keeps a run saved as an event server from clients once it is not one', async
 
 it('runs a capture from open to start, in the order the administrator sets', async () => {
   const server = await start()
-  const admin = await server.admin()
-  const first = await server.painter()
-  const second = await server.painter()
+  const admin = await server.admin(GREEN)
+  const first = await server.painter(GREEN)
+  const second = await server.painter(GREEN)
 
-  first.send({ type: 'capture-open', painters: 1, guards: 1, team: 2 })
-  admin.send({ type: 'capture-open', painters: 1, guards: 1, team: 2 })
-  await vi.waitFor(() => expect(first.run()).toMatchObject({ team: 2, painters: 1, guards: 1 }))
+  first.send({ type: 'capture-open', painters: 1, guards: 1 })
+  admin.send({ type: 'capture-open', painters: 1, guards: 1 })
+  await vi.waitFor(() => expect(first.run()).toMatchObject({ team: GREEN, painters: 1, guards: 1 }))
 
-  // A painter from another team cannot take a place in Green's wall.
-  const orange = await server.painter()
+  // Orange runs its own capture in the same room: it never hears Green's, and joining joins its own.
+  const orange = await server.admin(ORANGE)
+  orange.send({ type: 'capture-open', painters: 2, guards: 0 })
+  await vi.waitFor(() => expect(orange.run()).toMatchObject({ team: ORANGE, painters: 2 }))
   const id = first.run()?.id ?? ''
-  orange.send({ type: 'capture-join', team: 1, run: id })
-  first.send({ type: 'capture-join', team: 2, run: id })
-  second.send({ type: 'capture-join', team: 2, run: id })
+  // A join names the run it chose, so Green's id joins nothing on Orange's run.
+  orange.send({ type: 'capture-join', run: id })
+  orange.send({ type: 'capture-join', run: orange.run()?.id ?? '' })
+  first.send({ type: 'capture-join', run: id })
+  second.send({ type: 'capture-join', run: id })
   // Opening again does not replace a run in progress.
-  admin.send({ type: 'capture-open', painters: 3, guards: 0, team: 2 })
+  admin.send({ type: 'capture-open', painters: 3, guards: 0 })
   await vi.waitFor(() => expect(admin.run()?.members).toHaveLength(2))
+  await vi.waitFor(() => expect(orange.run()?.members).toHaveLength(1))
   expect(admin.run()).toMatchObject({ id, painters: 1 })
   expect(admin.run()?.members.map((m) => m.sessionId)).not.toContain(orange.sessionId)
+  expect(orange.events.some((e) => e.type === 'capture' && e.run?.team === GREEN)).toBe(false)
   admin.send({ type: 'capture-order', order: [second.sessionId, first.sessionId] })
   admin.send({ type: 'capture-plan', lines: [line(1_028_000), line(1_028_001)] })
   second.send({ type: 'capture-drafted', drafted: 2 })
@@ -182,9 +223,9 @@ it('runs a capture from open to start, in the order the administrator sets', asy
   expect(startsAt - before).toBeGreaterThanOrEqual(CAPTURE_LEAD_MS - 1_000)
 
   // A late joiner hears the started run, and cannot join it.
-  const late = await server.painter()
+  const late = await server.painter(GREEN)
   await vi.waitFor(() => expect(late.run()?.startsAt).toBe(startsAt))
-  late.send({ type: 'capture-join', team: 2, run: id })
+  late.send({ type: 'capture-join', run: id })
   // The first painter's socket drops during the countdown; nobody moves into their slot.
   second.close()
   await new Promise((resolve) => setTimeout(resolve, 500))
@@ -199,24 +240,69 @@ it('runs a capture from open to start, in the order the administrator sets', asy
 
 it('lets an event runner run a capture that a reporter cannot open', async () => {
   const server = await start()
-  const painter = await server.painter()
-  const runner = await server.runner()
+  const painter = await server.painter(GREEN)
+  const runner = await server.runner(GREEN)
 
-  painter.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
+  painter.send({ type: 'capture-open', painters: 1, guards: 0 })
   await new Promise((resolve) => setTimeout(resolve, 300))
   expect(painter.run() ?? null).toBeNull()
 
-  runner.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
-  await vi.waitFor(() => expect(painter.run()).toMatchObject({ team: 2, painters: 1 }))
-  painter.send({ type: 'capture-join', team: 2, run: painter.run()?.id ?? '' })
+  runner.send({ type: 'capture-open', painters: 1, guards: 0 })
+  await vi.waitFor(() => expect(painter.run()).toMatchObject({ team: GREEN, painters: 1 }))
+  painter.send({ type: 'capture-join', run: painter.run()?.id ?? '' })
   await vi.waitFor(() => expect(painter.run()?.members).toHaveLength(1))
   runner.send({ type: 'capture-plan', lines: [line(1_028_000)] })
   await vi.waitFor(() => expect(painter.run()?.lines).toHaveLength(1))
+  painter.send({ type: 'capture-drafted', drafted: 2 })
+  await vi.waitFor(() => expect(painter.run()?.members[0]?.drafted).toBe(2))
   painter.send({ type: 'capture-close' })
   runner.send({ type: 'capture-go' })
   await vi.waitFor(() => expect(painter.run()?.startsAt).not.toBeNull())
   runner.send({ type: 'capture-close' })
   await vi.waitFor(() => expect(painter.run()).toBeNull())
+})
+
+it('starts once every painter has drafted, with the coordinator closing at their stagger', async () => {
+  const server = await start()
+  const runner = await server.runner(GREEN)
+  const first = await server.painter(GREEN)
+  const second = await server.painter(GREEN)
+  const guard = await server.painter(GREEN)
+
+  runner.send({ type: 'capture-open', painters: 3, guards: 1, staggerMs: 750 })
+  await vi.waitFor(() => expect(runner.run()).toMatchObject({ painters: 3, staggerMs: 750 }))
+  const id = runner.run()?.id ?? ''
+  // The coordinator joins first, yet ends up painting the last painter's line.
+  for (const session of [runner, first, second, guard]) {
+    session.send({ type: 'capture-join', run: id })
+    await vi.waitFor(() =>
+      expect(runner.run()?.members.map((m) => m.sessionId)).toContain(session.sessionId),
+    )
+  }
+  expect(runner.run()?.members.map((m) => m.sessionId)).toEqual([
+    first.sessionId,
+    second.sessionId,
+    runner.sessionId,
+    guard.sessionId,
+  ])
+  runner.send({ type: 'capture-plan', lines: [1, 2, 3, 4].map((at) => line(1_028_000 + at)) })
+  await vi.waitFor(() => expect(runner.run()?.lines).toHaveLength(4))
+
+  // The coordinator is one pixel short; the guard's draft never holds Go.
+  first.send({ type: 'capture-drafted', drafted: 2 })
+  second.send({ type: 'capture-drafted', drafted: 2 })
+  runner.send({ type: 'capture-drafted', drafted: 1 })
+  await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([2, 2, 1, 0]))
+  runner.send({ type: 'capture-go' })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(runner.run()?.startsAt).toBeNull()
+
+  runner.send({ type: 'capture-drafted', drafted: 2 })
+  runner.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(guard.run()?.startsAt).not.toBeNull())
+  const run = guard.run()
+  if (run == null || run.startsAt === null) throw new Error('Expected a started run')
+  expect(captureSlot(run, 2)).toBe(run.startsAt + 750)
 })
 
 it('answers clock requests with the server time', async () => {
@@ -229,4 +315,139 @@ it('answers clock requests with the server time', async () => {
     expect(clock).toMatchObject({ type: 'clock', sent })
     if (clock?.type === 'clock') expect(Math.abs(clock.at - sent)).toBeLessThan(1_000)
   })
+})
+
+it('shares viewports within a team only, and takes no claims, on an event server', async () => {
+  const server = await start()
+  const viewport = { x: 636_000, y: 1_028_000, w: 64, h: 64 }
+  const green = await server.painter(GREEN)
+  const teammate = await server.painter(GREEN)
+  const orange = await server.painter(ORANGE)
+  for (const session of [green, teammate, orange])
+    session.send({ type: 'presence-update', viewport })
+  await vi.waitFor(() => expect(green.peers()).toEqual([teammate.sessionId]), { timeout: 5_000 })
+  expect(orange.peers()).toEqual([])
+
+  const claim = await fetch(`${server.base}/work/regions/${uuidV7()}?season=0`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
+    body: '{}',
+  })
+  expect(claim.status).toBe(403)
+})
+
+it('binds a token to the first team its sessions report, and a session claiming another gets nothing', async () => {
+  const server = await start()
+  const viewport = { x: 636_000, y: 1_028_000, w: 64, h: 64 }
+  const token = await server.mint('report')
+  // Two first sessions of one unbound token race to bind it to different teams; one team wins.
+  const [a, b] = await Promise.all([server.connect(token, GREEN), server.connect(token, ORANGE)])
+  await vi.waitFor(() => expect([a, b].filter((s) => s.refusedFor() !== undefined)).toHaveLength(1))
+  const [bound, claimant] = a.refusedFor() === undefined ? [a, b] : [b, a]
+  const team = claimant.refusedFor()
+  if (team === undefined) throw new Error('Expected one session refused')
+  expect(team).not.toBe(claimant === a ? GREEN : ORANGE)
+  const rival = team === GREEN ? ORANGE : GREEN
+
+  const teammate = await server.painter(team)
+  const rivalPainter = await server.painter(rival)
+  for (const session of [bound, claimant, teammate, rivalPainter])
+    session.send({ type: 'presence-update', viewport })
+  // Admins are never bound, so one administrator opens a run for each team.
+  for (const admin of [await server.admin(team), await server.admin(rival)])
+    admin.send({ type: 'capture-open', painters: 1, guards: 0 })
+  await vi.waitFor(() => expect(bound.peers()).toEqual([teammate.sessionId]), { timeout: 5_000 })
+  await vi.waitFor(() => expect(bound.run()).toMatchObject({ team }))
+  await vi.waitFor(() => expect(rivalPainter.run()).toMatchObject({ team: rival }))
+  // The claimant sees and shares nothing from either team, and cannot act on either run.
+  expect(teammate.peers()).toEqual([bound.sessionId])
+  expect(rivalPainter.peers()).toEqual([])
+  expect(claimant.peers()).toEqual([])
+  expect(claimant.run() ?? null).toBeNull()
+  claimant.send({ type: 'capture-join', run: rivalPainter.run()?.id ?? '' })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(rivalPainter.run()?.members).toEqual([])
+
+  // The binding outlives the session: a new one claiming the rival team is refused too.
+  bound.close()
+  const later = await server.connect(token, rival)
+  await vi.waitFor(() => expect(later.refusedFor()).toBe(team))
+})
+
+it('applies a capture command sent while its token is still binding', async () => {
+  const server = await start()
+  const orange = await server.painter(ORANGE)
+  // The team report binds this fresh token; Open run goes right behind it, as the userscript sends.
+  const runner = await server.connect(await server.redeem(), ORANGE)
+  runner.send({ type: 'capture-open', painters: 1, guards: 0 })
+  await vi.waitFor(() => expect(orange.run()).toMatchObject({ team: ORANGE, painters: 1 }))
+})
+
+it('binds an event runner to the team it redeemed its invite with', async () => {
+  const server = await start()
+  const runner = await server.redeem(ORANGE)
+  const claimant = await server.connect(runner, GREEN)
+  await vi.waitFor(() => expect(claimant.refusedFor()).toBe(ORANGE))
+  claimant.send({ type: 'capture-open', painters: 1, guards: 0 })
+
+  const orange = await server.painter(ORANGE)
+  const green = await server.painter(GREEN)
+  const own = await server.connect(runner, ORANGE)
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(green.run() ?? null).toBeNull()
+  own.send({ type: 'capture-open', painters: 1, guards: 0 })
+  await vi.waitFor(() => expect(orange.run()).toMatchObject({ team: ORANGE }))
+  expect(own.refusedFor()).toBeUndefined()
+  expect(green.run() ?? null).toBeNull()
+})
+
+it('keeps claims made before the switch to event mode out of it, and does not renew them', async () => {
+  const before = await start({ eventServer: false })
+  const regions = (server: { base: string; painterToken: string }) =>
+    fetch(`${server.base}/work/regions?season=0&painterId=1`, {
+      headers: { authorization: `Bearer ${server.painterToken}` },
+    }).then((response) => response.json() as Promise<{ regions: RegionClaim[] }>)
+  const put = await fetch(`${before.base}/work/regions/${uuidV7()}?season=0`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${before.painterToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      actor: { wplaceUserId: 1, displayName: 'Painter 1' },
+      label: 'Old claim',
+      document: {
+        items: [
+          {
+            id: 'shape',
+            op: 'add',
+            shape: { kind: 'rectangle', x: 636_000, y: 1_028_000, w: 4, h: 4 },
+          },
+        ],
+      },
+    }),
+  })
+  expect(put.status).toBe(200)
+  const [claimed] = (await regions(before)).regions
+  expect(claimed).toBeDefined()
+  await before.stop()
+  // Renewal stamps the current time, so let it move past the claim's own.
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  const event = await start({ directory: before.directory })
+  expect(await regions(event)).toMatchObject({ regions: [], ownedRegionIds: [] })
+  // Painter 1 holds the claim's credential and identity, so connecting would renew it.
+  const painter = await event.connect(event.painterToken, GREEN)
+  expect(painter.events[0]).toMatchObject({
+    type: 'presence-ready',
+    regions: [],
+    ownedRegionIds: [],
+  })
+  painter.send({ type: 'presence-update', viewport: { x: 636_000, y: 1_028_000, w: 64, h: 64 } })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(painter.events.filter((e) => e.type === 'regions' || e.type === 'claims-renewed')).toEqual(
+    [],
+  )
+  painter.close()
+  await event.stop()
+
+  const after = await start({ eventServer: false, directory: before.directory })
+  expect((await regions(after)).regions).toEqual([claimed])
 })

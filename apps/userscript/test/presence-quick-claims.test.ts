@@ -1,15 +1,14 @@
 import {
   MAX_PRESENCE_MESSAGES_PER_SECOND,
   MAX_QUICK_CLAIMS,
-  PRESENCE_PROTOCOL_V1,
   PRESENCE_QUICK_CLAIMS_MIN_MS,
   type PresenceRect,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
+import { connectPresence, FakeWebSocket, SERVER_ID } from './presence-socket.js'
 import { importStateModules } from './state-modules.js'
 
-const SERVER_ID = '018f4f2a-1234-7abc-8def-0123456789ab'
 const painter = { wplaceUserId: 42, displayName: 'Mia' }
 const other = { wplaceUserId: 7, displayName: 'Other painter' }
 
@@ -17,59 +16,6 @@ vi.mock('../src/wplace-account.js', () => ({
   accountIdentity: () => painter,
   loadAccount: async () => undefined,
 }))
-
-class FakeWebSocket extends EventTarget {
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSING = 2
-  static readonly CLOSED = 3
-  static instances: FakeWebSocket[] = []
-
-  readonly sent: string[] = []
-  protocol = ''
-  readyState = FakeWebSocket.CONNECTING
-
-  constructor() {
-    super()
-    FakeWebSocket.instances.push(this)
-  }
-
-  send(data: string): void {
-    if (this.readyState !== FakeWebSocket.OPEN) throw new Error('socket is not open')
-    this.sent.push(data)
-  }
-
-  close(): void {
-    if (this.readyState >= FakeWebSocket.CLOSING) return
-    this.readyState = FakeWebSocket.CLOSED
-    this.dispatchEvent(new Event('close'))
-  }
-
-  open(): void {
-    this.protocol = PRESENCE_PROTOCOL_V1
-    this.readyState = FakeWebSocket.OPEN
-    this.dispatchEvent(new Event('open'))
-    this.receive({
-      type: 'presence-ready',
-      sessionId: 'a'.repeat(16),
-      online: 1,
-      peers: [],
-      regions: [],
-    })
-  }
-
-  receive(event: unknown): void {
-    this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(event) }))
-  }
-
-  /** Every quick-claim list this socket sent, in order. */
-  quickClaims(): unknown[] {
-    return this.sent
-      .map((data) => JSON.parse(data) as { quickClaims?: unknown })
-      .filter((event) => 'quickClaims' in event)
-      .map((event) => event.quickClaims)
-  }
-}
 
 let dispose: (() => void) | undefined
 
@@ -83,31 +29,17 @@ afterEach(() => {
   FakeWebSocket.instances = []
 })
 
-const connect = async () => {
-  vi.useFakeTimers()
-  vi.stubGlobal('WebSocket', FakeWebSocket)
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => Response.json({ regions: [] })),
-  )
-  const state = await importStateModules()
-  const presence = await import('../src/presence-client.js')
-  const server = {
-    url: 'https://presence.test',
-    info: { id: SERVER_ID, name: 'Presence test', auth: 'none' as const, presence: 1 as const },
-    token: null,
-    status: 'connected' as const,
-    isAdmin: false,
-    season: 1,
-  }
-  dispose = () => state.removeServer(server.url)
-  state.upsertServer(server)
-  presence.installPresence()
-  const socket = FakeWebSocket.instances[0]
-  if (socket === undefined) throw new Error('presence did not open a socket')
-  socket.open()
-  await vi.advanceTimersByTimeAsync(0)
-  return { presence, state, socket }
+/** One presence socket, opened: on an event server with `event`, and able to write with `canWrite`. */
+const connect = async ({
+  event = false,
+  canWrite,
+}: {
+  event?: boolean
+  canWrite?: boolean
+} = {}) => {
+  const connected = await connectPresence({ ...(event ? { capture: 1 as const } : {}), canWrite })
+  dispose = connected.dispose
+  return connected
 }
 
 const rect = (x: number): PresenceRect => ({ x, y: 10, w: 4, h: 3 })
@@ -234,4 +166,42 @@ it('shows polled claims until a session starts, then only what the socket report
   const reads = fetch.mock.calls.length
   await vi.advanceTimersByTimeAsync(60_000)
   expect(fetch.mock.calls.length).toBe(reads)
+})
+
+it('offers quick claims on a writable session of a server that takes them', async () => {
+  const { presence } = await connect({ canWrite: true })
+  expect(presence.quickClaimsAvailable()).toBe(true)
+})
+
+it('offers no quick claims on a read-only session, whose claims the server drops', async () => {
+  const { presence } = await connect()
+  expect(presence.quickClaimsAvailable()).toBe(false)
+})
+
+it('leaves quick claims off an event server', async () => {
+  const { presence, socket } = await connect({ event: true, canWrite: true })
+  expect(presence.quickClaimsAvailable()).toBe(false)
+  presence.setPresenceQuickClaims([rect(0)])
+  await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
+  expect(socket.quickClaims()).toEqual([])
+})
+
+it('drops the run while an event server refuses the reported team, until a run for it arrives', async () => {
+  const { presence, socket } = await connect({ event: true, canWrite: true })
+  const run = {
+    id: 'run',
+    team: 1,
+    painters: 1,
+    guards: 0,
+    members: [],
+    lines: [],
+    startsAt: null,
+    staggerMs: 500,
+  }
+  socket.receive({ type: 'capture', run })
+  socket.receive({ type: 'team-refused', team: 2 })
+  expect(presence.captureViews()).toMatchObject([{ run: null, refusedTeam: 2 }])
+
+  socket.receive({ type: 'capture', run: { ...run, team: 2 } })
+  expect(presence.captureViews()).toMatchObject([{ run: { team: 2 }, refusedTeam: null }])
 })

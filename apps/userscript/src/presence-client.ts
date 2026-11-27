@@ -2,6 +2,7 @@ import {
   type CaptureClientEvent,
   type CaptureRun,
   decodePresenceServerEvent,
+  isEventServer,
   liveCredentialProtocol,
   MAX_PRESENCE_MESSAGES_PER_SECOND,
   type PainterIdentity,
@@ -17,6 +18,7 @@ import {
   type PresenceServerEvent,
   type RegionClaim,
   sameRect,
+  type TerritoryTeam,
   uuidV7,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
@@ -86,6 +88,8 @@ interface Sent {
   viewport: PresenceRect | null | undefined
   draft: PresenceDraft | null | undefined
   quickClaims: readonly PresenceRect[]
+  /** The event team last reported to an event server. */
+  team: TerritoryTeam | null
   viewportAt: number
   draftAt: number
   quickClaimsAt: number
@@ -95,6 +99,7 @@ const nothingSent = (): Sent => ({
   viewport: undefined,
   draft: undefined,
   quickClaims: [],
+  team: null,
   viewportAt: Number.NEGATIVE_INFINITY,
   draftAt: Number.NEGATIVE_INFINITY,
   quickClaimsAt: Number.NEGATIVE_INFINITY,
@@ -113,6 +118,11 @@ interface Connection {
   sessionId: string | null
   peers: Map<string, PresencePeer>
   capture: CaptureRun | null
+  /**
+   * The team this socket's token is bound to, while an event server refuses the team this tab
+   * reported. Its next run, for the reported team, clears it.
+   */
+  refusedTeam: TerritoryTeam | null
   /** Whether the server lets this socket's credential write, as its ready event said. */
   canWrite: boolean
   clock: ClockSample | null
@@ -153,7 +163,9 @@ const local: {
   viewport: PresenceRect | null
   draft: PresenceDraft | null
   quickClaims: readonly PresenceRect[]
-} = { viewport: null, draft: null, quickClaims: [] }
+  /** This painter's event team, which event servers share presence and capture runs within. */
+  team: TerritoryTeam | null
+} = { viewport: null, draft: null, quickClaims: [], team: null }
 
 const changed = (): void => {
   revision++
@@ -264,11 +276,15 @@ const drain = (connection: Connection): void => {
   }, sendWait(connection))
 }
 
-/** What this tab is willing to publish right now: the local state, or nothing at all. */
-const effective = (): typeof local => ({
+/** What this tab is willing to publish to `connection` right now: the local state, or nothing. */
+const effective = (connection: Connection): typeof local => ({
   ...(canPublish() ? local : { viewport: null, draft: null }),
   // A hidden tab is still painting; its quick claims end with the paint session or the tab.
-  quickClaims: getState().sharePresence ? local.quickClaims : [],
+  // An event server takes none.
+  quickClaims:
+    getState().sharePresence && !isEventServer(connection.server.info) ? local.quickClaims : [],
+  // The team is no presence of its own: a hidden tab still needs its team's capture run.
+  team: local.team,
 })
 
 /**
@@ -278,9 +294,15 @@ const effective = (): typeof local => ({
  * server's per-second limit.
  */
 const channels = (connection: Connection, at: number) => {
-  const { viewport, draft, quickClaims } = effective()
+  const { viewport, draft, quickClaims, team } = effective(connection)
   const { sent } = connection
   return {
+    // Only an event server routes by team; others are never told it.
+    team: {
+      value: team,
+      dirty: team !== null && team !== sent.team && isEventServer(connection.server.info),
+      wait: 0,
+    },
     viewport: {
       value: viewport,
       dirty: sent.viewport === undefined || !sameRect(sent.viewport, viewport),
@@ -304,11 +326,12 @@ const flush = (connection: Connection): void => {
   connection.flushTimer = null
   if (connection.socket?.readyState !== WebSocket.OPEN) return
   const at = Date.now()
-  const { viewport, draft, quickClaims } = channels(connection, at)
+  const { viewport, draft, quickClaims, team } = channels(connection, at)
   const sendViewport = viewport.dirty && viewport.wait === 0
   const sendDraft = draft.dirty && draft.wait === 0
   const sendQuickClaims = quickClaims.dirty && quickClaims.wait === 0
-  const due = sendViewport || sendDraft || sendQuickClaims
+  const sendTeam = team.dirty
+  const due = sendViewport || sendDraft || sendQuickClaims || sendTeam
   if (due && sendWait(connection) > 0) {
     // Over budget for this second: the same changes go as soon as there is room.
     connection.flushTimer = setTimeout(() => flush(connection), sendWait(connection))
@@ -321,9 +344,11 @@ const flush = (connection: Connection): void => {
       ...(sendViewport ? { viewport: viewport.value } : {}),
       ...(sendDraft ? { draft: draft.value } : {}),
       ...(sendQuickClaims ? { quickClaims: quickClaims.value } : {}),
+      ...(sendTeam && team.value !== null ? { team: team.value } : {}),
     })
   ) {
     const { sent } = connection
+    if (sendTeam) sent.team = team.value
     if (sendViewport) {
       sent.viewport = viewport.value
       sent.viewportAt = at
@@ -394,6 +419,11 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
       return true
     case 'capture':
       connection.capture = event.run
+      connection.refusedTeam = null
+      return false
+    case 'team-refused':
+      connection.capture = null
+      connection.refusedTeam = event.team
       return false
     case 'clock': {
       // The server answered halfway through the round trip, as near as one trip can tell; the
@@ -425,6 +455,7 @@ const closeConnection = (connection: Connection): void => {
   connection.socket = null
   connection.sessionId = null
   connection.capture = null
+  connection.refusedTeam = null
   connection.clock = null
   revision++
   if (socket !== null && socket.readyState < WebSocket.CLOSING) {
@@ -545,6 +576,7 @@ const open = (connection: Connection): void => {
     connection.socket = null
     connection.sessionId = null
     connection.capture = null
+    connection.refusedTeam = null
     connection.clock = null
     endLiveClaims(server)
     clearTimers(connection)
@@ -570,13 +602,15 @@ const reconcile = (): void => {
     const owner = serverConnectionIdentity(server)
     retained.add(owner)
     if (connections.has(owner)) continue
-    trackClaims(server)
+    // An event server takes no claims.
+    if (!isEventServer(server.info)) trackClaims(server)
     connections.set(owner, {
       server,
       socket: null,
       sessionId: null,
       peers: new Map(),
       capture: null,
+      refusedTeam: null,
       canWrite: false,
       clock: null,
       clockSyncAt: Number.NEGATIVE_INFINITY,
@@ -674,6 +708,8 @@ export interface CaptureView {
   readonly clockOffset: number | null
   /** Whether this socket may join: its credential can write. */
   readonly canWrite: boolean
+  /** The team the socket's token is bound to, while the server refuses the one this tab reported. */
+  readonly refusedTeam: TerritoryTeam | null
 }
 
 /** Every open presence socket and the capture run it holds, if any. */
@@ -687,6 +723,7 @@ export const captureViews = (): readonly CaptureView[] =>
             sessionId: connection.sessionId,
             clockOffset: connection.clock?.offset ?? null,
             canWrite: connection.canWrite,
+            refusedTeam: connection.refusedTeam,
           },
         ]
       : [],
@@ -699,6 +736,12 @@ const connectionFor = (server: ServerConnection): Connection | undefined =>
 export const sendCapture = (server: ServerConnection, event: CaptureClientEvent): boolean => {
   const connection = connectionFor(server)
   if (connection === undefined || !isOpen(connection)) return false
+  // The server acts on the run of the team the session reported, so the team goes first.
+  const { team } = local
+  if (team !== null && connection.sent.team !== team) {
+    connection.sent.team = team
+    enqueue(connection, () => ({ type: 'presence-update', team }))
+  }
   enqueue(connection, () => event)
   return true
 }
@@ -719,6 +762,23 @@ export const syncCaptureClock = (server: ServerConnection): void => {
       if (isOpen(connection))
         enqueue(connection, () => ({ type: 'clock', sent: Math.round(localClock()) }))
     }, ping * CLOCK_PING_GAP_MS)
+}
+
+/** Whether this tab holds any presence connection, and so has something to publish to. */
+export const presenceConnected = (): boolean => connections.size > 0
+
+/** Whether a quick claim reaches anyone: an open session on a server that takes them. */
+export const quickClaimsAvailable = (): boolean =>
+  [...connections.values()].some(
+    (connection) =>
+      isOpen(connection) && connection.canWrite && !isEventServer(connection.server.info),
+  )
+
+/** Report this painter's event team to event servers, which share presence within a team. */
+export const setPresenceTeam = (team: TerritoryTeam | null): void => {
+  if (team === local.team) return
+  local.team = team
+  scheduleAll()
 }
 
 /** Publish this tab's viewport. */

@@ -1,4 +1,4 @@
-import type { ServerInfo } from '@caelestis/shared'
+import { isEventServer, type ServerInfo } from '@caelestis/shared'
 import { Context as Services } from 'effect'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -90,13 +90,13 @@ export const createApp = (context: BackendContext, options: AppOptions) => {
     ['/admin/tags', createTagRoutes(runtime, currentSeason), 'admin'],
     ['/manifest', createManifestRoutes(runtime, { server, currentSeason }), 'read'],
     ['/archive', createCanvasHistoryRoutes(runtime), 'read'],
-    ['/work', createWorkRoutes(runtime), 'read'],
+    ['/work', createWorkRoutes(runtime, { claims: !isEventServer(server) }), 'read'],
     ['/chunks', createBlobRoutes(runtime, 'chunks'), 'read'],
     ['/sources', createBlobRoutes(runtime, 'sources'), 'read'],
     ['/tiles', createBlobRoutes(runtime, 'tiles'), 'read'],
     ['/recipes', createRecipeRoutes(runtime), 'read'],
     ['/telemetry', createTelemetryRoutes(runtime, auth, { currentSeason, server }), 'open'],
-    ['/auth', createAuthRoutes(runtime, auth), 'open'],
+    ['/auth', createAuthRoutes(runtime, auth, { eventServer: isEventServer(server) }), 'open'],
   ]
   for (const [path, routes, scope] of mounts) {
     // `/admin/*` above guards every admin mount, so its place in the path is its scope.

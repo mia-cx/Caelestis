@@ -1,4 +1,4 @@
-import type { Millis, Scope } from '@caelestis/shared'
+import type { Millis, Scope, TerritoryTeam } from '@caelestis/shared'
 
 /** The longest label a token may carry. */
 export const MAX_LABEL_LENGTH = 128
@@ -17,6 +17,11 @@ export interface AccessToken {
    * other token omits it.
    */
   readonly invite?: true
+  /**
+   * On an event server, the event team this token is bound to, which never changes once set. An
+   * admin token is never bound: it acts for every team.
+   */
+  readonly team?: TerritoryTeam
 }
 
 /** The last row of a token page, used for a stable newest-first keyset scan. */
@@ -44,12 +49,21 @@ export interface AccessTokenStore {
    * Consume the invite with this hash and store `replacement` in its place, in one statement: the
    * row keeps its label, scope, author and invite hash and takes the replacement's hash and
    * creation time. False when no unconsumed, unrevoked invite has the hash, so two concurrent
-   * exchanges cannot both win and a revoke in progress cannot be outrun.
+   * exchanges cannot both win and a revoke in progress cannot be outrun. A `team` binds the
+   * redeemed token to the redeemer's event team in the same write.
    */
   redeemInvite(
     inviteHash: string,
-    replacement: Pick<AccessToken, 'tokenHash' | 'createdAt'>,
+    replacement: Pick<AccessToken, 'tokenHash' | 'createdAt' | 'team'>,
   ): Promise<boolean>
+
+  /**
+   * Bind an unbound, unrevoked token to `team` in one conditional write, and resolve to the team
+   * the token holds afterwards: `team` when this call bound it, the earlier team when another
+   * call bound it first, so two first uses cannot bind different teams. Null when no live token
+   * has the hash.
+   */
+  bindTeam(tokenHash: string, team: TerritoryTeam): Promise<TerritoryTeam | null>
 
   /**
    * Stored tokens newest first, tie-broken by hash. A query can continue strictly after a cursor and

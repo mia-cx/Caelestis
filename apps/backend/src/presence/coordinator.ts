@@ -22,6 +22,7 @@ import {
   rectCentreDistance,
   rectsIntersect,
   sameRect,
+  type TerritoryTeam,
   uuidV7,
 } from '@caelestis/shared'
 import { PresenceClientEvent } from '@caelestis/wire-schema'
@@ -47,6 +48,13 @@ interface Attachment extends PresenceConnection {
   readonly lastSeenAt: number
   readonly closed?: boolean
   readonly renewedAt?: number
+  /** On an event server, the event team the session last reported. */
+  readonly team?: TerritoryTeam
+  /**
+   * On an event server, the team the session's token is bound to, once known. A session whose token
+   * binds acts in its reported team only when it is this one; see `PresenceCoordinator.teamOf`.
+   */
+  readonly boundTeam?: TerritoryTeam
 }
 
 /**
@@ -86,7 +94,15 @@ interface SessionState {
   onlineSent?: number
   /** The region version and owned ids it was last sent. */
   claimsSent?: { readonly version: number; readonly owned: string }
+  /** The write binding its token's team while in flight, then the capture commands waiting on it. */
+  binding?: Promise<void>
 }
+
+/** A client event that acts on a capture run. */
+type CaptureCommand = Exclude<
+  Schema.Schema.Type<typeof PresenceClientEvent>,
+  { readonly type: 'presence-update' | 'presence-heartbeat' | 'clock' }
+>
 
 /** An open socket with the attachment read once for the operation at hand. */
 interface LiveSession {
@@ -95,8 +111,8 @@ interface LiveSession {
 }
 
 const CLAIM_RENEW_INTERVAL_MS = 60 * 60 * 1_000
-/** Storage key of the room's capture run, so it survives hibernation. */
-const CAPTURE_KEY = 'capture-run'
+/** Storage key of one team's capture run in the room, so it survives hibernation. */
+const captureKey = (team: TerritoryTeam): string => `capture-run:${team}`
 /** The earliest claim expiry. The room's identity is stored beside it but read from the room. */
 interface RegionExpiry extends PresenceRoomId {
   readonly at: number | null
@@ -136,9 +152,11 @@ export class PresenceCoordinator<Client> {
   private regionSnapshot: string | null = null
   private regionVersion = 0
   private timer: ReturnType<typeof setTimeout> | null = null
+  /** When the last tick started, so the next one keeps to the tick interval however long it ran. */
+  private tickStartedAt = Number.NEGATIVE_INFINITY
   private stopped = false
-  /** Capture run changes, one at a time, each reading the run the previous one stored. */
-  private captureQueue: Promise<CaptureRun | null> | null = null
+  /** Per team, capture run changes one at a time, each reading the run the previous one stored. */
+  private readonly captureQueues = new Map<TerritoryTeam, Promise<CaptureRun | null>>()
 
   constructor(
     private readonly state: PresenceHost<Client>,
@@ -151,8 +169,11 @@ export class PresenceCoordinator<Client> {
      * while it hibernates.
      */
     private readonly routeRevocation: (tokenHash: string) => Promise<void>,
-    /** Whether this is an event server, the only kind that runs capture runs. */
-    private readonly captureRuns = false,
+    /**
+     * Whether this is an event server: it runs one capture run per event team, shares viewports and
+     * drafts within each team only, and takes no quick claims.
+     */
+    private readonly eventServer = false,
   ) {}
 
   readIngestTimings(reset: boolean): IngestTimingSnapshot {
@@ -168,30 +189,150 @@ export class PresenceCoordinator<Client> {
     return held
   }
 
-  /** The room's capture run as last stored, after any change still being applied. */
-  private captureRun(): Promise<CaptureRun | null> {
-    this.captureQueue ??= this.state.storage.get<CaptureRun>(CAPTURE_KEY).then((run) => run ?? null)
-    return this.captureQueue
+  /** A team's capture run as last stored, after any change still being applied. */
+  private captureRun(team: TerritoryTeam): Promise<CaptureRun | null> {
+    let queued = this.captureQueues.get(team)
+    if (queued === undefined) {
+      queued = this.state.storage.get<CaptureRun>(captureKey(team)).then((run) => run ?? null)
+      this.captureQueues.set(team, queued)
+    }
+    return queued
   }
 
-  /** Apply one change to the run, store it, and send it to every session when it changed. */
-  private updateCapture(change: (run: CaptureRun | null) => CaptureRun | null): void {
-    const previous = this.captureRun()
+  /** Apply one change to a team's run, store it, and send it to that team's sessions if changed. */
+  private updateCapture(
+    team: TerritoryTeam,
+    change: (run: CaptureRun | null) => CaptureRun | null,
+  ): void {
+    const previous = this.captureRun(team)
     const next = previous.then(async (run) => {
       const updated = change(run)
       if (updated === run) return run
-      if (updated === null) await this.state.storage.delete(CAPTURE_KEY)
-      else await this.state.storage.put(CAPTURE_KEY, updated)
+      if (updated === null) await this.state.storage.delete(captureKey(team))
+      else await this.state.storage.put(captureKey(team), updated)
       const payload = JSON.stringify({
         type: 'capture',
         run: updated,
       } satisfies PresenceServerEvent)
-      for (const { socket } of this.sessionsOpen()) this.sendEncoded(socket, payload)
+      for (const { socket, held } of this.sessionsOpen())
+        if (this.teamOf(held) === team) this.sendEncoded(socket, payload)
       return updated
     })
     // A failed write keeps the run as it was, so the next change starts from what is stored.
-    this.captureQueue = next.catch(() => previous)
+    this.captureQueues.set(
+      team,
+      next.catch(() => previous),
+    )
     this.state.waitUntil(next)
+  }
+
+  /**
+   * Whether a session's team comes from its token: on an event server, for every stored token but
+   * an admin's. The bootstrap credential and anonymous readers have no row to bind, and admins act
+   * for every team, so their reported team stands.
+   */
+  private bindsTeam(held: Attachment): boolean {
+    return this.eventServer && held.revocable && held.credentialScope !== 'admin'
+  }
+
+  /**
+   * The team a session shares presence and capture runs in: the one it reported, when its token
+   * is bound to that team or binds none. A session that reported another team than its token's,
+   * or whose token is not bound yet, is in no team and sees and shares nothing.
+   */
+  private teamOf(held: Attachment): TerritoryTeam | undefined {
+    return !this.bindsTeam(held) || held.team === held.boundTeam ? held.team : undefined
+  }
+
+  /** Whether the session reported a team its token is bound against. */
+  private refused(held: Attachment): boolean {
+    return (
+      this.bindsTeam(held) &&
+      held.boundTeam !== undefined &&
+      held.team !== undefined &&
+      held.team !== held.boundTeam
+    )
+  }
+
+  /**
+   * Bind the session's token to the team it reported, the first time an unbound token reports
+   * one, then act in the team the token holds. The store binds in one conditional write, so a
+   * second session of the same token reporting another team at once reads the first one's team.
+   */
+  private bindIfDue(socket: LiveSocket, held: Attachment): void {
+    const reported = held.team
+    if (!this.bindsTeam(held) || held.boundTeam !== undefined || reported === undefined) return
+    const local = this.localState(held.sessionId)
+    if (local.binding !== undefined) return
+    const bound = this.sql.bindTeam(held.tokenHash, reported).then(
+      (team) => {
+        if (socket.readyState !== 1) return
+        const current = attachmentOf(socket)
+        if (current === null || current.closed) return
+        // Revoked meanwhile: the revoke closes the session; it never joins a team.
+        if (team === null) return this.close(socket, 1008, 'credential revoked')
+        const updated = { ...current, boundTeam: team } satisfies Attachment
+        socket.serializeAttachment(updated)
+        this.retarget(socket, current, updated)
+      },
+      () => {
+        // The next message tries again.
+      },
+    )
+    this.chainBind(local, bound)
+  }
+
+  /**
+   * Make `work` the end of the session's pending bind: capture commands that arrive meanwhile
+   * chain after it in order, and it clears itself once nothing is chained behind it.
+   */
+  private chainBind(local: SessionState, work: Promise<void>): void {
+    local.binding = work
+    this.state.waitUntil(
+      work.finally(() => {
+        if (local.binding === work) delete local.binding
+      }),
+    )
+  }
+
+  /** Apply one capture command to the run of the session's team, as the socket is now. */
+  private capture(socket: LiveSocket, event: CaptureCommand): void {
+    if (socket.readyState !== 1) return
+    const held = attachmentOf(socket)
+    if (held === null || held.closed) return
+    const team = this.teamOf(held)
+    if (team === undefined) return
+    const actor = {
+      sessionId: held.sessionId,
+      painter: held.painter,
+      scope: held.credentialScope,
+      team,
+    }
+    this.updateCapture(team, (run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
+  }
+
+  /**
+   * After a session's reported or bound team changed: leave the old team's run and see the new
+   * one's, or tell it that its token's team refuses the team it reported.
+   */
+  private retarget(socket: LiveSocket, before: Attachment, after: Attachment): void {
+    if (this.refused(after) && !this.refused(before) && after.boundTeam !== undefined)
+      this.send({ socket, held: after }, { type: 'team-refused', team: after.boundTeam })
+    const left = this.teamOf(before)
+    const joined = this.teamOf(after)
+    if (left === joined) return
+    if (left !== undefined)
+      this.updateCapture(left, (run) => run && leaveCapture(run, after.sessionId))
+    if (joined !== undefined)
+      void this.captureRun(joined).then((run) => {
+        // The read can finish after the session closed or switched again; then it is not theirs.
+        if (socket.readyState !== 1) return
+        const held = attachmentOf(socket)
+        if (held === null || held.closed || this.teamOf(held) !== joined) return
+        this.send({ socket, held }, { type: 'capture', run })
+      })
+    this.dirty.add(after.sessionId)
+    this.armTick()
   }
 
   stop(): void {
@@ -232,11 +373,37 @@ export class PresenceCoordinator<Client> {
     }
   }
 
+  /**
+   * The peers each subscriber may see, as one grid per visibility group: the whole room, or on an
+   * event server one grid per event team, so selection never walks another team's sessions.
+   * Sessions in no team on an event server (see `teamOf`) join no grid and see nobody.
+   */
+  private peerGrids(open: readonly LiveSession[]): Map<TerritoryTeam | undefined, PeerGrid> {
+    const groups = new Map<TerritoryTeam | undefined, PresencePeer[]>()
+    for (const { held } of open) {
+      const team = this.eventServer ? this.teamOf(held) : undefined
+      if (this.eventServer && team === undefined) continue
+      let group = groups.get(team)
+      if (group === undefined) {
+        group = []
+        groups.set(team, group)
+      }
+      group.push(this.peer(held))
+    }
+    return new Map([...groups].map(([team, peers]) => [team, new PeerGrid(peers)]))
+  }
+
+  /**
+   * The nearest `MAX_PRESENCE_PEERS` peers in `peers` that a subscriber's interest area reaches,
+   * nearest first, ties by session ID. A bounded insertion keeps the order a full stable sort
+   * would give without sorting every candidate.
+   */
   private relevant(subscriber: Attachment, peers: PeerGrid): PresencePeer[] {
     const viewport = subscriber.viewport
     if (viewport === null) return []
     const interest = padRect(viewport, PRESENCE_INTEREST_PADDING)
-    const candidates: { peer: PresencePeer; distance: number }[] = []
+    const nearest: PresencePeer[] = []
+    const distances: number[] = []
     for (const peer of peers.near(interest)) {
       if (peer.sessionId === subscriber.sessionId) continue
       const other = peer.viewport
@@ -248,19 +415,29 @@ export class PresenceCoordinator<Client> {
         !quickClaims.some((rect) => rectsIntersect(interest, rect))
       )
         continue
-      candidates.push({
-        peer,
-        distance: Math.min(
-          other === null ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, other),
-          draft === undefined ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, draft),
-          ...quickClaims.map((rect) => rectCentreDistance(viewport, rect)),
-        ),
-      })
+      let distance = other === null ? Number.POSITIVE_INFINITY : rectCentreDistance(viewport, other)
+      if (draft !== undefined) distance = Math.min(distance, rectCentreDistance(viewport, draft))
+      for (const rect of quickClaims)
+        distance = Math.min(distance, rectCentreDistance(viewport, rect))
+      let at = nearest.length
+      while (at > 0) {
+        const gap = distance - (distances[at - 1] ?? 0)
+        if (
+          gap > 0 ||
+          (gap === 0 && peer.sessionId.localeCompare(nearest[at - 1]?.sessionId ?? '') >= 0)
+        )
+          break
+        at--
+      }
+      if (at === MAX_PRESENCE_PEERS) continue
+      nearest.splice(at, 0, peer)
+      distances.splice(at, 0, distance)
+      if (nearest.length > MAX_PRESENCE_PEERS) {
+        nearest.pop()
+        distances.pop()
+      }
     }
-    return candidates
-      .sort((a, b) => a.distance - b.distance || a.peer.sessionId.localeCompare(b.peer.sessionId))
-      .slice(0, MAX_PRESENCE_PEERS)
-      .map(({ peer }) => peer)
+    return nearest
   }
 
   private send({ socket, held }: LiveSession, event: PresenceServerEvent): void {
@@ -301,17 +478,29 @@ export class PresenceCoordinator<Client> {
     }
   }
 
+  /**
+   * Schedule a tick for a change, no sooner than `PRESENCE_TICK_MS` after the last tick started.
+   * Counting from the start keeps a busy room on a 300 ms cadence: the update that arrives
+   * while a tick runs does not add that tick's work to the next interval. A room idle for longer
+   * than the interval ticks at once.
+   */
   private armTick(): void {
     if (this.stopped || this.timer !== null) return
-    this.timer = setTimeout(() => {
-      this.timer = null
-      this.state.waitUntil(this.tick())
-    }, PRESENCE_TICK_MS)
+    this.timer = setTimeout(
+      () => {
+        this.timer = null
+        this.state.waitUntil(this.tick())
+      },
+      Math.min(PRESENCE_TICK_MS, Math.max(0, this.tickStartedAt + PRESENCE_TICK_MS - Date.now())),
+    )
   }
 
   private async armAlarm(open?: readonly LiveSession[]): Promise<void> {
     const alarm = await this.state.storage.getAlarm()
-    const regionExpiry = await this.state.storage.get<RegionExpiry>('region-expiry')
+    // An event server publishes no claims, so their expiry never wakes it.
+    const regionExpiry = this.eventServer
+      ? undefined
+      : await this.state.storage.get<RegionExpiry>('region-expiry')
     let expiresAt = regionExpiry?.at ?? Number.POSITIVE_INFINITY
     for (const { held } of open ?? this.sessionsOpen())
       expiresAt = Math.min(expiresAt, held.lastSeenAt + PRESENCE_STALE_MS)
@@ -331,6 +520,7 @@ export class PresenceCoordinator<Client> {
   }
 
   private async tick(): Promise<void> {
+    this.tickStartedAt = Date.now()
     const queued = performance.now()
     await this.sessions.revoke(async () =>
       this.timings.timed('presence', 'total', async () => {
@@ -344,16 +534,21 @@ export class PresenceCoordinator<Client> {
         }
         const sent = (sessionId: string) => this.local.get(sessionId)?.sent
         const recovering = open.some(({ held }) => sent(held.sessionId) === undefined)
-        const regions = !recovering
-          ? []
-          : await this.timings.timed('claims', 'list', () =>
-              this.sql.regions.listRegions(this.room.season, this.room.surface),
-            )
+        const regions =
+          !recovering || this.eventServer
+            ? []
+            : await this.timings.timed('claims', 'list', () =>
+                this.sql.regions.listRegions(this.room.season, this.room.surface),
+              )
         // A valid heartbeat/update has kept these sessions alive. Ownership always uses both keys,
         // including for administrators; connecting must never renew another painter's claims.
+        // An event server keeps claims dormant, so it renews none.
         const due = new Set(
           open.filter(
-            ({ held }) => !held.anonymous && now - (held.renewedAt ?? 0) >= CLAIM_RENEW_INTERVAL_MS,
+            ({ held }) =>
+              !this.eventServer &&
+              !held.anonymous &&
+              now - (held.renewedAt ?? 0) >= CLAIM_RENEW_INTERVAL_MS,
           ),
         )
         const renewed: LiveSession[] = []
@@ -379,8 +574,9 @@ export class PresenceCoordinator<Client> {
         // fence. Do not retain it across ticks, where a credential transfer or expiry could
         // invalidate it.
         const owners =
-          renewed.length > 0 ||
-          open.some(({ held }) => !held.anonymous && sent(held.sessionId) === undefined)
+          !this.eventServer &&
+          (renewed.length > 0 ||
+            open.some(({ held }) => !held.anonymous && sent(held.sessionId) === undefined))
             ? await this.timings.timed('claims', 'owners', () =>
                 this.sql.regions.regionOwners(this.room.season, this.room.surface),
               )
@@ -401,7 +597,17 @@ export class PresenceCoordinator<Client> {
         this.dirty.clear()
         const online = open.length
         // Built on demand: a heartbeat-only tick selects nobody.
-        let peers: PeerGrid | undefined
+        let grids: Map<TerritoryTeam | undefined, PeerGrid> | undefined
+        // Each peer is encoded once per tick, however many subscribers its delta reaches.
+        const encoded = new Map<string, string>()
+        const encode = (peer: PresencePeer) => {
+          let json = encoded.get(peer.sessionId)
+          if (json === undefined) {
+            json = JSON.stringify(peer)
+            encoded.set(peer.sessionId, json)
+          }
+          return json
+        }
         for (const session of open) {
           const subscriber = session.held
           const local = this.localState(subscriber.sessionId)
@@ -409,9 +615,10 @@ export class PresenceCoordinator<Client> {
           // Heartbeats only refresh liveness. Recovery, membership changes and dirty peer state
           // still recompute every recipient so moving viewports can discover previously unseen peers.
           if (previous !== undefined && dirty.size === 0 && local.onlineSent === online) continue
-          peers ??= new PeerGrid(open.map(({ held }) => this.peer(held)))
+          grids ??= this.peerGrids(open)
+          const peers = grids.get(this.eventServer ? this.teamOf(subscriber) : undefined)
           const started = performance.now()
-          const relevant = this.relevant(subscriber, peers)
+          const relevant = peers === undefined ? [] : this.relevant(subscriber, peers)
           this.timings.record('presence', 'select', performance.now() - started)
           const next = new Set(relevant.map((peer) => peer.sessionId))
           local.sent = next
@@ -434,8 +641,12 @@ export class PresenceCoordinator<Client> {
           const remove = [...previous].filter((id) => !next.has(id))
           const onlineChanged = local.onlineSent !== online
           local.onlineSent = online
-          if (upsert.length || remove.length || onlineChanged)
-            this.send(session, { type: 'presence-delta', online, upsert, remove })
+          if (!upsert.length && !remove.length && !onlineChanged) continue
+          const encoding = performance.now()
+          // The bytes JSON.stringify gives the whole event, with every peer encoded only once.
+          const payload = `{"type":"presence-delta","online":${online},"upsert":[${upsert.map(encode).join(',')}],"remove":${JSON.stringify(remove)}}`
+          this.timings.record('presence', 'serialize', performance.now() - encoding)
+          this.sendEncoded(session.socket, payload)
         }
         await this.armAlarm(open)
       }),
@@ -449,8 +660,9 @@ export class PresenceCoordinator<Client> {
     this.local.delete(attachment.sessionId)
     this.dirty.add(attachment.sessionId)
     this.armTick()
-    if (this.captureRuns)
-      this.updateCapture((run) => run && leaveCapture(run, attachment.sessionId))
+    const team = this.teamOf(attachment)
+    if (team !== undefined)
+      this.updateCapture(team, (run) => run && leaveCapture(run, attachment.sessionId))
   }
 
   private close(socket: LiveSocket, code: number, reason: string): void {
@@ -468,6 +680,7 @@ export class PresenceCoordinator<Client> {
       connection
     let capacity = false
     let regions: readonly RegionClaim[] = []
+    let boundTeam: TerritoryTeam | undefined
     const pair = await this.sessions.attach(
       async () => {
         const open = this.sessionsOpen()
@@ -481,7 +694,10 @@ export class PresenceCoordinator<Client> {
           await this.routeRevocation(tokenHash)
           const token = await this.sql.readAccessToken(tokenHash)
           if (token === null || token.scope !== credentialScope) return false
+          boundTeam = token.team
         }
+        // An event server neither renews nor shows the claims stored before it became one.
+        if (this.eventServer) return true
         if (!anonymous)
           await this.sql.regions.renewRegions(
             [{ tokenHash, actorId: painter.wplaceUserId }],
@@ -504,6 +720,7 @@ export class PresenceCoordinator<Client> {
           draftPixels: 0,
           lastSeenAt: Date.now(),
           renewedAt: Date.now(),
+          ...(this.eventServer && boundTeam !== undefined ? { boundTeam } : {}),
         }
         const pair = this.state.connect(attachment)
         const open = this.sessionsOpen()
@@ -523,10 +740,7 @@ export class PresenceCoordinator<Client> {
             canWrite: credentialScope !== 'read' && !anonymous,
           },
         )
-        // A run saved while this was an event server stays stored but unread once it is not.
-        const run = this.captureRuns ? await this.captureRun() : null
-        if (run !== null)
-          this.send({ socket: pair.server, held: attachment }, { type: 'capture', run })
+        // A capture run reaches the session once it reports its team.
         this.dirty.add(sessionId)
         this.armTick()
         await this.armAlarm(open)
@@ -577,28 +791,35 @@ export class PresenceCoordinator<Client> {
       return
     }
     if (event.type === 'presence-heartbeat') {
-      socket.serializeAttachment({ ...attachment, lastSeenAt: now } satisfies Attachment)
+      const updated = { ...attachment, lastSeenAt: now } satisfies Attachment
+      socket.serializeAttachment(updated)
+      // A session that hibernated with its bind unfinished retries it here.
+      this.bindIfDue(socket, updated)
       this.armTick()
       return
     }
     // Capture runs and their clock sync exist only on an event server.
-    if (!this.captureRuns && event.type !== 'presence-update') return
+    if (!this.eventServer && event.type !== 'presence-update') return
     if (event.type === 'clock') {
       this.send({ socket, held: attachment }, { type: 'clock', sent: event.sent, at: Date.now() })
       return
     }
     if (attachment.credentialScope === 'read') return
     if (event.type !== 'presence-update') {
-      const actor = {
-        sessionId: attachment.sessionId,
-        painter: attachment.painter,
-        scope: attachment.credentialScope,
-      }
-      this.updateCapture((run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
+      const command = event
+      // The team report just ahead of it is still binding the token; act once it has.
+      if (this.teamOf(attachment) === undefined && local.binding !== undefined)
+        this.chainBind(
+          local,
+          local.binding.then(() => this.capture(socket, command)),
+        )
+      else this.capture(socket, command)
       return
     }
     // Anonymous sessions are read scope, so the early return above keeps their quick claims out.
-    const quickClaims = event.quickClaims
+    // An event server takes no claims at all.
+    const quickClaims = this.eventServer ? undefined : event.quickClaims
+    const team = this.eventServer ? (event.team ?? attachment.team) : undefined
     const { surface } = this.room
     const viewport =
       event.viewport === undefined
@@ -621,7 +842,7 @@ export class PresenceCoordinator<Client> {
     )
       return
     if (draft !== undefined) local.mask = draft?.mask
-    socket.serializeAttachment({
+    const updated = {
       ...attachment,
       viewport,
       draftRect: draft === undefined ? attachment.draftRect : (draft?.rect ?? null),
@@ -629,8 +850,12 @@ export class PresenceCoordinator<Client> {
       ...(quickClaims === undefined
         ? {}
         : { quickClaims: quickClaims.map(({ x, y, w, h }) => [x, y, w, h] as const) }),
+      ...(team === undefined ? {} : { team }),
       lastSeenAt: now,
-    } satisfies Attachment)
+    } satisfies Attachment
+    socket.serializeAttachment(updated)
+    if (team !== attachment.team) this.retarget(socket, attachment, updated)
+    this.bindIfDue(socket, updated)
     this.dirty.add(attachment.sessionId)
     this.armTick()
   }
@@ -654,6 +879,7 @@ export class PresenceCoordinator<Client> {
 
   /** Reload committed claims and deliver the surface's authoritative region list. */
   async publishRegions(): Promise<void> {
+    if (this.eventServer) return
     const { season, surface } = this.room
     const queued = performance.now()
     await this.sessions.revoke(async () =>
@@ -721,7 +947,7 @@ export class PresenceCoordinator<Client> {
     attachment: Attachment,
     recoveredOwners?: readonly RegionOwner[],
   ): Promise<readonly string[]> {
-    if (attachment.anonymous) return []
+    if (attachment.anonymous || this.eventServer) return []
     const owners =
       recoveredOwners ??
       (await this.timings.timed('claims', 'owners', () =>

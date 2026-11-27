@@ -1,7 +1,19 @@
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, describe, expect, it } from 'vitest'
 import CaptureRun from '../src/capture/CaptureRun.svelte'
-import type { CaptureRunIntent, CaptureRunModel } from '../src/capture/model.js'
+import type { CaptureRunIntent, CaptureRunMember, CaptureRunModel } from '../src/capture/model.js'
+
+const ada = {
+  id: 'a',
+  name: 'Ada',
+  colour: 'red',
+  drafted: 40,
+  length: 40,
+  me: false,
+  guard: false,
+  closes: false,
+} satisfies CaptureRunMember
+const bea = { ...ada, id: 'b', name: 'Bea', colour: 'blue', drafted: 12, me: true }
 
 const counting = {
   phase: 'countdown',
@@ -10,11 +22,9 @@ const counting = {
   maxPainters: 8,
   guards: 0,
   maxGuards: 2,
+  staggerMs: 500,
   anchor: null,
-  members: [
-    { id: 'a', name: 'Ada', colour: 'red', drafted: 40, length: 40, me: false, guard: false },
-    { id: 'b', name: 'Bea', colour: 'blue', drafted: 12, length: 40, me: true, guard: false },
-  ],
+  members: [ada, bea],
   joined: true,
   role: 'painter',
   canJoin: false,
@@ -67,4 +77,47 @@ it('tells a guard whose anchor was cut to repaint, once their slot has passed', 
   })
   expect(card.textContent).toContain('Anchor cut')
   expect(card.textContent).toContain('Repaint your line.')
+})
+
+it('steps the stagger by 50 ms within its bounds before a run opens', () => {
+  const intents: CaptureRunIntent[] = []
+  const button = (card: HTMLElement, label: string) =>
+    card.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+  const card = render({ ...counting, phase: 'none', admin: true, staggerMs: 500 }, intents)
+  expect(card.textContent).toContain('500 ms')
+  button(card, 'Shorter stagger')?.click()
+  button(card, 'Longer stagger')?.click()
+  expect(intents).toEqual([
+    { type: 'set-stagger', staggerMs: 450 },
+    { type: 'set-stagger', staggerMs: 550 },
+  ])
+  const shortest = render({ ...counting, phase: 'none', admin: true, staggerMs: 200 })
+  expect(button(shortest, 'Shorter stagger')?.disabled).toBe(true)
+})
+
+it('moves a painter and a guard past the coordinator, who stays on the closing line', () => {
+  const intents: CaptureRunIntent[] = []
+  const card = render(
+    {
+      ...counting,
+      phase: 'gathering',
+      admin: true,
+      guards: 1,
+      members: [ada, { ...bea, closes: true }, { ...ada, id: 'g', name: 'Gil', guard: true }],
+    },
+    intents,
+  )
+  const rows = [...card.querySelectorAll('.members li')]
+  expect(rows[1]?.textContent).toContain('Closes wall')
+  const button = (label: string) =>
+    card.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+  expect(button('Move Bea up')).toBeNull()
+  expect(button('Move Ada up')?.disabled).toBe(true)
+  button('Move Ada down')?.click()
+  button('Move Gil up')?.click()
+  expect(intents).toEqual([
+    { type: 'move', id: 'a', by: 1 },
+    { type: 'move', id: 'g', by: -1 },
+  ])
+  expect(button('Move Gil down')?.disabled).toBe(true)
 })

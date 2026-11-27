@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b225c192-4f47-4ffc-bcb7-c0f3aa271cfc",
+  "id": "60340bbc-5d4d-4129-9f5e-d9fd9562470e",
   "prevId": "a9981160-b3b9-4b7a-a795-19c2cc4a45b7",
   "tables": {
     "access_tokens": {
@@ -56,6 +56,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "team": {
+          "name": "team",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -74,6 +81,10 @@
         "access_tokens_revoked_check": {
           "name": "access_tokens_revoked_check",
           "value": "\"access_tokens\".\"revoked\" IN (0, 1)"
+        },
+        "access_tokens_team_check": {
+          "name": "access_tokens_team_check",
+          "value": "\"access_tokens\".\"team\" IS NULL OR (\"access_tokens\".\"team\" IN (0, 1, 2, 3) AND \"access_tokens\".\"scope\" <> 'admin')"
         }
       }
     },
@@ -554,20 +565,6 @@
         "description": {
           "name": "description",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "progress_start_seconds": {
-          "name": "progress_start_seconds",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "progress_end_seconds": {
-          "name": "progress_end_seconds",
-          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -1837,20 +1834,6 @@
         },
         "finished_at_ms": {
           "name": "finished_at_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "progress_start_seconds": {
-          "name": "progress_start_seconds",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "progress_end_seconds": {
-          "name": "progress_end_seconds",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

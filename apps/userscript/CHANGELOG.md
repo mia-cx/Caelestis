@@ -1,5 +1,20 @@
 # @caelestis/userscript
 
+## 1.3.0
+
+### Minor Changes
+
+- 5e72766: A capture run is for the opening administrator's event team: only that team's painters can join it, and every member sees the wall in that team's colours.
+- 5e72766: Capture runs coordinate a group in Wplace's territory event: Caelestis plans a wall from the live map, shows each painter their line, counts down to their slot with beeps, and can press Paint at it.
+- 83608d0: Admins on an event server can invite event runners, and an invited organiser's browser swaps the invite for its own token and shows them the capture-run controls.
+- 5a27995: Event servers keep each event team to itself: painters see only their own team's viewports, drafts and capture run, each team runs its own capture, and claims are off.
+
+### Patch Changes
+
+- 99ad8e9: Capture walls end each leg where it meets your territory, so on a slanted or stepped border they hug it and claim more for the same pixels.
+- 635f82e: Other painters' drafted pixels have an outline in their colour with a dark line inside it, so they stay visible over artwork of the same hue, such as a territory event's team colours.
+- 2868668: The map stays smoother with dozens of painters on screen: their viewports, drafts, name tags and capture-run lines are drawn with less work each frame.
+
 ## 1.2.1
 
 ### Patch Changes

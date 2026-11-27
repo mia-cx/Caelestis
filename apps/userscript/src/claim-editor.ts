@@ -134,8 +134,13 @@ export const isCaptureModeActive = (): boolean => editor !== null && captureHost
 
 export const claimEditorTool = (): ClaimTool | null => editor?.tool ?? null
 
-/** The saved claims loaded into the editor, so their stored copies step aside in the layer. */
-export const claimEditorEditingIds = (): readonly string[] => editor?.editingIds ?? []
+const NOT_EDITING: readonly string[] = []
+
+/**
+ * The saved claims loaded into the editor, so their stored copies step aside in the layer. The
+ * same array until the editor changes, so the presence scene can tell nothing changed.
+ */
+export const claimEditorEditingIds = (): readonly string[] => editor?.editingIds ?? NOT_EDITING
 
 /** The working document as pixels, mid-gesture included, for the presence layer. */
 export const claimEditorPixels = (): EditorPixels | null =>

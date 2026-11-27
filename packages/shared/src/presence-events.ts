@@ -122,6 +122,11 @@ export const decodePresenceServerEvent = (
     case 'clock':
       if (!isSafeInteger(event.sent) || !isSafeInteger(event.at)) return null
       return { type: 'clock', sent: event.sent, at: event.at }
+    case 'team-refused': {
+      const { team } = event
+      if (!(team === 0 || team === 1 || team === 2 || team === 3)) return null
+      return { type: 'team-refused', team }
+    }
     default:
       return 'unknown'
   }

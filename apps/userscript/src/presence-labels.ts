@@ -67,8 +67,20 @@ interface Placed extends PresenceTag {
   readonly width: number
 }
 
+/**
+ * A tag's element and what was last written to it. Reading an inline style back serialises it
+ * (and normalises the colour, so it never matches what was set), so a tag compares against this
+ * instead and a frame that changes nothing writes nothing.
+ */
+interface TagNode {
+  readonly element: HTMLElement
+  text: string
+  colour: string
+  transform: string
+}
+
 let host: HTMLElement | null = null
-const nodes = new Map<SceneItemId, HTMLElement>()
+const nodes = new Map<SceneItemId, TagNode>()
 let pointer: { x: number; y: number } | null = null
 let pointerWatched = false
 const MAX_MEASURED_LABELS = 128
@@ -259,6 +271,43 @@ const clusterFor = (
   return rect
 }
 
+/** A peer's tag, and the items it may hang from in hit order. */
+interface PeerTag {
+  readonly text: string
+  readonly colour: string
+  readonly items: readonly SceneItem[]
+}
+
+/** A peer's drafted pixels are tagged when the pointer is on them, else its viewport. */
+const HIT_ORDER = ['draft', 'viewport', 'painting'] as const
+
+/** Tags by the scene they were built from, held only as long as that scene and its masks are. */
+const peerTagsFor = new WeakMap<readonly SceneItem[], readonly PeerTag[]>()
+
+/** Every peer's tag, built once per scene rather than on every frame the pointer rests. */
+const peerTags = (scene: readonly SceneItem[]): readonly PeerTag[] => {
+  const held = peerTagsFor.get(scene)
+  if (held !== undefined) return held
+  const peers = new Map<string, { peer: PresencePeer; items: SceneItem[] }>()
+  for (const item of scene) {
+    if (item.source.kind !== 'peer') continue
+    const { peer } = item.source
+    const held = peers.get(peer.sessionId) ?? { peer, items: [] }
+    held.items.push(item)
+    peers.set(peer.sessionId, held)
+  }
+  const tags = [...peers.values()].map(({ peer, items }) => ({
+    text:
+      peer.draft === null
+        ? peer.painter.displayName
+        : `${peer.painter.displayName} · painting ${peer.draft.pixels} px`,
+    colour: presenceCss(peer.painter.wplaceUserId, 0.85),
+    items: HIT_ORDER.flatMap((kind) => items.filter((item) => item.kind === kind)),
+  }))
+  peerTagsFor.set(scene, tags)
+  return tags
+}
+
 /**
  * The tags to show for a pointer at a canvas pixel: one per hovered peer, and one for the hovered
  * piece of each hovered claim (or the cluster of pieces it shares a tag with at this zoom).
@@ -272,24 +321,8 @@ const presenceTagsAt = (
 ): PresenceTag[] => {
   const scene = presenceScene()
   const tags: PresenceTag[] = []
-  // A peer's drafted pixels are tagged when the pointer is on them, else its viewport.
-  const peers = new Map<string, { peer: PresencePeer; items: SceneItem[] }>()
-  for (const item of scene) {
-    if (item.source.kind !== 'peer') continue
-    const { peer } = item.source
-    const held = peers.get(peer.sessionId) ?? { peer, items: [] }
-    held.items.push(item)
-    peers.set(peer.sessionId, held)
-  }
-  for (const { peer, items } of peers.values()) {
-    const text =
-      peer.draft === null
-        ? peer.painter.displayName
-        : `${peer.painter.displayName} · painting ${peer.draft.pixels} px`
-    const colour = presenceCss(peer.painter.wplaceUserId, 0.85)
-    const hit = ['draft', 'viewport', 'painting']
-      .flatMap((kind) => items.filter((item) => item.kind === kind))
-      .find((item) => rectContains(displayedRect(item), at))
+  for (const { text, colour, items } of peerTags(scene)) {
+    const hit = items.find((item) => rectContains(displayedRect(item), at))
     if (hit !== undefined)
       tags.push({ id: hit.id, aside: hit.aside, text, colour, rect: displayedRect(hit) })
   }
@@ -346,7 +379,7 @@ const presenceTagsAt = (
 }
 
 const removeAll = (): void => {
-  for (const node of nodes.values()) node.remove()
+  for (const node of nodes.values()) node.element.remove()
   nodes.clear()
   setHoveredSceneItems(new Set())
 }
@@ -419,8 +452,8 @@ export const renderPresenceLabels = (
     if (screen === null) continue
     let node = nodes.get(tag.id)
     if (node === undefined) {
-      node = document.createElement('span')
-      Object.assign(node.style, {
+      const element = document.createElement('span')
+      Object.assign(element.style, {
         position: 'absolute',
         left: '0',
         top: '0',
@@ -431,11 +464,12 @@ export const renderPresenceLabels = (
         textShadow: '0 1px 1px rgb(0 0 0 / 0.4)',
         willChange: 'transform',
       } satisfies Partial<CSSStyleDeclaration>)
-      container.appendChild(node)
+      container.appendChild(element)
+      node = { element, text: '', colour: '', transform: '' }
       nodes.set(tag.id, node)
     }
-    if (node.textContent !== tag.text) node.textContent = tag.text
-    if (node.style.background !== tag.colour) node.style.background = tag.colour
+    if (node.text !== tag.text) node.element.textContent = node.text = tag.text
+    if (node.colour !== tag.colour) node.element.style.background = node.colour = tag.colour
     const width = measure(tag.text)
     const centre = box.left + (screen.x + screen.width / 2) / ratioX
     const top = box.top + screen.y / ratioY
@@ -444,11 +478,9 @@ export const renderPresenceLabels = (
     let y = Math.round(top - GAP - TAG_HEIGHT)
     // Other painters' claims are not obstacles: the chip is DOM above the GL layer, so it stays
     // anchored to its own claim and simply reads over whatever it covers.
-    const overlaps = (held: Placed): boolean =>
-      x < held.x + held.width &&
-      held.x < x + width &&
-      y < held.y + TAG_HEIGHT &&
-      held.y < y + TAG_HEIGHT
+    // Only y moves below, so the tags sharing this chip's columns are found once.
+    const column = placed.filter((held) => x < held.x + held.width && held.x < x + width)
+    const overlaps = (held: Placed): boolean => y < held.y + TAG_HEIGHT && held.y < y + TAG_HEIGHT
     // The edge clamp and the stack onto another tag can undo each other, so each pass
     // rechecks both until the chip stops moving.
     for (let round = 0; round < 8; round++) {
@@ -458,19 +490,20 @@ export const renderPresenceLabels = (
         y = Math.round(Math.min(top + INSET, box.top + box.height - TAG_HEIGHT - INSET))
       // Tags for different things must not cover each other: stack upward on a collision.
       for (let guard = 0; guard < placed.length; guard++) {
-        const other = placed.find(overlaps)
+        const other = column.find(overlaps)
         if (other === undefined) break
         y = other.y - TAG_HEIGHT - 2
       }
       if (y === before) break
     }
     placed.push({ ...tag, x, y, width })
-    node.style.transform = `translate(${x}px, ${y}px)`
+    const transform = `translate(${x}px, ${y}px)`
+    if (node.transform !== transform) node.element.style.transform = node.transform = transform
   }
   const kept = new Set(placed.map((tag) => tag.id))
   for (const [key, node] of nodes) {
     if (kept.has(key)) continue
-    node.remove()
+    node.element.remove()
     nodes.delete(key)
   }
 }

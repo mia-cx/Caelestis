@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { millis, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
 import { createConnection } from 'mariadb'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { coordinatorDatabase } from '../../src/adapters/node/coordinator-database.js'
 import { MariaConnection } from '../../src/adapters/node/mariadb-connection.js'
 import { PostgresConnection } from '../../src/adapters/node/postgres-connection.js'
@@ -14,6 +14,8 @@ import {
   runLeaderboardContract,
   runNodeTemplateContract,
   runRegionRenewalContract,
+  runTeamBindingContract,
+  teamBindingContractExpected,
 } from '../support/sql-contract.js'
 
 const migrationRoot = process.cwd()
@@ -35,23 +37,23 @@ const migrations = join(
   postgresUrl === undefined ? 'migrations-mariadb' : 'migrations-postgres',
 )
 
-const suffix = crypto.randomUUID().replaceAll('-', '')
-const databaseName = `caelestis_test_${suffix}`
 let connection: MariaConnection | PostgresConnection | undefined
 let closeFixture: (() => Promise<void>) | undefined
 
-beforeAll(async () => {
+beforeEach(async () => {
+  const databaseName = `caelestis_test_${crypto.randomUUID().replaceAll('-', '')}`
   if (postgresUrl !== undefined) {
     const admin = new PostgresConnection({ connectionString: postgresUrl, ssl: false })
     try {
       await admin.pool.query(`CREATE SCHEMA ${databaseName}`)
-      connection = new PostgresConnection({
+      const fixture = new PostgresConnection({
         connectionString: postgresUrl,
         options: `-c search_path=${databaseName}`,
         ssl: false,
       })
+      connection = fixture
       closeFixture = async () => {
-        await connection?.close()
+        await fixture.close()
         await admin.pool.query(`DROP SCHEMA IF EXISTS ${databaseName} CASCADE`)
         await admin.close()
       }
@@ -72,9 +74,10 @@ beforeAll(async () => {
   const admin = new MariaConnection(config)
   try {
     await admin.prepare(`CREATE DATABASE ${databaseName}`).run()
-    connection = new MariaConnection({ ...config, database: databaseName })
+    const fixture = new MariaConnection({ ...config, database: databaseName })
+    connection = fixture
     closeFixture = async () => {
-      await connection?.close()
+      await fixture.close()
       await admin.prepare(`DROP DATABASE IF EXISTS ${databaseName}`).run()
       await admin.close()
     }
@@ -84,8 +87,11 @@ beforeAll(async () => {
   }
 })
 
-afterAll(async () => {
-  await closeFixture?.()
+afterEach(async () => {
+  const cleanup = closeFixture
+  closeFixture = undefined
+  connection = undefined
+  await cleanup?.()
 })
 
 describe('external relational adapter contract', () => {
@@ -104,7 +110,7 @@ describe('external relational adapter contract', () => {
       ])
       // A second session holds row 1, and outweighs the transaction under test with many changed
       // rows, so InnoDB picks the transaction under test as the deadlock victim.
-      const rival = await createConnection({ ...connection.config, database: databaseName })
+      const rival = await createConnection(connection.config)
       await rival.beginTransaction()
       await rival.query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 1')
       await rival.query('UPDATE deadlock_weight SET v = v + 1')
@@ -149,7 +155,7 @@ describe('external relational adapter contract', () => {
       await connection.prepare('SET SESSION innodb_snapshot_isolation = ON').run()
       await connection.prepare('CREATE TABLE snapshot_probe (id INT PRIMARY KEY, v INT)').run()
       await connection.prepare('INSERT INTO snapshot_probe VALUES (1, 0), (2, 0)').run()
-      const rival = await createConnection({ ...connection.config, database: databaseName })
+      const rival = await createConnection(connection.config)
       let attempts = 0
       await connection.transaction(async (sql) => {
         attempts += 1
@@ -187,6 +193,13 @@ describe('external relational adapter contract', () => {
     await connection.migrate(migrations)
     expect(await runRegionRenewalContract(relationalSqlStore(connection))).toEqual(
       regionRenewalContractExpected,
+    )
+  })
+  it('binds each access token to one event team, once, in the selected real database', async () => {
+    if (connection === undefined) throw new Error('Integration fixture did not open a database')
+    await connection.migrate(migrations)
+    expect(await runTeamBindingContract(relationalSqlStore(connection))).toEqual(
+      teamBindingContractExpected,
     )
   })
   it('migrates and preserves shared persistence boundaries in the selected real database', async () => {

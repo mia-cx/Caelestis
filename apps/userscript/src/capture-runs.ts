@@ -1,16 +1,24 @@
 import plannerSource from 'worker:capture-planner'
 import {
   CAPTURE_LEAD_MS,
+  CAPTURE_STAGGER_MS,
+  CAPTURE_STAGGER_STEP_MS,
   type CaptureRun,
+  captureCoordinatorIndex,
+  capturePaintersDrafted,
   captureSlot,
   captureStep,
   captureSteps,
   decodePng,
   GUARD_MARGIN,
   isCaptureGuard,
+  isEventServer,
   latLngToCanvasPixel,
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
+  MAX_CAPTURE_STAGGER_MS,
+  MIN_CAPTURE_STAGGER_MS,
+  moveCaptureMember,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -43,6 +51,7 @@ import {
 } from './capture-scene.js'
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt } from './draft-pixels.js'
+import { eventTeam, readEventTeam } from './event-team.js'
 import { getMap, type MapLike, onMapAttached } from './map-handle.js'
 import { requestMapFrame, viewportCentre } from './map-view.js'
 import {
@@ -51,6 +60,7 @@ import {
   localClock,
   onPresenceChange,
   sendCapture,
+  setPresenceTeam,
   syncCaptureClock,
 } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
@@ -107,6 +117,7 @@ interface Proposal extends CaptureProposal {
 
 let painters = 3
 let guards = MAX_CAPTURE_GUARDS
+let staggerMs = CAPTURE_STAGGER_MS
 let proposals: readonly Proposal[] = []
 let message: string | undefined
 let element: CaelestisElement<'caelestis-capture-run'> | null = null
@@ -119,7 +130,6 @@ let disarm: () => void = () => {}
 let draftedSentAt = Number.NEGATIVE_INFINITY
 let teamTriedAt = Number.NEGATIVE_INFINITY
 let joinedRun: string | null = null
-let lastDrafted = -1
 
 /**
  * The event server this tab coordinates on, with its run: the one whose run it has joined, else one
@@ -128,7 +138,7 @@ let lastDrafted = -1
  * competing for it.
  */
 const active = (): CaptureView | null => {
-  const views = captureViews().filter((view) => view.server.info?.capture === 1)
+  const views = captureViews().filter((view) => isEventServer(view.server.info))
   const administered = views.filter((view) => canRunServerCaptures(view.server))
   return (
     views.find((view) => memberIndex(view) >= 0) ??
@@ -147,29 +157,23 @@ const localTime = (view: CaptureView, serverTime: number): number | null =>
   view.clockOffset === null ? null : serverTime - view.clockOffset
 
 /**
- * This painter's event team and the Wplace account it was read for. It decides which runs they may
- * open and join; everything about a run itself uses the run's own team.
+ * Read this painter's team, until it is known. It decides which run this tab sees; everything
+ * about a run itself uses the run's own team.
  */
-let teamRead: { readonly account: number; readonly team: TerritoryTeam } | null = null
-
-/** This painter's event team, while the account it was read for is still signed in. */
-const myTeam = (): TerritoryTeam | null => {
-  const account = accountIdentity()?.wplaceUserId
-  return teamRead !== null && teamRead.account === account ? teamRead.team : null
-}
-
-/** Read this painter's team again, from Wplace's own leaderboard. */
 const refreshTeam = async (): Promise<TerritoryTeam | null> => {
-  const account = accountIdentity()?.wplaceUserId
-  teamTriedAt = localClock()
-  const team = await loadTeam()
-  if (account !== undefined && team !== null) teamRead = { account, team }
-  return team
+  if (eventTeam() === null) teamTriedAt = localClock()
+  return readEventTeam()
 }
 
-const teamName = (team: TerritoryTeam): string => {
-  const { key } = TERRITORY_TEAMS[team]
-  return key.charAt(0).toUpperCase() + key.slice(1)
+/** Keep event servers told this painter's team, reading it until it is known. */
+const syncTeam = (): void => {
+  setPresenceTeam(eventTeam())
+  if (eventTeam() !== null || accountIdentity() === null) return
+  if (localClock() - teamTriedAt < TEAM_RETRY_MS) return
+  if (!captureViews().some((view) => isEventServer(view.server.info))) return
+  void refreshTeam()
+    .then(setPresenceTeam)
+    .catch(() => undefined)
 }
 
 /** Whether this tab has drafted a pixel in a colour that claims for `team`. */
@@ -302,19 +306,64 @@ const masked = (kind: CaptureItemKind, pixels: RegionShapePixels, colour: Rgb): 
   colour,
 })
 
-/** The plans an administrator is choosing between, while the run they were planned for gathers. */
-const candidateItems = (run: CaptureRun, colour: Rgb): CaptureItem[] =>
-  run.startsAt !== null || proposalsRun !== run.id
-    ? []
-    : proposals
-        .filter((proposal) => !sameLines(run.lines, proposal.lines))
-        .flatMap((proposal) => [
-          ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
-          ...proposal.lines.flatMap((line) => {
-            const pixels = pixelMask(linePixels(line))
-            return pixels === null ? [] : [masked('pending', pixels, colour)]
-          }),
-        ])
+const NO_ITEMS: readonly CaptureItem[] = []
+
+/**
+ * Remembers the value last built from the same parts, compared by identity. The map asks for the
+ * capture items every frame; handing back the same masks lets it skip rebuilding the scene and
+ * re-uploading their textures until something they come from changes.
+ */
+const lastBuilt = <T>(): ((parts: readonly unknown[], build: () => T) => T) => {
+  let held: { readonly parts: readonly unknown[]; readonly value: T } | null = null
+  return (parts, build) => {
+    if (
+      held === null ||
+      held.parts.length !== parts.length ||
+      held.parts.some((part, index) => part !== parts[index])
+    )
+      held = { parts, value: build() }
+    return held.value
+  }
+}
+const candidatesBuilt = lastBuilt<readonly CaptureItem[]>()
+const demoBuilt = lastBuilt<CaptureItem | null>()
+const shownBuilt = lastBuilt<readonly CaptureItem[]>()
+
+/** Each candidate plan's masks and the team they are coloured for, kept as long as the plan is. */
+const proposalItems = new WeakMap<
+  Proposal,
+  { readonly team: TerritoryTeam; readonly items: readonly CaptureItem[] }
+>()
+
+/** A candidate's area and lines in its team's colour, built once per plan and team. */
+const itemsOf = (proposal: Proposal, team: TerritoryTeam, colour: Rgb): readonly CaptureItem[] => {
+  const held = proposalItems.get(proposal)
+  if (held?.team === team) return held.items
+  const items = [
+    ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
+    ...proposal.lines.flatMap((line) => {
+      const pixels = pixelMask(linePixels(line))
+      return pixels === null ? [] : [masked('pending', pixels, colour)]
+    }),
+  ]
+  proposalItems.set(proposal, { team, items })
+  return items
+}
+
+/**
+ * The plans an administrator is choosing between, while the run they were planned for gathers,
+ * less the one already published. A teammate's progress arrives as a new run with the same plans,
+ * so the same masks come back and the map uploads nothing again. Once the previews hide, the last
+ * ones are let go rather than held until the next time plans show.
+ */
+const candidateItems = (run: CaptureRun, colour: Rgb): readonly CaptureItem[] => {
+  if (run.startsAt !== null || proposalsRun !== run.id)
+    return candidatesBuilt(NO_ITEMS, () => NO_ITEMS)
+  const shown = proposals
+    .filter((proposal) => !sameLines(run.lines, proposal.lines))
+    .map((proposal) => itemsOf(proposal, run.team, colour))
+  return candidatesBuilt(shown, () => shown.flat())
+}
 
 /**
  * What the shown run, or the plans an administrator is choosing between, puts on the map, all in
@@ -324,7 +373,7 @@ const candidateItems = (run: CaptureRun, colour: Rgb): CaptureItem[] =>
 export const captureItems = (): readonly CaptureItem[] => {
   const view = active()
   const run = view?.run ?? null
-  if (view === null || run === null) return []
+  if (view === null || run === null) return NO_ITEMS
   const { colour, dark } = teamShades(run.team)
   if (run.lines.length === 0) return candidateItems(run, colour)
   const mine = memberIndex(view)
@@ -349,31 +398,28 @@ export const captureItems = (): readonly CaptureItem[] => {
   }
   // Candidates from Propose again show beside the published plan until Go.
   const myLine = mine < 0 ? undefined : run.lines[mine]
-  const shown = [
-    ...held.items,
-    ...(myLine === undefined ? [] : mineItems(run.team, myLine, colour)),
-    ...candidateItems(run, colour),
-  ]
-  if (!demoPlaying(view) || planView === null) return shown
+  const own = myLine === undefined ? NO_ITEMS : mineItems(run.team, myLine, colour)
+  const candidates = candidateItems(run, colour)
+  const plan = planView
   // Under reduced motion the guide holds still on the whole route instead of crawling.
-  const frame = pixelMask(
-    reducedMotion() ? planView.demo.flat() : (planView.demo[demoStep % planView.demo.length] ?? []),
-  )
-  return frame === null ? shown : [...shown, masked('demo', frame, colour)]
+  const step =
+    plan === null || !demoPlaying(view) ? null : reducedMotion() ? -1 : demoStep % plan.demo.length
+  const demo =
+    plan === null || step === null
+      ? null
+      : demoBuilt([plan, step, run.team], () => {
+          const frame = pixelMask(step < 0 ? plan.demo.flat() : (plan.demo[step] ?? []))
+          return frame === null ? null : masked('demo', frame, colour)
+        })
+  return shownBuilt([held.items, own, candidates, demo], () => [
+    ...held.items,
+    ...own,
+    ...candidates,
+    ...(demo === null ? [] : [demo]),
+  ])
 }
 
 /** This painter's team in the event, from Wplace's own leaderboard. */
-const loadTeam = async (): Promise<TerritoryTeam | null> => {
-  const response = await fetch(`${BACKEND_ORIGIN}/territory/leaderboard`, {
-    credentials: 'include',
-  })
-  // Null means Wplace answered and this painter has no team; anything else is a failed lookup.
-  if (!response.ok) throw new Error(`territory leaderboard ${response.status}`)
-  const body: unknown = await response.json()
-  const team = (body as { me?: { team?: unknown } } | null)?.me?.team
-  return team === 0 || team === 1 || team === 2 || team === 3 ? team : null
-}
-
 /** Fly the map to a box of world pixels, with room around a thin line. */
 const flyTo = (rect: { x: number; y: number; w: number; h: number }): void =>
   navigateTo({
@@ -721,11 +767,22 @@ const phaseOf = (view: CaptureView | null): CaptureRunModel['phase'] => {
   return end !== null && localClock() > end ? 'done' : 'countdown'
 }
 
+const TEAM_NAMES = ['Blue', 'Orange', 'Green', 'Purple'] as const satisfies Record<
+  TerritoryTeam,
+  string
+>
+
+/** Why an event server shows this tab nothing: its token belongs to another team. */
+const refusedMessage = (team: TerritoryTeam): string =>
+  `This token is for team ${TEAM_NAMES[team]}. Ask your event's organiser for one for your team.`
+
 const model = (view: CaptureView | null): CaptureRunModel | null => {
   if (view === null) return null
   const run = view.run
   const admin = canRunServerCaptures(view.server)
-  if (run === null && !admin) return null
+  const refused = view.refusedTeam === null ? undefined : refusedMessage(view.refusedTeam)
+  if (run === null && !admin && refused === undefined) return null
+  const status = refused ?? message
   const mine = memberIndex(view)
   const phase = phaseOf(view)
   // A wall shorter than the group leaves a line empty: that member has nothing to paint.
@@ -733,9 +790,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
   const slot = run !== null && mine >= 0 && !idle ? captureSlot(run, mine) : null
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
-  const team = myTeam()
-  const otherTeam = run !== null && mine < 0 && team !== null && team !== run.team
-  const note = otherTeam ? `This run is for team ${teamName(run.team)}.` : message
+  const closer = run === null ? -1 : captureCoordinatorIndex(run)
   return {
     phase,
     admin,
@@ -743,6 +798,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
     maxPainters: MAX_CAPTURE_PAINTERS,
     guards: run?.guards ?? guards,
     maxGuards: MAX_CAPTURE_GUARDS,
+    staggerMs: run?.staggerMs ?? staggerMs,
     anchor:
       run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
         ? anchor
@@ -755,13 +811,13 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       length: (run?.lines[index]?.length ?? 0) / 2,
       me: index === mine,
       guard: run !== null && isCaptureGuard(run, index),
+      closes: index === closer,
     })),
     joined: mine >= 0,
     role: run === null || mine < 0 ? null : isCaptureGuard(run, mine) ? 'guard' : 'painter',
     canJoin:
       view.canWrite &&
       run !== null &&
-      team === run.team &&
       run.startsAt === null &&
       mine < 0 &&
       run.members.length < run.painters + run.guards,
@@ -778,7 +834,8 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       run !== null &&
       run.startsAt === null &&
       run.lines.length > 0 &&
-      run.members.length >= run.lines.length,
+      run.members.length >= run.lines.length &&
+      capturePaintersDrafted(run),
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
     myTurn:
       run !== null && mine >= 0 && !idle && !isCaptureGuard(run, mine)
@@ -786,7 +843,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
         : null,
     turns: run === null ? Math.ceil(painters / 2) : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
-    ...(note === undefined ? {} : { message: note }),
+    ...(status === undefined ? {} : { message: status }),
   }
 }
 
@@ -803,29 +860,25 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       guards = Math.min(MAX_CAPTURE_GUARDS, Math.max(0, Math.round(intent.guards)))
       proposals = []
       break
-    case 'open':
-    case 'join': {
-      if (intent.type === 'join') primeCaptureAudio()
-      const run = view.run?.id ?? null
-      const account = accountIdentity()?.wplaceUserId
-      // Open is for this administrator's team and Join must name it, so both read it fresh.
+    case 'set-stagger': {
+      const steps = Math.round(intent.staggerMs / CAPTURE_STAGGER_STEP_MS)
+      staggerMs = Math.min(
+        MAX_CAPTURE_STAGGER_MS,
+        Math.max(MIN_CAPTURE_STAGGER_MS, steps * CAPTURE_STAGGER_STEP_MS),
+      )
+      break
+    }
+    case 'open': {
+      // The run is for this administrator's team.
       void refreshTeam()
         .then((team) => {
-          // The painter chose this server, account and run; a change while Wplace answered drops it.
-          const now = active()
-          if (
-            accountIdentity()?.wplaceUserId !== account ||
-            now?.server.url !== server.url ||
-            (now.run?.id ?? null) !== run
-          )
-            return
+          // The administrator chose this server; a change while Wplace answered drops it.
+          if (active()?.server.url !== server.url) return
+          setPresenceTeam(team)
           if (team === null) message = 'Join a team in the event first.'
-          else if (intent.type === 'open') {
+          else {
             proposals = []
-            sendCapture(server, { type: 'capture-open', painters, guards, team })
-          } else if (run !== null) {
-            sendCapture(server, { type: 'capture-join', team, run })
-            syncCaptureClock(server)
+            sendCapture(server, { type: 'capture-open', painters, guards, staggerMs })
           }
         })
         .catch(() => {
@@ -834,16 +887,19 @@ const handleIntent = (intent: CaptureRunIntent): void => {
         .finally(render)
       break
     }
+    case 'join':
+      if (view.run === null) break
+      primeCaptureAudio()
+      // The session's reported team picks the run; the id stops a join to one since replaced.
+      sendCapture(server, { type: 'capture-join', run: view.run.id })
+      syncCaptureClock(server)
+      break
     case 'leave':
       sendCapture(server, { type: 'capture-leave' })
       break
     case 'move': {
-      const order = view.run?.members.map(({ sessionId }) => sessionId) ?? []
-      const from = order.indexOf(intent.id)
-      const to = from + intent.by
-      if (from < 0 || to < 0 || to >= order.length) break
-      order.splice(to, 0, ...order.splice(from, 1))
-      sendCapture(server, { type: 'capture-order', order })
+      const order = view.run === null ? null : moveCaptureMember(view.run, intent.id, intent.by)
+      if (order !== null) sendCapture(server, { type: 'capture-order', order })
       break
     }
     case 'propose':
@@ -898,9 +954,6 @@ const tick = (): void => {
   const run = view?.run ?? null
   if (view !== null && run !== null) {
     const mine = memberIndex(view)
-    // Whether this painter may join needs their team; a failed lookup tries again a little later.
-    if (myTeam() === null && localClock() - teamTriedAt >= TEAM_RETRY_MS)
-      void refreshTeam().catch(() => undefined)
     if (mine >= 0) {
       // A painter who joined from another tab, or whose socket reconnected, still needs a sync.
       if (joinedRun !== run.id || view.clockOffset === null) {
@@ -908,13 +961,11 @@ const tick = (): void => {
         syncCaptureClock(view.server)
       }
       const line = run.lines[mine]
-      // Report only what the run does not already say, once per value until it does.
+      // Report whatever the run does not already say, including after the server resets it for a
+      // new line; the report interval keeps a report still in flight from repeating often.
       const drafted = line === undefined ? 0 : draftedOn(run.team, line)
-      const reported = run.members[mine]?.drafted
       const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
-      if (drafted === reported) lastDrafted = drafted
-      else if (drafted !== lastDrafted && run.startsAt === null && due) {
-        lastDrafted = drafted
+      if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
         draftedSentAt = localClock()
         sendCapture(view.server, { type: 'capture-drafted', drafted })
       }
@@ -980,6 +1031,7 @@ const render = (): void => {
 export const installCaptureRuns = (): void => {
   let lastRun: string | null = null
   onPresenceChange(() => {
+    syncTeam()
     const view = active()
     const run = view?.run ?? null
     // A started run re-syncs the clock once more, just before the countdown matters.
@@ -987,14 +1039,14 @@ export const installCaptureRuns = (): void => {
     if (view !== null && run !== null && key !== lastRun && run.startsAt !== null)
       syncCaptureClock(view.server)
     lastRun = key
-    if (run === null) {
-      lastDrafted = -1
-      disarm()
-    }
+    if (run === null) disarm()
     watchAnchor(view, run, view === null ? -1 : memberIndex(view))
     render()
   })
   onStateChange(render)
+  // The account can load after the last presence change; the team is read once it has, whether
+  // or not anything else changes.
+  setInterval(syncTeam, TEAM_RETRY_MS)
   // A style swap attaches the same map again; follow each map once.
   let followed: MapLike | null = null
   onMapAttached((map) => {
