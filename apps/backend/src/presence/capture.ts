@@ -43,11 +43,7 @@ export const applyCaptureEvent = (
   const member = run.members.findIndex(({ sessionId }) => sessionId === actor.sessionId)
   switch (event.type) {
     case 'capture-join':
-      if (
-        member >= 0 ||
-        run.startsAt !== null ||
-        run.members.length >= run.painters + run.guards
-      )
+      if (member >= 0 || run.startsAt !== null || run.members.length >= run.painters + run.guards)
         return run
       return {
         ...run,
