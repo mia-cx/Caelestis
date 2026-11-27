@@ -102,7 +102,7 @@ async function compare(baseline, candidate, output) {
         await writeFile(`${output}-comparison.json`, JSON.stringify(results, null, 2))
         console.log(
           `${users} ${pair} ${variant}: tick p50 ${result.tickMs.p50.toFixed(1)} p95 ${result.tickMs.p95.toFixed(1)} ms, ` +
-            `delivery gap p50 ${result.deliveryGapMs.p50?.toFixed(0)} p95 ${result.deliveryGapMs.p95?.toFixed(0)} ms, ` +
+            `stalls ${result.stalls}, delivery gap p50 ${result.deliveryGapMs.p50?.toFixed(0)} p95 ${result.deliveryGapMs.p95?.toFixed(0)} ms, ` +
             `CPU ${result.cpuMsPerTick.toFixed(0)} ms/tick, select ${result.stageMs.select.toFixed(0)} serialize ${result.stageMs.serialize.toFixed(0)} ms, loop p99 ${result.eventLoopMs.p99.toFixed(1)} ms, ` +
             `${(result.bytesPerSecond / 1e6).toFixed(1)} MB/s`,
         )
@@ -389,7 +389,9 @@ async function run(root, users, output) {
   let rssTotal = 0
   let bytesAtStart = 0
   let messagesAtStart = 0
-  const base = performance.now()
+  let base = performance.now()
+  /** Measured steps whose schedule restarted after a stall longer than one interval. */
+  let stalls = 0
   for (let step = 0; step < warmupSteps + measuredSteps; step++) {
     if (step === warmupSteps) {
       measuring = true
@@ -412,8 +414,18 @@ async function run(root, users, output) {
       traceHash.update(text)
       slices[Math.floor((session.viewportOffset * SLICES) / PRESENCE_TICK_MS)].push([session, text])
     }
-    // Under the coordinator's timer, arrivals keep to a fixed schedule as real clients would.
-    const stepStarted = cadence ? base + step * PRESENCE_TICK_MS : performance.now()
+    // Under the coordinator's timer, arrivals keep to a fixed schedule as real clients would. A
+    // stall longer than one interval restarts the schedule rather than replaying the backlog as a
+    // burst, which the room's per-second rate limit would close sessions for.
+    let stepStarted = performance.now()
+    if (cadence) {
+      const late = stepStarted - (base + step * PRESENCE_TICK_MS)
+      if (late > PRESENCE_TICK_MS) {
+        base += late
+        if (measured) stalls++
+      }
+      stepStarted = base + step * PRESENCE_TICK_MS
+    }
     const until = (offset) =>
       new Promise((done) => setTimeout(done, Math.max(0, stepStarted + offset - performance.now())))
     for (let slice = 0; slice < SLICES; slice++) {
@@ -493,6 +505,7 @@ async function run(root, users, output) {
     wallMs,
     realtimeFactor: wallMs / (measuredSteps * PRESENCE_TICK_MS),
     ticks: ticks.length,
+    stalls,
     cpuMs,
     cpuPercent: (cpuMs / wallMs) * 100,
     cpuMsPerTick: cpuMs / ticks.length,
