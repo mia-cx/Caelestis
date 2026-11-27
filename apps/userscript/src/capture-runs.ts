@@ -92,6 +92,8 @@ const MISSED_SLOT_MS = 250
 const DRAFTED_REPORT_MS = 1_000
 /** How long a failed team lookup waits before trying again. */
 const TEAM_RETRY_MS = 5_000
+/** How long a failed plan map load waits before trying again. */
+const PLAN_RETRY_MS = 5_000
 
 interface Proposal extends CaptureProposal {
   /** Each painter's line as flat world coordinates. */
@@ -159,6 +161,7 @@ interface PlanView {
 }
 let planView: PlanView | null = null
 let planLoading: string | null = null
+let planFailed: { readonly key: string; readonly at: number } | null = null
 let demoStep = 0
 
 const planKey = (run: CaptureRun, mine: number): string =>
@@ -168,10 +171,18 @@ const planKey = (run: CaptureRun, mine: number): string =>
 const loadPlanView = (run: CaptureRun, mine: number): void => {
   const key = planKey(run, mine)
   if (planView?.key === key || planLoading === key) return
+  // A new plan or a new place in it: the old guide and area point at the wrong pixels.
+  planView = null
+  // A failed load waits before trying again rather than refetching on every tick.
+  if (planFailed?.key === key && localClock() - planFailed.at < PLAN_RETRY_MS) return
   planLoading = key
   void Promise.all([myTeam ?? loadTeam(), loadTerritory()])
     .then(([team, map]) => {
-      if (planLoading !== key || team === null || map === null) return
+      if (planLoading !== key) return
+      if (team === null || map === null) {
+        planFailed = { key, at: localClock() }
+        return
+      }
       myTeam = team
       const line = mine >= 0 ? linePixels(run.lines[mine] ?? []) : []
       const first = line[0]
@@ -183,7 +194,10 @@ const loadPlanView = (run: CaptureRun, mine: number): void => {
       demoStep = 0
       requestMapFrame()
     })
-    .catch((error) => warn('capture plan view failed', String(error)))
+    .catch((error) => {
+      planFailed = { key, at: localClock() }
+      warn('capture plan view failed', String(error))
+    })
     .finally(() => {
       if (planLoading === key) planLoading = null
     })
@@ -196,7 +210,10 @@ const kindOf = (run: CaptureRun, index: number, mine: number): CaptureItemKind =
   return member !== undefined && length > 0 && member.drafted >= length ? 'ready' : 'pending'
 }
 
-/** Whether this painter's demo plays: while gathering, until their line is drafted. */
+const reducedMotion = (): boolean =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/** Whether this painter's demo shows: while gathering, until their line is drafted. */
 const demoPlaying = (view: CaptureView): boolean => {
   const run = view.run
   const mine = memberIndex(view)
@@ -275,9 +292,23 @@ export const captureItems = (): readonly CaptureItem[] => {
     held = { key, items }
     itemsCache.set(run, held)
   }
-  if (!demoPlaying(view) || planView === null) return held.items
-  const frame = pixelMask(planView.demo[demoStep % planView.demo.length] ?? [])
-  return frame === null ? held.items : [...held.items, masked('demo', frame, colour)]
+  // Candidates from Propose again show beside the published plan until one is published.
+  const candidates = proposals
+    .filter((proposal) => !sameLines(run.lines, proposal.lines))
+    .flatMap((proposal) => [
+      ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
+      ...proposal.lines.flatMap((line) => {
+        const pixels = pixelMask(linePixels(line))
+        return pixels === null ? [] : [masked('pending', pixels, colour)]
+      }),
+    ])
+  const shown = candidates.length === 0 ? held.items : [...held.items, ...candidates]
+  if (!demoPlaying(view) || planView === null) return shown
+  // Under reduced motion the guide holds still on the whole route instead of crawling.
+  const frame = pixelMask(
+    reducedMotion() ? planView.demo.flat() : (planView.demo[demoStep % planView.demo.length] ?? []),
+  )
+  return frame === null ? shown : [...shown, masked('demo', frame, colour)]
 }
 
 const edgeLabel = (lines: readonly (readonly number[])[]): string => {
@@ -706,7 +737,7 @@ const tick = (): void => {
   watchAnchor(view, run, view === null ? -1 : memberIndex(view))
   if (view !== null) {
     if (run !== null && run.lines.length > 0) loadPlanView(run, memberIndex(view))
-    if (demoPlaying(view)) {
+    if (demoPlaying(view) && !reducedMotion()) {
       demoStep++
       requestMapFrame()
     }

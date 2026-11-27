@@ -29,6 +29,8 @@ export interface ServerInfo {
   readonly liveTileOffers?: 1
   /** Present when the server accepts the painter presence socket at `/telemetry/presence`. */
   readonly presence?: 1
+  /** Present when presence rooms run capture runs for the territory event. */
+  readonly capture?: 1
   readonly livePaintParts?: 1
   /** Public presentation an admin configured. See `@caelestis/shared` server branding. */
   readonly discordInviteUrl?: string
