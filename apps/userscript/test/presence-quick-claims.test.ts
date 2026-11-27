@@ -3,19 +3,33 @@ import {
   MAX_QUICK_CLAIMS,
   PRESENCE_PROTOCOL_V1,
   PRESENCE_QUICK_CLAIMS_MIN_MS,
+  PRESENCE_VIEWPORT_MIN_MS,
   type PresenceRect,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { importStateModules } from './state-modules.js'
 
 const SERVER_ID = '018f4f2a-1234-7abc-8def-0123456789ab'
 const painter = { wplaceUserId: 42, displayName: 'Mia' }
 const other = { wplaceUserId: 7, displayName: 'Other painter' }
 
+/** The signed-in Wplace account, which a test may switch. */
+const account = vi.hoisted(() => ({
+  current: null as { wplaceUserId: number; displayName: string } | null,
+}))
+
 vi.mock('../src/wplace-account.js', () => ({
-  accountIdentity: () => painter,
+  accountIdentity: () => account.current,
   loadAccount: async () => undefined,
+}))
+// The quick-claim gesture: the paint drawer is open, and the pointer is over world pixel (5, 6).
+vi.mock('../src/wplace-paint.js', () => ({
+  isPaintOpen: () => true,
+  onPaintSelectionChange: () => {},
+}))
+vi.mock('../src/paint-cell.js', () => ({
+  pickerPointAt: () => ({ x: 5.5, y: 6.5, alliance: null }),
 }))
 
 class FakeWebSocket extends EventTarget {
@@ -45,7 +59,7 @@ class FakeWebSocket extends EventTarget {
     this.dispatchEvent(new Event('close'))
   }
 
-  open(): void {
+  open(canWrite?: boolean): void {
     this.protocol = PRESENCE_PROTOCOL_V1
     this.readyState = FakeWebSocket.OPEN
     this.dispatchEvent(new Event('open'))
@@ -55,7 +69,15 @@ class FakeWebSocket extends EventTarget {
       online: 1,
       peers: [],
       regions: [],
+      ...(canWrite === undefined ? {} : { canWrite }),
     })
+  }
+
+  /** Every presence update this socket sent, in order. */
+  updates(): Record<string, unknown>[] {
+    return this.sent
+      .map((data) => JSON.parse(data) as Record<string, unknown>)
+      .filter((event) => event.type === 'presence-update')
   }
 
   receive(event: unknown): void {
@@ -83,7 +105,18 @@ afterEach(() => {
   FakeWebSocket.instances = []
 })
 
-const connect = async () => {
+beforeEach(() => {
+  account.current = painter
+})
+
+/** One presence socket, opened: on an event server with `event`, and able to write with `canWrite`. */
+const connect = async ({
+  event = false,
+  canWrite,
+}: {
+  event?: boolean
+  canWrite?: boolean
+} = {}) => {
   vi.useFakeTimers()
   vi.stubGlobal('WebSocket', FakeWebSocket)
   vi.stubGlobal(
@@ -94,7 +127,13 @@ const connect = async () => {
   const presence = await import('../src/presence-client.js')
   const server = {
     url: 'https://presence.test',
-    info: { id: SERVER_ID, name: 'Presence test', auth: 'none' as const, presence: 1 as const },
+    info: {
+      id: SERVER_ID,
+      name: 'Presence test',
+      auth: 'none' as const,
+      presence: 1 as const,
+      ...(event ? { capture: 1 as const } : {}),
+    },
     token: null,
     status: 'connected' as const,
     isAdmin: false,
@@ -105,9 +144,21 @@ const connect = async () => {
   presence.installPresence()
   const socket = FakeWebSocket.instances[0]
   if (socket === undefined) throw new Error('presence did not open a socket')
-  socket.open()
+  socket.open(canWrite)
   await vi.advanceTimersByTimeAsync(0)
   return { presence, state, socket }
+}
+
+/** Ctrl+press on the map with the paint drawer open; true when quick claims took the gesture. */
+const pressForQuickClaim = async (): Promise<boolean> => {
+  const { installQuickClaims } = await import('../src/quick-claims.js')
+  installQuickClaims()
+  const map = document.createElement('canvas')
+  document.body.append(map)
+  const press = new PointerEvent('pointerdown', { ctrlKey: true, button: 0, cancelable: true })
+  map.dispatchEvent(press)
+  map.remove()
+  return press.defaultPrevented
 }
 
 const rect = (x: number): PresenceRect => ({ x, y: 10, w: 4, h: 3 })
@@ -234,4 +285,48 @@ it('shows polled claims until a session starts, then only what the socket report
   const reads = fetch.mock.calls.length
   await vi.advanceTimersByTimeAsync(60_000)
   expect(fetch.mock.calls.length).toBe(reads)
+})
+
+it('takes the quick-claim gesture where a server takes quick claims', async () => {
+  await connect({ canWrite: true })
+  expect(await pressForQuickClaim()).toBe(true)
+})
+
+it('leaves quick claims off an event server, the gesture included', async () => {
+  const { presence, socket } = await connect({ event: true, canWrite: true })
+  expect(await pressForQuickClaim()).toBe(false)
+  presence.setPresenceQuickClaims([rect(0)])
+  await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
+  expect(socket.quickClaims()).toEqual([])
+})
+
+it('retires an event session when the Wplace account changes, and publishes once the new team is known', async () => {
+  /** The team and viewport a socket published, in order; clears left out. */
+  const published = (target: FakeWebSocket) =>
+    target
+      .updates()
+      .flatMap((update) => [
+        ...('team' in update ? [`team ${update.team}`] : []),
+        ...(update.viewport != null ? ['viewport'] : []),
+      ])
+  const { presence, socket } = await connect({ event: true })
+  presence.setPresenceTeam(2)
+  presence.setPresenceViewport(rect(0))
+  await vi.advanceTimersByTimeAsync(PRESENCE_VIEWPORT_MIN_MS)
+  expect(published(socket)).toEqual(['team 2', 'viewport'])
+
+  // Another account signs in; its team is not known yet.
+  account.current = other
+  presence.setPresenceTeam(null)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(socket.readyState).toBe(FakeWebSocket.CLOSED)
+  const next = FakeWebSocket.instances[1]
+  if (next === undefined) throw new Error('presence did not open a session for the new account')
+  next.open()
+  await vi.advanceTimersByTimeAsync(PRESENCE_VIEWPORT_MIN_MS)
+  expect(published(next)).toEqual([])
+
+  presence.setPresenceTeam(1)
+  await vi.advanceTimersByTimeAsync(PRESENCE_VIEWPORT_MIN_MS)
+  expect(published(next)).toEqual(['team 1', 'viewport'])
 })

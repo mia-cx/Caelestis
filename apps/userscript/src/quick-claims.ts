@@ -10,7 +10,11 @@ import { log } from './debug.js'
 import { notifyListeners } from './listeners.js'
 import { CLICK_SLOP_PX, swallowNextClick } from './map-pointer.js'
 import { pickerPointAt } from './paint-cell.js'
-import { presenceQuickClaims, setPresenceQuickClaims } from './presence-client.js'
+import {
+  presenceQuickClaims,
+  quickClaimsAvailable,
+  setPresenceQuickClaims,
+} from './presence-client.js'
 import { getState, onStateChange } from './settings.js'
 import { showToast } from './ui/notification-host.js'
 import { isPaintOpen, onPaintSelectionChange } from './wplace-paint.js'
@@ -152,7 +156,8 @@ export const installQuickClaims = (): void => {
         (event.button !== 0 && event.button !== 2) ||
         !isPaintOpen() ||
         // A quick claim nobody else can see claims nothing; the gesture stays Wplace's.
-        !getState().sharePresence
+        !getState().sharePresence ||
+        !quickClaimsAvailable()
       )
         return
       const point = worldPointAt(event)
@@ -203,7 +208,11 @@ export const installQuickClaims = (): void => {
   window.addEventListener(
     'contextmenu',
     (event) => {
-      if (drag === null && !(event.ctrlKey && isPaintOpen() && worldPointAt(event) !== null)) return
+      if (
+        drag === null &&
+        !(event.ctrlKey && isPaintOpen() && quickClaimsAvailable() && worldPointAt(event) !== null)
+      )
+        return
       swallow(event)
     },
     { capture: true },
