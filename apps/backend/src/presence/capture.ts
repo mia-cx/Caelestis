@@ -81,7 +81,11 @@ export const applyCaptureEvent = (
         members: run.members.map((entry) => ({ ...entry, drafted: 0 })),
       }
     case 'capture-go':
-      return actor.admin && run.lines.length > 0 && run.startsAt === null
+      // Every published line needs its painter, or the wall would start with a gap nobody fills.
+      return actor.admin &&
+        run.lines.length > 0 &&
+        run.members.length >= run.lines.length &&
+        run.startsAt === null
         ? { ...run, startsAt: now + CAPTURE_LEAD_MS }
         : run
     case 'capture-close':

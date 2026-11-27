@@ -44,6 +44,8 @@ export interface ServerInfo {
   readonly liveTileOffers?: 1
   /** Present when `/telemetry/presence` accepts the live painter presence protocol. */
   readonly presence?: 1
+  /** Present when presence rooms run capture runs for Wplace's territory event. */
+  readonly capture?: 1
   /** Accepts bounded paint-part transfers on live protocol v2. */
   readonly livePaintParts?: 1
   /** Canonical `https://discord.gg/<code>` the public home page offers as a join action. */

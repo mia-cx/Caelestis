@@ -183,6 +183,7 @@ export const parseServerInfo = (value: unknown): ServerInfo | null => {
       : {}),
     ...(value.liveTileOffers === 1 ? { liveTileOffers: 1 as const } : {}),
     ...(value.presence === 1 ? { presence: 1 as const } : {}),
+    ...(value.capture === 1 ? { capture: 1 as const } : {}),
     ...(value.livePaintParts === 1 ? { livePaintParts: 1 as const } : {}),
     ...parseServerVersion(value),
     ...parseServerPresentation(value),

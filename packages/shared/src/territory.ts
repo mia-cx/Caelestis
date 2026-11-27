@@ -242,11 +242,13 @@ export const anchorStrips = (
   team: TerritoryTeam,
   plan: CapturePlan,
   length: number,
+  /** The plan's `simulateCapture` map, when the caller already has it. */
+  after: TerritoryMap = simulateCapture(map, team, plan).map,
 ): [ArenaPixel[], ArenaPixel[]] => {
   const { size } = map
   const wall = plan.lines.flat()
   const onWall = new Set(wall.map(({ x, y }) => y * size + x))
-  const enclosed = simulateCapture(map, team, plan).map.owner
+  const enclosed = after.owner
   const strip = (from: readonly ArenaPixel[]): ArenaPixel[] => {
     const owner = map.owner.slice()
     const chosen: ArenaPixel[] = []

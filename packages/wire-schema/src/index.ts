@@ -461,6 +461,7 @@ export const ServerInfo = Schema.Struct({
   liveSyncMax: Schema.optionalKey(Schema.Literals([1, 2])),
   liveTileOffers: Schema.optionalKey(Schema.Literal(1)),
   presence: Schema.optionalKey(Schema.Literal(1)),
+  capture: Schema.optionalKey(Schema.Literal(1)),
   livePaintParts: Schema.optionalKey(Schema.Literal(1)),
   discordInviteUrl: Schema.optionalKey(DiscordInviteUrl),
   version: Schema.optionalKey(boundedString(64)),

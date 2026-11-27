@@ -75,9 +75,11 @@ export const enclosedArea = (
   map: TerritoryMap,
   team: TerritoryTeam,
   lines: readonly (readonly number[])[],
+  /** The lines' `simulateCapture` map, when the caller already has it. */
+  simulated?: TerritoryMap,
 ): RegionShapePixels | null => {
   const plan = { lines: toArena(lines) }
-  const after = simulateCapture(map, team, plan).map.owner
+  const after = (simulated ?? simulateCapture(map, team, plan).map).owner
   const onLine = new Set(plan.lines.flat().map(({ x, y }) => y * map.size + x))
   const area: Pixel[] = []
   for (let at = 0; at < after.length; at++)

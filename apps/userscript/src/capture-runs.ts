@@ -1,4 +1,5 @@
 import {
+  type ArenaPixel,
   anchorStrips,
   arenaToWorld,
   CAPTURE_LEAD_MS,
@@ -41,7 +42,6 @@ import {
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt } from './draft-pixels.js'
 import { requestMapFrame } from './map-view.js'
-import { UNPAINTED } from './native-pixels.js'
 import {
   type CaptureView,
   captureViews,
@@ -84,10 +84,14 @@ const TICK_MS = 100
 const DONE_AFTER_MS = 3_000
 /** How long before a slot the precise wait starts; setTimeout alone can be late by this much. */
 const SPIN_MS = 30
+/** Room to schedule a cue that is due now, so Web Audio does not drop it as already past. */
+const CUE_LEAD_MS = 20
 /** A slot this far behind when the tab wakes is skipped: the next painter has gone already. */
 const MISSED_SLOT_MS = 250
 /** The most often a member reports their drafted count; the latest count goes each time. */
 const DRAFTED_REPORT_MS = 1_000
+/** How long a failed team lookup waits before trying again. */
+const TEAM_RETRY_MS = 5_000
 
 interface Proposal extends CaptureProposal {
   /** Each painter's line as flat world coordinates. */
@@ -109,12 +113,13 @@ let armedSlot: string | null = null
 let disarm: () => void = () => {}
 /** When this tab last reported its drafted count, so drafting never floods the socket. */
 let draftedSentAt = Number.NEGATIVE_INFINITY
+let teamTriedAt = Number.NEGATIVE_INFINITY
 let joinedRun: string | null = null
 let lastDrafted = -1
 
 /** The run to show: the first server with one, else a server this tab may open one on. */
 const active = (): CaptureView | null => {
-  const views = captureViews()
+  const views = captureViews().filter((view) => view.server.info?.capture === 1)
   return (
     views.find((view) => view.run !== null) ??
     views.find((view) => hasServerAdminToken(view.server)) ??
@@ -134,13 +139,14 @@ let myTeam: TerritoryTeam | null = null
 
 /** How many of a line's pixels this tab has drafted in a colour that claims for its team. */
 const draftedOn = (line: readonly number[]): number => {
-  const team = myTeam === null ? null : TERRITORY_TEAMS[myTeam]
+  // Until the team is known no colour can be checked, so nothing counts as drafted yet.
+  if (myTeam === null) return 0
+  const team = TERRITORY_TEAMS[myTeam]
   return linePixels(line).filter(({ x, y }) => {
     const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
     const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
     const drafted = comparisonDraftPixelAt(tile, offset)
-    if (drafted === UNPAINTED) return false
-    return team === null || drafted === team.colour || drafted === team.dark
+    return drafted === team.colour || drafted === team.dark
   }).length
 }
 
@@ -330,10 +336,11 @@ const anchorPixels = (run: CaptureRun, index: number): { x: number; y: number }[
 }
 
 /** Read the map once and sound the alarm when any anchor pixel has left the team. */
-const checkAnchor = async (run: CaptureRun, index: number): Promise<void> => {
+const checkAnchor = async (run: CaptureRun, index: number, key: string): Promise<void> => {
   const team = myTeam
   const map = team === null ? null : await loadTerritory()
-  if (map === null || team === null) return
+  // The run may have closed or moved on while the map was on its way.
+  if (map === null || team === null || watching !== key) return
   const cut = anchorPixels(run, index).some((pixel) => {
     const local = worldToArena(pixel)
     return local !== null && map.owner[local.y * map.size + local.x] !== team
@@ -347,9 +354,13 @@ const checkAnchor = async (run: CaptureRun, index: number): Promise<void> => {
 }
 
 /** Watch this guard's anchor from just after the wall's last slot until the run ends. */
-const watchAnchor = (view: CaptureView, run: CaptureRun | null, index: number): void => {
+const watchAnchor = (view: CaptureView | null, run: CaptureRun | null, index: number): void => {
   const key =
-    run !== null && run.startsAt !== null && index >= 0 && isCaptureGuard(run, index)
+    view !== null &&
+    run !== null &&
+    run.startsAt !== null &&
+    index >= 0 &&
+    isCaptureGuard(run, index)
       ? `${run.id}:${index}:${run.startsAt}`
       : null
   if (key === watching) return
@@ -357,11 +368,11 @@ const watchAnchor = (view: CaptureView, run: CaptureRun | null, index: number): 
   watcher = null
   watching = key
   anchor = 'intact'
-  if (key === null || run === null) return
+  if (key === null || run === null || view === null) return
   const last = captureSlot(run, run.painters - 1)
   const from = last === null ? null : localTime(view, last + WATCH_GRACE_MS)
   const check = () =>
-    void checkAnchor(run, index).catch((error) => warn('anchor check failed', String(error)))
+    void checkAnchor(run, index, key).catch((error) => warn('anchor check failed', String(error)))
   setTimeout(
     () => {
       if (watching !== key) return
@@ -395,23 +406,27 @@ const propose = async (groupSize: number, guardCount: number): Promise<void> => 
       charges: TERRITORY_CHARGES,
     })
     proposals = plans.map((plan, index) => {
-      // The guards' strips go after the wall's lines, in the order the guards join.
-      const strips = anchorStrips(map, team, plan, GUARD_STRIP).slice(0, guardCount)
-      const lines = [...plan.lines, ...strips].map((line) =>
+      // One simulation serves the score, the guards' strips and the hatched area. The strips sit
+      // inside what the wall encloses, so they change neither.
+      const outcome = simulateCapture(map, team, plan)
+      const strips =
+        guardCount === 0
+          ? []
+          : anchorStrips(map, team, plan, GUARD_STRIP, outcome.map).slice(0, guardCount)
+      const toWorld = (line: readonly ArenaPixel[]) =>
         line.flatMap((pixel) => {
           const world = arenaToWorld(pixel)
           return [world.x, world.y]
-        }),
-      )
-      const outcome = simulateCapture(map, team, { lines: [...strips, ...plan.lines] })
+        })
+      const wall = plan.lines.map(toWorld)
       return {
         id: String(index),
-        label: edgeLabel(lines),
+        label: edgeLabel(wall),
         gained: outcome.gained,
-        pixels: outcome.painted,
+        pixels: outcome.painted + strips.reduce((sum, strip) => sum + strip.length, 0),
         published: false,
-        lines,
-        area: enclosedArea(map, team, lines),
+        lines: [...wall, ...strips.map(toWorld)],
+        area: enclosedArea(map, team, wall, outcome.map),
       }
     })
     if (proposals.length === 0) message = 'No wall fits along an edge your team holds.'
@@ -452,7 +467,8 @@ const TICK_SECONDS = [5, 3, 2, 1] as const
  * their 10.
  */
 const slotCues = (slot: number, go: number): CaptureCue[] => [
-  { at: go, tone: 'tick' },
+  // Go reaches this tab a moment after the server stamped it; the opening cue plays on arrival.
+  { at: Math.max(go, localClock() + CUE_LEAD_MS), tone: 'tick' },
   ...TICK_SECONDS.map((seconds) => ({ at: slot - seconds * 1_000, tone: 'tick' as const })).filter(
     ({ at }) => at > go,
   ),
@@ -553,6 +569,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
     joined: mine >= 0,
     role: run === null || mine < 0 ? null : isCaptureGuard(run, mine) ? 'guard' : 'painter',
     canJoin:
+      view.canWrite &&
       run !== null &&
       run.startsAt === null &&
       mine < 0 &&
@@ -659,14 +676,17 @@ const tick = (): void => {
     if (mine >= 0) {
       // A painter who joined from another tab, or whose socket reconnected, still needs a sync.
       if (joinedRun !== run.id || view.clockOffset === null) {
-        if (joinedRun !== run.id && myTeam === null)
-          void loadTeam()
-            .then((team) => {
-              myTeam = team
-            })
-            .catch(() => undefined)
         joinedRun = run.id
         syncCaptureClock(view.server)
+      }
+      // Readiness needs the team's colours; a failed lookup tries again a little later.
+      if (myTeam === null && localClock() - teamTriedAt >= TEAM_RETRY_MS) {
+        teamTriedAt = localClock()
+        void loadTeam()
+          .then((team) => {
+            myTeam = team
+          })
+          .catch(() => undefined)
       }
       const line = run.lines[mine]
       // Report only what the run does not already say, once per value until it does.
@@ -683,8 +703,8 @@ const tick = (): void => {
       if (run.startsAt !== null && (run.lines[mine]?.length ?? 0) > 0) armSlot(view, run, mine)
     }
   }
+  watchAnchor(view, run, view === null ? -1 : memberIndex(view))
   if (view !== null) {
-    watchAnchor(view, run, memberIndex(view))
     if (run !== null && run.lines.length > 0) loadPlanView(run, memberIndex(view))
     if (demoPlaying(view)) {
       demoStep++
@@ -722,7 +742,7 @@ export const installCaptureRuns = (): void => {
       lastDrafted = -1
       disarm()
     }
-    if (view !== null) watchAnchor(view, run, memberIndex(view))
+    watchAnchor(view, run, view === null ? -1 : memberIndex(view))
     render()
   })
   onStateChange(render)

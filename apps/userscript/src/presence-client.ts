@@ -109,6 +109,8 @@ interface Connection {
   sessionId: string | null
   peers: Map<string, PresencePeer>
   capture: CaptureRun | null
+  /** Whether the server lets this socket's credential write, as its ready event said. */
+  canWrite: boolean
   clock: ClockSample | null
   /** When the last clock sync burst started, so callers may ask as often as they like. */
   clockSyncAt: number
@@ -315,6 +317,7 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
       // healthy exchange resets it.
       connection.attempts = 0
       connection.peers = new Map()
+      connection.canWrite = event.canWrite === true
       for (const peer of event.peers) receivePeer(connection, peer)
       receiveLiveClaims(server, event.regions, event.ownedRegionIds, event.canWrite === true)
       return true
@@ -510,6 +513,7 @@ const reconcile = (): void => {
       sessionId: null,
       peers: new Map(),
       capture: null,
+      canWrite: false,
       clock: null,
       clockSyncAt: Number.NEGATIVE_INFINITY,
       attempts: 0,
@@ -601,6 +605,8 @@ export interface CaptureView {
   readonly sessionId: string
   /** Server time minus `localClock()`, once a clock sync has answered. */
   readonly clockOffset: number | null
+  /** Whether this socket may join: its credential can write. */
+  readonly canWrite: boolean
 }
 
 /** Every open presence socket and the capture run it holds, if any. */
@@ -613,6 +619,7 @@ export const captureViews = (): readonly CaptureView[] =>
             run: connection.capture,
             sessionId: connection.sessionId,
             clockOffset: connection.clock?.offset ?? null,
+            canWrite: connection.canWrite,
           },
         ]
       : [],
