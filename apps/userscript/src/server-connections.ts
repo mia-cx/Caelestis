@@ -321,9 +321,7 @@ export const connectServer = async (
   if (canonical !== null) connecting.add(canonical)
   try {
     const credential =
-      token === null || canonical === null
-        ? token
-        : await redeemInvite(canonical, token, existing?.info)
+      token === null || canonical === null ? token : await redeemInvite(canonical, token)
     const probed = await probeServer(url, credential)
     if (probed.superseded === true) return { kind: 'superseded' }
     // The panel stays usable during the probe; a server disconnected meanwhile must not come back.
@@ -397,8 +395,8 @@ const redeemedInvites = new Map<string, string>()
 const inviteKey = (base: string, token: string): string => JSON.stringify([base, token])
 
 /**
- * What a server not stored yet says about itself, for deciding how to redeem an invite; null when
- * it does not answer at `/v1/server`, as servers from before invites do not.
+ * What a server says about itself now, for deciding how to redeem an invite; null when it does
+ * not answer at `/v1/server`, as servers from before invites do not.
  */
 const readEventInfo = async (base: string): Promise<ServerInfo | null> => {
   try {
@@ -419,17 +417,14 @@ const readEventInfo = async (base: string): Promise<ServerInfo | null> => {
  * so it goes straight into the connection and is never shown; an invite traded before resolves
  * to the replacement it was traded for.
  */
-const redeemInvite = async (
-  base: string,
-  token: string,
-  known: ServerInfo | null | undefined,
-): Promise<string> => {
+const redeemInvite = async (base: string, token: string): Promise<string> => {
   const key = inviteKey(base, token)
   const redeemed = redeemedInvites.get(key)
   if (redeemed !== undefined) return redeemed
-  // Only an event server binds a team, so only then is Wplace asked for it. A failed lookup
-  // redeems without one; the first presence session that reports a team binds it.
-  const eventServer = isEventServer(known ?? (await readEventInfo(base)))
+  // Only an event server binds a team, so only then is Wplace asked for it. The server is read
+  // live, since a saved one may have switched modes since. A failed lookup redeems without a
+  // team; the first presence session that reports one binds it.
+  const eventServer = isEventServer(await readEventInfo(base))
   const team = eventServer ? await readEventTeam().catch(() => null) : null
   try {
     const { response, body } = await sendServerRequest(

@@ -108,6 +108,37 @@ it('connects a token to an ordinary server without asking Wplace for a team', as
   expect(fetch.mock.calls.map(([input]) => String(input))).not.toContain(leaderboard)
 })
 
+it('reads the team for a saved server that became an event server after it was stored', async () => {
+  const { app, sql } = await createTestBackend({ capture: 1, eventRunners: 1 })
+  const backend = backendFetch(app, origin)
+  const leaderboard = 'https://backend.wplace.live/territory/leaderboard'
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) =>
+    String(input) === leaderboard ? Response.json({ me: { team: 2 } }) : await backend(input, init),
+  )
+  vi.stubGlobal('fetch', fetch)
+  window.fetch = fetch
+  const invite = await load()
+  // Stored while the server was ordinary: no capture capability in its saved info.
+  invite.upsertServer({
+    url: origin,
+    info: { id: '00000000-0000-7000-8000-000000000000', name: 'Saved', auth: 'access_token' },
+    token: reportToken,
+    status: 'connected',
+    isAdmin: false,
+    season: 3,
+  })
+  const inviteToken = await mintEventRunnerInvite(fetch, origin)
+
+  expect((await invite.accept(inviteToken))?.kind).toBe('connected')
+
+  const urls = fetch.mock.calls.map(([input]) => String(input))
+  const exchange = urls.findIndex((url) => url.endsWith('/auth/exchange'))
+  expect(urls.indexOf(leaderboard)).toBeGreaterThanOrEqual(0)
+  expect(urls.indexOf(leaderboard)).toBeLessThan(exchange)
+  const token = invite.getState().servers[0]?.token ?? ''
+  expect((await sql.readAccessToken(await hashToken(token)))?.team).toBe(2)
+})
+
 it('leaves an event-runner invite unspent when the connection list is full', async () => {
   const fetch = await installBackend()
   const invite = await load()
