@@ -301,7 +301,14 @@ describe('borderBoxPlanner', () => {
       [169, 45, 174, 134],
     ])
     const focus = { x: 39, y: 68 }
-    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 5, guards: 0, charges: 60, focus })
+    const [plan] = borderBoxPlanner({
+      map,
+      team: GREEN,
+      painters: 5,
+      guards: 0,
+      charges: 60,
+      focus,
+    })
     if (plan === undefined) throw new Error('Expected a plan')
     const outcome = simulateCapture(map, GREEN, plan)
     expect(outcome.refused).toBe(0)
