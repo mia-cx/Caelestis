@@ -139,7 +139,7 @@ try {
     '--config',
     configs.backend,
     '--command',
-    `INSERT INTO access_tokens VALUES ('${hash}', 'frontend', 'read', 'bootstrap', 0)`,
+    `INSERT INTO access_tokens (token_hash, label, scope, created_with_token, created_at_ms) VALUES ('${hash}', 'frontend', 'read', 'bootstrap', 0)`,
   )
   for (const component of ['backend', 'frontend', 'gateway'])
     await command('deploy', '--config', configs[component])
