@@ -27,9 +27,10 @@ describe('approachPath', () => {
 })
 
 describe('caterpillarFrames', () => {
-  it('never lets the chain break, and ends on the whole line alone', () => {
-    const path = [19, 18, 17, 16, 15, 14, 13, 12].map((x) => world(x, 25))
-    const line = [11, 10, 9].map((x) => world(x, 25))
+  const path = [19, 18, 17, 16, 15, 14, 13, 12].map((x) => world(x, 25))
+  const line = [11, 10, 9].map((x) => world(x, 25))
+
+  it("never lets the chain break, and ends on the line's first pixel without covering the rest", () => {
     const frames = caterpillarFrames(path, line)
     for (const frame of frames)
       for (let at = 1; at < frame.length; at++)
@@ -39,11 +40,13 @@ describe('caterpillarFrames', () => {
             frame[at] as { x: number; y: number },
           ),
         ).toBe(true)
-    // The chain is at most five long while it crawls, so it fits in a painter's charges.
-    expect(
-      Math.max(...frames.slice(0, path.length).map((frame) => frame.length)),
-    ).toBeLessThanOrEqual(5)
-    expect(frames.at(-1)).toEqual(line)
+    // The chain is at most five long, so it fits in a painter's charges.
+    expect(Math.max(...frames.map((frame) => frame.length))).toBeLessThanOrEqual(5)
+    expect(frames.at(-1)).toEqual([line[0]])
+  })
+
+  it('plays nothing for a line that already touches the territory', () => {
+    expect(caterpillarFrames([], line)).toEqual([])
   })
 })
 

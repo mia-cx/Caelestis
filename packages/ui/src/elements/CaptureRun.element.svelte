@@ -27,6 +27,23 @@
     max-inline-size: calc(100vw - var(--caelestis-capture-run-left, 3.5rem) - 0.5rem);
     max-block-size: calc(100vh - var(--caelestis-capture-run-top, 0.5rem) - 0.5rem);
   }
+  /*
+   * Where the window is too narrow for the card beside Wplace's top-centre event scoreboard, it
+   * sits below it, and stops above the bottom Paint controls rather than covering them.
+   */
+  @media (max-width: 1080px) {
+    :host {
+      inset-block-start: var(--caelestis-capture-run-top-narrow, 10.5rem);
+      max-block-size: calc(100vh - var(--caelestis-capture-run-top-narrow, 10.5rem) - 6.5rem);
+    }
+  }
+  @media (max-width: 480px) {
+    :host {
+      inset-inline-start: 0.5rem;
+      /* Clear of Wplace's right-hand column of buttons. */
+      max-inline-size: calc(100vw - 5rem);
+    }
+  }
   /* A keyframe entrance, not a transition: it runs whenever the shadow styles attach, so the host
      needs no open step. `closeSurface` drives the exit through data-state. */
   @media (prefers-reduced-motion: no-preference) {

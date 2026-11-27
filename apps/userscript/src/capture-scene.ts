@@ -13,16 +13,18 @@ import {
 /**
  * What a capture run puts on the map, as pure functions of the run and Wplace's territory map:
  *
- * - `mine`: this painter's own line, solid in the team's colour, the colour they paint it in.
+ * - `mine` and `todo`: this painter's own line, solid in the team's colour where they have drafted
+ *   it, and hatched with a dark outline where they still have to, so what is left to draw never
+ *   looks like ground the team already holds.
  * - `ready` and `pending`: everyone else's line in the team's dark shade, filled once they have
  *   drafted all of it and only outlined before, so the gaps in the wall show at a glance.
  * - `area`: what the wall encloses once it closes, faintly hatched, so the shape reads as a shape.
  * - `anchor`: a dashed box around each guard's anchor, the end of the wall they hold.
- * - `demo`: a short chain crawling from the team's territory to this painter's line, showing how
- *   to draft a line that does not touch the territory yet.
+ * - `demo`: a translucent chain crawling from the team's territory to the start of this painter's
+ *   line, showing how to draft out to a line that does not touch the territory yet.
  */
 
-export type CaptureItemKind = 'mine' | 'ready' | 'pending' | 'area' | 'anchor' | 'demo'
+export type CaptureItemKind = 'mine' | 'todo' | 'ready' | 'pending' | 'area' | 'anchor' | 'demo'
 
 export interface CaptureItem {
   readonly kind: CaptureItemKind
@@ -139,20 +141,22 @@ const PAUSE_STEPS = 8
 
 /**
  * The demo, frame by frame, each frame the chain's pixels: it grows out of the territory along
- * `path`, crawls to the line by drafting at the head and removing at the tail, pulls its tail onto
- * the line's first pixel, then drafts the rest of the line, and holds there before looping.
+ * `path`, crawls toward the line by drafting at the head and removing at the tail, and pulls its
+ * tail up onto the line's first pixel, where it holds before looping. It never covers the rest of
+ * the line, which shows what is left to draft. A line that touches the territory needs no demo.
  */
 export const caterpillarFrames = (path: readonly Pixel[], line: readonly Pixel[]): Pixel[][] => {
-  const route = [...path, ...line]
-  const start = path.length
+  const first = line[0]
+  if (path.length === 0 || first === undefined) return []
+  const route = [...path, first]
+  const end = path.length
   const spans: [number, number][] = []
   let tail = 0
-  for (let head = 0; head <= start && head < route.length; head++) {
+  for (let head = 0; head <= end; head++) {
     tail = Math.max(0, head - CHAIN + 1)
     spans.push([tail, head])
   }
-  for (tail += 1; tail <= start; tail++) spans.push([tail, start])
-  for (let head = start + 1; head < route.length; head++) spans.push([start, head])
+  for (tail += 1; tail <= end; tail++) spans.push([tail, end])
   const last = spans.at(-1)
   if (last !== undefined) for (let pause = 0; pause < PAUSE_STEPS; pause++) spans.push(last)
   return spans.map(([from, to]) => route.slice(from, to + 1))

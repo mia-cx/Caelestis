@@ -136,16 +136,36 @@ const localTime = (view: CaptureView, serverTime: number): number | null =>
 let myTeam: TerritoryTeam | null = null
 
 /** How many of a line's pixels this tab has drafted in a colour that claims for its team. */
-const draftedOn = (line: readonly number[]): number => {
+const draftedPixel = ({ x, y }: { x: number; y: number }): boolean => {
   // Until the team is known no colour can be checked, so nothing counts as drafted yet.
-  if (myTeam === null) return 0
+  if (myTeam === null) return false
   const team = TERRITORY_TEAMS[myTeam]
-  return linePixels(line).filter(({ x, y }) => {
-    const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
-    const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
-    const drafted = comparisonDraftPixelAt(tile, offset)
-    return drafted === team.colour || drafted === team.dark
-  }).length
+  const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
+  const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
+  const drafted = comparisonDraftPixelAt(tile, offset)
+  return drafted === team.colour || drafted === team.dark
+}
+
+const draftedOn = (line: readonly number[]): number => linePixels(line).filter(draftedPixel).length
+
+/** This painter's own line, split into what they have drafted and what is left to draft. */
+const mineCache = new Map<string, readonly CaptureItem[]>()
+const mineItems = (line: readonly number[], colour: Rgb | null): readonly CaptureItem[] => {
+  const pixels = linePixels(line)
+  const done = pixels.map(draftedPixel)
+  const key = `${myTeam}|${line.join(',')}|${done.map(Number).join('')}`
+  const cached = mineCache.get(key)
+  if (cached !== undefined) return cached
+  const drafted = pixelMask(pixels.filter((_, index) => done[index]))
+  const left = pixelMask(pixels.filter((_, index) => !done[index]))
+  const items = [
+    ...(drafted === null ? [] : [masked('mine', drafted, colour)]),
+    ...(left === null ? [] : [masked('todo', left, colour)]),
+  ]
+  // One line at a time: the previous split is never drawn again.
+  mineCache.clear()
+  mineCache.set(key, items)
+  return items
 }
 
 /** Wplace's map and the team, read for the plan on screen, with what the map shows from them. */
@@ -277,7 +297,8 @@ export const captureItems = (): readonly CaptureItem[] => {
       const pixels = pixelMask(linePixels(line))
       if (pixels !== null) {
         const kind = kindOf(run, index, mine)
-        items.push(masked(kind, pixels, kind === 'mine' ? colour : dark))
+        // This painter's own line is added per frame below, split by what they have drafted.
+        if (kind !== 'mine') items.push(masked(kind, pixels, dark))
       }
     })
     for (let index = run.painters; index < run.lines.length; index++)
@@ -296,7 +317,12 @@ export const captureItems = (): readonly CaptureItem[] => {
         return pixels === null ? [] : [masked('pending', pixels, colour)]
       }),
     ])
-  const shown = candidates.length === 0 ? held.items : [...held.items, ...candidates]
+  const myLine = mine < 0 ? undefined : run.lines[mine]
+  const shown = [
+    ...held.items,
+    ...(myLine === undefined ? [] : mineItems(myLine, colour)),
+    ...candidates,
+  ]
   if (!demoPlaying(view) || planView === null) return shown
   // Under reduced motion the guide holds still on the whole route instead of crawling.
   const frame = pixelMask(

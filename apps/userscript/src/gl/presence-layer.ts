@@ -226,6 +226,19 @@ const STYLES: Record<SceneKind, Style> = {
     patternAlpha: 0,
     contrast: 0.7,
   },
+  // The rest of this painter's line, still to draft: a hatch of the team's colour inside a dark
+  // outline and no colour outline, so it can never pass for pixels the team already holds, and
+  // at low zoom, where the outline is all there is, it reads dark beside the solid drafted part.
+  'capture-todo': {
+    fill: 0,
+    border: 0,
+    borderWidth: 1.5,
+    dash: 0,
+    maskAlpha: 0.15,
+    pattern: 1,
+    patternAlpha: 0.95,
+    contrast: 0.9,
+  },
   // Another painter's line once they have drafted all of it: filled, lighter than your own.
   'capture-ready': {
     fill: 0,
@@ -270,16 +283,16 @@ const STYLES: Record<SceneKind, Style> = {
     patternAlpha: 0,
     contrast: 0,
   },
-  // The caterpillar demo: the chain as you would draft it, solid with the dark outline.
+  // The caterpillar demo: a translucent chain, a guide rather than pixels anyone drafted.
   'capture-demo': {
     fill: 0,
     border: 0,
     borderWidth: 0,
     dash: 0,
-    maskAlpha: 0.9,
+    maskAlpha: 0.55,
     pattern: 0,
     patternAlpha: 0,
-    contrast: 0.8,
+    contrast: 0.4,
   },
   tool: {
     fill: 0,

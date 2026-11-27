@@ -38,6 +38,7 @@ export type SceneKind =
   | 'quick'
   | 'tool'
   | 'capture-mine'
+  | 'capture-todo'
   | 'capture-ready'
   | 'capture-pending'
   | 'capture-area'
@@ -188,7 +189,7 @@ export const sceneItems = (inputs: SceneInputs): SceneItem[] => {
       painter: null,
       ...(item.colour === null ? {} : { colour: item.colour }),
       mask: item.pixels,
-      mine: item.kind === 'mine',
+      mine: item.kind === 'mine' || item.kind === 'todo',
       aside: id,
       // The demo moves every step; the fade would smear it.
       follows: item.kind === 'demo',
