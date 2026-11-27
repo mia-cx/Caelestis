@@ -260,6 +260,13 @@
       "when": 1795814001814,
       "tag": "0036_event_runner_invites",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1795819974826,
+      "tag": "0037_event_team_tokens",
+      "breakpoints": true
     }
   ]
 }

@@ -185,3 +185,23 @@ it('leaves quick claims off an event server', async () => {
   await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
   expect(socket.quickClaims()).toEqual([])
 })
+
+it('drops the run while an event server refuses the reported team, until a run for it arrives', async () => {
+  const { presence, socket } = await connect({ event: true, canWrite: true })
+  const run = {
+    id: 'run',
+    team: 1,
+    painters: 1,
+    guards: 0,
+    members: [],
+    lines: [],
+    startsAt: null,
+    staggerMs: 500,
+  }
+  socket.receive({ type: 'capture', run })
+  socket.receive({ type: 'team-refused', team: 2 })
+  expect(presence.captureViews()).toMatchObject([{ run: null, refusedTeam: 2 }])
+
+  socket.receive({ type: 'capture', run: { ...run, team: 2 } })
+  expect(presence.captureViews()).toMatchObject([{ run: { team: 2 }, refusedTeam: null }])
+})

@@ -64,12 +64,17 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     })
     return ((await minted.json()) as { token: string }).token
   }
+  /** Redeem a fresh event-runner invite, naming the redeemer's team when given one. */
+  const redeem = async (team?: TerritoryTeam) => {
+    const exchanged = await fetch(`${base}/auth/exchange`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${await mint('event_runner')}` },
+      ...(team === undefined ? {} : { body: JSON.stringify({ team }) }),
+    })
+    return ((await exchanged.json()) as { token: string }).token
+  }
   const painterToken = await mint('report')
-  const exchanged = await fetch(`${base}/auth/exchange`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${await mint('event_runner')}` },
-  })
-  const { token: runnerToken } = (await exchanged.json()) as { token: string }
+  const runnerToken = await redeem()
 
   let nextPainter = 1
   /** A session, which reports `team` as its event team first when given one. */
@@ -106,6 +111,11 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
         const last = events.filter((e) => e.type === 'capture').at(-1)
         return last?.type === 'capture' ? last.run : undefined
       },
+      /** The team the server last refused this socket for, naming its token's team. */
+      refusedFor(): TerritoryTeam | undefined {
+        const last = events.filter((e) => e.type === 'team-refused').at(-1)
+        return last?.type === 'team-refused' ? last.team : undefined
+      },
       /** The peers this socket was last told it sees. */
       peers(): string[] {
         const seen = new Set<string>()
@@ -124,8 +134,12 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     directory,
     stop,
     painterToken,
+    mint,
+    redeem,
+    connect,
     admin: (team?: TerritoryTeam) => connect(ADMIN, team),
-    painter: (team?: TerritoryTeam) => connect(painterToken, team),
+    /** A painter on a report token of their own, which binds to the first team it reports. */
+    painter: async (team?: TerritoryTeam) => connect(await mint('report'), team),
     runner: (team?: TerritoryTeam) => connect(runnerToken, team),
   }
 }
@@ -322,6 +336,71 @@ it('shares viewports within a team only, and takes no claims, on an event server
   expect(claim.status).toBe(403)
 })
 
+it('binds a token to the first team its sessions report, and a session claiming another gets nothing', async () => {
+  const server = await start()
+  const viewport = { x: 636_000, y: 1_028_000, w: 64, h: 64 }
+  const token = await server.mint('report')
+  // Two first sessions of one unbound token race to bind it to different teams; one team wins.
+  const [a, b] = await Promise.all([server.connect(token, GREEN), server.connect(token, ORANGE)])
+  await vi.waitFor(() => expect([a, b].filter((s) => s.refusedFor() !== undefined)).toHaveLength(1))
+  const [bound, claimant] = a.refusedFor() === undefined ? [a, b] : [b, a]
+  const team = claimant.refusedFor()
+  if (team === undefined) throw new Error('Expected one session refused')
+  expect(team).not.toBe(claimant === a ? GREEN : ORANGE)
+  const rival = team === GREEN ? ORANGE : GREEN
+
+  const teammate = await server.painter(team)
+  const rivalPainter = await server.painter(rival)
+  for (const session of [bound, claimant, teammate, rivalPainter])
+    session.send({ type: 'presence-update', viewport })
+  // Admins are never bound, so one administrator opens a run for each team.
+  for (const admin of [await server.admin(team), await server.admin(rival)])
+    admin.send({ type: 'capture-open', painters: 1, guards: 0 })
+  await vi.waitFor(() => expect(bound.peers()).toEqual([teammate.sessionId]), { timeout: 5_000 })
+  await vi.waitFor(() => expect(bound.run()).toMatchObject({ team }))
+  await vi.waitFor(() => expect(rivalPainter.run()).toMatchObject({ team: rival }))
+  // The claimant sees and shares nothing from either team, and cannot act on either run.
+  expect(teammate.peers()).toEqual([bound.sessionId])
+  expect(rivalPainter.peers()).toEqual([])
+  expect(claimant.peers()).toEqual([])
+  expect(claimant.run() ?? null).toBeNull()
+  claimant.send({ type: 'capture-join', run: rivalPainter.run()?.id ?? '' })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(rivalPainter.run()?.members).toEqual([])
+
+  // The binding outlives the session: a new one claiming the rival team is refused too.
+  bound.close()
+  const later = await server.connect(token, rival)
+  await vi.waitFor(() => expect(later.refusedFor()).toBe(team))
+})
+
+it('applies a capture command sent while its token is still binding', async () => {
+  const server = await start()
+  const orange = await server.painter(ORANGE)
+  // The team report binds this fresh token; Open run goes right behind it, as the userscript sends.
+  const runner = await server.connect(await server.redeem(), ORANGE)
+  runner.send({ type: 'capture-open', painters: 1, guards: 0 })
+  await vi.waitFor(() => expect(orange.run()).toMatchObject({ team: ORANGE, painters: 1 }))
+})
+
+it('binds an event runner to the team it redeemed its invite with', async () => {
+  const server = await start()
+  const runner = await server.redeem(ORANGE)
+  const claimant = await server.connect(runner, GREEN)
+  await vi.waitFor(() => expect(claimant.refusedFor()).toBe(ORANGE))
+  claimant.send({ type: 'capture-open', painters: 1, guards: 0 })
+
+  const orange = await server.painter(ORANGE)
+  const green = await server.painter(GREEN)
+  const own = await server.connect(runner, ORANGE)
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(green.run() ?? null).toBeNull()
+  own.send({ type: 'capture-open', painters: 1, guards: 0 })
+  await vi.waitFor(() => expect(orange.run()).toMatchObject({ team: ORANGE }))
+  expect(own.refusedFor()).toBeUndefined()
+  expect(green.run() ?? null).toBeNull()
+})
+
 it('keeps claims made before the switch to event mode out of it, and does not renew them', async () => {
   const before = await start({ eventServer: false })
   const regions = (server: { base: string; painterToken: string }) =>
@@ -355,7 +434,7 @@ it('keeps claims made before the switch to event mode out of it, and does not re
   const event = await start({ directory: before.directory })
   expect(await regions(event)).toMatchObject({ regions: [], ownedRegionIds: [] })
   // Painter 1 holds the claim's credential and identity, so connecting would renew it.
-  const painter = await event.painter(GREEN)
+  const painter = await event.connect(event.painterToken, GREEN)
   expect(painter.events[0]).toMatchObject({
     type: 'presence-ready',
     regions: [],

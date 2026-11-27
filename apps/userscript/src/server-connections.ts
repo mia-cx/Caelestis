@@ -1,6 +1,14 @@
-import { canonicalServerUrl, isRecord, SCOPES, type Scope, satisfiesScope } from '@caelestis/shared'
+import {
+  canonicalServerUrl,
+  isEventServer,
+  isRecord,
+  SCOPES,
+  type Scope,
+  satisfiesScope,
+} from '@caelestis/shared'
 import { mapLimit } from './concurrency.js'
 import { log, warn } from './debug.js'
+import { readEventTeam } from './event-team.js'
 import { notifyListeners } from './listeners.js'
 import { withManifestReadSlot } from './manifest-order.js'
 import {
@@ -387,6 +395,23 @@ const redeemedInvites = new Map<string, string>()
 const inviteKey = (base: string, token: string): string => JSON.stringify([base, token])
 
 /**
+ * What a server says about itself now, for deciding how to redeem an invite; null when it does
+ * not answer at `/v1/server`, as servers from before invites do not.
+ */
+const readEventInfo = async (base: string): Promise<ServerInfo | null> => {
+  try {
+    const { response, body } = await sendServerRequest(
+      endpointUrl(base, '/server', 'v1'),
+      {},
+      { limits: 'metadata', read: 'json' },
+    )
+    return response.ok ? parseServerInfo(body) : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Trade a one-use invite for the token this browser keeps, or return `token` unchanged when the
  * server does not take it as an invite. The kept token exists only in the exchange's response,
  * so it goes straight into the connection and is never shown; an invite traded before resolves
@@ -396,10 +421,22 @@ const redeemInvite = async (base: string, token: string): Promise<string> => {
   const key = inviteKey(base, token)
   const redeemed = redeemedInvites.get(key)
   if (redeemed !== undefined) return redeemed
+  // Only an event server binds a team, so only then is Wplace asked for it. The server is read
+  // live, since a saved one may have switched modes since. A failed lookup redeems without a
+  // team; the first presence session that reports one binds it.
+  const eventServer = isEventServer(await readEventInfo(base))
+  const team = eventServer ? await readEventTeam().catch(() => null) : null
   try {
     const { response, body } = await sendServerRequest(
       endpointUrl(base, '/auth/exchange', 'v1'),
-      { method: 'POST', headers: bearer(token) },
+      // The event server binds the redeemed token to this painter's team.
+      team === null
+        ? { method: 'POST', headers: bearer(token) }
+        : {
+            method: 'POST',
+            headers: { ...bearer(token), 'content-type': 'application/json' },
+            body: JSON.stringify({ team }),
+          },
       { limits: 'metadata', read: 'json' },
     )
     if (!response.ok || !isRecord(body) || typeof body.token !== 'string') return token
