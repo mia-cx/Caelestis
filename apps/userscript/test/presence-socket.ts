@@ -64,16 +64,16 @@ export class FakeWebSocket extends EventTarget {
 
 /**
  * Install presence against one connected server under fake timers and open its socket. `capture`
- * makes the server an event server, `admin` signs this tab in as its administrator, and `canWrite`
- * is what the ready event says about writing. Call `dispose` after the test.
+ * makes the server an event server, `scope` signs this tab in with a token of that scope, and
+ * `canWrite` is what the ready event says about writing. Call `dispose` after the test.
  */
 export const connectPresence = async ({
   capture,
-  admin = false,
+  scope,
   canWrite,
 }: {
   readonly capture?: 1
-  readonly admin?: boolean
+  readonly scope?: 'event_runner' | 'admin'
   readonly canWrite?: boolean | undefined
 } = {}) => {
   vi.useFakeTimers()
@@ -93,9 +93,11 @@ export const connectPresence = async ({
       presence: 1 as const,
       ...(capture === undefined ? {} : { capture }),
     },
-    token: admin ? 'admin-token' : null,
+    token: scope === undefined ? null : `${scope}-token`,
     status: 'connected' as const,
-    isAdmin: admin,
+    // As a connection probe records it: either scope may run captures, and only admin is admin.
+    isAdmin: scope === 'admin',
+    ...(scope === undefined ? {} : { canRunCaptures: true as const }),
     season: 1,
   }
   state.upsertServer(server)

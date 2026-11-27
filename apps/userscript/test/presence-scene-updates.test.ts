@@ -111,11 +111,11 @@ it('redraws capture lines from every run update and reuses them between updates'
 })
 
 /**
- * An administrator on an event server whose gathering run has the top wall published, asking for
+ * An event runner on an event server whose gathering run has the top wall published, asking for
  * plans again: the planner offers the top wall and a bottom one, so the bottom one is the candidate.
  */
 const proposeAgain = async () => {
-  const { socket } = await connect({ capture: 1, admin: true })
+  const { socket } = await connect({ capture: 1, scope: 'event_runner' })
   vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
   const { captureItems, installCaptureRuns } = await import('../src/capture-runs.js')
   installCaptureRuns()
