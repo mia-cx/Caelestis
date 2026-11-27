@@ -20,6 +20,8 @@ server:
   description: ''
   season: 0
   openAccess: false
+  # Serve Wplace event tools, such as capture runs for Territory Weekend.
+  eventServer: false
   basePath: /backend
   existingSecret: caelestis-server
 database:

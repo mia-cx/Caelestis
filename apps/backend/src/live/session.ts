@@ -20,7 +20,6 @@ export const LIVE_CAPABILITIES = {
   liveSyncMax: 2,
   liveTileOffers: 1,
   presence: 1,
-  capture: 1,
   livePaintParts: 1,
 } as const satisfies Partial<ServerInfo> & {
   readonly liveSync: LiveSyncProtocol

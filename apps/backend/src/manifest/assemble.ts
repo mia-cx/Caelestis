@@ -14,6 +14,7 @@ import {
 } from '@caelestis/wire-schema'
 import { LIVE_CAPABILITIES } from '../live/session.js'
 import type { NodeStore } from '../nodes/store.js'
+import { EVENT_CAPABILITIES } from '../server/info.js'
 import type { TagStore } from '../tags/store.js'
 import type { TemplateStore } from '../templates/store.js'
 import type { WorkStore } from '../work/store.js'
@@ -166,9 +167,9 @@ export const assembleManifest = async (
     name: server.name,
     ...(server.description === undefined ? {} : { description: server.description }),
     auth: server.auth,
-    // Every capability `/server` can advertise, in the order `LIVE_CAPABILITIES` lists them.
+    // Every capability `/server` can advertise, in the order the capability lists give them.
     ...Object.fromEntries(
-      Object.keys(LIVE_CAPABILITIES).flatMap((name) => {
+      [...Object.keys(LIVE_CAPABILITIES), ...Object.keys(EVENT_CAPABILITIES)].flatMap((name) => {
         const version: unknown = Reflect.get(server, name)
         return version === undefined ? [] : [[name, version]]
       }),

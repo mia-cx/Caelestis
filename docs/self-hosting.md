@@ -295,6 +295,7 @@ Use a direct connection to one writable primary. MySQL and PlanetScale are separ
 | `SEASON` | `0` | Current canvas season |
 | `ADMIN_TOKEN` | unset | Bootstrap administrator credential |
 | `OPEN_ACCESS` | `false` | Existing open-access mode; booleans must be `true` or `false` |
+| `EVENT_SERVER` | `false` | Set `true` to serve Wplace event tools, such as capture runs for Territory Weekend |
 | `CAELESTIS_READ_TOKEN` | required for separate containers | Shared private read-only credential, distinct from `ADMIN_TOKEN` |
 | `BASE_PATH` | `/backend` | Backend mount; `/backend` remains a compatibility alias |
 | `TILE_BLOB_GC_MODE` | `dry-run` | Set `delete` to enable deletion of unreferenced tile blobs |

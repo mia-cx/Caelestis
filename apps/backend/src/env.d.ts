@@ -42,6 +42,9 @@ declare namespace Cloudflare {
     /** `'true'` serves the read surface without a token, and makes `/server` advertise `auth: 'none'`. */
     OPEN_ACCESS?: string
 
+    /** `'true'` serves Wplace event tools, such as capture runs, and advertises them in `/server`. */
+    EVENT_SERVER?: string
+
     /** Runtime mount stripped before the portable app sees a request. */
     BASE_PATH?: string
 
@@ -69,6 +72,7 @@ interface Env {
   readonly ADMIN_TOKEN?: string
   readonly SEASON?: string
   readonly OPEN_ACCESS?: string
+  readonly EVENT_SERVER?: string
   readonly BASE_PATH?: string
   readonly ROOT_HOST?: string
   readonly TILE_BLOB_GC_MODE?: string

@@ -151,6 +151,8 @@ export class PresenceCoordinator<Client> {
      * while it hibernates.
      */
     private readonly routeRevocation: (tokenHash: string) => Promise<void>,
+    /** Whether this is an event server, the only kind that runs capture runs. */
+    private readonly captureRuns = false,
   ) {}
 
   readIngestTimings(reset: boolean): IngestTimingSnapshot {
@@ -577,6 +579,8 @@ export class PresenceCoordinator<Client> {
       this.armTick()
       return
     }
+    // Capture runs and their clock sync exist only on an event server.
+    if (!this.captureRuns && event.type !== 'presence-update') return
     if (event.type === 'clock') {
       this.send({ socket, held: attachment }, { type: 'clock', sent: event.sent, at: Date.now() })
       return

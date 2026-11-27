@@ -24,7 +24,7 @@ afterEach(async () => {
 
 const ADMIN = 'capture-admin'
 
-const start = async () => {
+const start = async ({ eventServer = true } = {}) => {
   const directory = await mkdtemp(join(tmpdir(), 'caelestis-capture-'))
   cleanups.push(() => rm(directory, { recursive: true, force: true }))
   const config = readNodeConfig({
@@ -32,6 +32,7 @@ const start = async () => {
     PORT: '0',
     HOST: '127.0.0.1',
     ADMIN_TOKEN: ADMIN,
+    EVENT_SERVER: String(eventServer),
   })
   const runtime = await openNodeRuntime(
     config,
@@ -84,12 +85,28 @@ const start = async () => {
     }
   }
   return {
+    base,
     admin: () => connect(ADMIN),
     painter: () => connect(painterToken),
   }
 }
 
 const line = (y: number) => [636_000, y, 636_001, y]
+
+it('runs no capture runs on a server that is not an event server', async () => {
+  const server = await start({ eventServer: false })
+  const info = await (
+    await fetch(`${server.base}/server`, { headers: { authorization: `Bearer ${ADMIN}` } })
+  ).json()
+  expect(info).not.toHaveProperty('capture')
+  const admin = await server.admin()
+  admin.send({ type: 'capture-open', painters: 1, guards: 0 })
+  admin.send({ type: 'clock', sent: 1 })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(
+    admin.events.filter((event) => event.type === 'capture' || event.type === 'clock'),
+  ).toEqual([])
+})
 
 it('runs a capture from open to start, in the order the administrator sets', async () => {
   const server = await start()
