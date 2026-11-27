@@ -3,6 +3,7 @@ import {
   type ArenaPixel,
   arenaToWorld,
   borderBoxPlanner,
+  type CapturePlan,
   chamferWall,
   NO_TEAM,
   pairLines,
@@ -188,6 +189,54 @@ describe('borderBoxPlanner', () => {
     expect(plans.length).toBeGreaterThan(0)
     for (const plan of plans)
       expect(simulateCapture(map, GREEN, plan).map.owner[focus.y * 180 + focus.x]).toBe(GREEN)
+  })
+
+  /** Every plan paints without refusals and leaves `focus` the team's. */
+  const expectHeld = (map: TerritoryMap, focus: ArenaPixel, plans: readonly CapturePlan[]) => {
+    expect(plans.length).toBeGreaterThan(0)
+    for (const plan of plans) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.refused).toBe(0)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+      expect(outcome.map.owner[focus.y * map.size + focus.x]).toBe(GREEN)
+    }
+  }
+
+  it('proposes a wall that paints the focus itself, also on the arena edge', () => {
+    const map = greenWhere(200, (x, y) => x >= 100 && y >= 100)
+    const focus = { x: 199, y: 90 }
+    expectHeld(
+      map,
+      focus,
+      borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 60, focus }),
+    )
+  })
+
+  it('falls back to an overlapping wall when the best estimate leaks', () => {
+    // A shelf at y 40 to 47 overhangs open ground, so a leg that stops on it leaves a way out.
+    const map = greenWhere(
+      160,
+      (x, y) => y >= 110 || (x >= 150 && y >= 40) || (x >= 45 && y >= 40 && y < 48),
+    )
+    const focus = { x: 48, y: 29 }
+    expectHeld(
+      map,
+      focus,
+      borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 60, focus }),
+    )
+  })
+
+  it("starts each guard's zone beside the first pixel its painter places, on a slope", () => {
+    const map = greenWhere(200, (x, y) => y >= 25 + x)
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
+    expect(plans.length).toBeGreaterThan(0)
+    for (const plan of plans)
+      plan.guardZones.forEach((zone, k) => {
+        const start = plan.lines[k]?.[0] as ArenaPixel
+        const first = zone[0] as ArenaPixel
+        expect(Math.abs(first.x - start.x) + Math.abs(first.y - start.y)).toBe(1)
+        for (const { x, y } of zone) expect(map.owner[y * 200 + x]).toBe(GREEN)
+      })
   })
 
   it('returns nothing when the budget cannot close any box', () => {

@@ -278,8 +278,9 @@ export const simulateCapture = (
  *   about 930 to 630. Corners on the arena edge are reachable from one side only and stay square.
  *
  * Every candidate costs O(1) through prefix sums, so the full arena searches in well under a
- * second. Only the best candidate on each stretch of border is kept, and the best few of those are
- * filled within their own bounds to count exactly what they enclose.
+ * second. Best estimate first, candidates are then filled within their own bounds to count what
+ * they enclose; one that closes and holds the focus sets aside every later candidate that overlaps
+ * it, and one that does not leaves them as fallbacks.
  */
 
 /** A border starts where at least this many of the team's pixels run in a row. */
@@ -288,15 +289,15 @@ const SOLID = 8
 const SIDE_LENGTHS = 24
 /** The share of the budget `contact` must reach for a wall to score its full area. */
 const CONTACT_TARGET = 0.75
-/** The best candidates, one per stretch of border, filled to count what they enclose. */
+/** The most candidates filled to count what they enclose. */
 const KEEP = 40
 /** Steps in a corner's 45° staircase. */
 const CHAMFER = 24
 /** The area one chamfered corner gives up. */
 const CHAMFER_CUT = (CHAMFER * (CHAMFER + 1)) / 2
 /**
- * How far a guard's zone runs from its anchor: lines along the team's own border, or cells along
- * the territory that an empty leg's far side meets.
+ * Cells in a guard's zone: from the team's cell beside the first pixel its painter places, along
+ * the team's own border, or along the territory that an empty leg's far side meets.
  */
 export const GUARD_MARGIN = 15
 /** Proposals returned: the best few distinct walls. */
@@ -408,7 +409,7 @@ interface Candidate {
   readonly score: number
 }
 
-/** The best `KEEP` walls the budget can pay for, and that hold `focus` when set, best first. */
+/** Every wall the budget can pay for that may hold `focus` when set, best estimate first. */
 const bestWalls = (
   map: TerritoryMap,
   team: TerritoryTeam,
@@ -419,7 +420,7 @@ const bestWalls = (
   const spans = new Set<number>()
   for (let k = 0; k < SIDE_LENGTHS; k++)
     spans.add(Math.floor((budget / 8) * (0.9 * 8) ** (k / (SIDE_LENGTHS - 1))) + 2)
-  const best: Candidate[] = []
+  const found: Candidate[] = []
   for (const front of frontsOf(map, team)) {
     const { border, need } = front
     // Running counts per line: lines without a border, cells in front of the border, and how far
@@ -454,11 +455,12 @@ const bestWalls = (
       const cutB =
         legB > CHAMFER && to - from >= (cutA ? 2 : 1) * CHAMFER && far > 0 && to < size - 1
       const near = (end: number) => Math.abs(focusLine - end) + focusDepth - far <= CHAMFER
+      // The focus may lie on the wall itself; the fill after the search confirms it is held.
       if (
         focus !== undefined &&
-        (focusLine <= from ||
-          focusLine >= to ||
-          focusDepth <= far ||
+        (focusLine < from ||
+          focusLine > to ||
+          focusDepth < far ||
           focusDepth >= (border[focusLine] as number) ||
           (cutA && near(from)) ||
           (cutB && near(to)))
@@ -484,17 +486,7 @@ const bestWalls = (
       const contact = held + length - cost + edge
       const reach = Math.min(1, contact / (CONTACT_TARGET * budget))
       const score = gain * reach
-      if (score <= 0 || (best.length === KEEP && score <= (best.at(-1) as Candidate).score))
-        return cost
-      // One candidate per stretch of border: a better one on shared lines displaces the rest.
-      const rivals = (other: Candidate) =>
-        other.front === front && other.from <= to && from <= other.to
-      if (best.some((other) => rivals(other) && other.score >= score)) return cost
-      for (let i = best.length - 1; i >= 0; i--) if (rivals(best[i] as Candidate)) best.splice(i, 1)
-      let at = best.length
-      while (at > 0 && (best[at - 1] as Candidate).score < score) at--
-      best.splice(at, 0, { front, from, to, far, reach, score })
-      if (best.length > KEEP) best.pop()
+      if (score > 0) found.push({ front, from, to, far, reach, score })
       return cost
     }
     for (const span of spans)
@@ -514,7 +506,7 @@ const bestWalls = (
         if (cost >= 0 && far > 0 && spare > 0) consider(from, to, Math.max(0, far - spare))
       }
   }
-  return best
+  return found.sort((a, b) => b.score - a.score)
 }
 
 /**
@@ -684,8 +676,8 @@ const overlaps = (a: Box, b: Box): boolean =>
 /**
  * The default planner: the best few distinct walls against the team's border, each chamfered where
  * the budget allows and ranked by what it encloses, split into paired lines, with guard zones on
- * the team's border cells along the first lines from each anchor. With a focus, a wall that does
- * not hold it is skipped.
+ * the team's cells beside each anchor. With a focus, a wall that does not hold it is skipped, and
+ * an overlapping candidate takes its place.
  */
 export const borderBoxPlanner: CapturePlanner = ({
   map,
@@ -697,27 +689,36 @@ export const borderBoxPlanner: CapturePlanner = ({
 }) => {
   const budget = painters * charges
   const unpainted = (wall: readonly ArenaPixel[]) => wall.filter((cell) => !owns(map, team, cell))
-  const walls = bestWalls(map, team, budget, focus).flatMap((candidate) => {
+  const walls: { candidate: Candidate; wall: ArenaPixel[]; bounds: Box; score: number }[] = []
+  let filled = 0
+  for (const candidate of bestWalls(map, team, budget, focus)) {
+    if (filled === KEEP) break
+    // Only a wall that closes and holds the focus sets aside the candidates overlapping it.
+    const { front, from, to } = candidate
+    if (
+      walls.some(
+        ({ candidate: other }) => other.front === front && other.from <= to && from <= other.to,
+      )
+    )
+      continue
+    const bounds = boundsOf(candidate)
+    if (walls.some((other) => overlaps(other.bounds, bounds))) continue
+    filled++
     const square = wallOf(candidate)
     // A chamfer can trade the team's cells for ones to paint; keep the square wall past the budget.
     const chamfered = chamferWall(square, map.size)
     const wall = unpainted(chamfered).length <= budget ? chamfered : square
-    const bounds = boundsOf(candidate)
     const { won, holds } = enclosure(map, team, bounds, wall)
-    if (won === 0 || (focus !== undefined && !holds(focus))) return []
-    return [{ candidate, wall, bounds, score: won * candidate.reach }]
-  })
+    if (won === 0 || (focus !== undefined && !holds(focus))) continue
+    walls.push({ candidate, wall, bounds, score: won * candidate.reach })
+  }
   walls.sort((a, b) => b.score - a.score)
-  const plans: CapturePlan[] = []
-  const taken: Box[] = []
-  for (const { candidate, wall, bounds } of walls) {
-    if (plans.length === PROPOSALS) break
-    if (taken.some((other) => overlaps(other, bounds))) continue
+  return walls.slice(0, PROPOSALS).map(({ candidate, wall }) => {
     const { front, from, to, far } = candidate
     const { border, cell } = front
     // The border along the first lines from the anchor; past an empty leg, the territory the far
     // side meets, deeper along that line.
-    const zone = (end: number, inward: number) =>
+    const along = (end: number, inward: number) =>
       far >= (border[end] as number)
         ? Array.from({ length: Math.min(GUARD_MARGIN, map.size - far) }, (_, k) =>
             cell(end, far + k),
@@ -726,10 +727,19 @@ export const borderBoxPlanner: CapturePlanner = ({
             const line = end + inward * k
             return cell(line, border[line] as number)
           })
-    const zones = [zone(from, 1), zone(to, -1)]
+    // Where the wall's end crosses the team's cells, the painter starts past them: the zone starts
+    // on the owned cell beside that first pixel and runs back over them to the end.
+    const zone = (end: readonly ArenaPixel[], inward: number) => {
+      const first = end.findIndex((pixel) => !owns(map, team, pixel))
+      const crossed = end.slice(0, Math.max(0, first)).reverse()
+      const seen = new Set(crossed.map(({ x, y }) => y * map.size + x))
+      const rest = along(inward > 0 ? from : to, inward).filter(
+        ({ x, y }) => !seen.has(y * map.size + x),
+      )
+      return [...crossed, ...rest].slice(0, GUARD_MARGIN)
+    }
+    const zones = [zone(wall, 1), zone([...wall].reverse(), -1)]
     const guardZones = guards === 0 ? [] : guards === 1 ? [zones.flat()] : zones
-    plans.push({ lines: pairLines(unpainted(wall), painters, charges), guardZones })
-    taken.push(bounds)
-  }
-  return plans
+    return { lines: pairLines(unpainted(wall), painters, charges), guardZones }
+  })
 }
