@@ -123,14 +123,16 @@ let lastDrafted = -1
 
 /**
  * The event server this tab coordinates on, with its run: the one whose run it has joined, else one
- * it administers, else the first. A tab works on one event server at a time, so runs on any other
- * stay out of the card rather than competing for it.
+ * it administers, one with a run first, else the first. A tab works on one event server at a time,
+ * so runs on any other stay out of the card rather than competing for it.
  */
 const active = (): CaptureView | null => {
   const views = captureViews().filter((view) => view.server.info?.capture === 1)
+  const administered = views.filter((view) => hasServerAdminToken(view.server))
   return (
     views.find((view) => memberIndex(view) >= 0) ??
-    views.find((view) => hasServerAdminToken(view.server)) ??
+    administered.find((view) => view.run !== null) ??
+    administered[0] ??
     views[0] ??
     null
   )
