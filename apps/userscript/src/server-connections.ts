@@ -280,8 +280,10 @@ export type ConnectOutcome =
  * Without a token an address already configured is `already` connected, and a server that asks for
  * one is stored so its row can ask. With a token only a verified connection is stored, and a refused
  * token leaves the stored row and its credential alone. A token the server takes as a one-use
- * invite is exchanged first, and the row stores what it was traded for. `requireToken` also refuses a connection
- * that works only without the token, and treats a row already connected with it as `already`.
+ * invite is exchanged first, and the row stores what it was traded for; a full list is refused
+ * before the exchange, and a connect that fails after it keeps the replacement so a retry with the
+ * same invite still works. `requireToken` also refuses a connection that works only without the
+ * token, and treats a row already connected with it as `already`.
  * A connect or disconnect running for the same URL makes this `busy`; one superseded by a newer
  * probe, or whose row was disconnected meanwhile, is `superseded` and changes nothing.
  */
@@ -305,6 +307,9 @@ export const connectServer = async (
     return { kind: 'already', server: existing }
   if (canonical !== null && (connecting.has(canonical) || removing.has(canonical)))
     return { kind: 'busy', url: canonical, disconnecting: removing.has(canonical) }
+  // Refused before any request, so a full list never spends an invite it could not store.
+  if (existing === undefined && getState().servers.length >= MAX_CONNECTED_SERVERS)
+    return { kind: 'full' }
   if (canonical !== null) connecting.add(canonical)
   try {
     const credential =
@@ -322,6 +327,7 @@ export const connectServer = async (
       (probed.status === 'connected' && !(requireToken && probed.tokenUsable === false))
     if (!accepted) return { kind: 'refused', server: probed }
     if (!upsertServer(probed)) return { kind: 'full' }
+    if (token !== null && canonical !== null) redeemedInvites.delete(inviteKey(canonical, token))
     notifyListeners(connectedListeners, 'server connection observer failed', probed)
     return { kind: 'connected', server: probed }
   } finally {
@@ -372,18 +378,33 @@ const probeScope = async (
 }
 
 /**
+ * Tokens invites were traded for that no stored connection holds yet, by {@link inviteKey}. The
+ * exchange spends the invite, so a connect that fails after it retries with the replacement, for
+ * as long as this page lives. A stored connection takes the replacement out.
+ */
+const redeemedInvites = new Map<string, string>()
+
+const inviteKey = (base: string, token: string): string => JSON.stringify([base, token])
+
+/**
  * Trade a one-use invite for the token this browser keeps, or return `token` unchanged when the
  * server does not take it as an invite. The kept token exists only in the exchange's response,
- * so it goes straight into the connection and is never shown.
+ * so it goes straight into the connection and is never shown; an invite traded before resolves
+ * to the replacement it was traded for.
  */
 const redeemInvite = async (base: string, token: string): Promise<string> => {
+  const key = inviteKey(base, token)
+  const redeemed = redeemedInvites.get(key)
+  if (redeemed !== undefined) return redeemed
   try {
     const { response, body } = await sendServerRequest(
       endpointUrl(base, '/auth/exchange', 'v1'),
       { method: 'POST', headers: bearer(token) },
       { limits: 'metadata', read: 'json' },
     )
-    return response.ok && isRecord(body) && typeof body.token === 'string' ? body.token : token
+    if (!response.ok || !isRecord(body) || typeof body.token !== 'string') return token
+    redeemedInvites.set(key, body.token)
+    return body.token
   } catch {
     // The probe that follows reports whatever stopped this request.
     return token
