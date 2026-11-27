@@ -1,4 +1,5 @@
 import type { BackfillIntent, BackfillModel } from '../backfill/model.js'
+import type { CaptureRunIntent, CaptureRunModel } from '../capture/model.js'
 import type { ClaimModeIntent, ClaimModeModel } from '../claim/model.js'
 import type { NotificationsIntent, NotificationsModel } from '../notifications/model.js'
 import type { OverlayControlsIntent, OverlayControlsModel } from '../overlay/model.js'
@@ -18,6 +19,7 @@ import type { TagManagerIntent, TagManagerModel } from '../tags/model.js'
  */
 export interface CaelestisElementTable {
   'caelestis-backfill': { props: { model: BackfillModel }; intent: BackfillIntent }
+  'caelestis-capture-run': { props: { model: CaptureRunModel }; intent: CaptureRunIntent }
   'caelestis-claim-mode': { props: { model: ClaimModeModel }; intent: ClaimModeIntent }
   'caelestis-extension-settings': {
     props: { model: ExtensionSettingsModel }

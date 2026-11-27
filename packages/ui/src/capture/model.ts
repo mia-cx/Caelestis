@@ -57,12 +57,16 @@ export interface CaptureRunModel {
   readonly proposing: boolean
   /** Administrator only: Go is allowed (a plan is published and every line has a painter). */
   readonly canStart: boolean
-  /** Milliseconds until this tab's painter paints, while counting down and they are a member. */
-  readonly mySlotInMs: number | null
+  /**
+   * When this tab's painter paints, as a `performance.now()` time, while counting down and they
+   * are a member. A deadline rather than a remaining time, so the card can count down every frame
+   * on its own, shown as `mm:ss.mmm`.
+   */
+  readonly mySlotAt: number | null
   /** This painter's place in the order, from 1, while they are a member. */
   readonly myTurn: number | null
-  /** Milliseconds until the first painter paints, while counting down. */
-  readonly startsInMs: number | null
+  /** When the first painter paints, as a `performance.now()` time, while counting down. */
+  readonly startsAt: number | null
   /** Whether Caelestis presses Paint at this painter's slot (Dangerous settings switch). */
   readonly autoPaint: boolean
   /** A short status or error, e.g. "Your team holds no arena edge to build from." */
@@ -82,5 +86,5 @@ export type CaptureRunIntent =
   | { readonly type: 'show-line' }
   | { readonly type: 'go' }
   | { readonly type: 'close' }
-  /** Open Dangerous settings at the auto-paint switch. */
-  | { readonly type: 'auto-paint-settings' }
+  /** Turn the Dangerous settings switch "Paint at my capture slot" on or off from the card. */
+  | { readonly type: 'set-auto-paint'; readonly on: boolean }

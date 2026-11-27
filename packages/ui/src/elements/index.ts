@@ -1,4 +1,5 @@
 import BackfillElement from './Backfill.element.svelte'
+import CaptureRunElement from './CaptureRun.element.svelte'
 import ClaimModeElement from './ClaimMode.element.svelte'
 import ExtensionSettingsElement from './ExtensionSettings.element.svelte'
 import NotificationsElement from './Notifications.element.svelte'
@@ -14,6 +15,7 @@ import TemplateStudioElement from './TemplateStudio.element.svelte'
 
 export type * from '../appearance/model.js'
 export type * from '../backfill/model.js'
+export type * from '../capture/model.js'
 export type * from '../claim/model.js'
 export {
   CLAIM_TOOL_GROUPS,
@@ -41,6 +43,7 @@ export type {
 
 const ELEMENTS: Readonly<Record<CaelestisTag, { readonly element?: typeof HTMLElement }>> = {
   'caelestis-backfill': BackfillElement,
+  'caelestis-capture-run': CaptureRunElement,
   'caelestis-claim-mode': ClaimModeElement,
   'caelestis-extension-settings': ExtensionSettingsElement,
   'caelestis-notifications': NotificationsElement,
