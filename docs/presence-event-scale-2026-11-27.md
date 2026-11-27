@@ -4,9 +4,9 @@ An event server can show `MAX_PRESENCE_PEERS` (64) painters at once. Each moves 
 300 ms and redrafts every second, and a capture run adds its lines. This measures what the
 userscript spends drawing that, finds where the time goes, and compares the fix against its base.
 
-The fix cuts presence main-thread time per rendered frame by a third in every scenario, and by
-nearly half while the pointer rests over the painters. Messages, mask uploads and name tags are
-unchanged.
+The fix cuts presence main-thread time per rendered frame by about a third in movement and idle,
+and by 29–30% in the hover pairs that ran both builds under the same load. Messages and name tags
+are unchanged. Mask uploads match except in one movement pair, which caught one more update.
 
 ## Workload
 
@@ -88,6 +88,19 @@ Movement presence time falls 32% and name-tag time 48%, with separate ranges, an
 time falls in every pair (4.33 → 4.08 s on average). Idle presence time falls 34%. Whole-page idle
 time does not change measurably.
 
+In movement pair 2, the base uploaded 969 masks (454,428 bytes) and the change 889
+(416,604 bytes). Every other movement run in this archive uploaded 889. The 80 extra uploads are
+37,824 bytes, which is exactly one more revision of all 64 peer drafts (576 bytes each) and of
+16 capture lines (60 bytes each). Both runs received the same 52 messages. Masks upload only for
+items on screen, so this matches the drag path catching the crowd on screen for one more
+revision. In the [pre-rebase comparison](benchmarks/presence-event-scale-pre-rebase-2026-11-27.json.gz),
+the change uploaded 969 in two pairs and the base in one, so the count does not follow the build.
+Pair 2's base therefore did slightly more presence work than its candidate. That work did not lift
+it out of the range of the other bases: 0.622 ms per frame against 0.597 and 0.638, and 0.256 ms of
+drawing per frame against 0.248 and 0.267. Pairs 1 and 3 uploaded the same 889 masks in both
+builds and show the same reduction (0.597 → 0.415 and 0.638 → 0.424 ms), so the movement result
+holds without pair 2.
+
 Hover runs fall into two machine states, about 8.5 and 3.9 seconds of page task time, regardless
 of build. Pairs 1 and 3 each ran both builds in the same state; presence time falls 30% and 29%.
 Pair 2 crossed states, so its 70% reduction overstates the change. Name-tag time falls in all
@@ -101,8 +114,8 @@ the change.
 ### Same output
 
 - Both builds receive the same 42 messages in hover and 52 in movement, and send nothing.
-- Mask uploads match within each pair. Hover uploads 720 masks in every run. Movement uploads
-  889 or 969 depending on where the publish ticks fall, in both builds.
+- Hover uploads 720 masks in every run. Movement uploads match in pairs 1 and 3 at 889. Pair 2
+  differs by one update revision, as described above.
 - Idle name tags are identical in all six runs, including the text and position of every tag.
 - Screenshots match by eye: viewports, drafts, capture lines and tags. Two baseline runs differ
   from each other as much as a baseline differs from its candidate, because Wplace's own counters
