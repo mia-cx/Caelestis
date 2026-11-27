@@ -44,6 +44,7 @@ import {
 } from './capture-scene.js'
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt } from './draft-pixels.js'
+import { eventTeam, readEventTeam } from './event-team.js'
 import { getMap, type MapLike, onMapAttached } from './map-handle.js'
 import { requestMapFrame, viewportCentre } from './map-view.js'
 import {
@@ -149,26 +150,18 @@ const localTime = (view: CaptureView, serverTime: number): number | null =>
   view.clockOffset === null ? null : serverTime - view.clockOffset
 
 /**
- * This painter's event team, once read. Event servers share presence and capture runs within a
- * team, so it decides which run this tab sees; everything about a run itself uses the run's own
- * team.
+ * Read this painter's team, until it is known. It decides which run this tab sees; everything
+ * about a run itself uses the run's own team.
  */
-let myTeam: TerritoryTeam | null = null
-
-/** Read this painter's team from Wplace's own leaderboard, until it is known. */
 const refreshTeam = async (): Promise<TerritoryTeam | null> => {
-  if (myTeam !== null) return myTeam
-  teamTriedAt = localClock()
-  const team = await loadTeam()
-  // Lookups can overlap; a late answer from before the painter joined never undoes a known team.
-  myTeam ??= team
-  return myTeam
+  if (eventTeam() === null) teamTriedAt = localClock()
+  return readEventTeam()
 }
 
 /** Keep event servers told this painter's team, reading it until it is known. */
 const syncTeam = (): void => {
-  setPresenceTeam(myTeam)
-  if (myTeam !== null || accountIdentity() === null) return
+  setPresenceTeam(eventTeam())
+  if (eventTeam() !== null || accountIdentity() === null) return
   if (localClock() - teamTriedAt < TEAM_RETRY_MS) return
   if (!captureViews().some((view) => isEventServer(view.server.info))) return
   void refreshTeam()
@@ -420,17 +413,6 @@ export const captureItems = (): readonly CaptureItem[] => {
 }
 
 /** This painter's team in the event, from Wplace's own leaderboard. */
-const loadTeam = async (): Promise<TerritoryTeam | null> => {
-  const response = await fetch(`${BACKEND_ORIGIN}/territory/leaderboard`, {
-    credentials: 'include',
-  })
-  // Null means Wplace answered and this painter has no team; anything else is a failed lookup.
-  if (!response.ok) throw new Error(`territory leaderboard ${response.status}`)
-  const body: unknown = await response.json()
-  const team = (body as { me?: { team?: unknown } } | null)?.me?.team
-  return team === 0 || team === 1 || team === 2 || team === 3 ? team : null
-}
-
 /** Fly the map to a box of world pixels, with room around a thin line. */
 const flyTo = (rect: { x: number; y: number; w: number; h: number }): void =>
   navigateTo({

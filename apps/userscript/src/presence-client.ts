@@ -35,7 +35,6 @@ import {
 } from './claim-store.js'
 import { userscriptVersion } from './client-metrics.js'
 import { log, warn } from './debug.js'
-import { rememberEventTeam } from './event-team.js'
 import { notifyListeners } from './listeners.js'
 import { liveClientId } from './live-identity.js'
 import {
@@ -779,7 +778,6 @@ export const quickClaimsAvailable = (): boolean =>
 export const setPresenceTeam = (team: TerritoryTeam | null): void => {
   if (team === local.team) return
   local.team = team
-  rememberEventTeam(team)
   scheduleAll()
 }
 

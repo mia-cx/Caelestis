@@ -1,7 +1,7 @@
 import { canonicalServerUrl, isRecord, SCOPES, type Scope, satisfiesScope } from '@caelestis/shared'
 import { mapLimit } from './concurrency.js'
 import { log, warn } from './debug.js'
-import { eventTeam } from './event-team.js'
+import { readEventTeam } from './event-team.js'
 import { notifyListeners } from './listeners.js'
 import { withManifestReadSlot } from './manifest-order.js'
 import {
@@ -397,12 +397,12 @@ const redeemInvite = async (base: string, token: string): Promise<string> => {
   const key = inviteKey(base, token)
   const redeemed = redeemedInvites.get(key)
   if (redeemed !== undefined) return redeemed
-  const team = eventTeam()
+  // A failed lookup redeems without a team; the first presence session that reports one binds it.
+  const team = await readEventTeam().catch(() => null)
   try {
     const { response, body } = await sendServerRequest(
       endpointUrl(base, '/auth/exchange', 'v1'),
-      // An event server binds the redeemed token to this painter's team, once it is known;
-      // otherwise the first presence session that reports one binds it.
+      // An event server binds the redeemed token to this painter's team; others ignore it.
       team === null
         ? { method: 'POST', headers: bearer(token) }
         : {

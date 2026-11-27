@@ -71,13 +71,18 @@ it('trades a one-use event-runner invite for a kept token that runs captures', a
   expect(spent.status).toBe(401)
 })
 
-it('binds an invite redeemed on an event server to the painter’s event team', async () => {
+it('reads the painter’s event team from Wplace and binds the first invite they redeem to it', async () => {
   const { app, sql } = await createTestBackend({ capture: 1, eventRunners: 1 })
-  const fetch = vi.fn(backendFetch(app, origin))
+  const backend = backendFetch(app, origin)
+  // A fresh tab: nothing has read the team yet, so redeeming asks Wplace's leaderboard first.
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) =>
+    String(input) === 'https://backend.wplace.live/territory/leaderboard'
+      ? Response.json({ me: { team: 2 } })
+      : await backend(input, init),
+  )
   vi.stubGlobal('fetch', fetch)
   window.fetch = fetch
   const invite = await load()
-  ;(await import('../src/event-team.js')).rememberEventTeam(2)
   const inviteToken = await mintEventRunnerInvite(fetch, origin)
 
   expect((await invite.accept(inviteToken))?.kind).toBe('connected')
@@ -261,5 +266,7 @@ it('answers a second invite busy while one is in flight, without probing it', as
 
   expect(second).toEqual({ kind: 'busy', url: 'https://other.test', disconnecting: false })
   expect((await first)?.kind).toBe('connected')
-  expect(fetch.mock.calls.every(([input]) => new URL(String(input)).origin === origin)).toBe(true)
+  expect(fetch.mock.calls.map(([input]) => new URL(String(input)).origin)).not.toContain(
+    'https://other.test',
+  )
 })
