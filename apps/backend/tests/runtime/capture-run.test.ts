@@ -121,6 +121,7 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     base,
     directory,
     stop,
+    painterToken,
     admin: (team?: TerritoryTeam) => connect(ADMIN, team),
     painter: (team?: TerritoryTeam) => connect(painterToken, team),
     runner: (team?: TerritoryTeam) => connect(runnerToken, team),
@@ -272,4 +273,55 @@ it('shares viewports within a team only, and takes no claims, on an event server
     body: '{}',
   })
   expect(claim.status).toBe(403)
+})
+
+it('keeps claims made before the switch to event mode out of it, and does not renew them', async () => {
+  const before = await start({ eventServer: false })
+  const regions = (server: { base: string; painterToken: string }) =>
+    fetch(`${server.base}/work/regions?season=0&painterId=1`, {
+      headers: { authorization: `Bearer ${server.painterToken}` },
+    }).then((response) => response.json())
+  const put = await fetch(`${before.base}/work/regions/${uuidV7()}?season=0`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${before.painterToken}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      actor: { wplaceUserId: 1, displayName: 'Painter 1' },
+      label: 'Old claim',
+      document: {
+        items: [
+          {
+            id: 'shape',
+            op: 'add',
+            shape: { kind: 'rectangle', x: 636_000, y: 1_028_000, w: 4, h: 4 },
+          },
+        ],
+      },
+    }),
+  })
+  expect(put.status).toBe(200)
+  const [claimed] = (await regions(before)).regions
+  expect(claimed).toBeDefined()
+  await before.stop()
+  // Renewal stamps the current time, so let it move past the claim's own.
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  const event = await start({ directory: before.directory })
+  expect(await regions(event)).toMatchObject({ regions: [], ownedRegionIds: [] })
+  // Painter 1 holds the claim's credential and identity, so connecting would renew it.
+  const painter = await event.painter(GREEN)
+  expect(painter.events[0]).toMatchObject({
+    type: 'presence-ready',
+    regions: [],
+    ownedRegionIds: [],
+  })
+  painter.send({ type: 'presence-update', viewport: { x: 636_000, y: 1_028_000, w: 64, h: 64 } })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(painter.events.filter((e) => e.type === 'regions' || e.type === 'claims-renewed')).toEqual(
+    [],
+  )
+  painter.close()
+  await event.stop()
+
+  const after = await start({ eventServer: false, directory: before.directory })
+  expect((await regions(after)).regions).toEqual([claimed])
 })

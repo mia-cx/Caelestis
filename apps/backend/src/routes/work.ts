@@ -89,6 +89,13 @@ export const createWorkRoutes = (runtime: BackendRuntime, { claims }: { claims: 
       (templateId !== undefined && !isUuidV7(templateId))
     )
       return c.json({ error: 'Invalid drawing scope or template ID' }, 400)
+    // Claims stored before the switch to event mode stay stored, but hidden until it ends.
+    if (!claims)
+      return c.json(
+        actorId === undefined
+          ? { regions: [] }
+          : { regions: [], ownedRegionIds: [], canWrite: false },
+      )
     return runBackendHttp(
       c,
       runtime,

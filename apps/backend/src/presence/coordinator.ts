@@ -338,7 +338,10 @@ export class PresenceCoordinator<Client> {
 
   private async armAlarm(open?: readonly LiveSession[]): Promise<void> {
     const alarm = await this.state.storage.getAlarm()
-    const regionExpiry = await this.state.storage.get<RegionExpiry>('region-expiry')
+    // An event server publishes no claims, so their expiry never wakes it.
+    const regionExpiry = this.eventServer
+      ? undefined
+      : await this.state.storage.get<RegionExpiry>('region-expiry')
     let expiresAt = regionExpiry?.at ?? Number.POSITIVE_INFINITY
     for (const { held } of open ?? this.sessionsOpen())
       expiresAt = Math.min(expiresAt, held.lastSeenAt + PRESENCE_STALE_MS)
@@ -371,16 +374,21 @@ export class PresenceCoordinator<Client> {
         }
         const sent = (sessionId: string) => this.local.get(sessionId)?.sent
         const recovering = open.some(({ held }) => sent(held.sessionId) === undefined)
-        const regions = !recovering
-          ? []
-          : await this.timings.timed('claims', 'list', () =>
-              this.sql.regions.listRegions(this.room.season, this.room.surface),
-            )
+        const regions =
+          !recovering || this.eventServer
+            ? []
+            : await this.timings.timed('claims', 'list', () =>
+                this.sql.regions.listRegions(this.room.season, this.room.surface),
+              )
         // A valid heartbeat/update has kept these sessions alive. Ownership always uses both keys,
         // including for administrators; connecting must never renew another painter's claims.
+        // An event server keeps claims dormant, so it renews none.
         const due = new Set(
           open.filter(
-            ({ held }) => !held.anonymous && now - (held.renewedAt ?? 0) >= CLAIM_RENEW_INTERVAL_MS,
+            ({ held }) =>
+              !this.eventServer &&
+              !held.anonymous &&
+              now - (held.renewedAt ?? 0) >= CLAIM_RENEW_INTERVAL_MS,
           ),
         )
         const renewed: LiveSession[] = []
@@ -406,8 +414,9 @@ export class PresenceCoordinator<Client> {
         // fence. Do not retain it across ticks, where a credential transfer or expiry could
         // invalidate it.
         const owners =
-          renewed.length > 0 ||
-          open.some(({ held }) => !held.anonymous && sent(held.sessionId) === undefined)
+          !this.eventServer &&
+          (renewed.length > 0 ||
+            open.some(({ held }) => !held.anonymous && sent(held.sessionId) === undefined))
             ? await this.timings.timed('claims', 'owners', () =>
                 this.sql.regions.regionOwners(this.room.season, this.room.surface),
               )
@@ -512,6 +521,8 @@ export class PresenceCoordinator<Client> {
           const token = await this.sql.readAccessToken(tokenHash)
           if (token === null || token.scope !== credentialScope) return false
         }
+        // An event server neither renews nor shows the claims stored before it became one.
+        if (this.eventServer) return true
         if (!anonymous)
           await this.sql.regions.renewRegions(
             [{ tokenHash, actorId: painter.wplaceUserId }],
@@ -697,6 +708,7 @@ export class PresenceCoordinator<Client> {
 
   /** Reload committed claims and deliver the surface's authoritative region list. */
   async publishRegions(): Promise<void> {
+    if (this.eventServer) return
     const { season, surface } = this.room
     const queued = performance.now()
     await this.sessions.revoke(async () =>
@@ -764,7 +776,7 @@ export class PresenceCoordinator<Client> {
     attachment: Attachment,
     recoveredOwners?: readonly RegionOwner[],
   ): Promise<readonly string[]> {
-    if (attachment.anonymous) return []
+    if (attachment.anonymous || this.eventServer) return []
     const owners =
       recoveredOwners ??
       (await this.timings.timed('claims', 'owners', () =>
