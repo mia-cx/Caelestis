@@ -18,6 +18,7 @@ import {
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_STAGGER_MS,
   MIN_CAPTURE_STAGGER_MS,
+  moveCaptureMember,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -128,7 +129,6 @@ let disarm: () => void = () => {}
 let draftedSentAt = Number.NEGATIVE_INFINITY
 let teamTriedAt = Number.NEGATIVE_INFINITY
 let joinedRun: string | null = null
-let lastDrafted = -1
 
 /**
  * The event server this tab coordinates on, with its run: the one whose run it has joined, else one
@@ -905,12 +905,8 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       sendCapture(server, { type: 'capture-leave' })
       break
     case 'move': {
-      const order = view.run?.members.map(({ sessionId }) => sessionId) ?? []
-      const from = order.indexOf(intent.id)
-      const to = from + intent.by
-      if (from < 0 || to < 0 || to >= order.length) break
-      order.splice(to, 0, ...order.splice(from, 1))
-      sendCapture(server, { type: 'capture-order', order })
+      const order = view.run === null ? null : moveCaptureMember(view.run, intent.id, intent.by)
+      if (order !== null) sendCapture(server, { type: 'capture-order', order })
       break
     }
     case 'propose':
@@ -972,13 +968,11 @@ const tick = (): void => {
         syncCaptureClock(view.server)
       }
       const line = run.lines[mine]
-      // Report only what the run does not already say, once per value until it does.
+      // Report whatever the run does not already say, including after the server resets it for a
+      // new line; the report interval keeps a report still in flight from repeating often.
       const drafted = line === undefined ? 0 : draftedOn(run.team, line)
-      const reported = run.members[mine]?.drafted
       const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
-      if (drafted === reported) lastDrafted = drafted
-      else if (drafted !== lastDrafted && run.startsAt === null && due) {
-        lastDrafted = drafted
+      if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
         draftedSentAt = localClock()
         sendCapture(view.server, { type: 'capture-drafted', drafted })
       }
@@ -1052,10 +1046,7 @@ export const installCaptureRuns = (): void => {
     if (view !== null && run !== null && key !== lastRun && run.startsAt !== null)
       syncCaptureClock(view.server)
     lastRun = key
-    if (run === null) {
-      lastDrafted = -1
-      disarm()
-    }
+    if (run === null) disarm()
     watchAnchor(view, run, view === null ? -1 : memberIndex(view))
     render()
   })

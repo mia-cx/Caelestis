@@ -107,6 +107,21 @@ export const captureSteps = (run: CaptureRun): number => Math.ceil(run.painters 
 export const captureSlot = (run: CaptureRun, index: number): number | null =>
   run.startsAt === null ? null : run.startsAt + captureStep(run, index) * run.staggerMs
 
+/**
+ * The member order after moving member `id` one place earlier (-1) or later (1), as session ids.
+ * The coordinator keeps the last painter's place, so they don't move and a move steps over them.
+ * Null when the move has nowhere to go.
+ */
+export const moveCaptureMember = (run: CaptureRun, id: string, by: -1 | 1): string[] | null => {
+  const pinned = captureCoordinatorIndex(run)
+  const order = run.members.filter((_, index) => index !== pinned).map(({ sessionId }) => sessionId)
+  const from = order.indexOf(id)
+  const to = from + by
+  if (from < 0 || to < 0 || to >= order.length) return null
+  order.splice(to, 0, ...order.splice(from, 1))
+  return order
+}
+
 /** Whether every wall painter has drafted their whole line; guards don't count. */
 export const capturePaintersDrafted = (run: CaptureRun): boolean =>
   run.members

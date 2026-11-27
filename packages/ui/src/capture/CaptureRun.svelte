@@ -11,6 +11,8 @@
   const ANNOUNCED_SECONDS = [1, 2, 3, 5, 10] as const
 
   const gathering = $derived(model.phase === 'gathering')
+  /** The rows an administrator can move; the closer's place is fixed. */
+  const movable = $derived(model.members.filter((member) => !member.closes))
   const counting = $derived(model.phase === 'countdown')
   const ordinal = new Intl.PluralRules('en', { type: 'ordinal' })
   const SUFFIX: Partial<Record<Intl.LDMLPluralRule, string>> = { one: 'st', two: 'nd', few: 'rd' }
@@ -137,13 +139,12 @@
             {#if member.me && member.length > 0 && model.phase !== 'done'}
               <Button label="Show my line" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'show-line' })}><Icon name="flyTo" size="0.875rem" /></Button>
             {/if}
-            <!-- The closer keeps their place, so no move into or out of it does anything. -->
+            <!-- The closer keeps their place: their row doesn't move, and moves step over it. -->
             {#if model.admin && gathering && !member.closes}
-              {@const before = model.members[index - 1]}
-              {@const after = model.members[index + 1]}
+              {@const place = movable.indexOf(member)}
               <span class="order">
-                <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={before === undefined || before.closes} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
-                <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={after === undefined || after.closes} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
+                <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={place === 0} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
+                <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={place === movable.length - 1} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
               </span>
             {/if}
           </li>

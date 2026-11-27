@@ -95,18 +95,29 @@ it('steps the stagger by 50 ms within its bounds before a run opens', () => {
   expect(button(shortest, 'Shorter stagger')?.disabled).toBe(true)
 })
 
-it('keeps the coordinator on the closing line while the administrator orders the rest', () => {
-  const card = render({
-    ...counting,
-    phase: 'gathering',
-    admin: true,
-    members: [{ ...ada, id: 'c', name: 'Cy' }, ada, { ...bea, closes: true }],
-  })
+it('moves a painter and a guard past the coordinator, who stays on the closing line', () => {
+  const intents: CaptureRunIntent[] = []
+  const card = render(
+    {
+      ...counting,
+      phase: 'gathering',
+      admin: true,
+      guards: 1,
+      members: [ada, { ...bea, closes: true }, { ...ada, id: 'g', name: 'Gil', guard: true }],
+    },
+    intents,
+  )
   const rows = [...card.querySelectorAll('.members li')]
-  expect(rows[2]?.textContent).toContain('Closes wall')
-  const disabled = (label: string) =>
-    card.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.disabled
-  expect(disabled('Move Bea up')).toBeUndefined()
-  expect(disabled('Move Ada down')).toBe(true)
-  expect(disabled('Move Cy down')).toBe(false)
+  expect(rows[1]?.textContent).toContain('Closes wall')
+  const button = (label: string) =>
+    card.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+  expect(button('Move Bea up')).toBeNull()
+  expect(button('Move Ada up')?.disabled).toBe(true)
+  button('Move Ada down')?.click()
+  button('Move Gil up')?.click()
+  expect(intents).toEqual([
+    { type: 'move', id: 'a', by: 1 },
+    { type: 'move', id: 'g', by: -1 },
+  ])
+  expect(button('Move Gil down')?.disabled).toBe(true)
 })

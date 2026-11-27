@@ -1,4 +1,4 @@
-import type { CaptureRun } from '@caelestis/shared'
+import { type CaptureRun, moveCaptureMember } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import { applyCaptureEvent, leaveCapture } from '../src/presence/capture.js'
 
@@ -58,4 +58,45 @@ describe('the coordinator paints the closing line', () => {
     if (reordered === null) throw new Error('Expected a run')
     expect(order(leaveCapture(reordered, 's4'))).toEqual([3, 2, 1])
   })
+})
+
+it('swaps the members either side of the coordinator past them', () => {
+  const run = joined(2, 1, [2, 1, 3])
+  expect(order(run)).toEqual([2, 1, 3])
+  const moved = moveCaptureMember(run, 's2', 1)
+  expect(moved).not.toBeNull()
+  const reordered = applyCaptureEvent(
+    run,
+    { type: 'capture-order', order: moved ?? [] },
+    actor(COORDINATOR, 'event_runner'),
+    0,
+    () => '',
+  )
+  expect(order(reordered)).toEqual([3, 1, 2])
+  // The coordinator's own place doesn't move.
+  expect(moveCaptureMember(run, 's1', -1)).toBeNull()
+})
+
+it('holds Go after a leave until the members who moved draft their new lines', () => {
+  const runner = actor(COORDINATOR, 'event_runner')
+  const apply = (
+    run: CaptureRun | null,
+    event: Parameters<typeof applyCaptureEvent>[1],
+    by = runner,
+  ) => applyCaptureEvent(run, event, by, 0, () => '')
+  // Three painters and a guard, every line two pixels, all drafted.
+  let run = apply(joined(3, 1, [2, 3, 4, 5]), {
+    type: 'capture-plan',
+    lines: [0, 1, 2, 3].map((y) => [0, y, 1, y]),
+  })
+  for (const id of [2, 3, 4, 5])
+    run = apply(run, { type: 'capture-drafted', drafted: 2 }, actor(id))
+  // Painter 3 leaves: painter 4 takes their line and guard 5 is promoted to painter 4's.
+  run = run && leaveCapture(run, 's3')
+  run = apply(run, { type: 'capture-join', run: 'run' }, actor(6))
+  expect(order(run)).toEqual([2, 4, 5, 6])
+  expect(apply(run, { type: 'capture-go' })?.startsAt).toBeNull()
+
+  for (const id of [4, 5]) run = apply(run, { type: 'capture-drafted', drafted: 2 }, actor(id))
+  expect(apply(run, { type: 'capture-go' })?.startsAt).not.toBeNull()
 })

@@ -2,6 +2,7 @@ import {
   CAPTURE_LEAD_MS,
   CAPTURE_STAGGER_MS,
   type CaptureClientEvent,
+  type CaptureMember,
   type CaptureRun,
   captureCoordinatorIndex,
   capturePaintersDrafted,
@@ -64,13 +65,10 @@ export const applyCaptureEvent = (
         run.members.length >= run.painters + run.guards
       )
         return run
-      return pinCoordinator({
-        ...run,
-        members: [
-          ...run.members,
-          { sessionId: actor.sessionId, painter: actor.painter, drafted: 0 },
-        ],
-      })
+      return withMembers(run, [
+        ...run.members,
+        { sessionId: actor.sessionId, painter: actor.painter, drafted: 0 },
+      ])
     case 'capture-leave':
       return member < 0 ? run : leaveCapture(run, actor.sessionId)
     case 'capture-drafted': {
@@ -90,7 +88,7 @@ export const applyCaptureEvent = (
         }))
         .sort((a, b) => a.rank - b.rank)
         .map(({ entry }) => entry)
-      return pinCoordinator({ ...run, members })
+      return withMembers(run, members)
     }
     case 'capture-plan':
       if (!runner || run.startsAt !== null) return run
@@ -123,7 +121,23 @@ export const applyCaptureEvent = (
 export const leaveCapture = (run: CaptureRun, sessionId: string): CaptureRun => {
   if (run.startsAt !== null) return run
   const members = run.members.filter((entry) => entry.sessionId !== sessionId)
-  return members.length === run.members.length ? run : pinCoordinator({ ...run, members })
+  return members.length === run.members.length ? run : withMembers(run, members)
+}
+
+/**
+ * The run with its members in a new order, the coordinator pinned. A member's place is their
+ * line, so anyone whose place changed has drafted nothing of their new line until they report it.
+ */
+const withMembers = (run: CaptureRun, members: readonly CaptureMember[]): CaptureRun => {
+  const was = new Map(run.members.map(({ sessionId }, index) => [sessionId, index]))
+  return {
+    ...run,
+    members: pinCoordinator({ ...run, members }).members.map((member, index) =>
+      was.get(member.sessionId) === index || member.drafted === 0
+        ? member
+        : { ...member, drafted: 0 },
+    ),
+  }
 }
 
 /**
