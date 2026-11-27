@@ -112,8 +112,10 @@ export const listAccessTokens = (cursor: string | undefined, bootstrapConfigured
 /**
  * Revoke a stored token and close every live session it opened. An event runner can be named by
  * the invite it was minted as, so a confirmation opened before the runner redeemed it still revokes
- * the runner and closes the sessions of the token it redeemed for. Absence is revocation, so
- * revoking a token that is already gone succeeds.
+ * the runner and closes the sessions of the token it redeemed for. The token stops authenticating
+ * before its sessions close, and its row goes only after they have, so a retry by either hash
+ * finishes a revoke that failed partway. Absence is revocation, so revoking a token that is already
+ * gone succeeds.
  */
 export const revokeAccessTokenAndLiveSessions = (
   tokenHash: string,
@@ -126,4 +128,5 @@ export const revokeAccessTokenAndLiveSessions = (
     yield* storage('closeLiveCredential', () =>
       statusReadModel.closeCredential(season, revoked ?? tokenHash),
     )
+    if (revoked !== null) yield* storage('forgetAccessToken', () => sql.forgetAccessToken(revoked))
   })

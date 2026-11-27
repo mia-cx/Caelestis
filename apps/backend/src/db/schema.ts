@@ -433,6 +433,11 @@ export const accessTokens = sqliteTable(
      * the exchange still finds the runner.
      */
     inviteHash: text('invite_hash'),
+    /**
+     * Set when a revoke begins. The row stops authenticating at once but stays until the token's
+     * live sessions are closed, so a retry by either hash still finds the credential to close.
+     */
+    revoked: integer('revoked', { mode: 'boolean' }).notNull().default(false),
   },
   (table) => [
     check(
@@ -444,6 +449,7 @@ export const accessTokens = sqliteTable(
       'access_tokens_invite_check',
       sql`${table.inviteHash} IS NULL OR ${table.scope} = 'event_runner'`,
     ),
+    check('access_tokens_revoked_check', sql`${table.revoked} IN (0, 1)`),
   ],
 )
 

@@ -8,6 +8,7 @@ import { WebSocket } from 'ws'
 import { readNodeConfig } from '../../src/node/config.js'
 import { openNodeRuntime } from '../../src/node/runtime.js'
 import { listenNodeServer } from '../../src/node/server.js'
+import { StatusCoordinator } from '../../src/status-read-model/coordinator.js'
 
 const cleanups: Array<() => Promise<void>> = []
 afterEach(async () => {
@@ -98,22 +99,23 @@ it('serves authenticated HTTP and upgrades, revokes, and closes real WebSockets'
   await once(runner, 'open')
   await runnerReady
   const runnerRevoked = once(runner, 'close')
-  expect(
-    (
-      await fetch(`${base}/backend/v1/admin/tokens/${invite.tokenHash}`, {
-        method: 'DELETE',
-        headers: { authorization: 'Bearer runtime-admin' },
-      })
-    ).status,
-  ).toBe(204)
+  const revokeByInvite = () =>
+    fetch(`${base}/backend/v1/admin/tokens/${invite.tokenHash}`, {
+      method: 'DELETE',
+      headers: { authorization: 'Bearer runtime-admin' },
+    })
+  const runnerManifest = () =>
+    fetch(`${base}/backend/v1/manifest`, { headers: { authorization: `Bearer ${runnerToken}` } })
+  // Closing the sessions fails once: the token is already refused, and a retry by the same hash
+  // still finds the sessions to close.
+  vi.spyOn(StatusCoordinator.prototype, 'closeCredential').mockRejectedValueOnce(
+    new Error('room unavailable'),
+  )
+  expect((await revokeByInvite()).status).toBe(500)
+  expect((await runnerManifest()).status).toBe(401)
+  expect((await revokeByInvite()).status).toBe(204)
   expect((await runnerRevoked)[0]).toBe(1008)
-  expect(
-    (
-      await fetch(`${base}/backend/v1/manifest`, {
-        headers: { authorization: `Bearer ${runnerToken}` },
-      })
-    ).status,
-  ).toBe(401)
+  expect((await runnerManifest()).status).toBe(401)
 
   const live = new WebSocket(
     `${base.replace('http', 'ws')}/api/v1/telemetry/live?season=0&scope=public&stateVector=1`,

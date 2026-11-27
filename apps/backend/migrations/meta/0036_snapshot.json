@@ -48,6 +48,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "revoked": {
+          "name": "revoked",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         }
       },
       "indexes": {},
@@ -62,6 +70,10 @@
         "access_tokens_invite_check": {
           "name": "access_tokens_invite_check",
           "value": "\"access_tokens\".\"invite_hash\" IS NULL OR \"access_tokens\".\"scope\" = 'event_runner'"
+        },
+        "access_tokens_revoked_check": {
+          "name": "access_tokens_revoked_check",
+          "value": "\"access_tokens\".\"revoked\" IN (0, 1)"
         }
       }
     },

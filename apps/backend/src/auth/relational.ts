@@ -29,7 +29,7 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
     const rows = await this.database
       .select()
       .from(accessTokens)
-      .where(eq(accessTokens.tokenHash, tokenHash))
+      .where(and(eq(accessTokens.tokenHash, tokenHash), eq(accessTokens.revoked, false)))
       .limit(1)
     const row = rows[0]
     return row === undefined ? null : toAccessToken(row)
@@ -42,7 +42,13 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
     const result = await this.database
       .update(accessTokens)
       .set({ tokenHash: replacement.tokenHash, createdAtMs: replacement.createdAt })
-      .where(and(eq(accessTokens.tokenHash, inviteHash), eq(accessTokens.inviteHash, inviteHash)))
+      .where(
+        and(
+          eq(accessTokens.tokenHash, inviteHash),
+          eq(accessTokens.inviteHash, inviteHash),
+          eq(accessTokens.revoked, false),
+        ),
+      )
       .run()
     return changedRows(result) === 1
   }
@@ -70,20 +76,20 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
   }
 
   async revokeAccessToken(tokenHash: string): Promise<string | null> {
-    // A redemption can rotate the hash between the read and the delete, at most once, so a delete
-    // that misses reads again rather than reporting the old hash it never removed.
-    for (;;) {
-      const [row] = await this.database
-        .select({ tokenHash: accessTokens.tokenHash })
-        .from(accessTokens)
-        .where(or(eq(accessTokens.tokenHash, tokenHash), eq(accessTokens.inviteHash, tokenHash)))
-        .limit(1)
-      if (row === undefined) return null
-      const result = await this.database
-        .delete(accessTokens)
-        .where(eq(accessTokens.tokenHash, row.tokenHash))
-        .run()
-      if (changedRows(result) === 1) return row.tokenHash
-    }
+    const named = or(eq(accessTokens.tokenHash, tokenHash), eq(accessTokens.inviteHash, tokenHash))
+    // Marked first: a revoked invite cannot be redeemed, so the hash read next is the final one.
+    await this.database.update(accessTokens).set({ revoked: true }).where(named).run()
+    const [row] = await this.database
+      .select({ tokenHash: accessTokens.tokenHash })
+      .from(accessTokens)
+      .where(named)
+      .limit(1)
+    return row?.tokenHash ?? null
+  }
+
+  async forgetAccessToken(tokenHash: string): Promise<void> {
+    await this.database
+      .delete(accessTokens)
+      .where(and(eq(accessTokens.tokenHash, tokenHash), eq(accessTokens.revoked, true)))
   }
 }

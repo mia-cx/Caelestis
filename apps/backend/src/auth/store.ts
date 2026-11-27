@@ -37,14 +37,14 @@ export interface AccessTokenStore {
    */
   insertAccessToken(token: AccessToken): Promise<void>
 
-  /** The token with this hash, or null if there is none — which is what revoked looks like. */
+  /** The token with this hash, or null if there is none or its revoke has begun. */
   readAccessToken(tokenHash: string): Promise<AccessToken | null>
 
   /**
    * Consume the invite with this hash and store `replacement` in its place, in one statement: the
    * row keeps its label, scope, author and invite hash and takes the replacement's hash and
-   * creation time. False when no unconsumed invite has the hash, so two concurrent exchanges cannot
-   * both win.
+   * creation time. False when no unconsumed, unrevoked invite has the hash, so two concurrent
+   * exchanges cannot both win and a revoke in progress cannot be outrun.
    */
   redeemInvite(
     inviteHash: string,
@@ -53,19 +53,25 @@ export interface AccessTokenStore {
 
   /**
    * Stored tokens newest first, tie-broken by hash. A query can continue strictly after a cursor and
-   * bound the returned rows, so HTTP pagination never has to load the complete inventory.
+   * bound the returned rows, so HTTP pagination never has to load the complete inventory. A token
+   * whose revoke has not finished is still listed, so an admin can delete it again.
    */
   listAccessTokens(query?: AccessTokenQuery): Promise<readonly AccessToken[]>
 
   /**
-   * Revoke a token by deleting it, idempotently. `tokenHash` names either the token's current hash
-   * or, for an event runner, the invite it was minted as, which an admin may still be looking at
-   * after the runner redeemed it. Resolves to the hash of the credential deleted, whose sessions
-   * the caller closes, or null when nothing matched.
-   *
-   * A hard delete needs no reader to remember a `revoked` flag. What the token already reported
-   * stays: reported state records what was on wplace, and revoking ends a holder's future access
-   * rather than rewriting history.
+   * Begin revoking a token, idempotently: from this call it no longer authenticates or redeems.
+   * `tokenHash` names either the token's current hash or, for an event runner, the invite it was
+   * minted as, which an admin may still be looking at after the runner redeemed it. Resolves to the
+   * hash of the credential revoked, whose sessions the caller closes before
+   * {@link forgetAccessToken}, or null when nothing matched.
    */
   revokeAccessToken(tokenHash: string): Promise<string | null>
+
+  /**
+   * Delete a revoked token's row once its sessions are closed. Until then the row is what lets a
+   * retry by the invite hash find the credential to close. What the token already reported stays:
+   * reported state records what was on wplace, and revoking ends a holder's future access rather
+   * than rewriting history.
+   */
+  forgetAccessToken(tokenHash: string): Promise<void>
 }
