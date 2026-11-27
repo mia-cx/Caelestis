@@ -121,10 +121,16 @@ let teamTriedAt = Number.NEGATIVE_INFINITY
 let joinedRun: string | null = null
 let lastDrafted = -1
 
-/** The run to show: the first server with one, else a server this tab may open one on. */
+/**
+ * The run to show, across every event server: the one this painter is in, else one gathering for
+ * their team, else any run, else a server this tab may open one on.
+ */
 const active = (): CaptureView | null => {
   const views = captureViews().filter((view) => view.server.info?.capture === 1)
+  const team = myTeam()
   return (
+    views.find((view) => memberIndex(view) >= 0) ??
+    views.find((view) => view.run?.startsAt === null && view.run.team === team) ??
     views.find((view) => view.run !== null) ??
     views.find((view) => hasServerAdminToken(view.server)) ??
     null
@@ -359,7 +365,8 @@ const loadTeam = async (): Promise<TerritoryTeam | null> => {
   const response = await fetch(`${BACKEND_ORIGIN}/territory/leaderboard`, {
     credentials: 'include',
   })
-  if (!response.ok) return null
+  // Null means Wplace answered and this painter has no team; anything else is a failed lookup.
+  if (!response.ok) throw new Error(`territory leaderboard ${response.status}`)
   const body: unknown = await response.json()
   const team = (body as { me?: { team?: unknown } } | null)?.me?.team
   return team === 0 || team === 1 || team === 2 || team === 3 ? team : null
@@ -795,25 +802,36 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       proposals = []
       break
     case 'open':
-      proposals = []
-      // The run is for this administrator's team, read fresh in case the account changed.
-      void refreshTeam().then((team) => {
-        if (team === null) message = 'Join a team in the event first.'
-        else sendCapture(server, { type: 'capture-open', painters, guards, team })
-        render()
-      })
+    case 'join': {
+      if (intent.type === 'join') primeCaptureAudio()
+      const run = view.run?.id ?? null
+      const account = accountIdentity()?.wplaceUserId
+      // Open is for this administrator's team and Join must name it, so both read it fresh.
+      void refreshTeam()
+        .then((team) => {
+          // The painter chose this server, account and run; a change while Wplace answered drops it.
+          const now = active()
+          if (
+            accountIdentity()?.wplaceUserId !== account ||
+            now?.server.url !== server.url ||
+            (now.run?.id ?? null) !== run
+          )
+            return
+          if (team === null) message = 'Join a team in the event first.'
+          else if (intent.type === 'open') {
+            proposals = []
+            sendCapture(server, { type: 'capture-open', painters, guards, team })
+          } else if (run !== null) {
+            sendCapture(server, { type: 'capture-join', team, run })
+            syncCaptureClock(server)
+          }
+        })
+        .catch(() => {
+          message = "Couldn't read your event team from Wplace. Try again."
+        })
+        .finally(render)
       break
-    case 'join':
-      primeCaptureAudio()
-      void refreshTeam().then((team) => {
-        if (team === null) message = 'Join a team in the event first.'
-        else {
-          sendCapture(server, { type: 'capture-join', team })
-          syncCaptureClock(server)
-        }
-        render()
-      })
-      break
+    }
     case 'leave':
       sendCapture(server, { type: 'capture-leave' })
       break

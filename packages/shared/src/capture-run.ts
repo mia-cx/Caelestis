@@ -61,8 +61,11 @@ export type CaptureClientEvent =
       readonly guards: number
       readonly team: TerritoryTeam
     }
-  /** Joining names the painter's own event team; only the run's team may join. */
-  | { readonly type: 'capture-join'; readonly team: TerritoryTeam }
+  /**
+   * Joining names the painter's own event team, of which only the run's may join, and the run they
+   * chose, so a join that arrives after the run was replaced joins nothing.
+   */
+  | { readonly type: 'capture-join'; readonly team: TerritoryTeam; readonly run: string }
   | { readonly type: 'capture-leave' }
   | { readonly type: 'capture-order'; readonly order: readonly string[] }
   /** The wall's lines in paint order, then one anchor strip per guard. */

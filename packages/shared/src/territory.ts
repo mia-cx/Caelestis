@@ -624,11 +624,14 @@ export const pairLines = (
   painters: number,
   charges: number,
 ): ArenaPixel[][] => {
-  const share = Math.min(charges, Math.ceil(wall.length / painters))
+  // Every painter takes the even share, and the first few one pixel more for the remainder.
+  const base = Math.floor(wall.length / painters)
+  const extra = wall.length % painters
   const lines: ArenaPixel[][] = []
   let lo = 0
   let hi = wall.length
   for (let k = 0; k < painters; k++) {
+    const share = Math.min(charges, base + (k < extra ? 1 : 0))
     if (k % 2 === 0) {
       lines.push(wall.slice(lo, Math.min(lo + share, hi)))
       lo = Math.min(lo + share, hi)

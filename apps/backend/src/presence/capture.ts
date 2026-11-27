@@ -27,8 +27,9 @@ export const applyCaptureEvent = (
   now: number,
   newId: () => string,
 ): CaptureRun | null => {
+  // Opening needs an empty room: a run in progress is closed first, never replaced.
   if (event.type === 'capture-open')
-    return actor.admin
+    return actor.admin && run === null
       ? {
           id: newId(),
           team: event.team,
@@ -46,6 +47,7 @@ export const applyCaptureEvent = (
     case 'capture-join':
       if (
         member >= 0 ||
+        event.run !== run.id ||
         event.team !== run.team ||
         run.startsAt !== null ||
         run.members.length >= run.painters + run.guards

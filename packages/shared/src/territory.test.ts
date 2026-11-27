@@ -188,12 +188,17 @@ describe('pairLines', () => {
     const [a1, b1, a2] = pairLines(wall, 3, 60)
     expect(a1?.[0]).toEqual({ x: 0, y: 0 })
     expect(b1?.[0]).toEqual({ x: 129, y: 0 })
-    // 130 cells over three painters: 44 each, the middle line taking the 42 left.
-    expect(a2).toEqual(wall.slice(44, 86))
+    // 130 cells over three painters: 44 for the first, 43 for the others.
+    expect(a2).toEqual(wall.slice(44, 87))
   })
 
   it('shares a short wall evenly, at most the charges each', () => {
-    expect(pairLines(wall, 4, 60).map((line) => line.length)).toEqual([33, 33, 33, 31])
+    expect(pairLines(wall, 4, 60).map((line) => line.length)).toEqual([33, 33, 32, 32])
     expect(pairLines(wall.slice(0, 3), 4, 60).map((line) => line.length)).toEqual([1, 1, 1, 0])
+    // The remainder goes one pixel at a time, so nobody is left out of a wall they could share.
+    expect(pairLines(wall.slice(0, 17), 16, 60).map((line) => line.length)).toEqual([
+      2,
+      ...Array<number>(15).fill(1),
+    ])
   })
 })

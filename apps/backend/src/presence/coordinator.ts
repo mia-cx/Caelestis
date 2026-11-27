@@ -449,7 +449,8 @@ export class PresenceCoordinator<Client> {
     this.local.delete(attachment.sessionId)
     this.dirty.add(attachment.sessionId)
     this.armTick()
-    this.updateCapture((run) => run && leaveCapture(run, attachment.sessionId))
+    if (this.captureRuns)
+      this.updateCapture((run) => run && leaveCapture(run, attachment.sessionId))
   }
 
   private close(socket: LiveSocket, code: number, reason: string): void {
@@ -522,7 +523,8 @@ export class PresenceCoordinator<Client> {
             canWrite: credentialScope !== 'read' && !anonymous,
           },
         )
-        const run = await this.captureRun()
+        // A run saved while this was an event server stays stored but unread once it is not.
+        const run = this.captureRuns ? await this.captureRun() : null
         if (run !== null)
           this.send({ socket: pair.server, held: attachment }, { type: 'capture', run })
         this.dirty.add(sessionId)

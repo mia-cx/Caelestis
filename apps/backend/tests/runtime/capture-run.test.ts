@@ -24,9 +24,13 @@ afterEach(async () => {
 
 const ADMIN = 'capture-admin'
 
-const start = async ({ eventServer = true } = {}) => {
-  const directory = await mkdtemp(join(tmpdir(), 'caelestis-capture-'))
-  cleanups.push(() => rm(directory, { recursive: true, force: true }))
+/** A server on a fresh data directory, or on `directory` to restart one that ran before. */
+const start = async ({ eventServer = true, directory = '' } = {}) => {
+  if (directory === '') {
+    directory = await mkdtemp(join(tmpdir(), 'caelestis-capture-'))
+    const made = directory
+    cleanups.push(() => rm(made, { recursive: true, force: true }))
+  }
   const config = readNodeConfig({
     DATA_DIRECTORY: directory,
     PORT: '0',
@@ -39,9 +43,15 @@ const start = async ({ eventServer = true } = {}) => {
     new FilesystemObjectStorage(join(directory, 'objects')),
     { onOwnershipLost() {} },
   )
-  cleanups.push(() => runtime.close())
   const server = await listenNodeServer(runtime, config)
-  cleanups.push(() => server.close())
+  let stopped = false
+  const stop = async () => {
+    if (stopped) return
+    stopped = true
+    await server.close()
+    await runtime.close()
+  }
+  cleanups.push(stop)
   const base = `http://127.0.0.1:${server.port}/backend/v1`
   const minted = await fetch(`${base}/admin/tokens`, {
     method: 'POST',
@@ -86,6 +96,8 @@ const start = async ({ eventServer = true } = {}) => {
   }
   return {
     base,
+    directory,
+    stop,
     admin: () => connect(ADMIN),
     painter: () => connect(painterToken),
   }
@@ -108,6 +120,20 @@ it('runs no capture runs on a server that is not an event server', async () => {
   ).toEqual([])
 })
 
+it('keeps a run saved as an event server from clients once it is not one', async () => {
+  const before = await start()
+  const admin = await before.admin()
+  admin.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
+  await vi.waitFor(() => expect(admin.run()).not.toBeNull())
+  admin.close()
+  await before.stop()
+
+  const after = await start({ eventServer: false, directory: before.directory })
+  const painter = await after.painter()
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(painter.events.filter((event) => event.type === 'capture')).toEqual([])
+})
+
 it('runs a capture from open to start, in the order the administrator sets', async () => {
   const server = await start()
   const admin = await server.admin()
@@ -120,10 +146,14 @@ it('runs a capture from open to start, in the order the administrator sets', asy
 
   // A painter from another team cannot take a place in Green's wall.
   const orange = await server.painter()
-  orange.send({ type: 'capture-join', team: 1 })
-  first.send({ type: 'capture-join', team: 2 })
-  second.send({ type: 'capture-join', team: 2 })
+  const id = first.run()?.id ?? ''
+  orange.send({ type: 'capture-join', team: 1, run: id })
+  first.send({ type: 'capture-join', team: 2, run: id })
+  second.send({ type: 'capture-join', team: 2, run: id })
+  // Opening again does not replace a run in progress.
+  admin.send({ type: 'capture-open', painters: 3, guards: 0, team: 2 })
   await vi.waitFor(() => expect(admin.run()?.members).toHaveLength(2))
+  expect(admin.run()).toMatchObject({ id, painters: 1 })
   expect(admin.run()?.members.map((m) => m.sessionId)).not.toContain(orange.sessionId)
   admin.send({ type: 'capture-order', order: [second.sessionId, first.sessionId] })
   admin.send({ type: 'capture-plan', lines: [line(1_028_000), line(1_028_001)] })
@@ -145,7 +175,7 @@ it('runs a capture from open to start, in the order the administrator sets', asy
   // A late joiner hears the started run, and cannot join it.
   const late = await server.painter()
   await vi.waitFor(() => expect(late.run()?.startsAt).toBe(startsAt))
-  late.send({ type: 'capture-join', team: 2 })
+  late.send({ type: 'capture-join', team: 2, run: id })
   // The first painter's socket drops during the countdown; nobody moves into their slot.
   second.close()
   await new Promise((resolve) => setTimeout(resolve, 500))

@@ -243,7 +243,7 @@ export const PresenceClientEvent = Schema.Union([
     guards: integerBetween(0, MAX_CAPTURE_GUARDS),
     team: TerritoryTeam,
   }),
-  Schema.Struct({ type: Schema.Literal('capture-join'), team: TerritoryTeam }),
+  Schema.Struct({ type: Schema.Literal('capture-join'), team: TerritoryTeam, run: Identifier }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
   Schema.Struct({
     type: Schema.Literal('capture-order'),

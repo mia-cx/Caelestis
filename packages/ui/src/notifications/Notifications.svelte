@@ -200,6 +200,11 @@
     font: 500 0.8125rem/1.35 var(--caelestis-font);
     pointer-events: none;
   }
+  /* In a short window the capture card rises over Wplace's scoreboard (1001); toasts stay above it,
+     so their actions remain reachable. */
+  @media (max-width: 1080px) and (max-height: 560px) {
+    .toasts { z-index: 1002; }
+  }
 
   .toasts.listed { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
   .toasts > * { flex-shrink: 0; pointer-events: auto; }
