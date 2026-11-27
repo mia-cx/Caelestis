@@ -31,6 +31,7 @@ export const applyCaptureEvent = (
     return actor.admin
       ? {
           id: newId(),
+          team: event.team,
           painters: event.painters,
           guards: event.guards,
           members: [],
@@ -43,7 +44,12 @@ export const applyCaptureEvent = (
   const member = run.members.findIndex(({ sessionId }) => sessionId === actor.sessionId)
   switch (event.type) {
     case 'capture-join':
-      if (member >= 0 || run.startsAt !== null || run.members.length >= run.painters + run.guards)
+      if (
+        member >= 0 ||
+        event.team !== run.team ||
+        run.startsAt !== null ||
+        run.members.length >= run.painters + run.guards
+      )
         return run
       return {
         ...run,

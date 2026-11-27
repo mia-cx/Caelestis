@@ -100,7 +100,7 @@ it('runs no capture runs on a server that is not an event server', async () => {
   ).json()
   expect(info).not.toHaveProperty('capture')
   const admin = await server.admin()
-  admin.send({ type: 'capture-open', painters: 1, guards: 0 })
+  admin.send({ type: 'capture-open', painters: 1, guards: 0, team: 2 })
   admin.send({ type: 'clock', sent: 1 })
   await new Promise((resolve) => setTimeout(resolve, 300))
   expect(
@@ -114,13 +114,17 @@ it('runs a capture from open to start, in the order the administrator sets', asy
   const first = await server.painter()
   const second = await server.painter()
 
-  first.send({ type: 'capture-open', painters: 1, guards: 1 })
-  admin.send({ type: 'capture-open', painters: 1, guards: 1 })
-  await vi.waitFor(() => expect(first.run()).toMatchObject({ painters: 1, guards: 1 }))
+  first.send({ type: 'capture-open', painters: 1, guards: 1, team: 2 })
+  admin.send({ type: 'capture-open', painters: 1, guards: 1, team: 2 })
+  await vi.waitFor(() => expect(first.run()).toMatchObject({ team: 2, painters: 1, guards: 1 }))
 
-  first.send({ type: 'capture-join' })
-  second.send({ type: 'capture-join' })
+  // A painter from another team cannot take a place in Green's wall.
+  const orange = await server.painter()
+  orange.send({ type: 'capture-join', team: 1 })
+  first.send({ type: 'capture-join', team: 2 })
+  second.send({ type: 'capture-join', team: 2 })
   await vi.waitFor(() => expect(admin.run()?.members).toHaveLength(2))
+  expect(admin.run()?.members.map((m) => m.sessionId)).not.toContain(orange.sessionId)
   admin.send({ type: 'capture-order', order: [second.sessionId, first.sessionId] })
   admin.send({ type: 'capture-plan', lines: [line(1_028_000), line(1_028_001)] })
   second.send({ type: 'capture-drafted', drafted: 2 })
@@ -141,7 +145,7 @@ it('runs a capture from open to start, in the order the administrator sets', asy
   // A late joiner hears the started run, and cannot join it.
   const late = await server.painter()
   await vi.waitFor(() => expect(late.run()?.startsAt).toBe(startsAt))
-  late.send({ type: 'capture-join' })
+  late.send({ type: 'capture-join', team: 2 })
   // The first painter's socket drops during the countdown; nobody moves into their slot.
   second.close()
   await new Promise((resolve) => setTimeout(resolve, 500))

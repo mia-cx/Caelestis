@@ -37,6 +37,14 @@
       max-block-size: calc(100vh - var(--caelestis-capture-run-top-narrow, 10.5rem) - 6.5rem);
     }
   }
+  /* A short window has no room below the scoreboard: the card takes the top and the full height,
+     so the countdown and controls stay usable. */
+  @media (max-width: 1080px) and (max-height: 560px) {
+    :host {
+      inset-block-start: 0.5rem;
+      max-block-size: calc(100vh - 1rem);
+    }
+  }
   @media (max-width: 480px) {
     :host {
       inset-inline-start: 0.5rem;

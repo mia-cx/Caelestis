@@ -284,7 +284,7 @@ const CONTACT_TARGET = 0.75
 const KEEP = 40
 /** Steps in a corner's 45° staircase. */
 const CHAMFER = 24
-/** Cells a guard's zone runs straight past an anchor into the team's own territory. */
+/** Cells a guard's zone runs along the team's own border from an anchor. */
 export const GUARD_MARGIN = 15
 /** Proposals returned: the best few distinct boxes. */
 const PROPOSALS = 3
@@ -512,13 +512,20 @@ const outlineOf = ({ x0, y0, x1, y1 }: Box): ArenaPixel[] => {
 const owns = (map: TerritoryMap, team: TerritoryTeam, { x, y }: ArenaPixel): boolean =>
   map.owner[y * map.size + x] === team
 
+interface Outline {
+  /** From anchor A to anchor B, the long way round. */
+  readonly wall: ArenaPixel[]
+  /** The inner side from beside anchor B to beside anchor A: the team's own cells. */
+  readonly inner: ArenaPixel[]
+}
+
 /**
- * The outline from anchor A to anchor B, around everything but its longest stretch of the team's
- * cells, which is the inner side; null when the outline is all or none of the team's. Specks of
- * the team elsewhere on it, as on a ragged border at the arena edge, stay in the wall for its
- * shape and are dropped before painting.
+ * A box's outline split at its longest stretch of the team's cells, which is the inner side, into
+ * that side and the wall; null when the outline is all or none of the team's. Specks of the team
+ * elsewhere on the wall, as on a ragged border at the arena edge, stay in it for its shape and are
+ * dropped before painting.
  */
-const wallOf = (map: TerritoryMap, team: TerritoryTeam, box: Box): ArenaPixel[] | null => {
+const wallOf = (map: TerritoryMap, team: TerritoryTeam, box: Box): Outline | null => {
   const loop = outlineOf(box)
   const ours = loop.map((cell) => owns(map, team, cell))
   const n = loop.length
@@ -529,7 +536,38 @@ const wallOf = (map: TerritoryMap, team: TerritoryTeam, box: Box): ArenaPixel[] 
     if (run > inner) [inner, end] = [run, i % n]
   }
   if (inner === 0 || inner >= n) return null
-  return Array.from({ length: n - inner }, (_, k) => loop[(end + 1 + k) % n] as ArenaPixel)
+  const around = (from: number, length: number) =>
+    Array.from({ length }, (_, k) => loop[(from + k) % n] as ArenaPixel)
+  return { wall: around(end + 1, n - inner), inner: around(end - inner + 1 + n, inner) }
+}
+
+/**
+ * Whether a closed wall holds `focus`: a four-connected walk from it, stepping over neither the
+ * wall nor the inner side, cannot leave the box.
+ */
+const holds = (box: Box, closed: readonly ArenaPixel[], focus: ArenaPixel): boolean => {
+  const width = box.x1 - box.x0 + 1
+  const at = ({ x, y }: ArenaPixel) => (y - box.y0) * width + (x - box.x0)
+  const seen = new Uint8Array(width * (box.y1 - box.y0 + 1))
+  for (const cell of closed) seen[at(cell)] = 1
+  if (seen[at(focus)] === 1) return true
+  const queue = [focus]
+  seen[at(focus)] = 1
+  for (let head = 0; head < queue.length; head++) {
+    const { x, y } = queue[head] as ArenaPixel
+    for (const next of [
+      { x: x + 1, y },
+      { x: x - 1, y },
+      { x, y: y + 1 },
+      { x, y: y - 1 },
+    ]) {
+      if (next.x < box.x0 || next.x > box.x1 || next.y < box.y0 || next.y > box.y1) return false
+      if (seen[at(next)] === 1) continue
+      seen[at(next)] = 1
+      queue.push(next)
+    }
+  }
+  return true
 }
 
 /**
@@ -575,53 +613,28 @@ export const chamferWall = (wall: readonly ArenaPixel[], size: number): ArenaPix
   return out
 }
 
-/** Up to `GUARD_MARGIN` of the team's own cells continuing straight past one end of the wall. */
-const marginPast = (
-  map: TerritoryMap,
-  team: TerritoryTeam,
-  end: ArenaPixel,
-  next: ArenaPixel,
-): ArenaPixel[] => {
-  const dx = end.x - next.x
-  const dy = end.y - next.y
-  const cells: ArenaPixel[] = []
-  let x = end.x + dx
-  let y = end.y + dy
-  while (
-    cells.length < GUARD_MARGIN &&
-    x >= 0 &&
-    y >= 0 &&
-    x < map.size &&
-    y < map.size &&
-    map.owner[y * map.size + x] === team
-  ) {
-    cells.push({ x, y })
-    x += dx
-    y += dy
-  }
-  return cells
-}
-
 /**
- * The wall as one line per painter, in pairs from both anchors: A-lines take the next `charges`
- * cells inward from A, B-lines the next from B, reversed so each starts beside the line before it.
- * Always `painters` lines; a short wall leaves the last ones empty.
+ * The wall as one line per painter, in pairs from both anchors: A-lines take the next cells inward
+ * from A, B-lines the next from B, reversed so each starts beside the line before it. The wall is
+ * shared evenly, at most `charges` each, so a short wall still gives every painter a part. Always
+ * `painters` lines; only a wall shorter than the group leaves some empty.
  */
 export const pairLines = (
   wall: readonly ArenaPixel[],
   painters: number,
   charges: number,
 ): ArenaPixel[][] => {
+  const share = Math.min(charges, Math.ceil(wall.length / painters))
   const lines: ArenaPixel[][] = []
   let lo = 0
   let hi = wall.length
   for (let k = 0; k < painters; k++) {
     if (k % 2 === 0) {
-      lines.push(wall.slice(lo, Math.min(lo + charges, hi)))
-      lo = Math.min(lo + charges, hi)
+      lines.push(wall.slice(lo, Math.min(lo + share, hi)))
+      lo = Math.min(lo + share, hi)
     } else {
-      lines.push(wall.slice(Math.max(hi - charges, lo), hi).reverse())
-      hi = Math.max(hi - charges, lo)
+      lines.push(wall.slice(Math.max(hi - share, lo), hi).reverse())
+      hi = Math.max(hi - share, lo)
     }
   }
   return lines
@@ -632,7 +645,8 @@ const overlaps = (a: Box, b: Box): boolean =>
 
 /**
  * The default planner: the best few distinct boxes against the team's border whose outline closes
- * into a wall, each chamfered, split into paired lines, with guard zones past its anchors.
+ * into a wall, each chamfered where the budget allows, split into paired lines, with guard zones
+ * along the inner side from each anchor. With a focus, a wall that does not hold it is skipped.
  */
 export const borderBoxPlanner: CapturePlanner = ({
   map,
@@ -649,15 +663,15 @@ export const borderBoxPlanner: CapturePlanner = ({
     if (plans.length === PROPOSALS) break
     if (taken.some((other) => overlaps(other, box))) continue
     const found = wallOf(map, team, box)
-    if (found === null || found.length < 2) continue
-    const wall = chamferWall(found, map.size)
-    const zones = [
-      marginPast(map, team, wall[0] as ArenaPixel, wall[1] as ArenaPixel),
-      marginPast(map, team, wall.at(-1) as ArenaPixel, wall.at(-2) as ArenaPixel),
-    ]
+    if (found === null || found.wall.length < 2) continue
+    const unpainted = (wall: readonly ArenaPixel[]) => wall.filter((cell) => !owns(map, team, cell))
+    // A chamfer can trade the team's cells for ones to paint; keep the square wall past the budget.
+    const chamfered = chamferWall(found.wall, map.size)
+    const wall = unpainted(chamfered).length <= budget ? chamfered : found.wall
+    if (focus !== undefined && !holds(box, [...wall, ...found.inner], focus)) continue
+    const zones = [found.inner.slice(-GUARD_MARGIN).reverse(), found.inner.slice(0, GUARD_MARGIN)]
     const guardZones = guards === 0 ? [] : guards === 1 ? [zones.flat()] : zones
-    const paint = wall.filter((cell) => !owns(map, team, cell))
-    plans.push({ lines: pairLines(paint, painters, charges), guardZones })
+    plans.push({ lines: pairLines(unpainted(wall), painters, charges), guardZones })
     taken.push(box)
   }
   return plans

@@ -1,5 +1,6 @@
 import { isRecord, isSafeInteger } from './guards.js'
 import type { PainterIdentity } from './telemetry.js'
+import type { TerritoryTeam } from './territory.js'
 import { isWorkIdentity } from './work.js'
 
 /**
@@ -39,6 +40,8 @@ export interface CaptureMember {
 
 export interface CaptureRun {
   readonly id: string
+  /** The event team the wall is for: the opening administrator's, which every member draws in. */
+  readonly team: TerritoryTeam
   /** Painters who build the wall, in turn. */
   readonly painters: number
   /** Anchor guards, after the painters in `members` and `lines`. */
@@ -52,8 +55,14 @@ export interface CaptureRun {
 }
 
 export type CaptureClientEvent =
-  | { readonly type: 'capture-open'; readonly painters: number; readonly guards: number }
-  | { readonly type: 'capture-join' }
+  | {
+      readonly type: 'capture-open'
+      readonly painters: number
+      readonly guards: number
+      readonly team: TerritoryTeam
+    }
+  /** Joining names the painter's own event team; only the run's team may join. */
+  | { readonly type: 'capture-join'; readonly team: TerritoryTeam }
   | { readonly type: 'capture-leave' }
   | { readonly type: 'capture-order'; readonly order: readonly string[] }
   /** The wall's lines in paint order, then one anchor strip per guard. */
@@ -123,9 +132,10 @@ const isMember = (value: unknown): value is CaptureMember =>
 /** A run from a server, which is untrusted input. Null when malformed. */
 export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
   if (!isRecord(value)) return null
-  const { id, painters, guards, members, lines, startsAt, staggerMs } = value
+  const { id, team, painters, guards, members, lines, startsAt, staggerMs } = value
   if (
     typeof id !== 'string' ||
+    !(team === 0 || team === 1 || team === 2 || team === 3) ||
     !isSafeInteger(painters) ||
     !isSafeInteger(guards) ||
     !Array.isArray(members) ||
@@ -137,5 +147,5 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !isSafeInteger(staggerMs)
   )
     return null
-  return { id, painters, guards, members, lines, startsAt, staggerMs }
+  return { id, team, painters, guards, members, lines, startsAt, staggerMs }
 }

@@ -215,8 +215,11 @@ const CaptureLine = boundedArray(
 )
 const Epoch = integerBetween(0, Number.MAX_SAFE_INTEGER)
 
+const TerritoryTeam = Schema.Literals([0, 1, 2, 3])
+
 export const CaptureRun = Schema.Struct({
   id: Identifier,
+  team: TerritoryTeam,
   painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
   guards: integerBetween(0, MAX_CAPTURE_GUARDS),
   members: boundedArray(
@@ -238,8 +241,9 @@ export const PresenceClientEvent = Schema.Union([
     type: Schema.Literal('capture-open'),
     painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
     guards: integerBetween(0, MAX_CAPTURE_GUARDS),
+    team: TerritoryTeam,
   }),
-  Schema.Struct({ type: Schema.Literal('capture-join') }),
+  Schema.Struct({ type: Schema.Literal('capture-join'), team: TerritoryTeam }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
   Schema.Struct({
     type: Schema.Literal('capture-order'),

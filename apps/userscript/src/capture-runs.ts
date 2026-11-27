@@ -75,8 +75,8 @@ import { BACKEND_ORIGIN } from './wplace-raster.js'
  */
 
 const ELEMENT_ID = 'caelestis-capture-run'
-/** How often a guard reads Wplace's territory map: as often as Wplace refreshes it. */
-const WATCH_MS = 5_000
+/** How often Wplace refreshes its territory map; guards and planning read it no more often. */
+const SNAPSHOT_MS = 5_000
 /** How long after a guard's slot their anchor is first checked, so the start can land. */
 const WATCH_GRACE_MS = 3_000
 /** How often a member's drafted count is re-read and the countdown redrawn. */
@@ -138,28 +138,54 @@ const memberIndex = (view: CaptureView): number =>
 const localTime = (view: CaptureView, serverTime: number): number | null =>
   view.clockOffset === null ? null : serverTime - view.clockOffset
 
-/** This painter's event team, once read; only its colour and dark shade claim territory. */
-let myTeam: TerritoryTeam | null = null
+/**
+ * This painter's event team and the Wplace account it was read for. It decides which runs they may
+ * open and join; everything about a run itself uses the run's own team.
+ */
+let teamRead: { readonly account: number; readonly team: TerritoryTeam } | null = null
 
-/** How many of a line's pixels this tab has drafted in a colour that claims for its team. */
-const draftedPixel = ({ x, y }: { x: number; y: number }): boolean => {
-  // Until the team is known no colour can be checked, so nothing counts as drafted yet.
-  if (myTeam === null) return false
-  const team = TERRITORY_TEAMS[myTeam]
+/** This painter's event team, while the account it was read for is still signed in. */
+const myTeam = (): TerritoryTeam | null => {
+  const account = accountIdentity()?.wplaceUserId
+  return teamRead !== null && teamRead.account === account ? teamRead.team : null
+}
+
+/** Read this painter's team again, from Wplace's own leaderboard. */
+const refreshTeam = async (): Promise<TerritoryTeam | null> => {
+  const account = accountIdentity()?.wplaceUserId
+  teamTriedAt = localClock()
+  const team = await loadTeam()
+  if (account !== undefined && team !== null) teamRead = { account, team }
+  return team
+}
+
+const teamName = (team: TerritoryTeam): string => {
+  const { key } = TERRITORY_TEAMS[team]
+  return key.charAt(0).toUpperCase() + key.slice(1)
+}
+
+/** Whether this tab has drafted a pixel in a colour that claims for `team`. */
+const draftedPixel = (team: TerritoryTeam, { x, y }: { x: number; y: number }): boolean => {
+  const { colour, dark } = TERRITORY_TEAMS[team]
   const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
   const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
   const drafted = comparisonDraftPixelAt(tile, offset)
-  return drafted === team.colour || drafted === team.dark
+  return drafted === colour || drafted === dark
 }
 
-const draftedOn = (line: readonly number[]): number => linePixels(line).filter(draftedPixel).length
+const draftedOn = (team: TerritoryTeam, line: readonly number[]): number =>
+  linePixels(line).filter((pixel) => draftedPixel(team, pixel)).length
 
 /** This painter's own line, split into what they have drafted and what is left to draft. */
 const mineCache = new Map<string, readonly CaptureItem[]>()
-const mineItems = (line: readonly number[], colour: Rgb | null): readonly CaptureItem[] => {
+const mineItems = (
+  team: TerritoryTeam,
+  line: readonly number[],
+  colour: Rgb,
+): readonly CaptureItem[] => {
   const pixels = linePixels(line)
-  const done = pixels.map(draftedPixel)
-  const key = `${myTeam}|${line.join(',')}|${done.map(Number).join('')}`
+  const done = pixels.map((pixel) => draftedPixel(team, pixel))
+  const key = `${team}|${line.join(',')}|${done.map(Number).join('')}`
   const cached = mineCache.get(key)
   if (cached !== undefined) return cached
   const drafted = pixelMask(pixels.filter((_, index) => done[index]))
@@ -198,14 +224,14 @@ const loadPlanView = (run: CaptureRun, mine: number): void => {
   // A failed load waits before trying again rather than refetching on every tick.
   if (planFailed?.key === key && localClock() - planFailed.at < PLAN_RETRY_MS) return
   planLoading = key
-  void Promise.all([myTeam ?? loadTeam(), loadTerritory()])
-    .then(([team, map]) => {
+  const { team } = run
+  void loadTerritory()
+    .then((map) => {
       if (planLoading !== key) return
-      if (team === null || map === null) {
+      if (map === null) {
         planFailed = { key, at: localClock() }
         return
       }
-      myTeam = team
       const line = mine >= 0 ? linePixels(run.lines[mine] ?? []) : []
       const first = line[0]
       planView = {
@@ -251,10 +277,9 @@ const itemsCache = new WeakMap<
 
 type Rgb = readonly [number, number, number]
 
-/** The team's colour and its dark shade as unit RGB, or null until the team is known. */
-const teamShades = (): { readonly colour: Rgb; readonly dark: Rgb } | null => {
-  if (myTeam === null) return null
-  const { colour, dark } = TERRITORY_TEAMS[myTeam]
+/** A team's colour and its dark shade as unit RGB. */
+const teamShades = (team: TerritoryTeam): { readonly colour: Rgb; readonly dark: Rgb } => {
+  const { colour, dark } = TERRITORY_TEAMS[team]
   const unit = (index: number): Rgb => {
     const [r, g, b] = PALETTE_RGB[index] ?? [255, 255, 255]
     return [r / 255, g / 255, b / 255]
@@ -262,39 +287,40 @@ const teamShades = (): { readonly colour: Rgb; readonly dark: Rgb } | null => {
   return { colour: unit(colour), dark: unit(dark) }
 }
 
-const masked = (
-  kind: CaptureItemKind,
-  pixels: RegionShapePixels,
-  colour: Rgb | null,
-): CaptureItem => ({
+const masked = (kind: CaptureItemKind, pixels: RegionShapePixels, colour: Rgb): CaptureItem => ({
   kind,
   rect: pixels.rect,
   pixels,
   colour,
 })
 
+/** The plans an administrator is choosing between, while the run they were planned for gathers. */
+const candidateItems = (run: CaptureRun, colour: Rgb): CaptureItem[] =>
+  run.startsAt !== null || proposalsRun !== run.id
+    ? []
+    : proposals
+        .filter((proposal) => !sameLines(run.lines, proposal.lines))
+        .flatMap((proposal) => [
+          ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
+          ...proposal.lines.flatMap((line) => {
+            const pixels = pixelMask(linePixels(line))
+            return pixels === null ? [] : [masked('pending', pixels, colour)]
+          }),
+        ])
+
 /**
  * What the shown run, or the plans an administrator is choosing between, puts on the map, all in
- * the team's colours: the colour painters paint in for this painter's own leg, their anchor and
- * the shape, and the team's dark shade for everyone else's legs.
+ * the run's team colours: the colour painters paint in for this painter's own leg, their anchor
+ * and the shape, and the team's dark shade for everyone else's legs.
  */
 export const captureItems = (): readonly CaptureItem[] => {
   const view = active()
-  if (view === null) return []
-  const shades = teamShades()
-  const colour = shades?.colour ?? null
-  const dark = shades?.dark ?? null
-  const run = view.run
-  if (run === null || run.lines.length === 0)
-    return proposals.flatMap((proposal) => [
-      ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
-      ...proposal.lines.flatMap((line) => {
-        const pixels = pixelMask(linePixels(line))
-        return pixels === null ? [] : [masked('pending', pixels, colour)]
-      }),
-    ])
+  const run = view?.run ?? null
+  if (view === null || run === null) return []
+  const { colour, dark } = teamShades(run.team)
+  if (run.lines.length === 0) return candidateItems(run, colour)
   const mine = memberIndex(view)
-  const key = `${myTeam}|${planView?.key ?? ''}|${run.members.map(({ drafted }) => drafted).join(',')}`
+  const key = `${planView?.key ?? ''}|${run.members.map(({ drafted }) => drafted).join(',')}`
   let held = itemsCache.get(run)
   if (held?.key !== key) {
     const items: CaptureItem[] = []
@@ -313,21 +339,12 @@ export const captureItems = (): readonly CaptureItem[] => {
     held = { key, items }
     itemsCache.set(run, held)
   }
-  // Candidates from Propose again show beside the published plan until one is published.
-  const candidates = proposals
-    .filter((proposal) => !sameLines(run.lines, proposal.lines))
-    .flatMap((proposal) => [
-      ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
-      ...proposal.lines.flatMap((line) => {
-        const pixels = pixelMask(linePixels(line))
-        return pixels === null ? [] : [masked('pending', pixels, colour)]
-      }),
-    ])
+  // Candidates from Propose again show beside the published plan until Go.
   const myLine = mine < 0 ? undefined : run.lines[mine]
   const shown = [
     ...held.items,
-    ...(myLine === undefined ? [] : mineItems(myLine, colour)),
-    ...candidates,
+    ...(myLine === undefined ? [] : mineItems(run.team, myLine, colour)),
+    ...candidateItems(run, colour),
   ]
   if (!demoPlaying(view) || planView === null) return shown
   // Under reduced motion the guide holds still on the whole route instead of crawling.
@@ -373,10 +390,10 @@ let watching: string | null = null
 /** The pixels a guard holds: their strip and the end of the wall it thickens. */
 /** Read the map once and sound the alarm when any anchor pixel has left the team. */
 const checkAnchor = async (run: CaptureRun, index: number, key: string): Promise<void> => {
-  const team = myTeam
-  const map = team === null ? null : await loadTerritory()
+  const { team } = run
+  const map = await loadTerritory()
   // The run may have closed or moved on while the map was on its way.
-  if (map === null || team === null || watching !== key) return
+  if (map === null || watching !== key) return
   const cut = anchorWatch(run, index, GUARD_MARGIN).some((pixel) => {
     const local = worldToArena(pixel)
     return local !== null && map.owner[local.y * map.size + local.x] !== team
@@ -413,20 +430,31 @@ const watchAnchor = (view: CaptureView | null, run: CaptureRun | null, index: nu
     () => {
       if (watching !== key) return
       check()
-      watcher = setInterval(check, WATCH_MS)
+      watcher = setInterval(check, SNAPSHOT_MS)
     },
     Math.max(0, (from ?? localClock()) - localClock()),
   )
 }
 
-/** How often live planning checks Wplace's map for a change; it re-plans only when it changed. */
+/** How often live planning checks where the map is centred; it re-plans only when that moved. */
 const PLAN_INTERVAL_MS = 500
 
-let planning = false
+/** The server and run live planning works for, or null when it is not planning. */
+type Planning = { readonly server: string; readonly run: string }
+let planningFor: Planning | null = null
+/** The run the shown proposals were planned for; they show only while it gathers. */
+let proposalsRun: string | null = null
 let planBusy = false
-/** Team, group, focus and snapshot of the last pass, so nothing is planned twice. */
+/** Group, focus and snapshot of the last plan, so nothing is planned twice. */
 let planInputs = ''
 let planTimer: ReturnType<typeof setInterval> | null = null
+/** Wplace's map as planning last read it, reused until Wplace refreshes it. */
+let snapshotRead: {
+  readonly bytes: Uint8Array
+  readonly hash: number
+  readonly at: number
+} | null = null
+let snapshotFailedAt = Number.NEGATIVE_INFINITY
 
 /** FNV-1a over the snapshot: enough to tell one five-second map from the next. */
 const hashBytes = (bytes: Uint8Array): number => {
@@ -484,41 +512,52 @@ const proposalId = ({ lines }: PlannedProposal): string => {
   return `${a[0]},${a[1]}:${b[0]},${b[1]}`
 }
 
-/** One pass: read the map and team, and re-plan if anything changed since the last. */
-const planPass = async (groupSize: number, guardCount: number): Promise<void> => {
+/** Wplace's map, read again only once Wplace has refreshed it, and not soon after a failure. */
+const plannedSnapshot = async (): Promise<typeof snapshotRead> => {
+  const now = localClock()
+  if (snapshotRead !== null && now - snapshotRead.at < SNAPSHOT_MS) return snapshotRead
+  if (now - snapshotFailedAt < PLAN_RETRY_MS) return null
+  const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
+  if (!response.ok) {
+    snapshotFailedAt = now
+    return null
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer())
+  snapshotRead = { bytes, hash: hashBytes(bytes), at: now }
+  return snapshotRead
+}
+
+/** One pass: re-plan the run if the map or where it is centred changed since the last plan. */
+const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
   if (planBusy) return
   planBusy = true
   try {
-    const team = myTeam ?? (await loadTeam())
-    myTeam = team
-    if (team === null) {
-      message = 'Join a team in the event first.'
-      stopPlanning()
-      return
-    }
     // Plans hold the pixel at the middle of the view, so panning picks the stretch of border.
     const centre = viewportCentre()
     const focus = centre === null ? null : worldToArena(centre)
     if (focus === null) {
       proposals = []
+      planInputs = ''
       message = 'Centre the map on the arena where you want a wall.'
       render()
       return
     }
-    const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
-    if (!response.ok) return
-    const snapshot = new Uint8Array(await response.arrayBuffer())
-    const inputs = `${team}|${groupSize}|${guardCount}|${focus.x},${focus.y}|${hashBytes(snapshot)}`
+    const snapshot = await plannedSnapshot()
+    if (snapshot === null || planningFor !== bound) return
+    const inputs = `${run.painters}|${run.guards}|${focus.x},${focus.y}|${snapshot.hash}`
     if (inputs === planInputs) return
-    planInputs = inputs
     const planned = await runPlanner({
-      snapshot,
-      team,
-      painters: groupSize,
-      guards: guardCount,
+      // The worker takes the bytes it is sent; later passes reuse the original.
+      snapshot: snapshot.bytes.slice(),
+      team: run.team,
+      painters: run.painters,
+      guards: run.guards,
       focus,
     })
-    if (!planning) return
+    if (planningFor !== bound) return
+    // Only a finished plan counts as done, so a failed one runs again on the next pass.
+    planInputs = inputs
+    proposalsRun = run.id
     proposals = planned.map((proposal) => ({
       ...proposal,
       id: proposalId(proposal),
@@ -542,26 +581,40 @@ const planPass = async (groupSize: number, guardCount: number): Promise<void> =>
   }
 }
 
-/** Re-plan continuously until the administrator locks a plan in, starts, or closes the run. */
-const startPlanning = (): void => {
+/**
+ * Re-plan continuously until the administrator locks a plan in, starts, or closes the run. Planning
+ * belongs to the run it started for: it stops when the card shows another run, or this tab is no
+ * longer that server's administrator.
+ */
+const startPlanning = (view: CaptureView, run: CaptureRun): void => {
   stopPlanning()
-  planning = true
+  const bound: Planning = { server: view.server.url, run: run.id }
+  planningFor = bound
   planInputs = ''
   message = undefined
   const pass = () => {
-    const view = active()
-    if (view === null || view.run === null || view.run.startsAt !== null) {
+    const now = active()
+    const current = now?.run ?? null
+    if (
+      now === null ||
+      current === null ||
+      now.server.url !== bound.server ||
+      current.id !== bound.run ||
+      current.startsAt !== null ||
+      !hasServerAdminToken(now.server)
+    ) {
       stopPlanning()
+      render()
       return
     }
-    void planPass(view.run.painters, view.run.guards)
+    void planPass(current, bound)
   }
   pass()
   planTimer = setInterval(pass, PLAN_INTERVAL_MS)
 }
 
 const stopPlanning = (): void => {
-  planning = false
+  planningFor = null
   if (planTimer !== null) clearInterval(planTimer)
   planTimer = null
 }
@@ -583,14 +636,20 @@ const TICK_SECONDS = [5, 3, 2, 1] as const
  * seconds before their own slot, then the tone to paint. For the first painter the opening cue is
  * their 10.
  */
-const slotCues = (slot: number, go: number): CaptureCue[] => [
-  // Go reaches this tab a moment after the server stamped it; the opening cue plays on arrival.
-  { at: Math.max(go, localClock() + CUE_LEAD_MS), tone: 'tick' },
-  ...TICK_SECONDS.map((seconds) => ({ at: slot - seconds * 1_000, tone: 'tick' as const })).filter(
-    ({ at }) => at > go,
-  ),
-  { at: slot, tone: 'go' },
-]
+const slotCues = (slot: number, go: number): CaptureCue[] => {
+  const now = localClock()
+  // Go reaches this tab a moment after the server stamped it; the opening cue plays on arrival,
+  // unless the tab woke too late for it to come before the slot.
+  const opening = Math.max(go, now + CUE_LEAD_MS)
+  return [
+    ...(opening < slot ? [{ at: opening, tone: 'tick' as const }] : []),
+    ...TICK_SECONDS.map((seconds) => ({
+      at: slot - seconds * 1_000,
+      tone: 'tick' as const,
+    })).filter(({ at }) => at > go && at > now),
+    ...(slot > now ? [{ at: slot, tone: 'go' as const }] : []),
+  ]
+}
 
 /** Whether this tab's painter switched on "Paint at my capture slot" in Dangerous settings. */
 const autoPaintOn = (): boolean => getState().simulatedInput['capture-paint'] === true
@@ -660,9 +719,14 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
   if (run === null && !admin) return null
   const mine = memberIndex(view)
   const phase = phaseOf(view)
-  const slot = run !== null && mine >= 0 ? captureSlot(run, mine) : null
+  // A wall shorter than the group leaves a line empty: that member has nothing to paint.
+  const idle = run !== null && run.lines.length > 0 && (run.lines[mine]?.length ?? 0) === 0
+  const slot = run !== null && mine >= 0 && !idle ? captureSlot(run, mine) : null
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
+  const team = myTeam()
+  const otherTeam = run !== null && mine < 0 && team !== null && team !== run.team
+  const note = otherTeam ? `This run is for team ${teamName(run.team)}.` : message
   return {
     phase,
     admin,
@@ -688,17 +752,18 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
     canJoin:
       view.canWrite &&
       run !== null &&
+      team === run.team &&
       run.startsAt === null &&
       mine < 0 &&
       run.members.length < run.painters + run.guards,
-    proposals: proposals.map((proposal) => ({
+    proposals: (run !== null && proposalsRun === run.id ? proposals : []).map((proposal) => ({
       id: proposal.id,
       label: proposal.label,
       gained: proposal.gained,
       pixels: proposal.pixels,
       published: run !== null && run.lines.length > 0 && sameLines(run.lines, proposal.lines),
     })),
-    proposing: planning,
+    proposing: planningFor !== null,
     canStart:
       admin &&
       run !== null &&
@@ -707,10 +772,12 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       run.members.length >= run.lines.length,
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
     myTurn:
-      run !== null && mine >= 0 && !isCaptureGuard(run, mine) ? captureStep(run, mine) + 1 : null,
+      run !== null && mine >= 0 && !idle && !isCaptureGuard(run, mine)
+        ? captureStep(run, mine) + 1
+        : null,
     turns: run === null ? Math.ceil(painters / 2) : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
-    ...(message === undefined ? {} : { message }),
+    ...(note === undefined ? {} : { message: note }),
   }
 }
 
@@ -729,12 +796,23 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       break
     case 'open':
       proposals = []
-      sendCapture(server, { type: 'capture-open', painters, guards })
+      // The run is for this administrator's team, read fresh in case the account changed.
+      void refreshTeam().then((team) => {
+        if (team === null) message = 'Join a team in the event first.'
+        else sendCapture(server, { type: 'capture-open', painters, guards, team })
+        render()
+      })
       break
     case 'join':
       primeCaptureAudio()
-      sendCapture(server, { type: 'capture-join' })
-      syncCaptureClock(server)
+      void refreshTeam().then((team) => {
+        if (team === null) message = 'Join a team in the event first.'
+        else {
+          sendCapture(server, { type: 'capture-join', team })
+          syncCaptureClock(server)
+        }
+        render()
+      })
       break
     case 'leave':
       sendCapture(server, { type: 'capture-leave' })
@@ -749,12 +827,12 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       break
     }
     case 'propose':
-      if (planning) stopPlanning()
-      else startPlanning()
+      if (planningFor !== null) stopPlanning()
+      else if (view.run !== null) startPlanning(view, view.run)
       break
     case 'publish': {
       const chosen = proposals.find(({ id }) => id === intent.id)
-      // Locking a plan in ends live planning; the other candidates stay on screen until closed.
+      // Locking a plan in ends live planning; the other candidates stay on screen until Go.
       if (chosen !== undefined) {
         stopPlanning()
         sendCapture(server, { type: 'capture-plan', lines: chosen.lines })
@@ -770,6 +848,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
     }
     case 'go':
       stopPlanning()
+      proposals = []
       primeCaptureAudio()
       sendCapture(server, { type: 'capture-go' })
       break
@@ -799,24 +878,18 @@ const tick = (): void => {
   const run = view?.run ?? null
   if (view !== null && run !== null) {
     const mine = memberIndex(view)
+    // Whether this painter may join needs their team; a failed lookup tries again a little later.
+    if (myTeam() === null && localClock() - teamTriedAt >= TEAM_RETRY_MS)
+      void refreshTeam().catch(() => undefined)
     if (mine >= 0) {
       // A painter who joined from another tab, or whose socket reconnected, still needs a sync.
       if (joinedRun !== run.id || view.clockOffset === null) {
         joinedRun = run.id
         syncCaptureClock(view.server)
       }
-      // Readiness needs the team's colours; a failed lookup tries again a little later.
-      if (myTeam === null && localClock() - teamTriedAt >= TEAM_RETRY_MS) {
-        teamTriedAt = localClock()
-        void loadTeam()
-          .then((team) => {
-            myTeam = team
-          })
-          .catch(() => undefined)
-      }
       const line = run.lines[mine]
       // Report only what the run does not already say, once per value until it does.
-      const drafted = line === undefined ? 0 : draftedOn(line)
+      const drafted = line === undefined ? 0 : draftedOn(run.team, line)
       const reported = run.members[mine]?.drafted
       const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
       if (drafted === reported) lastDrafted = drafted
@@ -865,6 +938,12 @@ const removeElement = (): void => {
  * keeps the run ticking, so a member's slot and a guard's watch never depend on where they look.
  */
 const render = (): void => {
+  if (!territoryEventLive(Date.now())) {
+    // The event is over: nothing plans, waits for a slot or watches an anchor any more.
+    stopPlanning()
+    disarm()
+    watchAnchor(null, null, -1)
+  }
   const next = territoryEventLive(Date.now()) ? model(active()) : null
   if (next === null || accountIdentity() === null) {
     removeElement()

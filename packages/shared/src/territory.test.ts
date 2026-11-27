@@ -43,7 +43,50 @@ describe('simulateCapture', () => {
   })
 })
 
+/** A map of `size` where Green holds the cells `own` picks. */
+const greenWhere = (size: number, own: (x: number, y: number) => boolean): TerritoryMap => {
+  const owner = new Uint8Array(size * size).fill(NO_TEAM)
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) if (own(x, y)) owner[y * size + x] = GREEN
+  return { size, owner }
+}
+
 describe('borderBoxPlanner', () => {
+  it("starts each guard's zone on the team's cells beside the anchor, also at a stepped border", () => {
+    // Green's top border steps between y 60 and y 50 every ten columns.
+    const map = greenWhere(120, (x, y) => y >= (Math.floor(x / 10) % 2 === 0 ? 60 : 50))
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    for (const zone of plan.guardZones) {
+      expect(zone.length).toBeGreaterThan(0)
+      for (const { x, y } of zone) expect(map.owner[y * 120 + x]).toBe(GREEN)
+    }
+  })
+
+  it('keeps the whole wall within the budget when a chamfer would cost more', () => {
+    // A thin Green arm reaches up from the base and along row 37, so a chamfered corner would
+    // trade the arm's cells for ones to paint.
+    const map = greenWhere(
+      160,
+      (x, y) =>
+        y >= 65 ||
+        (y === 37 && x >= 42 && x <= 60) ||
+        (y >= 38 &&
+          y <= 64 &&
+          (x === 42 - Math.floor((y - 37) / 3) || x === 42 - Math.floor((y - 38) / 3))),
+    )
+    for (const plan of borderBoxPlanner({
+      map,
+      team: GREEN,
+      painters: 2,
+      guards: 0,
+      charges: 60,
+    })) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+    }
+  })
+
   it('plans a wall the group can place in pairs from both anchors, which closes', () => {
     const map = quadrantMap()
     const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 15 })
@@ -96,6 +139,15 @@ describe('borderBoxPlanner', () => {
     expect(borderBoxPlanner({ ...request, focus: { x: 2, y: 2 } })).toEqual([])
   })
 
+  it('skips a wall whose chamfered corner cuts the focus out', () => {
+    const map = greenWhere(180, (_, y) => y >= 90)
+    const focus = { x: 40, y: 54 }
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 60, focus })
+    expect(plans.length).toBeGreaterThan(0)
+    for (const plan of plans)
+      expect(simulateCapture(map, GREEN, plan).map.owner[focus.y * 180 + focus.x]).toBe(GREEN)
+  })
+
   it('returns nothing when the budget cannot close any box', () => {
     expect(
       borderBoxPlanner({ map: quadrantMap(), team: GREEN, painters: 1, guards: 0, charges: 2 }),
@@ -136,10 +188,12 @@ describe('pairLines', () => {
     const [a1, b1, a2] = pairLines(wall, 3, 60)
     expect(a1?.[0]).toEqual({ x: 0, y: 0 })
     expect(b1?.[0]).toEqual({ x: 129, y: 0 })
-    expect(a2).toEqual(wall.slice(60, 70))
+    // 130 cells over three painters: 44 each, the middle line taking the 42 left.
+    expect(a2).toEqual(wall.slice(44, 86))
   })
 
-  it('gives every painter a line, empty once the wall runs out', () => {
-    expect(pairLines(wall, 4, 60).map((line) => line.length)).toEqual([60, 60, 10, 0])
+  it('shares a short wall evenly, at most the charges each', () => {
+    expect(pairLines(wall, 4, 60).map((line) => line.length)).toEqual([33, 33, 33, 31])
+    expect(pairLines(wall.slice(0, 3), 4, 60).map((line) => line.length)).toEqual([1, 1, 1, 0])
   })
 })
