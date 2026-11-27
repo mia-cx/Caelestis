@@ -1,4 +1,6 @@
 import { encodeIndexedPng, millis, seconds, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
+import { CredentialScope, InviteExchange } from '@caelestis/wire-schema'
+import { Schema } from 'effect'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { relationalSqlStore } from '../src/adapters/relational-sql-store.js'
 import { hashToken } from '../src/auth/tokens.js'
@@ -530,12 +532,14 @@ describe('backend API trust boundary', () => {
       [0, 1].map(() => request(backend, '/v1/auth/exchange', 'POST', invite.token)),
     )
     expect(exchanges.map((response) => response.status).sort()).toEqual([201, 401])
-    const winner = exchanges.find((response) => response.status === 201)
-    const { token } = (await winner?.json()) as { token: string }
+    const winner = exchanges.find((response) => response.status === 201) ?? Response.error()
+    const { token } = Schema.decodeUnknownSync(InviteExchange)(await winner.json())
     expect(token).not.toBe(invite.token)
-    expect(await (await request(backend, '/v1/auth', 'GET', token)).json()).toEqual({
-      scope: 'event_runner',
-    })
+    expect(
+      Schema.decodeUnknownSync(CredentialScope)(
+        await (await request(backend, '/v1/auth', 'GET', token)).json(),
+      ),
+    ).toEqual({ scope: 'event_runner' })
     expect((await request(backend, '/v1/manifest', 'GET', token)).status).toBe(200)
     expect((await request(backend, '/v1/auth/exchange', 'POST', invite.token)).status).toBe(401)
 
