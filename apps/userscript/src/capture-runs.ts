@@ -785,7 +785,7 @@ const TEAM_NAMES = ['Blue', 'Orange', 'Green', 'Purple'] as const satisfies Reco
 
 /** Why an event server shows this tab nothing: its token belongs to another team. */
 const refusedMessage = (team: TerritoryTeam): string =>
-  `This token is for team ${TEAM_NAMES[team]}. Switch to a Wplace account on team ${TEAM_NAMES[team]} to see its runs.`
+  `This token is for team ${TEAM_NAMES[team]}. Ask your event's organiser for one for your team.`
 
 const model = (view: CaptureView | null): CaptureRunModel | null => {
   if (view === null) return null
