@@ -226,6 +226,42 @@ describe('borderBoxPlanner', () => {
     )
   })
 
+  /** A map of `size` where Green holds these inclusive `[x0, y0, x1, y1]` rectangles. */
+  const greenRects = (size: number, rects: readonly (readonly number[])[]) =>
+    greenWhere(size, (x, y) =>
+      rects.some(([x0 = 0, y0 = 0, x1 = 0, y1 = 0]) => x >= x0 && x <= x1 && y >= y0 && y <= y1),
+    )
+
+  it('checks other stretches of border when one leaks on every try', () => {
+    // A pillar hangs from y 7 to the base beside an overhang: many walls against it leak.
+    const map = greenRects(160, [
+      [0, 122, 159, 159],
+      [141, 93, 159, 159],
+      [68, 93, 141, 108],
+      [41, 7, 49, 122],
+    ])
+    const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 60 })
+    expect(plans.length).toBeGreaterThan(0)
+    for (const plan of plans) {
+      const outcome = simulateCapture(map, GREEN, plan)
+      expect(outcome.refused).toBe(0)
+      expect(outcome.gained).toBeGreaterThan(outcome.painted)
+    }
+  })
+
+  it('ranks overlapping walls from different facings by what they enclose', () => {
+    const map = greenRects(160, [
+      [0, 140, 159, 159],
+      [95, 77, 159, 159],
+      [76, 23, 91, 140],
+      [6, 77, 95, 105],
+    ])
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 4, guards: 0, charges: 60 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    // A wall facing another way encloses 8,781 here; one found first encloses less.
+    expect(simulateCapture(map, GREEN, plan).gained).toBeGreaterThanOrEqual(8781)
+  })
+
   it("starts each guard's zone beside the first pixel its painter places, on a slope", () => {
     const map = greenWhere(200, (x, y) => y >= 25 + x)
     const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })

@@ -278,9 +278,10 @@ export const simulateCapture = (
  *   about 930 to 630. Corners on the arena edge are reachable from one side only and stay square.
  *
  * Every candidate costs O(1) through prefix sums, so the full arena searches in well under a
- * second. Best estimate first, candidates are then filled within their own bounds to count what
- * they enclose; one that closes and holds the focus sets aside every later candidate that overlaps
- * it, and one that does not leaves them as fallbacks.
+ * second. Candidates are then filled within their own bounds to count what they enclose, best
+ * estimate first and one try per stretch of border each round. The first that closes and holds the
+ * focus takes its stretch; one that does not leaves the stretch's other candidates as fallbacks.
+ * Walls from different facings that overlap are settled by what they enclose.
  */
 
 /** A border starts where at least this many of the team's pixels run in a row. */
@@ -690,30 +691,42 @@ export const borderBoxPlanner: CapturePlanner = ({
   const budget = painters * charges
   const unpainted = (wall: readonly ArenaPixel[]) => wall.filter((cell) => !owns(map, team, cell))
   const walls: { candidate: Candidate; wall: ArenaPixel[]; bounds: Box; score: number }[] = []
-  let filled = 0
-  for (const candidate of bestWalls(map, team, budget, focus)) {
-    if (filled === KEEP) break
-    // Only a wall that closes and holds the focus sets aside the candidates overlapping it.
-    const { front, from, to } = candidate
-    if (
-      walls.some(
-        ({ candidate: other }) => other.front === front && other.from <= to && from <= other.to,
-      )
-    )
-      continue
-    const bounds = boundsOf(candidate)
-    if (walls.some((other) => overlaps(other.bounds, bounds))) continue
-    filled++
-    const square = wallOf(candidate)
-    // A chamfer can trade the team's cells for ones to paint; keep the square wall past the budget.
-    const chamfered = chamferWall(square, map.size)
-    const wall = unpainted(chamfered).length <= budget ? chamfered : square
-    const { won, holds } = enclosure(map, team, bounds, wall)
-    if (won === 0 || (focus !== undefined && !holds(focus))) continue
-    walls.push({ candidate, wall, bounds, score: won * candidate.reach })
+  const failed: Candidate[] = []
+  const shares = (a: Candidate) => (b: Candidate) =>
+    a.front === b.front && a.from <= b.to && b.from <= a.to
+  // Fills go round the stretches of border, best estimate first: each round, every stretch that
+  // has no wall yet gets one more try, so one that fails again and again cannot use them all.
+  let pending = bestWalls(map, team, budget, focus)
+  for (let round = 0; pending.length > 0 && walls.length + failed.length < KEEP; round++) {
+    const later: Candidate[] = []
+    for (const candidate of pending) {
+      if (walls.length + failed.length === KEEP) break
+      // A wall that closes and holds the focus takes its stretch of border.
+      const rival = shares(candidate)
+      if (walls.some(({ candidate: other }) => rival(other))) continue
+      if (failed.filter(rival).length > round) {
+        later.push(candidate)
+        continue
+      }
+      const bounds = boundsOf(candidate)
+      const square = wallOf(candidate)
+      // A chamfer can trade the team's cells for ones to paint; keep the square wall past the
+      // budget.
+      const chamfered = chamferWall(square, map.size)
+      const wall = unpainted(chamfered).length <= budget ? chamfered : square
+      const { won, holds } = enclosure(map, team, bounds, wall)
+      if (won === 0 || (focus !== undefined && !holds(focus))) failed.push(candidate)
+      else walls.push({ candidate, wall, bounds, score: won * candidate.reach })
+    }
+    pending = later
   }
+  // Walls on different facings may overlap; the one that encloses more wins.
   walls.sort((a, b) => b.score - a.score)
-  return walls.slice(0, PROPOSALS).map(({ candidate, wall }) => {
+  const chosen: typeof walls = []
+  for (const wall of walls)
+    if (chosen.length < PROPOSALS && !chosen.some((other) => overlaps(other.bounds, wall.bounds)))
+      chosen.push(wall)
+  return chosen.map(({ candidate, wall }) => {
     const { front, from, to, far } = candidate
     const { border, cell } = front
     // The border along the first lines from the anchor; past an empty leg, the territory the far
