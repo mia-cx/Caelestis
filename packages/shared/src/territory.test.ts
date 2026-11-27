@@ -74,7 +74,13 @@ describe('borderBoxPlanner', () => {
   })
 
   it('proposes only walls around the focus pixel', () => {
-    const request = { map: quadrantMap(), team: GREEN, painters: 2, guards: 0, charges: 15 } as const
+    const request = {
+      map: quadrantMap(),
+      team: GREEN,
+      painters: 2,
+      guards: 0,
+      charges: 15,
+    } as const
     const focus = { x: 30, y: 17 }
     const plans = borderBoxPlanner({ ...request, focus })
     expect(plans.length).toBeGreaterThan(0)
