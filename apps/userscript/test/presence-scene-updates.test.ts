@@ -1,14 +1,38 @@
-import type { PresenceRect } from '@caelestis/shared'
+import { type PresenceRect, TERRITORY_EVENT } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
+import type { PlannedProposal } from '../src/capture-planning.js'
 import { connectPresence, FakeWebSocket, SELF_SESSION } from './presence-socket.js'
 
 const painter = { wplaceUserId: 42, displayName: 'Mia' }
 const other = { wplaceUserId: 7, displayName: 'Other painter' }
 
+const planner = vi.hoisted(() => ({ plans: [] as PlannedProposal[] }))
+
 vi.mock('../src/wplace-account.js', () => ({
   accountIdentity: () => painter,
   loadAccount: async () => undefined,
 }))
+// The planner reads Wplace's territory snapshot; these tests give it the plans it finds instead.
+vi.mock('../src/capture-planning.js', () => ({ planProposals: async () => planner.plans }))
+// A map looking at the arena's top-left corner, so the capture card shows and plans focus there.
+vi.mock('../src/map-handle.js', async (importOriginal) => {
+  const { canvasPixelToLatLng, TERRITORY_ARENA, TILE_SIZE } = await import('@caelestis/shared')
+  const left = TERRITORY_ARENA.tileX * TILE_SIZE
+  const top = TERRITORY_ARENA.tileY * TILE_SIZE
+  const map = {
+    getCanvas: () => ({ clientWidth: 1_000, clientHeight: 1_000 }),
+    unproject: ([x, y]: [number, number]) => canvasPixelToLatLng({ x: left + x, y: top + y }),
+    getCenter: () => canvasPixelToLatLng({ x: left + 500, y: top + 500 }),
+    triggerRepaint: () => {},
+    on: () => {},
+    off: () => {},
+  }
+  return {
+    ...(await importOriginal<typeof import('../src/map-handle.js')>()),
+    getMap: () => map,
+    onMapAttached: () => () => {},
+  }
+})
 
 let dispose: (() => void) | undefined
 
@@ -22,8 +46,8 @@ afterEach(() => {
   FakeWebSocket.instances = []
 })
 
-const connect = async (capture?: 1) => {
-  const connected = await connectPresence(capture === undefined ? {} : { capture })
+const connect = async (options: Parameters<typeof connectPresence>[0] = {}) => {
+  const connected = await connectPresence(options)
   dispose = connected.dispose
   return connected
 }
@@ -50,7 +74,7 @@ it('redraws peers from every presence message and reuses the scene between them'
 })
 
 it('redraws capture lines from every run update and reuses them between updates', async () => {
-  const { socket } = await connect(1)
+  const { socket } = await connect({ capture: 1 })
   const { captureItems } = await import('../src/capture-runs.js')
   const run = (drafted: number) =>
     socket.receive({
@@ -79,4 +103,68 @@ it('redraws capture lines from every run update and reuses them between updates'
   expect(captureItems()).toBe(gathering)
   run(2)
   expect(captureItems().map((item) => item.kind)).toEqual(['ready', 'todo'])
+})
+
+it("keeps candidate masks across a teammate's progress, and follows the published plan", async () => {
+  const { socket } = await connect({ capture: 1, admin: true })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  const { captureItems, installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  // Two walls the planner offers: one along y 10, one along y 50 with the area it would enclose.
+  const wall = (y: number): PlannedProposal => ({
+    label: `Wall at ${y}`,
+    gained: 6,
+    pixels: 4,
+    lines: [
+      [10, y, 11, y],
+      [10, y + 2, 11, y + 2],
+    ],
+    area:
+      y === 50
+        ? { rect: { x: 10, y, w: 2, h: 3 }, mask: new Uint8Array(6).fill(1), count: 6 }
+        : null,
+  })
+  const [top, bottom] = [wall(10), wall(50)]
+  planner.plans = [top, bottom]
+  const run = (published: PlannedProposal, drafted: number) =>
+    socket.receive({
+      type: 'capture',
+      run: {
+        id: 'run',
+        team: 0,
+        painters: 2,
+        guards: 0,
+        startsAt: null,
+        staggerMs: 500,
+        members: [
+          { sessionId: 'c'.repeat(16), painter: other, drafted },
+          { sessionId: 'd'.repeat(16), painter: other, drafted: 0 },
+        ],
+        lines: published.lines,
+      },
+    })
+  run(top, 0)
+  // The administrator asks for plans again while the top wall is published.
+  document
+    .getElementById('caelestis-capture-run')
+    ?.dispatchEvent(
+      new CustomEvent('caelestis-capture-run-intent', { detail: { type: 'propose' } }),
+    )
+  await vi.advanceTimersByTimeAsync(0)
+  const below = (y: number) => captureItems().filter((item) => item.rect.y >= y)
+  const candidates = below(50)
+  expect(candidates.map((item) => item.kind)).toEqual(['area', 'pending', 'pending'])
+
+  run(top, 1)
+  // Same masks after a progress update, so the map has nothing to upload again.
+  expect(below(50)).toHaveLength(candidates.length)
+  below(50).forEach((item, index) => expect(item.pixels).toBe(candidates[index]?.pixels))
+
+  // Publishing the bottom wall instead shows the top one as the candidate.
+  run(bottom, 1)
+  const above = captureItems().filter((item) => item.rect.y < 50)
+  expect(above.map((item) => [item.kind, item.rect.y])).toEqual([
+    ['pending', 10],
+    ['pending', 12],
+  ])
 })

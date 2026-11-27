@@ -329,21 +329,39 @@ const candidatesBuilt = lastBuilt<readonly CaptureItem[]>()
 const demoBuilt = lastBuilt<CaptureItem | null>()
 const shownBuilt = lastBuilt<readonly CaptureItem[]>()
 
-/** The plans an administrator is choosing between, while the run they were planned for gathers. */
-const candidateItems = (run: CaptureRun, colour: Rgb): readonly CaptureItem[] =>
-  candidatesBuilt([run, proposals, proposalsRun], () =>
-    run.startsAt !== null || proposalsRun !== run.id
-      ? NO_ITEMS
-      : proposals
-          .filter((proposal) => !sameLines(run.lines, proposal.lines))
-          .flatMap((proposal) => [
-            ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
-            ...proposal.lines.flatMap((line) => {
-              const pixels = pixelMask(linePixels(line))
-              return pixels === null ? [] : [masked('pending', pixels, colour)]
-            }),
-          ]),
-  )
+/** Each candidate plan's masks and the team they are coloured for, kept as long as the plan is. */
+const proposalItems = new WeakMap<
+  Proposal,
+  { readonly team: TerritoryTeam; readonly items: readonly CaptureItem[] }
+>()
+
+/** A candidate's area and lines in its team's colour, built once per plan and team. */
+const itemsOf = (proposal: Proposal, team: TerritoryTeam, colour: Rgb): readonly CaptureItem[] => {
+  const held = proposalItems.get(proposal)
+  if (held?.team === team) return held.items
+  const items = [
+    ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
+    ...proposal.lines.flatMap((line) => {
+      const pixels = pixelMask(linePixels(line))
+      return pixels === null ? [] : [masked('pending', pixels, colour)]
+    }),
+  ]
+  proposalItems.set(proposal, { team, items })
+  return items
+}
+
+/**
+ * The plans an administrator is choosing between, while the run they were planned for gathers,
+ * less the one already published. A teammate's progress arrives as a new run with the same plans,
+ * so the same masks come back and the map uploads nothing again.
+ */
+const candidateItems = (run: CaptureRun, colour: Rgb): readonly CaptureItem[] => {
+  if (run.startsAt !== null || proposalsRun !== run.id) return NO_ITEMS
+  const shown = proposals
+    .filter((proposal) => !sameLines(run.lines, proposal.lines))
+    .map((proposal) => itemsOf(proposal, run.team, colour))
+  return candidatesBuilt(shown, () => shown.flat())
+}
 
 /**
  * What the shown run, or the plans an administrator is choosing between, puts on the map, all in

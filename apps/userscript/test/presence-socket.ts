@@ -64,14 +64,16 @@ export class FakeWebSocket extends EventTarget {
 
 /**
  * Install presence against one connected server under fake timers and open its socket. `capture`
- * makes the server an event server, and `canWrite` is what its ready event says about writing.
- * Call `dispose` after the test.
+ * makes the server an event server, `admin` signs this tab in as its administrator, and `canWrite`
+ * is what the ready event says about writing. Call `dispose` after the test.
  */
 export const connectPresence = async ({
   capture,
+  admin = false,
   canWrite,
 }: {
   readonly capture?: 1
+  readonly admin?: boolean
   readonly canWrite?: boolean | undefined
 } = {}) => {
   vi.useFakeTimers()
@@ -91,9 +93,9 @@ export const connectPresence = async ({
       presence: 1 as const,
       ...(capture === undefined ? {} : { capture }),
     },
-    token: null,
+    token: admin ? 'admin-token' : null,
     status: 'connected' as const,
-    isAdmin: false,
+    isAdmin: admin,
     season: 1,
   }
   state.upsertServer(server)
