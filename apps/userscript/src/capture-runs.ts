@@ -122,19 +122,16 @@ let joinedRun: string | null = null
 let lastDrafted = -1
 
 /**
- * The run to show, across every event server: the one this painter is in, else one they administer
- * (so a coordinator who paints nothing keeps Close after Go), else one gathering for their team,
- * else any run, else a server this tab may open one on.
+ * The event server this tab coordinates on, with its run: the one whose run it has joined, else one
+ * it administers, else the first. A tab works on one event server at a time, so runs on any other
+ * stay out of the card rather than competing for it.
  */
 const active = (): CaptureView | null => {
   const views = captureViews().filter((view) => view.server.info?.capture === 1)
-  const team = myTeam()
   return (
     views.find((view) => memberIndex(view) >= 0) ??
-    views.find((view) => view.run !== null && hasServerAdminToken(view.server)) ??
-    views.find((view) => view.run?.startsAt === null && view.run.team === team) ??
-    views.find((view) => view.run !== null) ??
     views.find((view) => hasServerAdminToken(view.server)) ??
+    views[0] ??
     null
   )
 }
