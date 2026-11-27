@@ -157,8 +157,9 @@ it("keeps candidate masks across a teammate's progress, and follows the publishe
 
   run(top, 1)
   // Same masks after a progress update, so the map has nothing to upload again.
-  expect(below(50)).toHaveLength(candidates.length)
-  below(50).forEach((item, index) => expect(item.pixels).toBe(candidates[index]?.pixels))
+  const after = below(50)
+  expect(after).toHaveLength(candidates.length)
+  for (const [index, item] of after.entries()) expect(item.pixels).toBe(candidates[index]?.pixels)
 
   // Publishing the bottom wall instead shows the top one as the candidate.
   run(bottom, 1)
