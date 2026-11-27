@@ -12,11 +12,22 @@ assert.ok(['amd64', 'arm64'].includes(arch), 'Usage: prepare-baseline.mjs amd64|
 const repository = process.env.GITHUB_REPOSITORY ?? 'mia-cx/Caelestis'
 const version = (app) => JSON.parse(readFileSync(`apps/${app}/package.json`, 'utf8')).version
 const candidate = `server-backend-${version('backend')}-frontend-${version('frontend')}`
-const releases = JSON.parse(
-  execFileSync('gh', ['api', `repos/${repository}/releases`, '--paginate', '--slurp'], {
-    encoding: 'utf8',
-  }),
-).flat()
+// Only the fields used below, one release per line: the full list outgrew execFileSync's 1 MiB
+// default buffer.
+const releases = execFileSync(
+  'gh',
+  [
+    'api',
+    `repos/${repository}/releases`,
+    '--paginate',
+    '--jq',
+    '.[] | {tag_name, draft, prerelease}',
+  ],
+  { encoding: 'utf8' },
+)
+  .split('\n')
+  .filter((line) => line !== '')
+  .map((line) => JSON.parse(line))
 const previous = releases.find(
   (release) =>
     !release.draft &&
