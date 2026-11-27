@@ -97,9 +97,9 @@ it('runs a capture from open to start, in the order the administrator sets', asy
   const first = await server.painter()
   const second = await server.painter()
 
-  first.send({ type: 'capture-open', painters: 2 })
-  admin.send({ type: 'capture-open', painters: 2 })
-  await vi.waitFor(() => expect(first.run()?.painters).toBe(2))
+  first.send({ type: 'capture-open', painters: 1, guards: 1 })
+  admin.send({ type: 'capture-open', painters: 1, guards: 1 })
+  await vi.waitFor(() => expect(first.run()).toMatchObject({ painters: 1, guards: 1 }))
 
   first.send({ type: 'capture-join' })
   second.send({ type: 'capture-join' })

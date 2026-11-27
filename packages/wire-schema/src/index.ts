@@ -4,6 +4,7 @@ import {
   isRegionDocument,
   isRegionItem,
   isRegionShape,
+  MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_LINE_PIXELS,
   MAX_CAPTURE_PAINTERS,
   MAX_DESCRIPTION_LENGTH,
@@ -208,15 +209,16 @@ const Epoch = integerBetween(0, Number.MAX_SAFE_INTEGER)
 export const CaptureRun = Schema.Struct({
   id: Identifier,
   painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
+  guards: integerBetween(0, MAX_CAPTURE_GUARDS),
   members: boundedArray(
     Schema.Struct({
       sessionId: PresenceSessionId,
       painter: PresenceIdentity,
       drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
     }),
-    MAX_CAPTURE_PAINTERS,
+    MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS,
   ),
-  lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS),
+  lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
   startsAt: Schema.NullOr(Epoch),
   staggerMs: integerBetween(0, 10_000),
 })
@@ -226,16 +228,17 @@ export const PresenceClientEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal('capture-open'),
     painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
+    guards: integerBetween(0, MAX_CAPTURE_GUARDS),
   }),
   Schema.Struct({ type: Schema.Literal('capture-join') }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
   Schema.Struct({
     type: Schema.Literal('capture-order'),
-    order: boundedArray(PresenceSessionId, MAX_CAPTURE_PAINTERS),
+    order: boundedArray(PresenceSessionId, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
   }),
   Schema.Struct({
     type: Schema.Literal('capture-plan'),
-    lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS),
+    lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
   }),
   Schema.Struct({
     type: Schema.Literal('capture-drafted'),

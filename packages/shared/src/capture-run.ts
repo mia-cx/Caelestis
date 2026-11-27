@@ -10,9 +10,15 @@ import { isWorkIdentity } from './work.js'
  * administrator publishes the plan and starts it; the server stamps the start time. Painter `i`
  * (from 0) paints line `i` at `startsAt + i * staggerMs`, on the server's clock, which each client
  * estimates with `clock` round trips.
+ *
+ * The last `guards` members are anchor guards, outside the stagger: each paints a strip that
+ * thickens the wall where one end meets the team's territory, at `startsAt` with the first painter,
+ * then watches that anchor and repaints it if an enemy cuts it.
  */
 
 export const MAX_CAPTURE_PAINTERS = 16
+/** One guard for each end of the wall. */
+export const MAX_CAPTURE_GUARDS = 2
 /** Pixels in one line: a painter's full charges in the territory event. */
 export const MAX_CAPTURE_LINE_PIXELS = 60
 /** Time between consecutive painters, long enough for the previous paint to land. */
@@ -29,8 +35,11 @@ export interface CaptureMember {
 
 export interface CaptureRun {
   readonly id: string
+  /** Painters who build the wall, in turn. */
   readonly painters: number
-  /** In paint order; member `i` paints `lines[i]`. */
+  /** Anchor guards, after the painters in `members` and `lines`. */
+  readonly guards: number
+  /** In paint order, guards last; member `i` paints `lines[i]`. */
   readonly members: readonly CaptureMember[]
   /** Each line's world pixels as a flat `[x0, y0, x1, y1, …]` list, in placement order. */
   readonly lines: readonly (readonly number[])[]
@@ -39,10 +48,11 @@ export interface CaptureRun {
 }
 
 export type CaptureClientEvent =
-  | { readonly type: 'capture-open'; readonly painters: number }
+  | { readonly type: 'capture-open'; readonly painters: number; readonly guards: number }
   | { readonly type: 'capture-join' }
   | { readonly type: 'capture-leave' }
   | { readonly type: 'capture-order'; readonly order: readonly string[] }
+  /** The wall's lines in paint order, then one anchor strip per guard. */
   | { readonly type: 'capture-plan'; readonly lines: readonly (readonly number[])[] }
   | { readonly type: 'capture-drafted'; readonly drafted: number }
   | { readonly type: 'capture-go' }
@@ -54,9 +64,14 @@ export type CaptureServerEvent =
   /** Answers a client's `clock`: `at` is the server's time when it answered. */
   | { readonly type: 'clock'; readonly sent: number; readonly at: number }
 
+/** Whether member `index` is an anchor guard rather than a wall painter. */
+export const isCaptureGuard = (run: CaptureRun, index: number): boolean => index >= run.painters
+
 /** When member `index` paints, on the server's clock; null until the run starts. */
 export const captureSlot = (run: CaptureRun, index: number): number | null =>
-  run.startsAt === null ? null : run.startsAt + index * run.staggerMs
+  run.startsAt === null
+    ? null
+    : run.startsAt + (isCaptureGuard(run, index) ? 0 : index * run.staggerMs)
 
 const isLine = (value: unknown): value is readonly number[] =>
   Array.isArray(value) &&
@@ -74,18 +89,19 @@ const isMember = (value: unknown): value is CaptureMember =>
 /** A run from a server, which is untrusted input. Null when malformed. */
 export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
   if (!isRecord(value)) return null
-  const { id, painters, members, lines, startsAt, staggerMs } = value
+  const { id, painters, guards, members, lines, startsAt, staggerMs } = value
   if (
     typeof id !== 'string' ||
     !isSafeInteger(painters) ||
+    !isSafeInteger(guards) ||
     !Array.isArray(members) ||
     !members.every(isMember) ||
     !Array.isArray(lines) ||
-    lines.length > MAX_CAPTURE_PAINTERS ||
+    lines.length > MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS ||
     !lines.every(isLine) ||
     !(startsAt === null || isSafeInteger(startsAt)) ||
     !isSafeInteger(staggerMs)
   )
     return null
-  return { id, painters, members, lines, startsAt, staggerMs }
+  return { id, painters, guards, members, lines, startsAt, staggerMs }
 }

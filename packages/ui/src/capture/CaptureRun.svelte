@@ -3,6 +3,7 @@
   import Icon from '../foundations/Icon.svelte'
   import SettingRow from '../foundations/SettingRow.svelte'
   import Toggle from '../foundations/Toggle.svelte'
+  import CaterpillarDemo from './CaterpillarDemo.svelte'
   import type { CaptureRunIntent, CaptureRunModel } from './model.js'
 
   let { model, onIntent }: { model: CaptureRunModel; onIntent: (intent: CaptureRunIntent) => void } =
@@ -53,6 +54,8 @@
     return mine ? `Paint in ${seconds(mark)}` : `First painter in ${seconds(mark)}`
   })
 
+  const guarding = $derived(model.anchor !== null && (model.phase === 'done' || (mine && left === 0)))
+
   const clampPainters = (n: number): number => Math.min(model.maxPainters, Math.max(1, Math.round(n)))
   const setPainters = (painters: number): void => onIntent({ type: 'set-painters', painters })
   const typePainters = (event: Event & { currentTarget: HTMLInputElement }): void => {
@@ -69,7 +72,8 @@
     <Icon name="painters" size="1.125rem" />
     <h2 id="capture-run-title">Capture run</h2>
     {#if model.phase !== 'none'}
-      <span class="count" aria-label={`${model.members.length} of ${model.painters} painters`}>{model.members.length}/{model.painters}</span>
+      {@const places = model.painters + model.guards}
+      <span class="count" aria-label={`${model.members.length} of ${places} places taken`}>{model.members.length}/{places}</span>
     {/if}
   </header>
 
@@ -82,17 +86,29 @@
           <input id="capture-run-painters" class="caelestis-field" type="number" inputmode="numeric" min="1" max={model.maxPainters} value={model.painters} onchange={typePainters} />
           <Button label="More painters" kind="ghost" size="small" iconOnly disabled={model.painters >= model.maxPainters} onclick={() => setPainters(model.painters + 1)}><Icon name="add" /></Button>
         </div>
+        <span class="label" id="capture-run-guards">Anchor guards</span>
+        <div class="stepper" role="group" aria-labelledby="capture-run-guards">
+          <Button label="Fewer guards" kind="ghost" size="small" iconOnly disabled={model.guards <= 0} onclick={() => onIntent({ type: 'set-guards', guards: model.guards - 1 })}><Icon name="remove" /></Button>
+          <output class="caelestis-field">{model.guards}</output>
+          <Button label="More guards" kind="ghost" size="small" iconOnly disabled={model.guards >= model.maxGuards} onclick={() => onIntent({ type: 'set-guards', guards: model.guards + 1 })}><Icon name="add" /></Button>
+        </div>
         <Button label="Open run" kind="primary" size="small" onclick={() => onIntent({ type: 'open' })} />
       </div>
     {/if}
   {:else}
-    {#if counting}
+    {#if guarding}
+      <div class="clock" class:cut={model.anchor === 'cut'}>
+        <p class="lead"><span>Anchor guard</span></p>
+        <p class="big">{model.anchor === 'cut' ? 'Anchor cut' : 'Anchor holding'}</p>
+        {#if model.anchor === 'cut'}<p>Repaint your line.</p>{/if}
+      </div>
+    {:else if counting}
       {@const atSlot = mine && left === 0}
       <!-- Hidden from screen readers: the live region below speaks it on whole seconds instead. -->
       <div class="clock" class:now={atSlot} aria-hidden="true">
         <p class="lead">
           <span>{left > 0 ? (mine ? 'Paint in' : 'First painter in') : mine ? 'Paint now' : 'Painting'}</span>
-          {#if model.myTurn !== null}<span class="turn">{nth(model.myTurn)} of {model.members.length}</span>{/if}
+          {#if model.anchor !== null}<span class="turn">Anchor guard</span>{:else if model.myTurn !== null}<span class="turn">{nth(model.myTurn)} of {model.painters}</span>{/if}
         </p>
         <p class="big">{clock(left)}</p>
       </div>
@@ -105,7 +121,7 @@
         {#each model.members as member, index (member.id)}
           {@const ready = member.length > 0 && member.drafted >= member.length}
           <li class:me={member.me}>
-            <span class="place">{index + 1}</span>
+            {#if member.guard}<span class="place" aria-label="Anchor guard" title="Anchor guard">G</span>{:else}<span class="place">{index + 1}</span>{/if}
             <span class="swatch" style:background-color={member.colour} aria-hidden="true"></span>
             <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
             {#if member.length > 0}
@@ -125,6 +141,19 @@
       </ol>
     {:else}
       <p class="empty">No painters yet</p>
+    {/if}
+
+    {#if model.role !== null && gathering}
+      {@const colour = model.members.find((member) => member.me)?.colour ?? 'currentColor'}
+      <ol class="steps" aria-label="What to do">
+        <li>
+          Make your way over to your leg by drawing like a caterpillar
+          <CaterpillarDemo {colour} />
+        </li>
+        <li>Wait for the countdown</li>
+        <li>Click Paint when your timer hits 0</li>
+        {#if model.role === 'guard'}<li>Watch and repair your anchor point</li>{/if}
+      </ol>
     {/if}
 
     {#if model.joined && (gathering || counting)}
@@ -213,7 +242,15 @@
   .count { color: var(--caelestis-muted-text); font-weight: 600; }
 
   .open { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-  .open label { font-weight: 600; }
+  .open :is(label, .label) { font-weight: 600; }
+  .open .stepper output {
+    display: grid;
+    place-items: center;
+    inline-size: 3rem;
+    block-size: 2rem;
+    font: 600 0.875rem/1 var(--caelestis-font);
+    font-variant-numeric: tabular-nums;
+  }
   .stepper { display: flex; flex: 1; align-items: center; gap: 0.125rem; }
   .stepper input {
     inline-size: 3rem;
@@ -238,6 +275,7 @@
   .turn { font-weight: 400; }
   /* At this painter's slot the lead and the zeroed clock both turn primary; the words carry it too. */
   .clock.now :is(.lead span:first-child, .big) { color: var(--caelestis-primary); }
+  .clock.cut .big { color: var(--caelestis-danger); }
 
   .members, .plans ul { display: flex; flex-direction: column; gap: 0.125rem; margin: 0; padding: 0; list-style: none; }
   .members li {
@@ -273,6 +311,10 @@
   .flags code { padding: 0.05rem 0.3rem; border: 1px solid var(--caelestis-border); border-radius: 0.3rem; background: var(--caelestis-raised-surface); color: var(--caelestis-text); font: 0.7rem/1.3 var(--caelestis-mono-font); }
 
   .message { color: var(--caelestis-muted-text); overflow-wrap: anywhere; }
+
+  .steps { display: flex; flex-direction: column; gap: 0.375rem; margin: 0; padding-inline-start: 1.25rem; }
+  .steps li::marker { color: var(--caelestis-muted-text); font-variant-numeric: tabular-nums; }
+  .steps :global(.demo) { margin-block-start: 0.375rem; }
 
   footer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
   .end { display: flex; gap: 0.375rem; margin-inline-start: auto; }

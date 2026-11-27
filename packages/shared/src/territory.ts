@@ -232,6 +232,40 @@ export const simulateCapture = (
   return { painted, held, refused, gained: countTeam(owner, team) - before, map: { size, owner } }
 }
 
+/**
+ * The strips that thicken a wall where it meets the team, one for each end. For each of the
+ * `length` wall pixels nearest that end, the strip takes its neighbours on the enclosed side, in
+ * an order the team can place before the wall exists, so a cut there has to go two pixels deep.
+ */
+export const anchorStrips = (
+  map: TerritoryMap,
+  team: TerritoryTeam,
+  plan: CapturePlan,
+  length: number,
+): [ArenaPixel[], ArenaPixel[]] => {
+  const { size } = map
+  const wall = plan.lines.flat()
+  const onWall = new Set(wall.map(({ x, y }) => y * size + x))
+  const enclosed = simulateCapture(map, team, plan).map.owner
+  const strip = (from: readonly ArenaPixel[]): ArenaPixel[] => {
+    const owner = map.owner.slice()
+    const chosen: ArenaPixel[] = []
+    for (const { x, y } of from)
+      for (const [dx, dy] of SIDES) {
+        const nx = x + dx
+        const ny = y + dy
+        if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue
+        const at = ny * size + nx
+        if (onWall.has(at) || enclosed[at] !== team || owner[at] === team) continue
+        if (!touches(owner, size, nx, ny, team) || chosen.length >= length) continue
+        owner[at] = team
+        chosen.push({ x: nx, y: ny })
+      }
+    return chosen
+  }
+  return [strip(wall.slice(0, length)), strip(wall.slice(-length).reverse())]
+}
+
 /** Split an ordered wall into consecutive lines of at most `charges` pixels each. */
 export const splitWall = (wall: readonly ArenaPixel[], charges: number): CapturePlan => {
   const lines: ArenaPixel[][] = []

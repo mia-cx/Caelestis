@@ -1,10 +1,13 @@
 import {
+  anchorStrips,
   arenaToWorld,
   CAPTURE_LEAD_MS,
   type CaptureRun,
   captureSlot,
   decodePng,
   edgeRectanglePlanner,
+  isCaptureGuard,
+  MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
   PALETTE_RGB,
   type PainterIdentity,
@@ -13,9 +16,11 @@ import {
   TERRITORY_ARENA,
   TERRITORY_CHARGES,
   TERRITORY_TEAMS,
+  type TerritoryMap,
   type TerritoryTeam,
   TILE_SIZE,
   territoryMapFromImage,
+  worldToArena,
 } from '@caelestis/shared'
 import type {
   CaelestisElement,
@@ -59,6 +64,12 @@ import { BACKEND_ORIGIN } from './wplace-raster.js'
  */
 
 const ELEMENT_ID = 'caelestis-capture-run'
+/** Pixels in a guard's strip: half their charges, so the other half can repaint the anchor. */
+const GUARD_STRIP = TERRITORY_CHARGES / 2
+/** How often a guard reads Wplace's territory map: as often as Wplace refreshes it. */
+const WATCH_MS = 5_000
+/** How long after a guard's slot their anchor is first checked, so the start can land. */
+const WATCH_GRACE_MS = 3_000
 /** How often a member's drafted count is re-read and the countdown redrawn. */
 const TICK_MS = 100
 /** How long the card stays on "done" after the last slot before it may be closed. */
@@ -72,6 +83,7 @@ interface Proposal extends CaptureProposal {
 }
 
 let painters = 3
+let guards = MAX_CAPTURE_GUARDS
 let proposals: readonly Proposal[] = []
 let proposing = false
 let message: string | undefined
@@ -201,28 +213,85 @@ const loadTeam = async (): Promise<TerritoryTeam | null> => {
   return team === 0 || team === 1 || team === 2 || team === 3 ? team : null
 }
 
+/** Wplace's live territory map. */
+const loadTerritory = async (): Promise<TerritoryMap | null> => {
+  const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
+  if (!response.ok) return null
+  const image = await decodePng(new Uint8Array(await response.arrayBuffer()))
+  return territoryMapFromImage(image, PALETTE_RGB)
+}
+
+/** For a guard: whether their anchor still belongs to the team, as last read. */
+let anchor: 'intact' | 'cut' = 'intact'
+let watcher: ReturnType<typeof setInterval> | null = null
+let watching: string | null = null
+
+/** The pixels a guard holds: their strip and the end of the wall it thickens. */
+const anchorPixels = (run: CaptureRun, index: number): { x: number; y: number }[] => {
+  const wall = run.lines.slice(0, run.painters).flatMap(linePixels)
+  const end = index === run.painters ? wall.slice(0, GUARD_STRIP) : wall.slice(-GUARD_STRIP)
+  return [...linePixels(run.lines[index] ?? []), ...end]
+}
+
+/** Read the map once and sound the alarm when any anchor pixel has left the team. */
+const checkAnchor = async (run: CaptureRun, index: number): Promise<void> => {
+  const team = myTeam
+  const map = team === null ? null : await loadTerritory()
+  if (map === null || team === null) return
+  const cut = anchorPixels(run, index).some((pixel) => {
+    const local = worldToArena(pixel)
+    return local !== null && map.owner[local.y * map.size + local.x] !== team
+  })
+  if (cut && anchor === 'intact') {
+    const now = localClock()
+    scheduleCaptureCues([0, 250, 500].map((after) => ({ at: now + 20 + after, tone: 'go' })))
+  }
+  anchor = cut ? 'cut' : 'intact'
+  render()
+}
+
+/** Watch this guard's anchor from just after the wall's last slot until the run ends. */
+const watchAnchor = (view: CaptureView, run: CaptureRun | null, index: number): void => {
+  const key =
+    run !== null && run.startsAt !== null && index >= 0 && isCaptureGuard(run, index)
+      ? `${run.id}:${index}:${run.startsAt}`
+      : null
+  if (key === watching) return
+  if (watcher !== null) clearInterval(watcher)
+  watcher = null
+  watching = key
+  anchor = 'intact'
+  if (key === null || run === null) return
+  const last = captureSlot(run, run.painters - 1)
+  const from = last === null ? null : localTime(view, last + WATCH_GRACE_MS)
+  const check = () =>
+    void checkAnchor(run, index).catch((error) => warn('anchor check failed', String(error)))
+  setTimeout(
+    () => {
+      if (watching !== key) return
+      check()
+      watcher = setInterval(check, WATCH_MS)
+    },
+    Math.max(0, (from ?? localClock()) - localClock()),
+  )
+}
+
 /** Plan walls for the run's group size from the live map, best first. */
-const propose = async (groupSize: number): Promise<void> => {
+const propose = async (groupSize: number, guardCount: number): Promise<void> => {
   proposing = true
   message = undefined
   render()
   try {
-    const [team, snapshot] = await Promise.all([
-      loadTeam(),
-      fetch(`${BACKEND_ORIGIN}/territory/snapshot`).then((response) =>
-        response.ok ? response.arrayBuffer() : null,
-      ),
-    ])
+    const [team, map] = await Promise.all([loadTeam(), loadTerritory()])
     myTeam = team
     if (team === null) {
       message = 'Join a team in the event first.'
       return
     }
-    if (snapshot === null) {
+    if (map === null) {
       message = 'Wplace did not send the territory map. Try again.'
       return
     }
-    const map = territoryMapFromImage(await decodePng(new Uint8Array(snapshot)), PALETTE_RGB)
     const plans = edgeRectanglePlanner({
       map,
       team,
@@ -230,13 +299,15 @@ const propose = async (groupSize: number): Promise<void> => {
       charges: TERRITORY_CHARGES,
     })
     proposals = plans.map((plan, index) => {
-      const lines = plan.lines.map((line) =>
+      // The guards' strips go after the wall's lines, in the order the guards join.
+      const strips = anchorStrips(map, team, plan, GUARD_STRIP).slice(0, guardCount)
+      const lines = [...plan.lines, ...strips].map((line) =>
         line.flatMap((pixel) => {
           const world = arenaToWorld(pixel)
           return [world.x, world.y]
         }),
       )
-      const outcome = simulateCapture(map, team, plan)
+      const outcome = simulateCapture(map, team, { lines: [...strips, ...plan.lines] })
       return {
         id: String(index),
         label: edgeLabel(lines),
@@ -299,7 +370,8 @@ const armSlot = (view: CaptureView, run: CaptureRun, index: number): void => {
   if (at === null) return
   armedSlot = key
   silence()
-  silence = scheduleCaptureCues(slotCues(at, at - index * run.staggerMs - CAPTURE_LEAD_MS))
+  const go = run.startsAt === null ? null : localTime(view, run.startsAt - CAPTURE_LEAD_MS)
+  silence = scheduleCaptureCues(slotCues(at, go ?? at - CAPTURE_LEAD_MS))
   if (!simulatedInputAllowed('capture-paint')) return
   const fire = () => {
     while (localClock() < at) {
@@ -317,7 +389,7 @@ const phaseOf = (view: CaptureView | null): CaptureRunModel['phase'] => {
   const run = view?.run ?? null
   if (view === null || run === null) return 'none'
   if (run.startsAt === null) return 'gathering'
-  const last = captureSlot(run, Math.max(0, run.lines.length - 1)) ?? run.startsAt
+  const last = captureSlot(run, Math.max(0, run.painters - 1)) ?? run.startsAt
   const end = localTime(view, last + DONE_AFTER_MS)
   return end !== null && localClock() > end ? 'done' : 'countdown'
 }
@@ -337,6 +409,12 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
     admin,
     painters: run?.painters ?? painters,
     maxPainters: MAX_CAPTURE_PAINTERS,
+    guards: run?.guards ?? guards,
+    maxGuards: MAX_CAPTURE_GUARDS,
+    anchor:
+      run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
+        ? anchor
+        : null,
     members: (run?.members ?? []).map((member, index) => ({
       id: member.sessionId,
       name: member.painter.displayName,
@@ -344,9 +422,15 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       drafted: member.drafted,
       length: (run?.lines[index]?.length ?? 0) / 2,
       me: index === mine,
+      guard: run !== null && isCaptureGuard(run, index),
     })),
     joined: mine >= 0,
-    canJoin: run !== null && run.startsAt === null && mine < 0 && run.members.length < run.painters,
+    role: run === null || mine < 0 ? null : isCaptureGuard(run, mine) ? 'guard' : 'painter',
+    canJoin:
+      run !== null &&
+      run.startsAt === null &&
+      mine < 0 &&
+      run.members.length < run.painters + run.guards,
     proposals: proposals.map((proposal) => ({
       id: proposal.id,
       label: proposal.label,
@@ -362,7 +446,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       run.lines.length > 0 &&
       run.members.length >= run.lines.length,
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
-    myTurn: mine >= 0 ? mine + 1 : null,
+    myTurn: run !== null && mine >= 0 && !isCaptureGuard(run, mine) ? mine + 1 : null,
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
     autoPaint: simulatedInputAllowed('capture-paint'),
     ...(message === undefined ? {} : { message }),
@@ -378,9 +462,13 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       painters = Math.min(MAX_CAPTURE_PAINTERS, Math.max(1, Math.round(intent.painters)))
       proposals = []
       break
+    case 'set-guards':
+      guards = Math.min(MAX_CAPTURE_GUARDS, Math.max(0, Math.round(intent.guards)))
+      proposals = []
+      break
     case 'open':
       proposals = []
-      sendCapture(server, { type: 'capture-open', painters })
+      sendCapture(server, { type: 'capture-open', painters, guards })
       break
     case 'join':
       primeCaptureAudio()
@@ -400,7 +488,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       break
     }
     case 'propose':
-      void propose(view.run?.painters ?? painters)
+      void propose(view.run?.painters ?? painters, view.run?.guards ?? guards)
       break
     case 'publish': {
       const chosen = proposals.find(({ id }) => id === intent.id)
@@ -479,6 +567,7 @@ const tick = (): void => {
       if (run.startsAt !== null) armSlot(view, run, mine)
     }
   }
+  if (view !== null) watchAnchor(view, run, memberIndex(view))
   render()
 }
 
@@ -510,6 +599,7 @@ export const installCaptureRuns = (): void => {
       lastDrafted = -1
       silence()
     }
+    if (view !== null) watchAnchor(view, run, memberIndex(view))
     render()
   })
   onStateChange(render)

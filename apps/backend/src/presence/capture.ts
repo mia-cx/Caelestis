@@ -32,6 +32,7 @@ export const applyCaptureEvent = (
       ? {
           id: newId(),
           painters: event.painters,
+          guards: event.guards,
           members: [],
           lines: [],
           startsAt: null,
@@ -42,7 +43,12 @@ export const applyCaptureEvent = (
   const member = run.members.findIndex(({ sessionId }) => sessionId === actor.sessionId)
   switch (event.type) {
     case 'capture-join':
-      if (member >= 0 || run.startsAt !== null || run.members.length >= run.painters) return run
+      if (
+        member >= 0 ||
+        run.startsAt !== null ||
+        run.members.length >= run.painters + run.guards
+      )
+        return run
       return {
         ...run,
         members: [
@@ -75,7 +81,7 @@ export const applyCaptureEvent = (
       if (!actor.admin || run.startsAt !== null) return run
       return {
         ...run,
-        lines: event.lines.slice(0, run.painters),
+        lines: event.lines.slice(0, run.painters + run.guards),
         members: run.members.map((entry) => ({ ...entry, drafted: 0 })),
       }
     case 'capture-go':

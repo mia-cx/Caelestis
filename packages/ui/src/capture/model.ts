@@ -17,6 +17,8 @@ export interface CaptureRunMember {
   readonly length: number
   /** This tab's painter. */
   readonly me: boolean
+  /** An anchor guard: thickens one end of the wall at the start, then holds it. */
+  readonly guard: boolean
 }
 
 export interface CaptureProposal {
@@ -46,9 +48,19 @@ export interface CaptureRunModel {
   /** The group size the run was opened with, or the size an administrator is about to open. */
   readonly painters: number
   readonly maxPainters: number
+  /** Anchor guards on top of the painters, likewise. */
+  readonly guards: number
+  readonly maxGuards: number
+  /**
+   * For a guard once the run has started: whether their anchor still belongs to the team. `cut`
+   * also plays an alarm; the guard repaints it from their line.
+   */
+  readonly anchor: 'intact' | 'cut' | null
   /** In paint order. */
   readonly members: readonly CaptureRunMember[]
   readonly joined: boolean
+  /** This painter's part once they have joined: building the wall in turn, or guarding an anchor. */
+  readonly role: 'painter' | 'guard' | null
   /** False once the run is full or started. */
   readonly canJoin: boolean
   /** Administrator only: plans to choose from, best first; empty until proposed. */
@@ -75,6 +87,7 @@ export interface CaptureRunModel {
 
 export type CaptureRunIntent =
   | { readonly type: 'set-painters'; readonly painters: number }
+  | { readonly type: 'set-guards'; readonly guards: number }
   | { readonly type: 'open' }
   | { readonly type: 'join' }
   | { readonly type: 'leave' }

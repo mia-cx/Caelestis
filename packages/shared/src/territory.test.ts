@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   type ArenaPixel,
+  anchorStrips,
   edgeRectanglePlanner,
   NO_TEAM,
   simulateCapture,
@@ -52,6 +53,20 @@ describe('edgeRectanglePlanner', () => {
       const outcome = simulateCapture(map, GREEN, plan)
       expect(outcome.refused).toBe(0)
       expect(outcome.gained).toBeGreaterThan(outcome.painted * 4)
+    }
+  })
+})
+
+describe('anchorStrips', () => {
+  it('thickens both ends of a wall with pixels the team can place before the wall exists', () => {
+    const map = quadrantMap()
+    const [plan] = edgeRectanglePlanner({ map, team: GREEN, painters: 2, charges: 15 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const strips = anchorStrips(map, GREEN, plan, 5)
+    for (const strip of strips) {
+      expect(strip.length).toBeGreaterThan(0)
+      expect(strip.length).toBeLessThanOrEqual(5)
+      expect(simulateCapture(map, GREEN, { lines: [strip] }).refused).toBe(0)
     }
   })
 })

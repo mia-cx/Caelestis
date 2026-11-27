@@ -8,11 +8,15 @@ const counting = {
   admin: false,
   painters: 2,
   maxPainters: 8,
+  guards: 0,
+  maxGuards: 2,
+  anchor: null,
   members: [
-    { id: 'a', name: 'Ada', colour: 'red', drafted: 40, length: 40, me: false },
-    { id: 'b', name: 'Bea', colour: 'blue', drafted: 12, length: 40, me: true },
+    { id: 'a', name: 'Ada', colour: 'red', drafted: 40, length: 40, me: false, guard: false },
+    { id: 'b', name: 'Bea', colour: 'blue', drafted: 12, length: 40, me: true, guard: false },
   ],
   joined: true,
+  role: 'painter',
   canJoin: false,
   proposals: [],
   proposing: false,
@@ -60,4 +64,16 @@ describe('capture run countdown', () => {
     toggle?.click()
     expect(intents).toEqual([{ type: 'set-auto-paint', on: true }])
   })
+})
+
+it('tells a guard whose anchor was cut to repaint, once their slot has passed', () => {
+  const card = render({
+    ...counting,
+    guards: 1,
+    anchor: 'cut',
+    myTurn: null,
+    mySlotAt: performance.now() - 1_000,
+  })
+  expect(card.textContent).toContain('Anchor cut')
+  expect(card.textContent).toContain('Repaint your line.')
 })
