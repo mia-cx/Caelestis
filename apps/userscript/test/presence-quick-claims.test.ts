@@ -23,14 +23,6 @@ vi.mock('../src/wplace-account.js', () => ({
   accountIdentity: () => account.current,
   loadAccount: async () => undefined,
 }))
-// The quick-claim gesture: the paint drawer is open, and the pointer is over world pixel (5, 6).
-vi.mock('../src/wplace-paint.js', () => ({
-  isPaintOpen: () => true,
-  onPaintSelectionChange: () => {},
-}))
-vi.mock('../src/paint-cell.js', () => ({
-  pickerPointAt: () => ({ x: 5.5, y: 6.5, alliance: null }),
-}))
 
 class FakeWebSocket extends EventTarget {
   static readonly CONNECTING = 0
@@ -147,18 +139,6 @@ const connect = async ({
   socket.open(canWrite)
   await vi.advanceTimersByTimeAsync(0)
   return { presence, state, socket }
-}
-
-/** Ctrl+press on the map with the paint drawer open; true when quick claims took the gesture. */
-const pressForQuickClaim = async (): Promise<boolean> => {
-  const { installQuickClaims } = await import('../src/quick-claims.js')
-  installQuickClaims()
-  const map = document.createElement('canvas')
-  document.body.append(map)
-  const press = new PointerEvent('pointerdown', { ctrlKey: true, button: 0, cancelable: true })
-  map.dispatchEvent(press)
-  map.remove()
-  return press.defaultPrevented
 }
 
 const rect = (x: number): PresenceRect => ({ x, y: 10, w: 4, h: 3 })
@@ -287,14 +267,19 @@ it('shows polled claims until a session starts, then only what the socket report
   expect(fetch.mock.calls.length).toBe(reads)
 })
 
-it('takes the quick-claim gesture where a server takes quick claims', async () => {
-  await connect({ canWrite: true })
-  expect(await pressForQuickClaim()).toBe(true)
+it('offers quick claims on a writable session of a server that takes them', async () => {
+  const { presence } = await connect({ canWrite: true })
+  expect(presence.quickClaimsAvailable()).toBe(true)
 })
 
-it('leaves quick claims off an event server, the gesture included', async () => {
+it('offers no quick claims on a read-only session, whose claims the server drops', async () => {
+  const { presence } = await connect()
+  expect(presence.quickClaimsAvailable()).toBe(false)
+})
+
+it('leaves quick claims off an event server', async () => {
   const { presence, socket } = await connect({ event: true, canWrite: true })
-  expect(await pressForQuickClaim()).toBe(false)
+  expect(presence.quickClaimsAvailable()).toBe(false)
   presence.setPresenceQuickClaims([rect(0)])
   await vi.advanceTimersByTimeAsync(PRESENCE_QUICK_CLAIMS_MIN_MS)
   expect(socket.quickClaims()).toEqual([])
