@@ -14,6 +14,17 @@ const profiling = process.env.RAID_PROFILE !== '0'
 const layers = process.env.RAID_LAYERS ?? 'all'
 const cpuRate = Number(process.env.RAID_CPU_RATE ?? 1)
 const scenarios = (process.env.RAID_SCENARIOS ?? 'hover,movement,idle').split(',')
+// Event scale: RAID_EVENT=1 marks the replayed server as an event server, which takes no claims
+// and holds a capture run this tab is a member of; RAID_PEERS sets the peer count and
+// RAID_DRAFTS=1 gives every peer a draft whose mask changes every second.
+const event = process.env.RAID_EVENT === '1'
+const peerCount = Number(process.env.RAID_PEERS ?? 10)
+const drafts = process.env.RAID_DRAFTS === '1'
+const cdpPort = Number(process.env.RAID_CDP_PORT ?? 9222)
+// RAID_CPU_PROFILE=1 records a V8 CPU profile of each measured window beside the result.
+const cpuProfile = process.env.RAID_CPU_PROFILE === '1'
+const expectedRegions = event ? 0 : 37
+assert(Number.isInteger(peerCount) && peerCount >= 1 && peerCount <= 64)
 assert(Number.isFinite(cpuRate) && cpuRate >= 1)
 assert(
   scenarios.every((value) =>
@@ -31,7 +42,7 @@ const camera = {
   center: [-122.797265625, -78.83827746060328],
   zoom: Number(process.env.RAID_ZOOM ?? 15),
 }
-const info = await (await fetch('http://127.0.0.1:9222/json/version')).json()
+const info = await (await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).json()
 const socket = new WebSocket(info.webSocketDebuggerUrl)
 await new Promise((done) => socket.addEventListener('open', done, { once: true }))
 let sequence = 0
@@ -90,7 +101,23 @@ replay.regions = season => Array.from({length:37},(_,i) => {
  const rect={x:325380+(i%7)*180,y:1782020+Math.floor(i/7)*180,w:140,h:140};
  return {id:'raid-claim-'+i,season,surface:{kind:'world',allianceId:null},templateId:null,claimant:{wplaceUserId:900000+i,displayName:'Benchmark '+i},document:{items:[{id:'outer',op:'add',shape:{kind:'rectangle',...rect}},{id:'hole',op:'subtract',shape:{kind:'rectangle',x:rect.x+50,y:rect.y+50,w:20,h:20}}]},rect,label:'Claim '+i,createdAt:1700000000000,expiresAt:1900000000000};
 });
-replay.peers = tick => Array.from({length:10},(_,i) => ({sessionId:'raid-peer-'+i,publisherId:'01950000-0000-7000-8000-'+String(i).padStart(12,'0'),painter:{wplaceUserId:910000+i,displayName:'Peer '+i},viewport:{x:325350+(i%4)*20+tick%8,y:1782010+Math.floor(i/4)*20,w:90,h:70},draft:null}));
+const raid = ${JSON.stringify({ event, peers: peerCount, drafts })};
+// One draft revision per second at the 300 ms publish tick; each peer's 24x24 mask grows and resets.
+replay.revision = tick => Math.floor(tick * 300 / 1000);
+replay.masks = new Map();
+replay.mask = bits => {
+ if (!replay.masks.has(bits)) { const bytes=new Uint8Array(72); for(let k=0;k<bits;k++) bytes[k>>3]|=0x80>>(k&7); replay.masks.set(bits,btoa(String.fromCharCode(...bytes))) }
+ return replay.masks.get(bits);
+};
+replay.draft = (i,tick) => { const bits=24+((replay.revision(tick)+i)%33)*16; return {rect:{x:325340+(i%8)*18,y:1781990+Math.floor(i/8)*12,w:24,h:24},pixels:bits,mask:replay.mask(bits)} };
+replay.peers = tick => raid.peers === 10 && !raid.drafts
+ ? Array.from({length:10},(_,i) => ({sessionId:'raid-peer-'+i,publisherId:'01950000-0000-7000-8000-'+String(i).padStart(12,'0'),painter:{wplaceUserId:910000+i,displayName:'Peer '+i},viewport:{x:325350+(i%4)*20+tick%8,y:1782010+Math.floor(i/4)*20,w:90,h:70},draft:null}))
+ : Array.from({length:raid.peers},(_,i) => ({sessionId:'raid-peer-'+i,publisherId:'01950000-0000-7000-8000-'+String(i).padStart(12,'0'),painter:{wplaceUserId:910000+i,displayName:'Peer '+i},viewport:{x:325340+(i%8)*12+tick%8,y:1781995+Math.floor(i/8)*10,w:90,h:70},draft:raid.drafts?replay.draft(i,tick):null}));
+// A gathering capture run of 16 painters and 2 guards; this tab paints line 0, and every member's
+// drafted count moves once a second, as the server reports it.
+replay.capture = tick => ({type:'capture',run:{id:'raid-run',team:0,painters:16,guards:2,startsAt:null,staggerMs:500,
+ members:Array.from({length:18},(_,j)=>({sessionId:j===0?'raid-self':'raid-member-'+j,painter:{wplaceUserId:920000+j,displayName:'Member '+j},drafted:j===0?0:Math.min(60,(replay.revision(tick)+j)%61)})),
+ lines:Array.from({length:18},(_,j)=>Array.from({length:60},(_,k)=>[325360+k,1782000+j*5]).flat())}});
 replay.emit = (ws,event) => ws.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(event)}));
 const NativeWebSocket = globalThis.WebSocket;
 const isWplace = host => host === 'wplace.live' || host.endsWith('.wplace.live');
@@ -100,7 +127,7 @@ class ReplaySocket extends EventTarget {
  constructor(url,protocols) {
   super(); this.url=String(url);this.protocol=this.url.includes('/telemetry/live')?'caelestis.live.v1':Array.isArray(protocols)?protocols[0]:(protocols??'');this.season=Number(new URL(url).searchParams.get('season')??0);
   replay.sockets.push(this);
-  setTimeout(()=>{this.readyState=1;this.dispatchEvent(new Event('open'));if(this.url.includes('/telemetry/presence'))replay.emit(this,{type:'presence-ready',sessionId:'raid-self',online:11,peers:replay.peers(0),regions:replay.regions(this.season),ownedRegionIds:[],canWrite:false})},20);
+  setTimeout(()=>{this.readyState=1;this.dispatchEvent(new Event('open'));if(this.url.includes('/telemetry/presence')){replay.emit(this,{type:'presence-ready',sessionId:'raid-self',online:raid.peers+1,peers:replay.peers(0),regions:raid.event?[]:replay.regions(this.season),ownedRegionIds:[],canWrite:false});if(raid.event)replay.emit(this,replay.capture(0))}},20);
  }
  send(data) { replay.blocked++;if(data==='ping')queueMicrotask(()=>this.dispatchEvent(new MessageEvent('message',{data:'pong'}))) }
  close() { if(this.readyState===3)return;this.readyState=3;this.dispatchEvent(new CloseEvent('close',{code:1000,wasClean:true})) }
@@ -114,13 +141,15 @@ globalThis.fetch=async function(input,init) {
  const method=init?.method??input.method??'GET';
  if(!isWplace(url.hostname)) {
   if(!['GET','HEAD'].includes(method.toUpperCase())) { replay.blocked++;return new Response('{}',{status:403,headers:{'content-type':'application/json'}}) }
-  if(url.pathname.includes('/work/regions'))return Response.json({regions:replay.regions(Number(url.searchParams.get('season')??0)),ownedRegionIds:[],canWrite:false});
+  if(url.pathname.includes('/work/regions'))return Response.json({regions:raid.event?[]:replay.regions(Number(url.searchParams.get('season')??0)),ownedRegionIds:[],canWrite:false});
  }
  const response=await nativeFetch.call(this,input,init);
+ // The replayed server announces capture runs, which makes it an event server.
+ if(raid.event&&!isWplace(url.hostname)&&url.pathname.endsWith('/server')&&response.ok){replay.reads.push({path:url.pathname,status:response.status});return Response.json({...await response.json(),capture:1})}
  if(!isWplace(url.hostname))replay.reads.push({path:url.pathname,status:response.status});
  return response;
 };
-replay.publish=()=>{const tick=replay.tick++;for(const ws of replay.sockets){if(ws.readyState!==1||!ws.url.includes('/telemetry/presence'))continue;replay.emit(ws,{type:'regions',regions:replay.regions(ws.season),ownedRegionIds:[]});replay.emit(ws,{type:'presence-delta',online:11,upsert:replay.peers(tick),remove:[]})}};
+replay.publish=()=>{const tick=replay.tick++;for(const ws of replay.sockets){if(ws.readyState!==1||!ws.url.includes('/telemetry/presence'))continue;if(!raid.event)replay.emit(ws,{type:'regions',regions:replay.regions(ws.season),ownedRegionIds:[]});replay.emit(ws,{type:'presence-delta',online:raid.peers+1,upsert:replay.peers(tick),remove:[]});if(raid.event&&replay.revision(tick)!==replay.revision(tick-1))replay.emit(ws,replay.capture(tick))}};
 `
 const metrics = async () =>
   Object.fromEntries(
@@ -133,6 +162,7 @@ try {
   await call('Page.enable')
   await call('Runtime.enable')
   await call('Performance.enable')
+  if (cpuProfile) await call('Profiler.enable')
   await call('Emulation.setFocusEmulationEnabled', { enabled: true })
   await call('Emulation.setCPUThrottlingRate', { rate: cpuRate })
   await call('Emulation.setDeviceMetricsOverride', {
@@ -211,6 +241,7 @@ try {
       await evaluate(
         `__caelestis.profileReset();__caelestis.profileConfigure({label:${JSON.stringify(scenario)},browserZoomPercent:Math.round(devicePixelRatio*100)});${scenario === 'idle' ? '' : 'raidReplay.timer=setInterval(raidReplay.publish,300)'}`,
       )
+      if (cpuProfile) await call('Profiler.start')
       const before = await metrics()
       const start = Date.now()
       if (cold) {
@@ -279,6 +310,11 @@ try {
       } else await sleep(scenario === 'hover' || cold ? hoverMs : 10000)
       await evaluate('clearInterval(raidReplay.timer)')
       const after = await metrics()
+      if (cpuProfile) {
+        const { profile: cpu } = await call('Profiler.stop')
+        await mkdir(dirname(output), { recursive: true })
+        await writeFile(`${output}.${repeat}-${scenario}.cpuprofile`, JSON.stringify(cpu))
+      }
       const profile = await evaluate('__caelestis.profile()')
       // Profiling disables context collection too. Read the workload after the measured window,
       // briefly enabling the existing setting without attributing that work to the off sample.
@@ -299,8 +335,12 @@ try {
       const currentEnvironment = observedContext.environment
       assert.equal(currentEnvironment.viewport.width, environment.width, 'Viewport changed')
       assert.equal(currentEnvironment.devicePixelRatio, environment.dpr, 'DPR changed')
-      assert.equal(observedContext.collaboration.regions, 37, 'Claim replay was not rendered')
-      assert.equal(observedContext.collaboration.peers, 10, 'Peer replay was not rendered')
+      assert.equal(
+        observedContext.collaboration.regions,
+        expectedRegions,
+        'Claim replay was not rendered',
+      )
+      assert.equal(observedContext.collaboration.peers, peerCount, 'Peer replay was not rendered')
       const labels = await evaluate(
         '[...document.querySelectorAll("#caelestis-presence-labels span")].map(n=>({text:n.textContent,transform:n.style.transform}))',
       )
@@ -312,7 +352,7 @@ try {
       if (['hover', 'cold-hover'].includes(scenario))
         assert.equal(
           labels.some(({ text }) => text.includes('Claim')),
-          layers === 'all' || layers === 'claims',
+          !event && (layers === 'all' || layers === 'claims'),
           `${scenario} claim label does not match the visible layers`,
         )
       runs.push({
@@ -341,12 +381,17 @@ try {
             workloadSha256: createHash('sha256')
               .update(prelude)
               .update(String(hoverMs))
-              .update(JSON.stringify({ camera, cpuRate, scenarios, layers }))
+              .update(
+                JSON.stringify({ camera, cpuRate, scenarios, layers, event, peerCount, drafts }),
+              )
               .digest('hex'),
             hoverMs,
             profiling,
             cpuRate,
             layers,
+            event,
+            peerCount,
+            drafts,
             browser: info.Browser,
             camera,
             environment,

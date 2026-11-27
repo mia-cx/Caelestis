@@ -14,6 +14,7 @@ import { presenceRgb } from '../presence-colour.js'
 import {
   hoveredSceneItems,
   presenceScene,
+  type SceneItem,
   type SceneItemId,
   type SceneKind,
   setSceneMotion,
@@ -362,9 +363,17 @@ const shapeTexels = ({
 
 const WHITE = [1, 1, 1] as const
 
-/** The scene as drawable items. A draft too large to carry its mask is only its viewport here. */
-const currentItems = (): Item[] =>
-  presenceScene()
+let drawable: { readonly scene: readonly SceneItem[]; readonly items: readonly Item[] } | null =
+  null
+
+/**
+ * The scene as drawable items, rebuilt only when the scene is. A draft too large to carry its mask
+ * is only its viewport here.
+ */
+const currentItems = (): readonly Item[] => {
+  const scene = presenceScene()
+  if (drawable?.scene === scene) return drawable.items
+  const items = scene
     .filter((item) => item.kind !== 'draft' || item.mask !== null)
     .map((item) => ({
       key: item.id,
@@ -376,6 +385,9 @@ const currentItems = (): Item[] =>
       mine: item.mine,
       follows: item.follows,
     }))
+  drawable = { scene, items }
+  return items
+}
 
 const tileRect = (tile: TileQuad): PresenceRect => ({
   x: tile.tile.x * TILE_SIZE,

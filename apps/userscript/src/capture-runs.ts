@@ -306,19 +306,44 @@ const masked = (kind: CaptureItemKind, pixels: RegionShapePixels, colour: Rgb): 
   colour,
 })
 
+const NO_ITEMS: readonly CaptureItem[] = []
+
+/**
+ * Remembers the value last built from the same parts, compared by identity. The map asks for the
+ * capture items every frame; handing back the same masks lets it skip rebuilding the scene and
+ * re-uploading their textures until something they come from changes.
+ */
+const lastBuilt = <T>(): ((parts: readonly unknown[], build: () => T) => T) => {
+  let held: { readonly parts: readonly unknown[]; readonly value: T } | null = null
+  return (parts, build) => {
+    if (
+      held === null ||
+      held.parts.length !== parts.length ||
+      held.parts.some((part, index) => part !== parts[index])
+    )
+      held = { parts, value: build() }
+    return held.value
+  }
+}
+const candidatesBuilt = lastBuilt<readonly CaptureItem[]>()
+const demoBuilt = lastBuilt<CaptureItem | null>()
+const shownBuilt = lastBuilt<readonly CaptureItem[]>()
+
 /** The plans an administrator is choosing between, while the run they were planned for gathers. */
-const candidateItems = (run: CaptureRun, colour: Rgb): CaptureItem[] =>
-  run.startsAt !== null || proposalsRun !== run.id
-    ? []
-    : proposals
-        .filter((proposal) => !sameLines(run.lines, proposal.lines))
-        .flatMap((proposal) => [
-          ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
-          ...proposal.lines.flatMap((line) => {
-            const pixels = pixelMask(linePixels(line))
-            return pixels === null ? [] : [masked('pending', pixels, colour)]
-          }),
-        ])
+const candidateItems = (run: CaptureRun, colour: Rgb): readonly CaptureItem[] =>
+  candidatesBuilt([run, proposals, proposalsRun], () =>
+    run.startsAt !== null || proposalsRun !== run.id
+      ? NO_ITEMS
+      : proposals
+          .filter((proposal) => !sameLines(run.lines, proposal.lines))
+          .flatMap((proposal) => [
+            ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
+            ...proposal.lines.flatMap((line) => {
+              const pixels = pixelMask(linePixels(line))
+              return pixels === null ? [] : [masked('pending', pixels, colour)]
+            }),
+          ]),
+  )
 
 /**
  * What the shown run, or the plans an administrator is choosing between, puts on the map, all in
@@ -328,7 +353,7 @@ const candidateItems = (run: CaptureRun, colour: Rgb): CaptureItem[] =>
 export const captureItems = (): readonly CaptureItem[] => {
   const view = active()
   const run = view?.run ?? null
-  if (view === null || run === null) return []
+  if (view === null || run === null) return NO_ITEMS
   const { colour, dark } = teamShades(run.team)
   if (run.lines.length === 0) return candidateItems(run, colour)
   const mine = memberIndex(view)
@@ -353,17 +378,25 @@ export const captureItems = (): readonly CaptureItem[] => {
   }
   // Candidates from Propose again show beside the published plan until Go.
   const myLine = mine < 0 ? undefined : run.lines[mine]
-  const shown = [
-    ...held.items,
-    ...(myLine === undefined ? [] : mineItems(run.team, myLine, colour)),
-    ...candidateItems(run, colour),
-  ]
-  if (!demoPlaying(view) || planView === null) return shown
+  const own = myLine === undefined ? NO_ITEMS : mineItems(run.team, myLine, colour)
+  const candidates = candidateItems(run, colour)
+  const plan = planView
   // Under reduced motion the guide holds still on the whole route instead of crawling.
-  const frame = pixelMask(
-    reducedMotion() ? planView.demo.flat() : (planView.demo[demoStep % planView.demo.length] ?? []),
-  )
-  return frame === null ? shown : [...shown, masked('demo', frame, colour)]
+  const step =
+    plan === null || !demoPlaying(view) ? null : reducedMotion() ? -1 : demoStep % plan.demo.length
+  const demo =
+    plan === null || step === null
+      ? null
+      : demoBuilt([plan, step, run.team], () => {
+          const frame = pixelMask(step < 0 ? plan.demo.flat() : (plan.demo[step] ?? []))
+          return frame === null ? null : masked('demo', frame, colour)
+        })
+  return shownBuilt([held.items, own, candidates, demo], () => [
+    ...held.items,
+    ...own,
+    ...candidates,
+    ...(demo === null ? [] : [demo]),
+  ])
 }
 
 /** This painter's team in the event, from Wplace's own leaderboard. */
