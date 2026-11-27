@@ -1,5 +1,19 @@
 # @caelestis/backend
 
+## 1.2.0
+
+### Minor Changes
+
+- 5e72766: Presence rooms hold capture runs: an administrator opens one with a group size, painters join, and the server times every painter's slot for the territory event and answers clock syncs.
+- 5e72766: Capture runs run only on event servers: set `EVENT_SERVER=true`, or `server.eventServer` in the Helm chart, to serve them and advertise them to the userscript.
+- 5e72766: A capture run is for the opening administrator's event team: only that team's painters can join it, and every member sees the wall in that team's colours.
+- 83608d0: Event-runner tokens run capture runs without admin rights, and each one is minted as a one-use invite that its holder trades for a token of their own.
+- 5a27995: Event servers keep each event team to itself: painters see only their own team's viewports, drafts and capture run, each team runs its own capture, and claims are off.
+
+### Patch Changes
+
+- e270bfd: On an event server, the presence room keeps peers' viewports and drafts on time with up to 2,048 painters: a presence tick takes about a third as long, so it no longer overruns its 300 ms window.
+
 ## 1.1.1
 
 ### Patch Changes
