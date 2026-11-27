@@ -100,7 +100,7 @@ export const accessTokensModel = (
       ...(token.bootstrap !== true && view.revoking.has(token.tokenHash) ? { pending: true } : {}),
     })),
     hasMore: cached?.nextCursor !== null && cached?.nextCursor !== undefined,
-    ...(server.info?.capture === 1 ? { eventRunners: true } : {}),
+    ...(server.info?.eventRunners === 1 ? { eventRunners: true } : {}),
     ...(view.loadingMore ? { loadingMore: true } : {}),
     ...(view.creating ? { creating: true } : {}),
     ...(view.createError === undefined ? {} : { createError: view.createError }),
