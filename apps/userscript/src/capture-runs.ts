@@ -122,14 +122,16 @@ let joinedRun: string | null = null
 let lastDrafted = -1
 
 /**
- * The run to show, across every event server: the one this painter is in, else one gathering for
- * their team, else any run, else a server this tab may open one on.
+ * The run to show, across every event server: the one this painter is in, else one they administer
+ * (so a coordinator who paints nothing keeps Close after Go), else one gathering for their team,
+ * else any run, else a server this tab may open one on.
  */
 const active = (): CaptureView | null => {
   const views = captureViews().filter((view) => view.server.info?.capture === 1)
   const team = myTeam()
   return (
     views.find((view) => memberIndex(view) >= 0) ??
+    views.find((view) => view.run !== null && hasServerAdminToken(view.server)) ??
     views.find((view) => view.run?.startsAt === null && view.run.team === team) ??
     views.find((view) => view.run !== null) ??
     views.find((view) => hasServerAdminToken(view.server)) ??
