@@ -149,32 +149,24 @@ const localTime = (view: CaptureView, serverTime: number): number | null =>
   view.clockOffset === null ? null : serverTime - view.clockOffset
 
 /**
- * This painter's event team and the Wplace account it was read for. Event servers share presence
- * and capture runs within a team, so it decides which run this tab sees; everything about a run
- * itself uses the run's own team.
+ * This painter's event team, once read. Event servers share presence and capture runs within a
+ * team, so it decides which run this tab sees; everything about a run itself uses the run's own
+ * team.
  */
-let teamRead: { readonly account: number; readonly team: TerritoryTeam } | null = null
+let myTeam: TerritoryTeam | null = null
 
-/** This painter's event team, while the account it was read for is still signed in. */
-const myTeam = (): TerritoryTeam | null => {
-  const account = accountIdentity()?.wplaceUserId
-  return teamRead !== null && teamRead.account === account ? teamRead.team : null
-}
-
-/** Read this painter's team again, from Wplace's own leaderboard. */
+/** Read this painter's team from Wplace's own leaderboard, until it is known. */
 const refreshTeam = async (): Promise<TerritoryTeam | null> => {
-  const account = accountIdentity()?.wplaceUserId
+  if (myTeam !== null) return myTeam
   teamTriedAt = localClock()
-  const team = await loadTeam()
-  if (account !== undefined && team !== null) teamRead = { account, team }
-  return team
+  myTeam = await loadTeam()
+  return myTeam
 }
 
-/** Keep event servers told this painter's team, and read it again for a new account. */
+/** Keep event servers told this painter's team, reading it until it is known. */
 const syncTeam = (): void => {
-  const team = myTeam()
-  setPresenceTeam(team)
-  if (team !== null || accountIdentity() === null) return
+  setPresenceTeam(myTeam)
+  if (myTeam !== null || accountIdentity() === null) return
   if (localClock() - teamTriedAt < TEAM_RETRY_MS) return
   if (!captureViews().some((view) => isEventServer(view.server.info))) return
   void refreshTeam()
@@ -810,13 +802,11 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       proposals = []
       break
     case 'open': {
-      const account = accountIdentity()?.wplaceUserId
-      // The run is for this administrator's team, read fresh in case the account changed.
+      // The run is for this administrator's team.
       void refreshTeam()
         .then((team) => {
-          // The administrator chose this server and account; a change while Wplace answered drops it.
-          if (accountIdentity()?.wplaceUserId !== account || active()?.server.url !== server.url)
-            return
+          // The administrator chose this server; a change while Wplace answered drops it.
+          if (active()?.server.url !== server.url) return
           setPresenceTeam(team)
           if (team === null) message = 'Join a team in the event first.'
           else {
@@ -996,8 +986,8 @@ export const installCaptureRuns = (): void => {
     render()
   })
   onStateChange(render)
-  // The account can load after the last presence change, and a new one can sign in at any time;
-  // the team follows it whether or not anything else changes.
+  // The account can load after the last presence change; the team is read once it has, whether
+  // or not anything else changes.
   setInterval(syncTeam, TEAM_RETRY_MS)
   // A style swap attaches the same map again; follow each map once.
   let followed: MapLike | null = null

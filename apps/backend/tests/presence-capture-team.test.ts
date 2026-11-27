@@ -88,7 +88,7 @@ it('sends the run of the team a session switched to, never a late read of the on
     const update = (team: number) =>
       coordinator.webSocketMessage(socket, JSON.stringify({ type: 'presence-update', team }))
 
-    // Green's read stalls; the account switches to Orange, whose read answers at once.
+    // Green's read stalls; the session then reports Orange, whose read answers at once.
     update(GREEN)
     update(ORANGE)
     await vi.waitFor(() => expect(received.filter((e) => e.type === 'capture')).toHaveLength(1))

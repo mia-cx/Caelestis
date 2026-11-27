@@ -677,7 +677,7 @@ export class PresenceCoordinator<Client> {
     } satisfies Attachment
     socket.serializeAttachment(updated)
     if (team !== undefined && team !== attachment.team) {
-      // A new team, as after switching Wplace accounts: leave the old team's run, see the new one's.
+      // A new team: leave the old team's run, see the new one's.
       const left = attachment.team
       if (left !== undefined)
         this.updateCapture(left, (run) => run && leaveCapture(run, attachment.sessionId))

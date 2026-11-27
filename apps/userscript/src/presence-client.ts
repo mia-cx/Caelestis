@@ -115,8 +115,6 @@ interface ClockSample {
 interface Connection {
   readonly server: ServerConnection
   socket: WebSocket | null
-  /** The Wplace account the socket opened as; an event socket retires when it changes. */
-  account: number | null
   sessionId: string | null
   peers: Map<string, PresencePeer>
   capture: CaptureRun | null
@@ -162,13 +160,7 @@ const local: {
   quickClaims: readonly PresenceRect[]
   /** This painter's event team, which event servers share presence and capture runs within. */
   team: TerritoryTeam | null
-  /** The account `team` was reported for; another account's team is not this one's. */
-  teamAccount: number | null
-} = { viewport: null, draft: null, quickClaims: [], team: null, teamAccount: null }
-
-/** The current account's event team, once it is known. */
-const currentTeam = (): TerritoryTeam | null =>
-  local.teamAccount === (accountIdentity()?.wplaceUserId ?? null) ? local.team : null
+} = { viewport: null, draft: null, quickClaims: [], team: null }
 
 const changed = (): void => {
   revision++
@@ -279,22 +271,16 @@ const drain = (connection: Connection): void => {
   }, sendWait(connection))
 }
 
-/** What this tab is willing to publish to `connection` right now. */
-const effective = (connection: Connection) => {
-  const event = isEventServer(connection.server.info)
-  const team = currentTeam()
-  // An event server shares presence within a team, so nothing goes before this account's is known.
-  const shown = canPublish() && (!event || team !== null)
-  return {
-    viewport: shown ? local.viewport : null,
-    draft: shown ? local.draft : null,
-    // A hidden tab is still painting; its quick claims end with the paint session or the tab.
-    // An event server takes none.
-    quickClaims: getState().sharePresence && !event ? local.quickClaims : [],
-    // The team is no presence of its own: a hidden tab still needs its team's capture run.
-    team,
-  }
-}
+/** What this tab is willing to publish to `connection` right now: the local state, or nothing. */
+const effective = (connection: Connection): typeof local => ({
+  ...(canPublish() ? local : { viewport: null, draft: null }),
+  // A hidden tab is still painting; its quick claims end with the paint session or the tab.
+  // An event server takes none.
+  quickClaims:
+    getState().sharePresence && !isEventServer(connection.server.info) ? local.quickClaims : [],
+  // The team is no presence of its own: a hidden tab still needs its team's capture run.
+  team: local.team,
+})
 
 /**
  * Per channel: what to publish, whether it differs from what was sent, and how long until it may
@@ -556,7 +542,6 @@ const open = (connection: Connection): void => {
     return
   }
   connection.socket = socket
-  connection.account = identity.wplaceUserId
   socket.addEventListener('open', () => {
     if (connection.socket !== socket) return
     if (socket.protocol !== PRESENCE_PROTOCOL_V1) {
@@ -610,7 +595,6 @@ const reconcile = (): void => {
     connections.set(owner, {
       server,
       socket: null,
-      account: null,
       sessionId: null,
       peers: new Map(),
       capture: null,
@@ -737,7 +721,7 @@ export const sendCapture = (server: ServerConnection, event: CaptureClientEvent)
   const connection = connectionFor(server)
   if (connection === undefined || !isOpen(connection)) return false
   // The server acts on the run of the team the session reported, so the team goes first.
-  const team = currentTeam()
+  const { team } = local
   if (team !== null && connection.sent.team !== team) {
     connection.sent.team = team
     enqueue(connection, () => ({ type: 'presence-update', team }))
@@ -774,31 +758,10 @@ export const quickClaimsAvailable = (): boolean =>
       isOpen(connection) && connection.canWrite && !isEventServer(connection.server.info),
   )
 
-/**
- * Retire event sessions opened as another Wplace account, as after signing out or switching. The
- * server drops the old session from its team and run; the new one publishes once this account's
- * team is known.
- */
-const followAccount = (): void => {
-  const account = accountIdentity()?.wplaceUserId ?? null
-  for (const connection of connections.values()) {
-    if (!isEventServer(connection.server.info) || connection.account === account) continue
-    if (connection.socket !== null) closeConnection(connection)
-    // Opens once an account is signed in, and records it as the socket's.
-    open(connection)
-  }
-}
-
-/**
- * Report this painter's event team to event servers, which share presence within a team. Call it
- * whenever the account may have changed: null while the current account's team is unknown.
- */
+/** Report this painter's event team to event servers, which share presence within a team. */
 export const setPresenceTeam = (team: TerritoryTeam | null): void => {
-  followAccount()
-  const account = accountIdentity()?.wplaceUserId ?? null
-  if (team === local.team && account === local.teamAccount) return
+  if (team === local.team) return
   local.team = team
-  local.teamAccount = account
   scheduleAll()
 }
 
