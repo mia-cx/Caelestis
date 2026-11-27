@@ -8,6 +8,7 @@ import {
   PRESENCE_PROTOCOL_V1,
   type PresenceClientEvent,
   type PresenceServerEvent,
+  type RegionClaim,
   type TerritoryTeam,
   uuidV7,
 } from '@caelestis/shared'
@@ -280,7 +281,7 @@ it('keeps claims made before the switch to event mode out of it, and does not re
   const regions = (server: { base: string; painterToken: string }) =>
     fetch(`${server.base}/work/regions?season=0&painterId=1`, {
       headers: { authorization: `Bearer ${server.painterToken}` },
-    }).then((response) => response.json())
+    }).then((response) => response.json() as Promise<{ regions: RegionClaim[] }>)
   const put = await fetch(`${before.base}/work/regions/${uuidV7()}?season=0`, {
     method: 'PUT',
     headers: { authorization: `Bearer ${before.painterToken}`, 'content-type': 'application/json' },
