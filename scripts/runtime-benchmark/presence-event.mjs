@@ -39,15 +39,21 @@ const {
 //   node scripts/runtime-benchmark/presence-event.mjs --run DIST USERS OUTPUT.json
 //
 // BENCH_USERS (1024,2048), BENCH_PAIRS (3), BENCH_WARMUP_STEPS (20) and BENCH_MEASURE_STEPS (100)
-// size the comparison; one step is one 300 ms presence tick. BENCH_HASH=1 hashes every byte each
-// session receives, to prove two builds send identical messages; it adds driver CPU, so hashed
-// runs are not timing results. BENCH_CPU_PROFILE=DIR writes a Node CPU profile per run.
+// size the comparison; one step is one 300 ms presence tick. By default the driver runs each tick
+// itself after the step's updates. BENCH_CADENCE=1 instead leaves the coordinator's own timer
+// running under continuous arrivals, to measure how often deltas actually reach a session.
+// BENCH_HASH=1 hashes every byte each session receives, to prove two builds send identical
+// messages; it adds driver CPU, so hashed runs are not timing results, and it needs the driven
+// ticks. BENCH_CPU_PROFILE=DIR writes a Node CPU profile per run.
 
 const TEAMS = 4
 /** Share of sessions that crowd the borders between team quadrants; the rest roam the arena. */
 const BORDER_SHARE = 0.75
-/** Every this many sessions, one parses its messages and is checked against the expected peers. */
-const OBSERVER_EVERY = 16
+/**
+ * In every group of this many sessions, the first `TEAMS` parse their messages and are checked
+ * against the expected peers. Teams are assigned round-robin, so every team has observers.
+ */
+const OBSERVER_GROUP = 64
 /** Pixels one painter drafts at once: Territory Weekend's full charge. */
 const DRAFT_PIXELS = 60
 /** Updates are spread over the step in this many slices, as sockets deliver them between ticks. */
@@ -96,6 +102,7 @@ async function compare(baseline, candidate, output) {
         await writeFile(`${output}-comparison.json`, JSON.stringify(results, null, 2))
         console.log(
           `${users} ${pair} ${variant}: tick p50 ${result.tickMs.p50.toFixed(1)} p95 ${result.tickMs.p95.toFixed(1)} ms, ` +
+            `delivery gap p50 ${result.deliveryGapMs.p50?.toFixed(0)} p95 ${result.deliveryGapMs.p95?.toFixed(0)} ms, ` +
             `CPU ${result.cpuMsPerTick.toFixed(0)} ms/tick, select ${result.stageMs.select.toFixed(0)} serialize ${result.stageMs.serialize.toFixed(0)} ms, loop p99 ${result.eventLoopMs.p99.toFixed(1)} ms, ` +
             `${(result.bytesPerSecond / 1e6).toFixed(1)} MB/s`,
         )
@@ -260,6 +267,8 @@ async function run(root, users, output) {
   const warmupSteps = Number(process.env.BENCH_WARMUP_STEPS ?? 20)
   const measuredSteps = Number(process.env.BENCH_MEASURE_STEPS ?? 100)
   const hashing = process.env.BENCH_HASH === '1'
+  const cadence = process.env.BENCH_CADENCE === '1'
+  assert(!(hashing && cadence), 'The timer batches updates by arrival time, so streams differ')
   const sessions = model(users)
   const byId = new Map(sessions.map((session) => [session.sessionId, session]))
   for (const session of sessions) moveViewport(session)
@@ -279,8 +288,9 @@ async function run(root, users, output) {
   const traceHash = createHash('sha256')
   const now = Date.now()
   for (const session of sessions) {
-    const observer = session.index % OBSERVER_EVERY === 0
+    const observer = session.index % OBSERVER_GROUP < TEAMS
     session.inbox = observer ? [] : null
+    session.deliveries = observer ? [] : null
     session.peers = observer ? new Map() : null
     session.hash = hashing ? createHash('sha256') : null
     const { client } = host.connect({
@@ -307,6 +317,8 @@ async function run(root, users, output) {
         traffic.bytes += message.length
         traffic.messages++
         session.inbox?.push(message)
+        if (measuring && message.startsWith('{"type":"presence-delta"'))
+          session.deliveries?.push(performance.now())
         session.hash?.update(message)
       },
       close(code, reason) {
@@ -322,6 +334,18 @@ async function run(root, users, output) {
     renewRegions: async () => {},
   }
   const timings = new IngestTimings()
+  /** Whether the measured phase is running; deliveries and tick samples count only then. */
+  let measuring = false
+  const ticks = []
+  /** Coordinator stage time summed over the measured ticks. */
+  const stages = {}
+  const record = timings.record.bind(timings)
+  timings.record = (command, stage, durationMs) => {
+    record(command, stage, durationMs)
+    if (!measuring || command !== 'presence') return
+    if (stage === 'total') ticks.push(durationMs)
+    stages[stage] = (stages[stage] ?? 0) + durationMs
+  }
   room = new PresenceCoordinator(
     host,
     { season: 0, surface: WORLD_TEMPLATE_SURFACE },
@@ -330,9 +354,9 @@ async function run(root, users, output) {
     async () => {},
     true,
   )
-  // The driver runs each tick itself, after the step's updates, so every build sees the same
-  // updates in the same tick even when a loaded machine delays the slices.
-  room.stop()
+  // Unless measuring cadence, the driver runs each tick itself after the step's updates, so every
+  // build sees the same updates in the same tick even when a loaded machine delays the slices.
+  if (!cadence) room.stop()
 
   /** Apply what each observer received, and check no other team's session reached it. */
   const drainObservers = () => {
@@ -358,9 +382,6 @@ async function run(root, users, output) {
   await room.alarm()
   drainObservers()
 
-  const ticks = []
-  /** Coordinator stage time summed over the measured ticks. */
-  const stages = {}
   const messageMs = []
   const loop = monitorEventLoopDelay({ resolution: 10 })
   let cpu
@@ -368,9 +389,10 @@ async function run(root, users, output) {
   let rssTotal = 0
   let bytesAtStart = 0
   let messagesAtStart = 0
+  const base = performance.now()
   for (let step = 0; step < warmupSteps + measuredSteps; step++) {
     if (step === warmupSteps) {
-      timings.reset()
+      measuring = true
       bytesAtStart = traffic.bytes
       messagesAtStart = traffic.messages
       loop.enable()
@@ -390,7 +412,8 @@ async function run(root, users, output) {
       traceHash.update(text)
       slices[Math.floor((session.viewportOffset * SLICES) / PRESENCE_TICK_MS)].push([session, text])
     }
-    const stepStarted = performance.now()
+    // Under the coordinator's timer, arrivals keep to a fixed schedule as real clients would.
+    const stepStarted = cadence ? base + step * PRESENCE_TICK_MS : performance.now()
     const until = (offset) =>
       new Promise((done) => setTimeout(done, Math.max(0, stepStarted + offset - performance.now())))
     for (let slice = 0; slice < SLICES; slice++) {
@@ -401,21 +424,29 @@ async function run(root, users, output) {
         if (measured) messageMs.push(performance.now() - at)
       }
     }
-    // The coordinator's own timer would fire one tick interval after the step's first update.
-    await until(PRESENCE_TICK_MS)
-    await room.alarm()
-    if (measured) {
-      const snapshot = timings.read(true).commands.presence
-      ticks.push(snapshot.total.totalMs)
-      for (const stage of ['select', 'serialize'])
-        stages[stage] = (stages[stage] ?? 0) + (snapshot[stage]?.totalMs ?? 0)
-      rssTotal += process.memoryUsage.rss()
+    if (!cadence) {
+      // The coordinator's own timer would fire one tick interval after the step's first update.
+      await until(PRESENCE_TICK_MS)
+      await room.alarm()
     }
+    if (measured) rssTotal += process.memoryUsage.rss()
     drainObservers()
   }
+  if (cadence) await new Promise((done) => setTimeout(done, PRESENCE_TICK_MS))
   const wallMs = performance.now() - started
   const used = process.cpuUsage(cpu)
+  measuring = false
   loop.disable()
+  if (cadence) {
+    // Settle the last arrivals before checking the observers' final state.
+    room.stop()
+    await new Promise((done) => setTimeout(done, PRESENCE_TICK_MS * 2))
+    await room.alarm()
+    drainObservers()
+  }
+  const deliveryGaps = sessions.flatMap(({ deliveries }) =>
+    (deliveries ?? []).slice(1).map((at, index) => at - deliveries[index]),
+  )
 
   for (const observer of sessions) {
     if (observer.peers === null) continue
@@ -440,7 +471,11 @@ async function run(root, users, output) {
   const result = {
     users,
     teams: TEAMS,
+    mode: cadence ? 'coordinator timer, continuous arrivals' : 'driver-run ticks',
     observers: sessions.filter(({ peers }) => peers !== null).length,
+    observerTeams: [
+      ...new Set(sessions.filter(({ peers }) => peers !== null).map(({ team }) => team)),
+    ],
     warmupSteps,
     measuredSteps,
     runtime: process.version,
@@ -453,12 +488,14 @@ async function run(root, users, output) {
       : null,
     tickMs: { ...distribution(ticks), mean: mean(ticks) },
     stageMs: stages,
+    deliveryGapMs: distribution(deliveryGaps),
     messageMs: { ...distribution(messageMs), totalMs: messageMs.reduce((a, b) => a + b, 0) },
     wallMs,
     realtimeFactor: wallMs / (measuredSteps * PRESENCE_TICK_MS),
+    ticks: ticks.length,
     cpuMs,
     cpuPercent: (cpuMs / wallMs) * 100,
-    cpuMsPerTick: cpuMs / measuredSteps,
+    cpuMsPerTick: cpuMs / ticks.length,
     eventLoopMs: {
       p50: loop.percentile(50) / 1e6,
       p99: loop.percentile(99) / 1e6,

@@ -139,6 +139,8 @@ export class PresenceCoordinator<Client> {
   private regionSnapshot: string | null = null
   private regionVersion = 0
   private timer: ReturnType<typeof setTimeout> | null = null
+  /** When the last tick started, so the next one keeps to the tick interval however long it ran. */
+  private tickStartedAt = Number.NEGATIVE_INFINITY
   private stopped = false
   /** Per team, capture run changes one at a time, each reading the run the previous one stored. */
   private readonly captureQueues = new Map<TerritoryTeam, Promise<CaptureRun | null>>()
@@ -354,12 +356,21 @@ export class PresenceCoordinator<Client> {
     }
   }
 
+  /**
+   * Schedule a tick for a change, no sooner than `PRESENCE_TICK_MS` after the last tick started.
+   * Counting from the start keeps a busy room on a 300 ms cadence: the update that arrives
+   * while a tick runs does not add that tick's work to the next interval. A room idle for longer
+   * than the interval ticks at once.
+   */
   private armTick(): void {
     if (this.stopped || this.timer !== null) return
-    this.timer = setTimeout(() => {
-      this.timer = null
-      this.state.waitUntil(this.tick())
-    }, PRESENCE_TICK_MS)
+    this.timer = setTimeout(
+      () => {
+        this.timer = null
+        this.state.waitUntil(this.tick())
+      },
+      Math.min(PRESENCE_TICK_MS, Math.max(0, this.tickStartedAt + PRESENCE_TICK_MS - Date.now())),
+    )
   }
 
   private async armAlarm(open?: readonly LiveSession[]): Promise<void> {
@@ -387,6 +398,7 @@ export class PresenceCoordinator<Client> {
   }
 
   private async tick(): Promise<void> {
+    this.tickStartedAt = Date.now()
     const queued = performance.now()
     await this.sessions.revoke(async () =>
       this.timings.timed('presence', 'total', async () => {
