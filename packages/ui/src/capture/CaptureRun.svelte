@@ -151,7 +151,7 @@
 
     {#if model.admin && gathering}
       <div class="plans">
-        <Button label={model.proposing ? 'Proposing…' : model.proposals.length > 0 ? 'Propose again' : 'Propose plans'} size="small" disabled={model.proposing} onclick={() => onIntent({ type: 'propose' })} />
+        <Button label={model.proposing ? 'Stop planning' : model.proposals.length > 0 ? 'Propose again' : 'Propose plans'} size="small" onclick={() => onIntent({ type: 'propose' })} />
         {#if model.proposals.length > 0}
           <ul aria-label="Plans">
             {#each model.proposals as proposal (proposal.id)}

@@ -65,7 +65,10 @@ export interface CaptureRunModel {
   readonly canJoin: boolean
   /** Administrator only: plans to choose from, best first; empty until proposed. */
   readonly proposals: readonly CaptureProposal[]
-  /** Administrator only: proposals are being computed from the live map. */
+  /**
+   * Administrator only: plans are re-planned live from the map until one is published, Go is
+   * pressed, or `propose` stops it.
+   */
   readonly proposing: boolean
   /** Administrator only: Go is allowed (a plan is published and every line has a painter). */
   readonly canStart: boolean
@@ -93,6 +96,7 @@ export type CaptureRunIntent =
   | { readonly type: 'leave' }
   /** Move a member one place earlier (-1) or later (1) in the order. */
   | { readonly type: 'move'; readonly id: string; readonly by: -1 | 1 }
+  /** Start live planning, or stop it while it runs. */
   | { readonly type: 'propose' }
   | { readonly type: 'publish'; readonly id: string }
   /** Fly the map to this painter's line. */

@@ -1,7 +1,5 @@
+import plannerSource from 'worker:capture-planner'
 import {
-  type ArenaPixel,
-  arenaToWorld,
-  borderBoxPlanner,
   CAPTURE_LEAD_MS,
   type CaptureRun,
   captureSlot,
@@ -12,11 +10,8 @@ import {
   isCaptureGuard,
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
-  NO_TEAM,
   PALETTE_RGB,
   type RegionShapePixels,
-  simulateCapture,
-  TERRITORY_CHARGES,
   TERRITORY_TEAMS,
   type TerritoryMap,
   type TerritoryTeam,
@@ -31,6 +26,7 @@ import type {
   CaptureRunModel,
 } from '@caelestis/ui/elements'
 import { type CaptureCue, primeCaptureAudio, scheduleCaptureCues } from './capture-cues.js'
+import { type PlannedProposal, type PlanRequest, planProposals } from './capture-planning.js'
 import {
   anchorRects,
   anchorWatch,
@@ -106,7 +102,6 @@ interface Proposal extends CaptureProposal {
 let painters = 3
 let guards = MAX_CAPTURE_GUARDS
 let proposals: readonly Proposal[] = []
-let proposing = false
 let message: string | undefined
 let element: CaelestisElement<'caelestis-capture-run'> | null = null
 let timer: ReturnType<typeof setInterval> | null = null
@@ -310,25 +305,6 @@ export const captureItems = (): readonly CaptureItem[] => {
   return frame === null ? shown : [...shown, masked('demo', frame, colour)]
 }
 
-/** What a proposal reads as: the team its wall cuts into, and whether it uses the canvas edge. */
-const proposalLabel = (map: TerritoryMap, wall: readonly ArenaPixel[]): string => {
-  const counts = new Map<number, number>()
-  let edge = false
-  const last = map.size - 1
-  for (const { x, y } of wall) {
-    const owner = map.owner[y * map.size + x] as number
-    counts.set(owner, (counts.get(owner) ?? 0) + 1)
-    edge ||= x === 0 || y === 0 || x === last || y === last
-  }
-  const [enemy] =
-    [...counts].filter(([owner]) => owner !== NO_TEAM).sort((a, b) => b[1] - a[1])[0] ?? []
-  const name =
-    enemy === undefined
-      ? 'open ground'
-      : (TERRITORY_TEAMS[enemy as TerritoryTeam]?.key ?? 'open ground')
-  return `Into ${name}${edge ? ', on the canvas edge' : ''}`
-}
-
 /** This painter's team in the event, from Wplace's own leaderboard. */
 const loadTeam = async (): Promise<TerritoryTeam | null> => {
   const response = await fetch(`${BACKEND_ORIGIN}/territory/leaderboard`, {
@@ -411,70 +387,144 @@ const watchAnchor = (view: CaptureView | null, run: CaptureRun | null, index: nu
   )
 }
 
-/** Plan walls for the run's group size from the live map, best first. */
-const propose = async (groupSize: number, guardCount: number): Promise<void> => {
-  proposing = true
-  message = undefined
-  render()
+/** How often live planning checks Wplace's map for a change; it re-plans only when it changed. */
+const PLAN_INTERVAL_MS = 500
+
+let planning = false
+let planBusy = false
+/** Team, group and snapshot of the last pass, so an unchanged map is not planned twice. */
+let planInputs = ''
+let planTimer: ReturnType<typeof setInterval> | null = null
+/** Whether this round of planning has flown the map to its best plan yet. */
+let planFlown = false
+
+/** FNV-1a over the snapshot: enough to tell one five-second map from the next. */
+const hashBytes = (bytes: Uint8Array): number => {
+  let hash = 0x811c9dc5
+  for (const byte of bytes) hash = Math.imul(hash ^ byte, 0x01000193)
+  return hash >>> 0
+}
+
+let plannerWorker: Worker | null = null
+let plannerFailed = false
+let plannerJob = 0
+const plannerWaiting = new Map<
+  number,
+  (reply: { proposals?: PlannedProposal[]; error?: string }) => void
+>()
+
+/** Plan on the worker, or inline where the page allows no worker. */
+const runPlanner = async (request: PlanRequest): Promise<PlannedProposal[]> => {
+  if (plannerWorker === null && !plannerFailed && plannerSource !== '') {
+    try {
+      const url = URL.createObjectURL(new Blob([plannerSource], { type: 'text/javascript' }))
+      plannerWorker = new Worker(url)
+      URL.revokeObjectURL(url)
+      plannerWorker.onmessage = ({ data }) => {
+        plannerWaiting.get(data.id)?.(data)
+        plannerWaiting.delete(data.id)
+      }
+      plannerWorker.onerror = () => {
+        plannerFailed = true
+        plannerWorker?.terminate()
+        plannerWorker = null
+        for (const settle of plannerWaiting.values()) settle({ error: 'planner worker failed' })
+        plannerWaiting.clear()
+      }
+    } catch (error) {
+      plannerFailed = true
+      warn('capture planner runs on the page', String(error))
+    }
+  }
+  const worker = plannerWorker
+  if (worker === null) return planProposals(request)
+  const id = ++plannerJob
+  const reply = await new Promise<{ proposals?: PlannedProposal[]; error?: string }>((settle) => {
+    plannerWaiting.set(id, settle)
+    worker.postMessage({ id, ...request }, [request.snapshot.buffer])
+  })
+  if (reply.proposals === undefined) throw new Error(reply.error ?? 'planner failed')
+  return reply.proposals
+}
+
+/** A proposal's id: its wall's two anchors, so it names the same shape across passes. */
+const proposalId = ({ lines }: PlannedProposal): string => {
+  const a = lines[0] ?? []
+  const b = lines[1] ?? []
+  return `${a[0]},${a[1]}:${b[0]},${b[1]}`
+}
+
+/** One pass: read the map and team, and re-plan if anything changed since the last. */
+const planPass = async (groupSize: number, guardCount: number): Promise<void> => {
+  if (planBusy) return
+  planBusy = true
   try {
-    const [team, map] = await Promise.all([loadTeam(), loadTerritory()])
+    const team = myTeam ?? (await loadTeam())
     myTeam = team
     if (team === null) {
       message = 'Join a team in the event first.'
+      stopPlanning()
       return
     }
-    if (map === null) {
-      message = 'Wplace did not send the territory map. Try again.'
-      return
-    }
-    const plans = borderBoxPlanner({
-      map,
-      team,
-      painters: groupSize,
-      guards: guardCount,
-      charges: TERRITORY_CHARGES,
-    })
-    const toWorld = (line: readonly ArenaPixel[]) =>
-      line.flatMap((pixel) => {
-        const world = arenaToWorld(pixel)
-        return [world.x, world.y]
-      })
-    // The planner's shape is its defence; one simulation per plan only confirms it closes, and
-    // serves its score and hatched area.
-    proposals = plans.flatMap((plan, index) => {
-      const outcome = simulateCapture(map, team, plan)
-      if (outcome.refused > 0 || outcome.gained <= 0) return []
-      const wall = plan.lines.map(toWorld)
-      return [
-        {
-          id: String(index),
-          label: proposalLabel(map, plan.lines.flat()),
-          gained: outcome.gained,
-          pixels: outcome.painted,
-          published: false,
-          lines: [...wall, ...plan.guardZones.map(toWorld)],
-          area: enclosedArea(map, team, wall, outcome.map),
-        },
-      ]
-    })
-    if (proposals.length === 0) message = 'No wall fits this many painters along your border.'
-    // Fly to the best plan, so the shape being chosen is on screen.
+    const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
+    if (!response.ok) return
+    const snapshot = new Uint8Array(await response.arrayBuffer())
+    const inputs = `${team}|${groupSize}|${guardCount}|${hashBytes(snapshot)}`
+    if (inputs === planInputs) return
+    planInputs = inputs
+    const planned = await runPlanner({ snapshot, team, painters: groupSize, guards: guardCount })
+    if (!planning) return
+    proposals = planned.map((proposal) => ({
+      ...proposal,
+      id: proposalId(proposal),
+      published: false,
+    }))
+    message =
+      proposals.length === 0 ? 'No wall fits this many painters along your border.' : undefined
+    // Fly to the best plan once per round, so the shape being chosen is on screen.
     const best = proposals[0]
     const box = best === undefined ? null : pixelMask(best.lines.flatMap(linePixels))?.rect
-    if (box != null) flyTo(box)
+    if (box != null && !planFlown) {
+      planFlown = true
+      flyTo(box)
+    }
     log(
       'capture proposals',
       proposals.map(({ label, gained, pixels }) => ({ label, gained, pixels })),
     )
-  } catch (error) {
-    warn('capture proposal failed', String(error))
-    message = 'Planning failed. Try again.'
-  } finally {
-    proposing = false
     render()
-    // The previewed plan is drawn on the map, which redraws only when asked.
     requestMapFrame()
+  } catch (error) {
+    warn('capture planning failed', String(error))
+    message = 'Planning failed. It tries again shortly.'
+  } finally {
+    planBusy = false
   }
+}
+
+/** Re-plan continuously until the administrator locks a plan in, starts, or closes the run. */
+const startPlanning = (): void => {
+  stopPlanning()
+  planning = true
+  planInputs = ''
+  planFlown = false
+  message = undefined
+  const pass = () => {
+    const view = active()
+    if (view === null || view.run === null || view.run.startsAt !== null) {
+      stopPlanning()
+      return
+    }
+    void planPass(view.run.painters, view.run.guards)
+  }
+  pass()
+  planTimer = setInterval(pass, PLAN_INTERVAL_MS)
+}
+
+const stopPlanning = (): void => {
+  planning = false
+  if (planTimer !== null) clearInterval(planTimer)
+  planTimer = null
 }
 
 const sameLines = (a: readonly (readonly number[])[], b: readonly (readonly number[])[]) =>
@@ -609,7 +659,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       pixels: proposal.pixels,
       published: run !== null && run.lines.length > 0 && sameLines(run.lines, proposal.lines),
     })),
-    proposing,
+    proposing: planning,
     canStart:
       admin &&
       run !== null &&
@@ -660,11 +710,16 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       break
     }
     case 'propose':
-      void propose(view.run?.painters ?? painters, view.run?.guards ?? guards)
+      if (planning) stopPlanning()
+      else startPlanning()
       break
     case 'publish': {
       const chosen = proposals.find(({ id }) => id === intent.id)
-      if (chosen !== undefined) sendCapture(server, { type: 'capture-plan', lines: chosen.lines })
+      // Locking a plan in ends live planning; the other candidates stay on screen until closed.
+      if (chosen !== undefined) {
+        stopPlanning()
+        sendCapture(server, { type: 'capture-plan', lines: chosen.lines })
+      }
       break
     }
     case 'show-line': {
@@ -675,10 +730,12 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       break
     }
     case 'go':
+      stopPlanning()
       primeCaptureAudio()
       sendCapture(server, { type: 'capture-go' })
       break
     case 'close':
+      stopPlanning()
       proposals = []
       sendCapture(server, { type: 'capture-close' })
       break
