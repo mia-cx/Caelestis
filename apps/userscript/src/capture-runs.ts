@@ -353,10 +353,12 @@ const itemsOf = (proposal: Proposal, team: TerritoryTeam, colour: Rgb): readonly
 /**
  * The plans an administrator is choosing between, while the run they were planned for gathers,
  * less the one already published. A teammate's progress arrives as a new run with the same plans,
- * so the same masks come back and the map uploads nothing again.
+ * so the same masks come back and the map uploads nothing again. Once the previews hide, the last
+ * ones are let go rather than held until the next time plans show.
  */
 const candidateItems = (run: CaptureRun, colour: Rgb): readonly CaptureItem[] => {
-  if (run.startsAt !== null || proposalsRun !== run.id) return NO_ITEMS
+  if (run.startsAt !== null || proposalsRun !== run.id)
+    return candidatesBuilt(NO_ITEMS, () => NO_ITEMS)
   const shown = proposals
     .filter((proposal) => !sameLines(run.lines, proposal.lines))
     .map((proposal) => itemsOf(proposal, run.team, colour))

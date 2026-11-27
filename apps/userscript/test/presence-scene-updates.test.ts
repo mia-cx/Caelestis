@@ -1,3 +1,5 @@
+import { setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
 import { type PresenceRect, TERRITORY_EVENT } from '@caelestis/shared'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { PlannedProposal } from '../src/capture-planning.js'
@@ -7,6 +9,9 @@ const painter = { wplaceUserId: 42, displayName: 'Mia' }
 const other = { wplaceUserId: 7, displayName: 'Other painter' }
 
 const planner = vi.hoisted(() => ({ plans: [] as PlannedProposal[] }))
+
+setFlagsFromString('--expose-gc')
+const collect: () => void = runInNewContext('gc')
 
 vi.mock('../src/wplace-account.js', () => ({
   accountIdentity: () => painter,
@@ -105,7 +110,11 @@ it('redraws capture lines from every run update and reuses them between updates'
   expect(captureItems().map((item) => item.kind)).toEqual(['ready', 'todo'])
 })
 
-it("keeps candidate masks across a teammate's progress, and follows the published plan", async () => {
+/**
+ * An administrator on an event server whose gathering run has the top wall published, asking for
+ * plans again: the planner offers the top wall and a bottom one, so the bottom one is the candidate.
+ */
+const proposeAgain = async () => {
   const { socket } = await connect({ capture: 1, admin: true })
   vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
   const { captureItems, installCaptureRuns } = await import('../src/capture-runs.js')
@@ -126,7 +135,7 @@ it("keeps candidate masks across a teammate's progress, and follows the publishe
   })
   const [top, bottom] = [wall(10), wall(50)]
   planner.plans = [top, bottom]
-  const run = (published: PlannedProposal, drafted: number) =>
+  const run = (published: PlannedProposal, drafted: number, startsAt: number | null = null) =>
     socket.receive({
       type: 'capture',
       run: {
@@ -134,7 +143,7 @@ it("keeps candidate masks across a teammate's progress, and follows the publishe
         team: 0,
         painters: 2,
         guards: 0,
-        startsAt: null,
+        startsAt,
         staggerMs: 500,
         members: [
           { sessionId: 'c'.repeat(16), painter: other, drafted },
@@ -143,14 +152,18 @@ it("keeps candidate masks across a teammate's progress, and follows the publishe
         lines: published.lines,
       },
     })
+  const intent = (type: 'propose' | 'go') =>
+    document
+      .getElementById('caelestis-capture-run')
+      ?.dispatchEvent(new CustomEvent('caelestis-capture-run-intent', { detail: { type } }))
   run(top, 0)
-  // The administrator asks for plans again while the top wall is published.
-  document
-    .getElementById('caelestis-capture-run')
-    ?.dispatchEvent(
-      new CustomEvent('caelestis-capture-run-intent', { detail: { type: 'propose' } }),
-    )
+  intent('propose')
   await vi.advanceTimersByTimeAsync(0)
+  return { captureItems, run, intent, top, bottom }
+}
+
+it("keeps candidate masks across a teammate's progress, and follows the published plan", async () => {
+  const { captureItems, run, top, bottom } = await proposeAgain()
   const below = (y: number) => captureItems().filter((item) => item.rect.y >= y)
   const candidates = below(50)
   expect(candidates.map((item) => item.kind)).toEqual(['area', 'pending', 'pending'])
@@ -168,4 +181,24 @@ it("keeps candidate masks across a teammate's progress, and follows the publishe
     ['pending', 10],
     ['pending', 12],
   ])
+})
+
+it('lets go of the candidate masks once the run starts', async () => {
+  const { captureItems, run, intent, top } = await proposeAgain()
+  // Read inside a function so the test itself never holds the candidate's mask.
+  const candidateLine = () => {
+    const line = captureItems().find((item) => item.kind === 'pending' && item.rect.y === 50)
+    expect(line?.pixels).toBeTruthy()
+    return new WeakRef(line?.pixels ?? {})
+  }
+  const shown = candidateLine()
+  intent('go')
+  // The first frame after Go already sees the started run.
+  run(top, 2, TERRITORY_EVENT.startsAt + 3_660_000)
+  expect(captureItems().some((item) => item.rect.y >= 50)).toBe(false)
+  // A new WeakRef holds its target until the current task ends, so collect after a real one.
+  vi.useRealTimers()
+  await new Promise((done) => setTimeout(done, 0))
+  collect()
+  expect(shown.deref()).toBeUndefined()
 })
