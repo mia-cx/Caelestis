@@ -36,6 +36,8 @@ export interface PainterRowModel {
   readonly userId: number
   /** The painter's presence colour, as CSS. */
   readonly colour: string
+  /** On an event server, the event team they are on, with its colour as CSS. */
+  readonly team?: { readonly name: string; readonly colour: string }
   /** What they are up to: "painting 120 px", "browsing", or "online" without a viewport. */
   readonly activity: string
   /** Whether Fly to has somewhere to go: their drafted pixels or their viewport. */

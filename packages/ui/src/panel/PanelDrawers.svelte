@@ -90,6 +90,9 @@
                     <span class="player-name">
                       <strong>{player.name}</strong>
                       <small>#{player.userId}</small>
+                      {#if player.team}
+                        <small class="team"><span class="team-swatch" style:background={player.team.colour} aria-hidden="true"></span>{player.team.name}</small>
+                      {/if}
                     </span>
                     <span class="player-activity">{player.activity}</span>
                   </span>
@@ -271,6 +274,16 @@
     font-size: 0.6875rem;
     font-variant-numeric: tabular-nums;
     color: var(--caelestis-muted-text);
+  }
+  .team {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .team-swatch {
+    inline-size: 0.5rem;
+    block-size: 0.5rem;
+    border-radius: 2px;
   }
   .player-activity {
     flex: 0 1 auto;

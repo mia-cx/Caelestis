@@ -121,6 +121,13 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
           }
         return [...seen]
       },
+      /** The team this socket last heard `sessionId` report, as its peer. */
+      teamOf(sessionId: string): TerritoryTeam | undefined {
+        const heard = events.flatMap((e) =>
+          e.type === 'presence-ready' ? e.peers : e.type === 'presence-delta' ? e.upsert : [],
+        )
+        return heard.findLast((peer) => peer.sessionId === sessionId)?.team
+      },
     }
   }
   return {
@@ -352,6 +359,36 @@ it('shares viewports within a team only, and takes no claims, on an event server
     body: '{}',
   })
   expect(claim.status).toBe(403)
+})
+
+it('shows an admin every team, and each peer its team, on an event server', async () => {
+  const server = await start()
+  const viewport = { x: 636_000, y: 1_028_000, w: 64, h: 64 }
+  const green = await server.painter(GREEN)
+  const orange = await server.runner(ORANGE)
+  const admin = await server.admin(GREEN)
+  for (const session of [green, orange, admin]) session.send({ type: 'presence-update', viewport })
+
+  await vi.waitFor(
+    () => expect(admin.peers().sort()).toEqual([green.sessionId, orange.sessionId].sort()),
+    { timeout: 5_000 },
+  )
+  expect(admin.teamOf(green.sessionId)).toBe(GREEN)
+  expect(admin.teamOf(orange.sessionId)).toBe(ORANGE)
+  // The admin is an ordinary member of its own team to everyone else.
+  await vi.waitFor(() => expect(green.peers()).toEqual([admin.sessionId]), { timeout: 5_000 })
+  expect(green.teamOf(admin.sessionId)).toBe(GREEN)
+  expect(orange.peers()).toEqual([])
+})
+
+it('sends peers without a team on a server that is not an event server', async () => {
+  const server = await start({ eventServer: false })
+  const viewport = { x: 636_000, y: 1_028_000, w: 64, h: 64 }
+  const painter = await server.painter(GREEN)
+  const admin = await server.admin(ORANGE)
+  for (const session of [painter, admin]) session.send({ type: 'presence-update', viewport })
+  await vi.waitFor(() => expect(admin.peers()).toEqual([painter.sessionId]), { timeout: 5_000 })
+  expect(admin.teamOf(painter.sessionId)).toBeUndefined()
 })
 
 it.each(['painter', 'runner'] as const)(
