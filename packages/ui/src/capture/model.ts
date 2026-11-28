@@ -4,8 +4,8 @@
  * loop.
  *
  * The userscript owns the lobbies and builds this model; the card renders it and emits intents.
- * One card serves both roles: an event runner also opens lobbies, edits their settings, orders
- * members, gives the closing leg, locks in a wall, starts and closes.
+ * One card serves every member: the lobby's host, or an administrator in it, also edits its
+ * settings, orders members, gives the closing leg, locks in a wall, starts and closes.
  */
 
 export interface CaptureRunMember {
@@ -25,12 +25,14 @@ export interface CaptureRunMember {
   readonly reserve: boolean
   /** The lobby's closer: they keep the last painter's place and close the wall. */
   readonly closes: boolean
+  /** The lobby's host, who runs it; at first its opener, who also closes. */
+  readonly hosts: boolean
 }
 
 /** A lobby in the list, for painters outside every lobby. */
 export interface CaptureLobby {
   readonly id: string
-  /** Who it belongs to: its opener while they are in it, else its first member. */
+  /** Its host's name. */
   readonly name: string
   readonly members: number
   /** False once its countdown has started or this painter cannot write. */
@@ -49,9 +51,9 @@ export interface CaptureProposal {
 }
 
 export type CapturePhase =
-  /** In no lobby: the team's lobbies to join, and New lobby for a runner. */
+  /** In no lobby: the team's lobbies to join, largest first, and New lobby. */
   | 'list'
-  /** In a lobby: members gather, runners lock in a wall. */
+  /** In a lobby: members gather, the host locks in a wall. */
   | 'gathering'
   /** Started: every client counts down to its slot. */
   | 'countdown'
@@ -60,9 +62,11 @@ export type CapturePhase =
 
 export interface CaptureRunModel {
   readonly phase: CapturePhase
-  /** This painter runs captures: opens lobbies, edits settings, orders, locks in, starts. */
-  readonly admin: boolean
-  /** Outside a lobby: the team's lobbies whose countdown has not started. */
+  /** This painter runs the lobby they are in, as its host or an administrator. */
+  readonly canRun: boolean
+  /** This painter can open a lobby. */
+  readonly canOpen: boolean
+  /** Outside a lobby: the team's lobbies whose countdown has not started, largest first. */
   readonly lobbies: readonly CaptureLobby[]
   /** The painters the lobby plans for, within 1 to `maxPainters`. */
   readonly painters: number
@@ -85,13 +89,13 @@ export interface CaptureRunModel {
   readonly members: readonly CaptureRunMember[]
   /** This painter's part in the lobby: building the wall in turn, guarding an anchor, or neither. */
   readonly role: 'painter' | 'guard' | 'reserve' | null
-  /** Runners only: walls planned live from the map, best first, until one is locked in. */
+  /** For whoever runs the lobby: walls planned live from the map, best first, until one is locked in. */
   readonly proposals: readonly CaptureProposal[]
   /** A wall is locked in and cut into legs. */
   readonly locked: boolean
   /** With a wall locked in, the painters still needed before every leg fits; 0 when none. */
   readonly needs: number
-  /** Runners only: the countdown may start: every painter has drafted their leg. */
+  /** For whoever runs the lobby: the countdown may start: every painter has drafted their leg. */
   readonly canStart: boolean
   /**
    * When this tab's painter paints, as a `performance.now()` time, while counting down and they

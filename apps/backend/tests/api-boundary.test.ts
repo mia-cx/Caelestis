@@ -7,7 +7,7 @@ import { hashToken } from '../src/auth/tokens.js'
 import { seedTileObservation } from '../src/node/memory-stores.js'
 import { RelationalServerSettingsStore } from '../src/server/relational.js'
 import { DirectStatusReadModel } from '../src/status-read-model/port.js'
-import { adminToken, countCalls, createTestBackend } from './support/backend.js'
+import { adminToken, countCalls, createTestBackend, seedInvite } from './support/backend.js'
 
 const id = '01890f3e-7b2c-7abc-8def-012345678901'
 const hash = 'a'.repeat(64)
@@ -24,22 +24,18 @@ const request = (backend: Backend, path: string, method = 'GET', token?: string,
     }),
   )
 
-const mint = async (
-  backend: Backend,
-  scope: 'read' | 'report' | 'event_runner',
-  token = adminToken,
-) => {
+const mint = async (backend: Backend, scope: 'read' | 'report', token = adminToken) => {
   const response = await request(backend, '/admin/tokens', 'POST', token, { label: scope, scope })
   expect(response.status).toBe(201)
-  const value = (await response.json()) as { token: string; tokenHash: string; invite?: true }
+  const value = (await response.json()) as { token: string; tokenHash: string }
   expect(value.token).toEqual(expect.any(String))
   expect(value.tokenHash).toMatch(/^[0-9a-f]{64}$/)
   return value
 }
 
-/** An event runner's kept token: the one its invite exchanges for. */
+/** An event runner's kept token: the one its backend 1.6.0 invite exchanges for. */
 const eventRunner = async (backend: Backend) => {
-  const invite = await mint(backend, 'event_runner')
+  const invite = await seedInvite(backend.sql)
   const response = await request(backend, '/v1/auth/exchange', 'POST', invite.token)
   expect(response.status).toBe(201)
   return ((await response.json()) as { token: string }).token
@@ -509,11 +505,20 @@ describe('backend API trust boundary', () => {
     ).toBe(400)
   })
 
-  it('trades an event-runner invite, once, for a token only its holder keeps', async () => {
+  it('no longer mints event-runner tokens', async () => {
+    const backend = await createTestBackend()
+    const response = await request(backend, '/admin/tokens', 'POST', adminToken, {
+      label: 'Runner',
+      scope: 'event_runner',
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: 'scope must be one of read, report, admin' })
+  })
+
+  it('trades a backend 1.6.0 event-runner invite, once, for a token only its holder keeps', async () => {
     const backend = await createTestBackend()
     const report = await mint(backend, 'report')
-    const invite = await mint(backend, 'event_runner')
-    expect(invite.invite).toBe(true)
+    const invite = await seedInvite(backend.sql)
 
     // The invite opens nothing but its own exchange.
     const elsewhere = [

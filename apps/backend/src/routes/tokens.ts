@@ -13,8 +13,14 @@ import { jsonObject } from './params.js'
 /** The path segment a client names the bootstrap entry by; it has no stored digest. */
 const BOOTSTRAP_KEY = 'bootstrap'
 
-const isScope = (value: unknown): value is Scope =>
-  typeof value === 'string' && (SCOPES as readonly string[]).includes(value)
+/**
+ * The scopes an admin can mint. `event_runner` is kept only for tokens minted by backend 1.6.0
+ * until a later release drops it (#984); anyone who can write hosts capture lobbies now.
+ */
+const MINTABLE_SCOPES = SCOPES.filter((scope) => scope !== 'event_runner')
+
+const isMintable = (value: unknown): value is Scope =>
+  typeof value === 'string' && (MINTABLE_SCOPES as readonly string[]).includes(value)
 
 /**
  * Token administration, admin-only throughout: a `report` holder that could mint itself `admin`
@@ -33,7 +39,8 @@ export const createTokenRoutes = (
     if (typeof label !== 'string' || label.length === 0 || label.length > MAX_LABEL_LENGTH) {
       return c.json({ error: `label must be 1..${MAX_LABEL_LENGTH} characters` }, 400)
     }
-    if (!isScope(scope)) return c.json({ error: `scope must be one of ${SCOPES.join(', ')}` }, 400)
+    if (!isMintable(scope))
+      return c.json({ error: `scope must be one of ${MINTABLE_SCOPES.join(', ')}` }, 400)
 
     return runBackendHttp(
       c,

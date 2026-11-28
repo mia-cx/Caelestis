@@ -18,13 +18,7 @@ import { hashToken, mintToken } from './tokens.js'
  */
 const TOKEN_PAGE_SIZE = 50
 
-/**
- * Mint a token. The response is the only time its plaintext exists outside the caller's hands.
- *
- * An `event_runner` token is minted as a one-use invite: whoever is handed it trades it through
- * {@link exchangeInvite} for a token only their browser holds, so the shared secret stops working
- * the moment it is used.
- */
+/** Mint a token. The response is the only time its plaintext exists outside the caller's hands. */
 export const mintAccessToken = (input: {
   readonly label: string
   readonly scope: Scope
@@ -40,14 +34,15 @@ export const mintAccessToken = (input: {
       scope: input.scope,
       createdWithToken: input.createdWithToken,
       createdAt: millis(Date.now()),
-      ...(input.scope === 'event_runner' ? { invite: true } : {}),
     }
     yield* storage('insertAccessToken', () => sql.insertAccessToken(record))
     return { token, ...record }
   })
 
 /**
- * Trade the presented invite for a fresh token with the same label and scope, once. The invite
+ * Trade the presented invite for a fresh token with the same label and scope, once. Only backend
+ * 1.6.0 minted invites, as `event_runner` tokens; this keeps those still unredeemed working until a
+ * later release drops the scope (#984). The invite
  * stops existing in the same write, so a second exchange finds nothing and is asked to
  * authenticate. A credential that is not an invite is refused and keeps working.
  */

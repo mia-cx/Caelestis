@@ -27,8 +27,6 @@ export interface OneTimeSecretDialogModel {
   readonly copyStatus?: 'copied' | 'unavailable'
   readonly inviteUrl?: string
   readonly inviteCopyStatus?: 'copied' | 'unavailable'
-  /** The secret is a one-use invite: its first holder trades it for a token of their own. */
-  readonly oneUse?: true
 }
 
 export interface NotificationsModel {

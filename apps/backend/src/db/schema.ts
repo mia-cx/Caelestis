@@ -447,7 +447,8 @@ export const accessTokens = sqliteTable(
       'access_tokens_scope_check',
       sql`${table.scope} IN ('read', 'report', 'event_runner', 'admin')`,
     ),
-    // Only event runners are invited; every other scope is minted ready to use.
+    // Only backend 1.6.0 minted invites, all event runners. Both checks keep `event_runner` for
+    // tokens minted then, until #984 drops the scope.
     check(
       'access_tokens_invite_check',
       sql`${table.inviteHash} IS NULL OR ${table.scope} = 'event_runner'`,

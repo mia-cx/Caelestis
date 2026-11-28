@@ -1,6 +1,9 @@
 /**
- * Access-token scopes, ordered: each one grants everything below it. `event_runner` reports like
- * `report` and also runs capture runs on an event server, without administering anything.
+ * Access-token scopes, ordered: each one grants everything below it.
+ *
+ * `event_runner` is no longer minted and grants nothing beyond `report`: anyone who can write hosts
+ * capture lobbies now. It stays so tokens and invites minted by backend 1.6.0 keep working, until a
+ * later release drops it from storage (#984).
  */
 export const SCOPES = ['read', 'report', 'event_runner', 'admin'] as const
 

@@ -9,14 +9,15 @@ import { isWorkIdentity } from './work.js'
  * turn, a few hundred milliseconds apart, so each leg lands next to the one before and the last
  * closes the loop.
  *
- * Lobbies live in a presence room, any number per event team. An event runner opens one and joins
- * it; painters join from the team's lobby list. Runners in the lobby lock in a wall, and the wall is
- * cut into one leg per painting member, so every member, server and client, derives the same legs
+ * Lobbies live in a presence room, any number per event team. Any painter who can write opens one
+ * and joins it as its host; painters join from the team's lobby list. The host, or an administrator
+ * in the lobby, locks in a wall, and the wall is cut into one leg per painting member, so every member, server and client, derives the same legs
  * from the lobby with `captureLines`. Painters go in pairs from the wall's two anchors: painter `i`
  * (from 0) paints leg `i` at `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which
  * each client estimates with `clock` round trips. The lobby's coordinator always paints in the last
- * step while a member, so the closing leg, and the captured area, is theirs: the runner who opened
- * it, until a runner in the lobby hands the closing leg to another member.
+ * step while a member, so the closing leg, and the captured area, is theirs: the painter who opened
+ * it, until whoever runs the lobby hands the closing leg to another member. The host and the closer
+ * start as the same painter but are separate roles: handing over one leaves the other.
  *
  * The `distribution` decides how many legs the wall is cut into: one per painting member, or the
  * fewest that fit, with the painting members past them standing by as reserves.
@@ -50,7 +51,7 @@ export const MAX_CAPTURE_STAGGER_MS = 2_000
 export const CAPTURE_STAGGER_STEP_MS = 50
 /** Default time from the start of the countdown to the first painter's slot. */
 export const CAPTURE_LEAD_MS = 10_000
-/** The shortest and longest lead a runner can set; a lead is a whole number of seconds. */
+/** The shortest and longest lead a host can set; a lead is a whole number of seconds. */
 export const MIN_CAPTURE_LEAD_MS = 3_000
 export const MAX_CAPTURE_LEAD_MS = 30_000
 export const CAPTURE_LEAD_STEP_MS = 1_000
@@ -66,6 +67,11 @@ export interface CaptureMember {
   readonly painter: PainterIdentity
   /** How many of their leg's pixels they have drafted. */
   readonly drafted: number
+  /**
+   * Their place in the order members joined, from 0 for the opener; the longest-standing member
+   * takes over as host. Missing on a member stored by backend 1.6.0, who counts as 0.
+   */
+  readonly joined?: number
   /**
    * Set when they left after the closing leg was painted. They keep their place, so everyone
    * else keeps the leg, slot and guard role the countdown started with.
@@ -84,9 +90,15 @@ export interface CaptureRun {
   readonly opener?: number
   /**
    * The Wplace user who closes the wall: while they are a member they paint the closing leg, so the
-   * captured area is attributed to them. The opener, until a runner gives the leg to someone else.
+   * captured area is attributed to them. The opener, until the host gives the leg to someone else.
    */
   readonly coordinator: number | null
+  /**
+   * The session of the member who runs the lobby: its opener, then whoever has been in it longest
+   * once they leave. Missing on a lobby stored by backend 1.6.0; `captureHostIndex` reads that one
+   * as hosted by its opener, then its first member.
+   */
+  readonly host?: string
   /** The painters live planning sizes walls for, at `MAX_CAPTURE_LINE_PIXELS` each. */
   readonly painters: number
   /** Anchor guards live planning gives zones to, and the most members who guard. */
@@ -96,7 +108,7 @@ export interface CaptureRun {
   readonly members: readonly CaptureMember[]
   /**
    * The locked-in wall: its pixels to paint from anchor A to anchor B, as flat world coordinates
-   * `[x0, y0, x1, y1, …]`. Null while runners are still choosing.
+   * `[x0, y0, x1, y1, …]`. Null while the host is still choosing.
    */
   readonly wall: readonly number[] | null
   /** The locked-in wall's guard zones, one per `guards`, flat like `wall`. */
@@ -105,7 +117,7 @@ export interface CaptureRun {
   readonly staggerMs: number
   /**
    * Time from the start of the countdown to the first painter's slot. Missing on a lobby stored
-   * before runners could set it; `captureLead` reads it with the default.
+   * before hosts could set it; `captureLead` reads it with the default.
    */
   readonly leadMs?: number
   /**
@@ -115,7 +127,7 @@ export interface CaptureRun {
   readonly cut: number
 }
 
-/** A lobby's settings, as runners edit them until the countdown starts. */
+/** A lobby's settings, as its host edits them until the countdown starts. */
 export interface CaptureSettings {
   readonly painters: number
   /** The guards chosen; a lobby only uses as many as half its members. */
@@ -125,7 +137,7 @@ export interface CaptureSettings {
   readonly distribution: CaptureDistribution
 }
 
-/** The settings a runner's first lobby opens with. */
+/** The settings a painter's first lobby opens with. */
 export const DEFAULT_CAPTURE_SETTINGS: CaptureSettings = {
   painters: 3,
   guards: 0,
@@ -185,7 +197,7 @@ export type CaptureClientEvent =
     }
   | { readonly type: 'capture-join'; readonly run: string }
   | { readonly type: 'capture-leave' }
-  /** Only the settings a runner changed, so edits to different settings never undo each other. */
+  /** Only the settings the host changed, so edits to different settings never undo each other. */
   | {
       readonly type: 'capture-settings'
       readonly painters?: number
@@ -383,6 +395,32 @@ export const captureReady = (run: CaptureRun): boolean =>
   captureShortfall(run.wall.length / 2, capturePainterCount(run)) === 0 &&
   capturePaintersDrafted(run)
 
+/**
+ * The member index of the lobby's host, or -1 when nobody eligible is in it: the recorded host while
+ * they are in it, else the member who joined first, ties in member order. A lobby stored by backend 1.6.0 records no host, so its
+ * opener hosts while in it. `eligible` narrows who may host, as to the connected sessions.
+ */
+export const captureHostIndex = (
+  run: CaptureRun,
+  eligible: (member: CaptureMember) => boolean = () => true,
+): number => {
+  const { members } = run
+  const present = members.flatMap((member, index) =>
+    member.left !== true && eligible(member) ? [index] : [],
+  )
+  const recorded = present.find((index) =>
+    run.host === undefined
+      ? members[index]?.painter.wplaceUserId === run.opener
+      : members[index]?.sessionId === run.host,
+  )
+  if (recorded !== undefined) return recorded
+  const joined = (index: number) => members[index]?.joined ?? 0
+  return present.reduce(
+    (first, index) => (first < 0 || joined(index) < joined(first) ? index : first),
+    -1,
+  )
+}
+
 /** The member index of the lobby's coordinator, or -1 when they are not a member. */
 export const captureCoordinatorIndex = (run: CaptureRun): number =>
   run.coordinator === null
@@ -426,6 +464,7 @@ const isMember = (value: unknown): value is CaptureMember =>
   value.sessionId.length <= 64 &&
   isWorkIdentity(value.painter) &&
   isSafeInteger(value.drafted) &&
+  (value.joined === undefined || isSafeInteger(value.joined)) &&
   (value.left === undefined || value.left === true)
 
 /** A lobby from a server, which is untrusted input. Null when malformed. */
@@ -436,6 +475,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     team,
     opener,
     coordinator,
+    host,
     painters,
     guards,
     distribution,
@@ -452,6 +492,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !(team === 0 || team === 1 || team === 2 || team === 3) ||
     !(opener === undefined || isSafeInteger(opener)) ||
     !(coordinator === null || isSafeInteger(coordinator)) ||
+    !(host === undefined || (typeof host === 'string' && host.length <= 64)) ||
     !isSafeInteger(painters) ||
     !isSafeInteger(guards) ||
     !(distribution === 'even' || distribution === 'reserve') ||
@@ -473,6 +514,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     team,
     ...(opener === undefined ? {} : { opener }),
     coordinator,
+    ...(host === undefined ? {} : { host }),
     painters,
     guards,
     distribution,

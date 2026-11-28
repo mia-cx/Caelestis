@@ -13,12 +13,14 @@ const ada = {
   guard: false,
   reserve: false,
   closes: false,
+  hosts: false,
 } satisfies CaptureRunMember
 const bea = { ...ada, id: 'b', name: 'Bea', colour: 'blue', drafted: 12, me: true }
 
 const counting = {
   phase: 'countdown',
-  admin: false,
+  canRun: false,
+  canOpen: true,
   lobbies: [],
   painters: 2,
   maxPainters: 8,
@@ -40,7 +42,7 @@ const counting = {
   startsAt: null,
 } satisfies CaptureRunModel
 
-const gathering = { ...counting, phase: 'gathering', admin: true } satisfies CaptureRunModel
+const gathering = { ...counting, phase: 'gathering', canRun: true } satisfies CaptureRunModel
 
 const mounted: object[] = []
 afterEach(async () => {
@@ -79,7 +81,7 @@ describe('capture lobby countdown', () => {
 })
 
 it("gives a reserve no steps to reach a leg they don't have", () => {
-  const card = render({ ...gathering, admin: false, role: 'reserve', myTurn: null })
+  const card = render({ ...gathering, canRun: false, role: 'reserve', myTurn: null })
   expect(card.querySelector('[aria-label="What to do"]')).toBeNull()
   expect(render(gathering).querySelector('[aria-label="What to do"]')).not.toBeNull()
 })
@@ -108,7 +110,7 @@ describe('the lobby list', () => {
     ],
   } satisfies CaptureRunModel
 
-  it('joins a lobby from its row, and only a runner opens a new one', () => {
+  it('joins a lobby from its row, and opens a new one for a painter who can write', () => {
     const intents: CaptureRunIntent[] = []
     const card = render(listing, intents)
     const rows = [...card.querySelectorAll('.lobbies li')]
@@ -119,15 +121,28 @@ describe('the lobby list', () => {
     rows[0]?.querySelector('button')?.click()
     expect(intents).toEqual([{ type: 'join', id: 'one' }])
     expect(rows[1]?.querySelector('button')?.disabled).toBe(true)
-    expect(button(card, 'New lobby')).toBeNull()
-
-    const runner = render({ ...listing, admin: true }, intents)
-    button(runner, 'New lobby')?.click()
+    button(card, 'New lobby')?.click()
     expect(intents.at(-1)).toEqual({ type: 'open' })
+
+    expect(button(render({ ...listing, canOpen: false }), 'New lobby')).toBeNull()
   })
 })
 
-describe('a runner inside a lobby', () => {
+it('names the host and the closer under their names', () => {
+  const card = render({
+    ...gathering,
+    canRun: false,
+    members: [
+      { ...ada, hosts: true, closes: true },
+      { ...bea, hosts: false },
+    ],
+  })
+  const rows = [...card.querySelectorAll('[aria-label="Paint order"] li')]
+  expect(rows[0]?.textContent).toContain('Host · Closes wall')
+  expect(rows[1]?.textContent).not.toContain('Host')
+})
+
+describe('whoever runs a lobby', () => {
   it('steps the stagger by 50 ms within its bounds until the countdown', () => {
     const intents: CaptureRunIntent[] = []
     const card = render({ ...gathering, staggerMs: 500 }, intents)
@@ -140,8 +155,8 @@ describe('a runner inside a lobby', () => {
     ])
     expect(button(render({ ...gathering, staggerMs: 100 }), 'Shorter stagger')?.disabled).toBe(true)
     // A painter sees no settings, and nobody does once the countdown runs.
-    expect(button(render({ ...gathering, admin: false }), 'Longer stagger')).toBeNull()
-    expect(button(render({ ...counting, admin: true }), 'Longer stagger')).toBeNull()
+    expect(button(render({ ...gathering, canRun: false }), 'Longer stagger')).toBeNull()
+    expect(button(render({ ...counting, canRun: true }), 'Longer stagger')).toBeNull()
   })
 
   it('steps the countdown by a second from 3 s to 30 s', () => {
@@ -195,12 +210,12 @@ describe('a runner inside a lobby', () => {
     expect(intents).toEqual([{ type: 'unlock' }, { type: 'go' }])
   })
 
-  it('offers runners the next shape once the capture has finished, and painters not', () => {
+  it('offers the host the next shape once the capture has finished, and painters not', () => {
     const intents: CaptureRunIntent[] = []
     const finished = { ...gathering, phase: 'done' } satisfies CaptureRunModel
     button(render(finished, intents), 'Plan next shape')?.click()
     expect(intents).toEqual([{ type: 'unlock' }])
-    expect(button(render({ ...finished, admin: false }), 'Plan next shape')).toBeNull()
+    expect(button(render({ ...finished, canRun: false }), 'Plan next shape')).toBeNull()
   })
 
   it('adds guards up to half the lobby', () => {
@@ -253,7 +268,7 @@ describe('a runner inside a lobby', () => {
     expect(button(card, 'Move Gil down')?.disabled).toBe(true)
   })
 
-  it('lets runners give the closing leg to any other member, and painters not at all', () => {
+  it('lets the host give the closing leg to any other member, and painters not at all', () => {
     const members = [ada, { ...bea, closes: true }, { ...ada, id: 'g', name: 'Gil', guard: true }]
     const intents: CaptureRunIntent[] = []
     const card = render({ ...gathering, guards: 1, members }, intents)
@@ -264,7 +279,7 @@ describe('a runner inside a lobby', () => {
       { type: 'closer', id: 'a' },
       { type: 'closer', id: 'g' },
     ])
-    const painter = render({ ...gathering, admin: false, members })
+    const painter = render({ ...gathering, canRun: false, members })
     expect(button(painter, 'Give Ada the closing leg')).toBeNull()
   })
 })

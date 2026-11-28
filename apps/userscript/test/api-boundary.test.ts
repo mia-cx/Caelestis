@@ -122,17 +122,6 @@ describe('access token creation through the backend', () => {
       document.body.replaceChildren()
     }
   })
-
-  it.each([
-    ['an event server that mints runner invites', { capture: 1, eventRunners: 1 } as const, true],
-    ['a capture server from before runner invites', { capture: 1 } as const, undefined],
-  ])('offers the event-runner scope only on %s', async (_, capabilities, offered) => {
-    await installBackend(capabilities)
-    const { server } = await connect()
-    const { accessTokensModel } = await import('../src/ui/access-tokens.js')
-
-    expect(accessTokensModel(server, () => {}).eventRunners).toBe(offered)
-  })
 })
 
 describe('template authoring through the backend', () => {

@@ -7,6 +7,7 @@ import {
   captureCoordinatorIndex,
   captureEndsAt,
   captureGuardCount,
+  captureHostIndex,
   captureLead,
   captureLegCount,
   capturePainterCount,
@@ -39,11 +40,11 @@ type OwnEvent = Exclude<RunEvent, { readonly type: 'capture-new' | 'capture-join
 
 /**
  * A team's lobbies after one event, or the same array when the event changes nothing or is not
- * allowed. A session is a member of one lobby at most. Event runners and administrators open
- * lobbies, and in their own lobby edit the settings, order members, give the closing leg, lock in
- * a wall, start and close; any painter who can write joins and leaves; members report how much of their leg they
- * have drafted. Nobody joins a lobby whose countdown has started, and nobody leaves one before
- * its closing leg is painted.
+ * allowed. A session is a member of one lobby at most. Any painter who can write opens, joins and
+ * leaves lobbies; members report how much of their leg they have drafted. The lobby's host, and an
+ * administrator in it, run it: edit the settings, order members, give the closing leg, lock in a
+ * wall, start and close. Nobody joins a lobby whose countdown has started, and nobody leaves one
+ * before its closing leg is painted.
  */
 export const applyCaptureEvent = (
   runs: readonly CaptureRun[],
@@ -52,10 +53,14 @@ export const applyCaptureEvent = (
   now: number,
   newId: () => string,
 ): readonly CaptureRun[] => {
-  const runner = satisfiesScope(actor.scope, 'event_runner')
-  const me: CaptureMember = { sessionId: actor.sessionId, painter: actor.painter, drafted: 0 }
+  const me = (joined: number): CaptureMember => ({
+    sessionId: actor.sessionId,
+    painter: actor.painter,
+    drafted: 0,
+    joined,
+  })
   if (event.type === 'capture-new') {
-    const left = runner ? leaveCaptures(runs, actor.sessionId, now) : null
+    const left = leaveCaptures(runs, actor.sessionId, now)
     if (left === null) return runs
     const { painters, staggerMs, guards = 0, leadMs = CAPTURE_LEAD_MS } = event
     const { distribution = 'even' } = event
@@ -64,11 +69,12 @@ export const applyCaptureEvent = (
       team: actor.team,
       opener: actor.painter.wplaceUserId,
       coordinator: actor.painter.wplaceUserId,
+      host: actor.sessionId,
       painters,
       // The guards chosen: as painters join, up to half the lobby guard.
       guards,
       distribution,
-      members: [me],
+      members: [me(0)],
       wall: null,
       guardZones: [],
       startsAt: null,
@@ -84,11 +90,17 @@ export const applyCaptureEvent = (
       return runs
     const left = leaveCaptures(runs, actor.sessionId, now)
     if (left === null) return runs
-    return left.map((run) => (run === target ? withMembers(run, [...run.members, me]) : run))
+    const joined = Math.max(0, ...target.members.map((member) => (member.joined ?? 0) + 1))
+    return left.map((run) =>
+      run === target ? withMembers(run, [...run.members, me(joined)]) : run,
+    )
   }
   const own = runs.find((run) => memberOf(run, actor.sessionId))
   if (own === undefined) return runs
-  const next = applyOwnEvent(own, event, actor.sessionId, runner, now)
+  const hosting =
+    satisfiesScope(actor.scope, 'admin') ||
+    own.members[captureHostIndex(own)]?.sessionId === actor.sessionId
+  const next = applyOwnEvent(own, event, actor.sessionId, hosting, now)
   if (next === own) return runs
   return next === null
     ? runs.filter((run) => run !== own)
@@ -100,7 +112,7 @@ const applyOwnEvent = (
   run: CaptureRun,
   event: OwnEvent,
   sessionId: string,
-  runner: boolean,
+  hosting: boolean,
   now: number,
 ): CaptureRun | null => {
   switch (event.type) {
@@ -123,13 +135,13 @@ const applyOwnEvent = (
       return { ...run, members }
     }
     case 'capture-close':
-      return runner ? null : run
+      return hosting ? null : run
   }
-  // Once the closing leg is painted, a runner's unlock starts the lobby's next round.
-  if (event.type === 'capture-unlock' && runner && run.startsAt !== null)
+  // Once the closing leg is painted, the host's unlock starts the lobby's next round.
+  if (event.type === 'capture-unlock' && hosting && run.startsAt !== null)
     return now > (captureEndsAt(run) ?? 0) ? nextRound(run) : run
-  // Everything else is a runner's, and only until the countdown starts.
-  if (!runner || run.startsAt !== null) return run
+  // Everything else is the host's, and only until the countdown starts.
+  if (!hosting || run.startsAt !== null) return run
   switch (event.type) {
     case 'capture-settings': {
       const { painters = run.painters, staggerMs = run.staggerMs } = event
@@ -229,7 +241,7 @@ export const leaveCapture = (run: CaptureRun, sessionId: string, now: number): C
     const members = run.members.map((entry) =>
       entry.sessionId === sessionId ? { ...entry, left: true as const } : entry,
     )
-    return { ...run, members }
+    return hosted({ ...run, members })
   }
   return withMembers(
     run,
@@ -253,9 +265,10 @@ export const leaveCaptures = (
 }
 
 /**
- * The lobbies that still have a connected member, a lobby nobody is in closing. A gathering lobby
- * also drops members whose sessions are gone: one who disconnected during a countdown kept their
- * place until it ended, and must not carry into the next round.
+ * The lobbies that still have a connected member, a lobby nobody is in closing, each hosted by a
+ * connected member. A gathering lobby also drops members whose sessions are gone: one who
+ * disconnected during a countdown kept their place until it ended, and must not carry into the next
+ * round. A started lobby keeps them, so its host passes to the longest-standing connected member.
  */
 export const connectedCaptures = (
   runs: readonly CaptureRun[],
@@ -267,11 +280,14 @@ export const connectedCaptures = (
       changed = true
       return []
     }
-    if (run.startsAt !== null) return [run]
     const present = run.members.filter(({ sessionId }) => connected.has(sessionId))
-    if (present.length === run.members.length) return [run]
-    changed = true
-    return [withMembers(run, present)]
+    const trimmed =
+      run.startsAt !== null || present.length === run.members.length
+        ? run
+        : withMembers(run, present)
+    const next = hosted(trimmed, ({ sessionId }) => connected.has(sessionId))
+    if (next !== run) changed = true
+    return [next]
   })
   return changed ? kept : runs
 }
@@ -282,7 +298,7 @@ export const connectedCaptures = (
  * their new leg until they report it.
  */
 const withMembers = (run: CaptureRun, members: readonly CaptureMember[]): CaptureRun => {
-  const next = pinCoordinator({ ...run, members })
+  const next = hosted(pinCoordinator({ ...run, members }))
   const same =
     next.members.length === run.members.length &&
     next.members.every((member, index) => member.sessionId === run.members[index]?.sessionId)
@@ -290,6 +306,16 @@ const withMembers = (run: CaptureRun, members: readonly CaptureMember[]): Captur
   // The locked guard zones were planned for as many guards as the lobby had: back to choosing.
   if (run.wall !== null && captureGuardCount(next) !== captureGuardCount(run)) return unlocked(next)
   return recut(next)
+}
+
+/**
+ * The lobby with its host recorded: the one `captureHostIndex` finds among `eligible` members, so
+ * a departed host's place passes on, and a lobby stored by backend 1.6.0 records its opener. The
+ * same object when nothing changes, or when nobody eligible is left to host.
+ */
+const hosted = (run: CaptureRun, eligible?: (member: CaptureMember) => boolean): CaptureRun => {
+  const host = run.members[captureHostIndex(run, eligible)]?.sessionId
+  return host === undefined || host === run.host ? run : { ...run, host }
 }
 
 /**
@@ -360,7 +386,7 @@ export const captureAssignments = (run: CaptureRun): ReadonlyMap<string, Capture
 /**
  * The log line for a member's slot report, or null unless it matches the slot the server assigned
  * that session when the countdown started. A report that lands after its lobby closed, as when a
- * runner closes it while a painter still waits on Wplace, is logged with `closed`.
+ * host closes it while a painter still waits on Wplace, is logged with `closed`.
  */
 export const captureSlotLog = (
   report: CaptureTimingReport,

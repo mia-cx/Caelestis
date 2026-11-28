@@ -26,24 +26,19 @@ export const backendFetch =
     )
   }
 
-/** Mint a one-use event-runner invite on `origin`'s backend, as its admin would. */
-export const mintEventRunnerInvite = async (fetch: typeof globalThis.fetch, origin: string) => {
-  const response = await fetch(`${origin}/v1/admin/tokens`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ label: 'Organiser', scope: 'event_runner' }),
-  })
-  const { token } = (await response.json()) as { token: string }
-  return token
-}
+/** A one-use event-runner invite that backend 1.6.0 minted, seeded by `withRunnerInvite`. */
+export const eventRunnerInvite = 'USERSCRIPT-CONTRACT-RUNNER-INVITE'
 
 /** Exercise the built backend package without loading its compiler environment into Vitest. */
 export const createTestBackend = async ({
   openAccess = false,
+  withRunnerInvite = false,
   ...advertised
 }: {
   openAccess?: boolean
-} & Partial<Pick<ServerInfo, 'version' | 'build' | 'capture' | 'eventRunners'>> = {}) => {
+  /** Seed `eventRunnerInvite` unredeemed; nothing mints one now. */
+  withRunnerInvite?: boolean
+} & Partial<Pick<ServerInfo, 'version' | 'build' | 'capture'>> = {}) => {
   const { sql, blobs, counters } = await openMemoryStores()
   const tokenHash = await hashToken(adminToken)
   await sql.insertAccessToken({
@@ -61,6 +56,15 @@ export const createTestBackend = async ({
     createdWithToken: tokenHash,
     createdAt: millis(2),
   })
+  if (withRunnerInvite)
+    await sql.insertAccessToken({
+      tokenHash: await hashToken(eventRunnerInvite),
+      label: 'Organiser',
+      scope: 'event_runner',
+      createdWithToken: tokenHash,
+      createdAt: millis(2),
+      invite: true,
+    })
   const readTokenHash = await hashToken(readToken)
   await sql.insertAccessToken({
     tokenHash: readTokenHash,
