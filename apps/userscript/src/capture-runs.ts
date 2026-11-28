@@ -23,7 +23,6 @@ import {
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_STAGGER_MS,
   MIN_CAPTURE_STAGGER_MS,
-  moveCaptureMember,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -143,8 +142,9 @@ const eventViews = (): Shown[] =>
     .map((view) => ({
       ...view,
       run:
+        // A member who left a finished lobby keeps their place in it but is no longer in it.
         view.runs.find((run) =>
-          run.members.some(({ sessionId }) => sessionId === view.sessionId),
+          run.members.some(({ sessionId, left }) => sessionId === view.sessionId && !left),
         ) ?? null,
     }))
 
@@ -907,11 +907,9 @@ const handleIntent = (intent: CaptureRunIntent): void => {
     case 'leave':
       sendCapture(server, { type: 'capture-leave' })
       break
-    case 'move': {
-      const order = run === null ? null : moveCaptureMember(run, intent.id, intent.by)
-      if (order !== null) sendCapture(server, { type: 'capture-order', order })
+    case 'move':
+      sendCapture(server, { type: 'capture-move', member: intent.id, by: intent.by })
       break
-    }
     case 'lock': {
       const chosen = proposals.find(({ id }) => id === intent.id)
       if (chosen !== undefined)
@@ -944,15 +942,14 @@ const handleIntent = (intent: CaptureRunIntent): void => {
 }
 
 /**
- * Send a runner's change to their lobby's settings. A change to the planning size drops the
- * proposals planned for the old one, which the lobby would refuse to lock in.
+ * Send a runner's change to one of their lobby's settings, and only that one. A change to the
+ * planning size drops the proposals planned for the old one, which the lobby would refuse to lock
+ * in.
  */
 const changeSettings = (view: Shown, change: Partial<CaptureSettings>): void => {
-  const { run } = view
-  if (run === null) return
-  const next = { painters: run.painters, guards: run.guards, staggerMs: run.staggerMs, ...change }
-  if (next.painters !== run.painters || next.guards !== run.guards) proposals = []
-  sendCapture(view.server, { type: 'capture-settings', ...next })
+  if (view.run === null) return
+  if (change.painters !== undefined || change.guards !== undefined) proposals = []
+  sendCapture(view.server, { type: 'capture-settings', ...change })
 }
 
 const ensureElement = (): CaelestisElement<'caelestis-capture-run'> => {
@@ -984,7 +981,7 @@ const tick = (): void => {
     const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
     if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
       draftedSentAt = localClock()
-      sendCapture(view.server, { type: 'capture-drafted', drafted })
+      sendCapture(view.server, { type: 'capture-drafted', drafted, cut: run.cut })
     }
     // Only a member with pixels to place is armed; an empty leg has nothing to submit.
     if (run.startsAt !== null && (line?.length ?? 0) > 0) armSlot(view, run, mine)

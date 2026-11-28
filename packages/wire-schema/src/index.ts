@@ -247,12 +247,14 @@ export const CaptureRun = Schema.Struct({
       sessionId: PresenceSessionId,
       painter: PresenceIdentity,
       drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+      left: Schema.optionalKey(Schema.Literal(true)),
     }),
     MAX_CAPTURE_MEMBERS,
   ),
   wall: Schema.NullOr(CaptureWall),
   guardZones: CaptureGuardZones,
   startsAt: Schema.NullOr(Epoch),
+  cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
 })
 
 export const PresenceClientEvent = Schema.Union([
@@ -260,10 +262,16 @@ export const PresenceClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal('capture-new'), ...CaptureSettings }),
   Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
-  Schema.Struct({ type: Schema.Literal('capture-settings'), ...CaptureSettings }),
   Schema.Struct({
-    type: Schema.Literal('capture-order'),
-    order: boundedArray(PresenceSessionId, MAX_CAPTURE_MEMBERS),
+    type: Schema.Literal('capture-settings'),
+    painters: Schema.optionalKey(CaptureSettings.painters),
+    guards: Schema.optionalKey(CaptureSettings.guards),
+    staggerMs: Schema.optionalKey(CaptureSettings.staggerMs),
+  }),
+  Schema.Struct({
+    type: Schema.Literal('capture-move'),
+    member: PresenceSessionId,
+    by: Schema.Literals([-1, 1]),
   }),
   Schema.Struct({
     type: Schema.Literal('capture-lock'),
@@ -274,6 +282,7 @@ export const PresenceClientEvent = Schema.Union([
   Schema.Struct({
     type: Schema.Literal('capture-drafted'),
     drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+    cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
   }),
   Schema.Struct({ type: Schema.Literal('capture-go') }),
   Schema.Struct({ type: Schema.Literal('capture-close') }),

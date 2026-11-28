@@ -3,7 +3,6 @@ import {
   type CaptureClientEvent,
   type CaptureRun,
   captureLines,
-  moveCaptureMember,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import { applyCaptureEvent, connectedCaptures, leaveCaptures } from '../src/presence/capture.js'
@@ -60,7 +59,7 @@ const draftAll = (runs: readonly CaptureRun[]) => {
     (held, { painter }, index) =>
       apply(
         held,
-        { type: 'capture-drafted', drafted: (lines[index]?.length ?? 0) / 2 },
+        { type: 'capture-drafted', drafted: (lines[index]?.length ?? 0) / 2, cut: run.cut },
         actor(painter.wplaceUserId),
       ),
     runs,
@@ -100,10 +99,10 @@ describe('lobbies', () => {
 describe('settings', () => {
   it('stay editable until the countdown, and a planning change drops the locked wall', () => {
     let runs = apply(opened([2]), lock(40))
-    runs = apply(runs, { type: 'capture-settings', painters: 3, guards: 0, staggerMs: 750 })
+    runs = apply(runs, { type: 'capture-settings', staggerMs: 750 })
     expect(only(runs)).toMatchObject({ staggerMs: 750, wall: wall(40) })
-    runs = apply(runs, { type: 'capture-settings', painters: 5, guards: 0, staggerMs: 750 })
-    expect(only(runs)).toMatchObject({ painters: 5, wall: null })
+    runs = apply(runs, { type: 'capture-settings', painters: 5 })
+    expect(only(runs)).toMatchObject({ painters: 5, guards: 0, staggerMs: 750, wall: null })
 
     runs = apply(draftAll(apply(runs, lock(40))), { type: 'capture-go' })
     const started = apply(runs, {
@@ -113,6 +112,22 @@ describe('settings', () => {
       staggerMs: 100,
     })
     expect(started).toBe(runs)
+  })
+
+  it('change only the one a runner sent, so edits made before an update arrives both hold', () => {
+    let runs = opened([2])
+    runs = apply(runs, { type: 'capture-settings', painters: 6 })
+    runs = apply(runs, { type: 'capture-settings', staggerMs: 300 })
+    expect(only(runs)).toMatchObject({ painters: 6, guards: 0, staggerMs: 300 })
+  })
+
+  it('keep the coordinator on the closing leg when the guard count changes', () => {
+    // Three members, no guards: the coordinator paints last, at index 2.
+    let runs = opened([2, 3])
+    expect(order(runs)).toEqual([2, 3, 1])
+    runs = apply(runs, { type: 'capture-settings', guards: 1 })
+    // Index 2 now guards, so the coordinator moves to the last painter's place.
+    expect(order(runs)).toEqual([2, 1, 3])
   })
 
   it('are a runner’s to change', () => {
@@ -159,16 +174,25 @@ describe('locking in a wall', () => {
     expect(drafted(runs)).toEqual([0, 0, 0, 0])
 
     runs = draftAll(runs)
-    runs = apply(runs, {
-      type: 'capture-order',
-      order: moveCaptureMember(only(runs), 's2', 1) ?? [],
-    })
+    runs = apply(runs, { type: 'capture-move', member: 's2', by: 1 })
     expect(order(runs)).toEqual([3, 2, 4, 1])
     expect(drafted(runs)).toEqual([0, 0, 0, 0])
 
     // Painter 4 leaves: three painters share the wall again.
     runs = leaveCaptures(runs, 's4', 0) ?? []
     expect(legs(runs)).toEqual([40, 40, 40])
+  })
+
+  it('ignores a draft report measured before the last re-cut', () => {
+    let runs = apply(opened([2, 3]), lock(120))
+    const before = only(runs).cut
+    // Painters 2 and 3 swap equal legs; painter 2's report about their old leg arrives after.
+    runs = apply(runs, { type: 'capture-move', member: 's2', by: 1 })
+    const swapped = apply(runs, { type: 'capture-drafted', drafted: 40, cut: before }, actor(2))
+    expect(swapped).toBe(runs)
+    expect(
+      drafted(apply(runs, { type: 'capture-drafted', drafted: 40, cut: only(runs).cut }, actor(2))),
+    ).toEqual([0, 40, 0])
   })
 
   it('cancels back to choosing, with nothing drafted', () => {
@@ -186,10 +210,11 @@ describe('the countdown', () => {
     expect(apply(runs, { type: 'capture-go' })).toBe(runs)
     runs = apply(runs, lock(40, [[0, 1]]))
     // Painter 2 has drafted 19 of 20; the guard has drafted nothing.
-    runs = apply(runs, { type: 'capture-drafted', drafted: 19 }, actor(2))
-    runs = apply(runs, { type: 'capture-drafted', drafted: 20 }, actor(1))
+    const { cut } = only(runs)
+    runs = apply(runs, { type: 'capture-drafted', drafted: 19, cut }, actor(2))
+    runs = apply(runs, { type: 'capture-drafted', drafted: 20, cut }, actor(1))
     expect(apply(runs, { type: 'capture-go' })).toBe(runs)
-    runs = apply(runs, { type: 'capture-drafted', drafted: 20 }, actor(2))
+    runs = apply(runs, { type: 'capture-drafted', drafted: 20, cut }, actor(2))
     expect(only(apply(runs, { type: 'capture-go' }, runner(), 1_000)).startsAt).toBe(
       1_000 + CAPTURE_LEAD_MS,
     )
@@ -212,7 +237,27 @@ describe('the countdown', () => {
     expect(apply(runs, { type: 'capture-join', run: runs[1]?.id ?? '' }, actor(2), during)).toBe(
       runs,
     )
-    // Once the closing leg is painted, members may leave.
-    expect(order([leaveCaptures(runs, 's2', during + 1)?.[0] as CaptureRun])).toEqual([1])
+    // Once the closing leg is painted, members may leave, and may join another lobby.
+    const left = leaveCaptures(runs, 's2', during + 1) ?? []
+    expect(left[0]?.members.map(({ left }) => left)).toEqual([true, undefined])
+    expect(
+      apply(runs, { type: 'capture-join', run: runs[1]?.id ?? '' }, actor(2), during + 1)[1]
+        ?.members,
+    ).toHaveLength(2)
+  })
+
+  it('keeps every remaining member’s leg and role when someone leaves a finished lobby', () => {
+    // Two painters and a guard; the guard leaves once the wall is closed.
+    let runs = apply(opened([2, 3], { ...SETTINGS, guards: 1 }), lock(40, [[0, 1]]))
+    runs = apply(draftAll(runs), { type: 'capture-go' })
+    const before = captureLines(only(runs))
+    const finished = (only(runs).startsAt ?? 0) + 60_000
+    runs = leaveCaptures(runs, 's3', finished) ?? []
+    expect(captureLines(only(runs))).toEqual(before)
+    expect(order(runs)).toEqual([2, 1, 3])
+    // A lobby whose remaining members all left closes.
+    runs = leaveCaptures(runs, 's2', finished) ?? []
+    runs = leaveCaptures(runs, 's1', finished) ?? []
+    expect(connectedCaptures(runs, new Set(['s1', 's2', 's3']))).toEqual([])
   })
 })

@@ -8,6 +8,7 @@ import {
   capturePainterCount,
   captureReady,
   captureShortfall,
+  moveCaptureMember,
   type PainterIdentity,
   type Scope,
   satisfiesScope,
@@ -59,6 +60,7 @@ export const applyCaptureEvent = (
       guardZones: [],
       startsAt: null,
       staggerMs,
+      cut: 0,
     }
     return [...left, opened]
   }
@@ -93,7 +95,9 @@ const applyOwnEvent = (
     case 'capture-drafted': {
       const member = run.members.findIndex((entry) => entry.sessionId === sessionId)
       const current = run.members[member]
-      if (current === undefined || current.drafted === event.drafted) return run
+      // A report measured before the last re-cut is about a leg this member no longer has.
+      if (current === undefined || event.cut !== run.cut || current.drafted === event.drafted)
+        return run
       const members = run.members.slice()
       members[member] = { ...current, drafted: event.drafted }
       return { ...run, members }
@@ -105,21 +109,22 @@ const applyOwnEvent = (
   if (!runner || run.startsAt !== null) return run
   switch (event.type) {
     case 'capture-settings': {
-      const { painters, guards, staggerMs } = event
+      const { painters = run.painters, guards = run.guards, staggerMs = run.staggerMs } = event
       if (painters === run.painters && guards === run.guards)
         return staggerMs === run.staggerMs ? run : { ...run, staggerMs }
-      // The locked wall was planned for the old settings: back to choosing.
-      return unlocked({ ...run, painters, guards, staggerMs })
+      // The locked wall was planned for the old settings: back to choosing. A new guard count
+      // moves the last painter's place, so the coordinator is pinned to it again.
+      const resized = unlocked({ ...run, painters, guards, staggerMs })
+      return withMembers(resized, resized.members)
     }
-    case 'capture-order': {
-      const rank = new Map(event.order.map((id, index) => [id, index]))
-      const members = run.members
-        .map((entry, index) => ({
-          entry,
-          rank: rank.get(entry.sessionId) ?? event.order.length + index,
-        }))
-        .sort((a, b) => a.rank - b.rank)
-        .map(({ entry }) => entry)
+    case 'capture-move': {
+      const order = moveCaptureMember(run, event.member, event.by)
+      if (order === null) return run
+      const rank = new Map(order.map((id, index) => [id, index]))
+      // The coordinator is not in the order; withMembers pins them again.
+      const members = run.members.toSorted(
+        (a, b) => (rank.get(a.sessionId) ?? order.length) - (rank.get(b.sessionId) ?? order.length),
+      )
       return withMembers(run, members)
     }
     case 'capture-lock':
@@ -129,12 +134,7 @@ const applyOwnEvent = (
         captureShortfall(event.wall.length / 2, capturePainterCount(run)) > 0
       )
         return run
-      return {
-        ...run,
-        wall: event.wall,
-        guardZones: event.guardZones,
-        members: run.members.map(undrafted),
-      }
+      return recut({ ...run, wall: event.wall, guardZones: event.guardZones })
     case 'capture-unlock':
       return run.wall === null ? run : unlocked(run)
     case 'capture-go':
@@ -144,28 +144,40 @@ const applyOwnEvent = (
   }
 }
 
+/** Whether a session is in a lobby, rather than having left it once it finished. */
 const memberOf = (run: CaptureRun, sessionId: string): boolean =>
-  run.members.some((entry) => entry.sessionId === sessionId)
+  run.members.some((entry) => entry.sessionId === sessionId && entry.left !== true)
 
 const undrafted = (member: CaptureMember): CaptureMember =>
   member.drafted === 0 ? member : { ...member, drafted: 0 }
 
-const unlocked = (run: CaptureRun): CaptureRun => ({
+/** The lobby with its legs re-cut: nobody has drafted their new leg, and older reports are stale. */
+const recut = (run: CaptureRun, members = run.members): CaptureRun => ({
   ...run,
-  wall: null,
-  guardZones: [],
-  members: run.members.map(undrafted),
+  members: members.map(undrafted),
+  cut: run.cut + 1,
 })
 
+const unlocked = (run: CaptureRun): CaptureRun => recut({ ...run, wall: null, guardZones: [] })
+
 /**
- * The lobby without a session, as when it leaves or its socket closes. From the start of the
- * countdown until the closing leg is painted, every member keeps their place: their slot and leg
- * were fixed at the start, and shifting the others would hand them legs they have not drafted.
+ * The lobby without a session, as when it leaves or its socket closes. Once the countdown starts,
+ * every member keeps their place, so everyone keeps the leg, slot and guard role it started with:
+ * nobody leaves until the closing leg is painted, and then a member who leaves is only marked.
  */
 export const leaveCapture = (run: CaptureRun, sessionId: string, now: number): CaptureRun => {
-  if (run.startsAt !== null && now <= (captureEndsAt(run) ?? 0)) return run
-  const members = run.members.filter((entry) => entry.sessionId !== sessionId)
-  return members.length === run.members.length ? run : withMembers(run, members)
+  if (!memberOf(run, sessionId)) return run
+  if (run.startsAt !== null) {
+    if (now <= (captureEndsAt(run) ?? 0)) return run
+    const members = run.members.map((entry) =>
+      entry.sessionId === sessionId ? { ...entry, left: true as const } : entry,
+    )
+    return { ...run, members }
+  }
+  return withMembers(
+    run,
+    run.members.filter((entry) => entry.sessionId !== sessionId),
+  )
 }
 
 /**
@@ -188,7 +200,9 @@ export const connectedCaptures = (
   runs: readonly CaptureRun[],
   connected: ReadonlySet<string>,
 ): readonly CaptureRun[] => {
-  const kept = runs.filter((run) => run.members.some(({ sessionId }) => connected.has(sessionId)))
+  const kept = runs.filter((run) =>
+    run.members.some(({ sessionId, left }) => left !== true && connected.has(sessionId)),
+  )
   return kept.length === runs.length ? runs : kept
 }
 
@@ -202,7 +216,7 @@ const withMembers = (run: CaptureRun, members: readonly CaptureMember[]): Captur
   const same =
     pinned.length === run.members.length &&
     pinned.every((member, index) => member.sessionId === run.members[index]?.sessionId)
-  return { ...run, members: same ? pinned : pinned.map(undrafted) }
+  return same ? { ...run, members: pinned } : recut(run, pinned)
 }
 
 /**

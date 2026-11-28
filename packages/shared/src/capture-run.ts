@@ -53,6 +53,11 @@ export interface CaptureMember {
   readonly painter: PainterIdentity
   /** How many of their leg's pixels they have drafted. */
   readonly drafted: number
+  /**
+   * Set when they left after the closing leg was painted. They keep their place, so everyone
+   * else keeps the leg, slot and guard role the countdown started with.
+   */
+  readonly left?: true
 }
 
 export interface CaptureRun {
@@ -79,6 +84,11 @@ export interface CaptureRun {
   readonly guardZones: readonly (readonly number[])[]
   readonly startsAt: number | null
   readonly staggerMs: number
+  /**
+   * Counts every re-cut of the members' legs. A draft report names the cut it measured, so one
+   * sent before a re-cut never counts against the new leg.
+   */
+  readonly cut: number
 }
 
 /** A lobby's settings, as runners edit them until the countdown starts. */
@@ -103,13 +113,15 @@ export type CaptureClientEvent =
     }
   | { readonly type: 'capture-join'; readonly run: string }
   | { readonly type: 'capture-leave' }
+  /** Only the settings a runner changed, so edits to different settings never undo each other. */
   | {
       readonly type: 'capture-settings'
-      readonly painters: number
-      readonly guards: number
-      readonly staggerMs: number
+      readonly painters?: number
+      readonly guards?: number
+      readonly staggerMs?: number
     }
-  | { readonly type: 'capture-order'; readonly order: readonly string[] }
+  /** Move a member one place earlier (-1) or later (1); see `moveCaptureMember`. */
+  | { readonly type: 'capture-move'; readonly member: string; readonly by: -1 | 1 }
   /** Lock in a planned wall, from anchor A to anchor B, and its guard zones. */
   | {
       readonly type: 'capture-lock'
@@ -117,7 +129,7 @@ export type CaptureClientEvent =
       readonly guardZones: readonly (readonly number[])[]
     }
   | { readonly type: 'capture-unlock' }
-  | { readonly type: 'capture-drafted'; readonly drafted: number }
+  | { readonly type: 'capture-drafted'; readonly drafted: number; readonly cut: number }
   | { readonly type: 'capture-go' }
   | { readonly type: 'capture-close' }
   | { readonly type: 'clock'; readonly sent: number }
@@ -261,7 +273,8 @@ const isMember = (value: unknown): value is CaptureMember =>
   typeof value.sessionId === 'string' &&
   value.sessionId.length <= 64 &&
   isWorkIdentity(value.painter) &&
-  isSafeInteger(value.drafted)
+  isSafeInteger(value.drafted) &&
+  (value.left === undefined || value.left === true)
 
 /** A lobby from a server, which is untrusted input. Null when malformed. */
 export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
@@ -277,6 +290,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     guardZones,
     startsAt,
     staggerMs,
+    cut,
   } = value
   if (
     typeof id !== 'string' ||
@@ -292,7 +306,8 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     guardZones.length > MAX_CAPTURE_GUARDS ||
     !guardZones.every((zone) => isLine(zone, MAX_CAPTURE_LINE_PIXELS)) ||
     !(startsAt === null || isSafeInteger(startsAt)) ||
-    !isSafeInteger(staggerMs)
+    !isSafeInteger(staggerMs) ||
+    !isSafeInteger(cut)
   )
     return null
   return {
@@ -306,5 +321,6 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     guardZones,
     startsAt,
     staggerMs,
+    cut,
   }
 }

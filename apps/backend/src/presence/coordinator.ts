@@ -201,8 +201,7 @@ export class PresenceCoordinator<Client> {
   ): void {
     const previous = this.captureRuns(team)
     const next = previous.then(async (runs) => {
-      const open = this.sessionsOpen()
-      const connected = new Set(open.map(({ held }) => held.sessionId))
+      const connected = new Set(this.sessionsOpen().map(({ held }) => held.sessionId))
       const updated = connectedCaptures(change(runs), connected)
       if (updated === runs) return runs
       if (updated.length === 0) await this.state.storage.delete(captureKey(team))
@@ -211,7 +210,10 @@ export class PresenceCoordinator<Client> {
         type: 'capture-runs',
         runs: updated,
       } satisfies PresenceServerEvent)
-      for (const { socket, held } of open) if (held.team === team) this.sendEncoded(socket, payload)
+      // Recipients are read after the write: a session that switched team meanwhile has already
+      // been sent its new team's lobbies and must not get these.
+      for (const { socket, held } of this.sessionsOpen())
+        if (held.team === team) this.sendEncoded(socket, payload)
       return updated
     })
     // A failed write keeps the run as it was, so the next change starts from what is stored.

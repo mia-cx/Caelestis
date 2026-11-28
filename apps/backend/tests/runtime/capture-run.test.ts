@@ -243,14 +243,15 @@ it('runs a lobby from opening to the countdown, cutting the wall for whoever is 
   runner.send({ type: 'capture-lock', wall: wall(180), guardZones: [] })
   await vi.waitFor(() => expect(painters[0]?.run()?.wall).toHaveLength(360))
 
+  const cut = runner.run()?.cut ?? 0
   for (const session of [painters[0], runner])
-    session?.send({ type: 'capture-drafted', drafted: 60 })
+    session?.send({ type: 'capture-drafted', drafted: 60, cut })
   await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([60, 0, 60]))
   runner.send({ type: 'capture-go' })
   await settle()
   expect(runner.run()?.startsAt).toBeNull()
 
-  painters[1]?.send({ type: 'capture-drafted', drafted: 60 })
+  painters[1]?.send({ type: 'capture-drafted', drafted: 60, cut })
   await vi.waitFor(() => expect(runner.run()?.members[1]?.drafted).toBe(60))
   const before = Date.now()
   runner.send({ type: 'capture-go' })

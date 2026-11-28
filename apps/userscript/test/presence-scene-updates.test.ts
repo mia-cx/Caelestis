@@ -94,6 +94,7 @@ const lobby = (
   guards: 0,
   startsAt: null,
   staggerMs: 500,
+  cut: 0,
   members: [SELF_SESSION, TEAMMATE, ...joined].map((sessionId, index) => ({
     sessionId,
     painter: index === 0 ? painter : other,

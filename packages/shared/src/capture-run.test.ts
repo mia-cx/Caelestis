@@ -28,6 +28,7 @@ const lobby = (pixels: number, drafted: readonly number[], guards = 1): CaptureR
   guardZones: guards === 0 ? [] : [[0, 1, 1, 1]],
   startsAt: null,
   staggerMs: 500,
+  cut: 0,
 })
 
 describe('captureLines', () => {
