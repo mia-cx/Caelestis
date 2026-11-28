@@ -59,6 +59,7 @@ import {
 import type { ImportedTemplate } from '../templates/template-record.js'
 import { MAX_IMAGE_BYTES, MAX_TEMPLATE_NAME_LENGTH } from '../templates/template-record.js'
 import { loadAccount, ownedColours } from '../wplace-account.js'
+import { EDITOR_LAYER } from './metrics.js'
 import { requestConfirmation } from './notification-host.js'
 import { applyWplaceTheme } from './theme.js'
 
@@ -1300,8 +1301,8 @@ const mount = (): void => {
   Object.assign(created.style, {
     position: 'fixed',
     inset: '0',
-    // Above the docked panel (30), below its popovers and dialogs (40), as claim mode is.
-    zIndex: '31',
+    // Just above the open panel, as claim mode is; popovers and dialogs use the top layer.
+    zIndex: EDITOR_LAYER,
     pointerEvents: 'none',
   } satisfies Partial<CSSStyleDeclaration>)
   applyWplaceTheme(created)

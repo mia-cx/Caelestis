@@ -98,7 +98,7 @@ const panelButtonModel = (scope: PanelScope): RailControlModel => {
   const open = panel?.isOpen(scope) ?? false
   const badge = scope === 'world' ? unacknowledgedAlarmCount() : 0
   return {
-    icon: 'extension',
+    icon: 'logo',
     label: buttonTooltip(),
     pressed: open,
     expanded: open,

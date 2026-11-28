@@ -66,7 +66,7 @@ import {
   surfaceAppearanceStore,
 } from './appearance.js'
 import { positionChargeForecast } from './charge-forecast.js'
-import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
+import { CLEAR_OF_RAIL, EDGE, GAP, PANEL_LAYER } from './metrics.js'
 import { mountNotificationsIn, showToast, syncToastPlacement } from './notification-host.js'
 import { glideOverlayControls, invalidateOverlayControlsEdge } from './overlay-menu.js'
 import {
@@ -427,7 +427,7 @@ const buildPanel = (): PanelHost => {
     right: alliance ? '0' : `${CLEAR_OF_RAIL}px`,
     top: alliance ? `${allianceStage?.offsetTop ?? 0}px` : `${EDGE}px`,
     bottom: alliance ? '0' : `${EDGE}px`,
-    zIndex: '30',
+    zIndex: PANEL_LAYER,
     display: 'block',
     minHeight: '0',
     overflow: 'hidden',

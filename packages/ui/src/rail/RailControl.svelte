@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Logo from '../brand/Logo.svelte'
   import Icon from '../foundations/Icon.svelte'
   import type { RailControlModel } from './model.js'
 
@@ -19,7 +20,7 @@
   aria-haspopup={model.popup}
   aria-disabled={model.disabled}
 >
-  <Icon name={model.icon} size="1.25rem" />
+  {#if model.icon === 'logo'}<Logo />{:else}<Icon name={model.icon} size="1.25rem" />{/if}
   {#if model.badge !== undefined && model.badge > 0}
     <span class="badge" aria-label={`${model.badge} new alarms`}>{model.badge}</span>
   {/if}

@@ -190,7 +190,8 @@
     position: fixed;
     inset-inline-end: var(--caelestis-toasts-inset-end, 3.75rem);
     inset-block-end: 0.5rem;
-    z-index: 40;
+    /* The host can lift toasts above its own raised surfaces, so their actions stay reachable. */
+    z-index: var(--caelestis-toasts-layer, 40);
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
@@ -201,9 +202,9 @@
     pointer-events: none;
   }
   /* In a short window the capture card rises over Wplace's scoreboard (1001); toasts stay above it,
-     so their actions remain reachable. */
+     and above any higher layer the host gave them, so their actions remain reachable. */
   @media (max-width: 1080px) and (max-height: 560px) {
-    .toasts { z-index: 1002; }
+    .toasts { z-index: max(1002, var(--caelestis-toasts-layer, 40)); }
   }
 
   .toasts.listed { overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
