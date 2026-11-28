@@ -1020,7 +1020,9 @@ const lobbiesOf = (views: readonly Shown[]): CaptureRunModel['lobbies'] =>
           canJoin: view.canWrite,
         })),
     )
-    .sort((a, b) => b.members - a.members)
+    // Largest first; at the same size, the older lobby first, across servers too: lobby ids are
+    // UUIDv7, so they sort by when the lobby was opened.
+    .sort((a, b) => b.members - a.members || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
 const handleIntent = (intent: CaptureRunIntent): void => {
   const view = active()

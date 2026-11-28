@@ -262,12 +262,16 @@ describe('hosting', () => {
         member(index === 0 ? 'b' : String(index), index === 0 ? host : cy, index),
       ),
     })
-    await receive(socket, [of('old', bea, 1), of('big', cy, 3), of('new', cy, 1)])
+    // Lobby ids are UUIDv7, so they order by when each lobby opened, whatever order they arrive in.
+    const [older, newer, biggest] = ['1', '2', '3'].map(
+      (n) => `018f0000-0000-7000-8000-00000000000${n}`,
+    )
+    await receive(socket, [of(newer, cy, 1), of(biggest, cy, 3), of(older, bea, 1)])
     expect(model()).toMatchObject({ phase: 'list', canOpen: true })
     expect(model()?.lobbies.map(({ id, name, members }) => [id, name, members])).toEqual([
-      ['big', 'Cy', 3],
-      ['old', 'Bea', 1],
-      ['new', 'Cy', 1],
+      [biggest, 'Cy', 3],
+      [older, 'Bea', 1],
+      [newer, 'Cy', 1],
     ])
   })
 
