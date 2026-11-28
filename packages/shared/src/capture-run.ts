@@ -77,6 +77,11 @@ export interface CaptureMember {
    * else keeps the leg, slot and guard role the countdown started with.
    */
   readonly left?: true
+  /**
+   * The browser the place belongs to, as the server hashes its client id: only a session from
+   * that browser takes the place over. The server keeps it and strips it before sending lobbies.
+   */
+  readonly client?: string
 }
 
 export interface CaptureRun {

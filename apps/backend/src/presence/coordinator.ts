@@ -36,12 +36,16 @@ import { ownedRegionIds, type RegionOwner, type RegionStore } from '../work/regi
 import {
   applyCaptureEvent,
   type CaptureAssignment,
+  type CaptureSeatOwner,
   captureAssignments,
   captureSlotLog,
   captureStartLog,
   connectedCaptures,
+  handedPlaces,
   leaveCaptures,
   newlyStarted,
+  reseatCaptures,
+  sentCaptures,
 } from './capture.js'
 import { presenceRectWithinSurface } from './geometry.js'
 import { PeerGrid } from './peer-grid.js'
@@ -220,17 +224,23 @@ export class PresenceCoordinator<Client> {
    */
   private updateCapture(
     team: TerritoryTeam,
-    change: (runs: readonly CaptureRun[]) => readonly CaptureRun[],
+    change: (
+      runs: readonly CaptureRun[],
+      connected: ReadonlyMap<string, CaptureSeatOwner>,
+    ) => readonly CaptureRun[],
   ): void {
     const previous = this.captureRuns(team)
     const next = previous.then(async (runs) => {
       // Only sessions still on this team count: one that switched team is gone from its lobbies.
-      const connected = new Set(
+      const connected = new Map(
         this.sessionsOpen()
           .filter(({ held }) => held.team === team)
-          .map(({ held }) => held.sessionId),
+          .map(({ held }) => [
+            held.sessionId,
+            { painter: held.painter.wplaceUserId, client: held.clientHash },
+          ]),
       )
-      const updated = connectedCaptures(change(runs), connected)
+      const updated = connectedCaptures(change(runs, connected), connected)
       if (updated === runs) return runs
       if (updated.length === 0) await this.state.storage.delete(captureKey(team))
       else await this.state.storage.put(captureKey(team), updated)
@@ -238,9 +248,16 @@ export class PresenceCoordinator<Client> {
         console.info(JSON.stringify(captureStartLog(run)))
         this.assignSlots(run)
       }
+      // A place handed to a new session shares its slot with it: the new session's timing report
+      // counts, and so does one still on its way from the old tab, until the slot's grace ends.
+      const now = Date.now()
+      for (const [lobby, from, to] of handedPlaces(runs, updated))
+        for (const [key, held] of [...this.assignedSlots])
+          if (key.startsWith(`${lobby}:${from}:`) && held.until >= now)
+            this.assignedSlots.set(`${lobby}:${to}:${key.slice(`${lobby}:${from}:`.length)}`, held)
       const payload = JSON.stringify({
         type: 'capture-runs',
-        runs: updated,
+        runs: sentCaptures(updated),
       } satisfies PresenceServerEvent)
       // Recipients are read after the write: a session that switched team meanwhile has already
       // been sent its new team's lobbies and must not get these.
@@ -604,9 +621,16 @@ export class PresenceCoordinator<Client> {
     if (attachment.team !== undefined) this.leaveCaptures(attachment.team, attachment.sessionId)
   }
 
-  /** Take a session out of its team's lobbies, unless its countdown holds it there. */
+  /**
+   * Take a closed or departed session out of its team's lobbies, unless its countdown holds it
+   * there. A replacement already connected from the same browser takes its place first, so a
+   * socket that closes after its painter reconnected never costs them the place.
+   */
   private leaveCaptures(team: TerritoryTeam, sessionId: string): void {
-    this.updateCapture(team, (runs) => leaveCaptures(runs, sessionId, Date.now()) ?? runs)
+    this.updateCapture(team, (runs, connected) => {
+      const handed = reseatCaptures(runs, connected)
+      return leaveCaptures(handed, sessionId, Date.now()) ?? handed
+    })
   }
 
   private close(socket: LiveSocket, code: number, reason: string): void {
@@ -765,6 +789,7 @@ export class PresenceCoordinator<Client> {
         painter: attachment.painter,
         scope: attachment.credentialScope,
         team,
+        client: attachment.clientHash,
       }
       this.updateCapture(team, (runs) => applyCaptureEvent(runs, event, actor, Date.now(), uuidV7))
       return
@@ -811,12 +836,14 @@ export class PresenceCoordinator<Client> {
       // A new team: leave the old team's lobby, see the new one's.
       const left = attachment.team
       if (left !== undefined) this.leaveCaptures(left, attachment.sessionId)
+      // A painter back on a new socket takes their place again, should their old one be gone.
+      this.updateCapture(team, (runs) => runs)
       void this.captureRuns(team).then((runs) => {
         // The read can finish after the session closed or switched again; then it is not theirs.
         if (socket.readyState !== 1) return
         const held = attachmentOf(socket)
         if (held === null || held.closed || held.team !== team) return
-        this.send({ socket, held }, { type: 'capture-runs', runs })
+        this.send({ socket, held }, { type: 'capture-runs', runs: sentCaptures(runs) })
       })
     }
     this.dirty.add(attachment.sessionId)

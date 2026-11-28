@@ -84,14 +84,21 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
   const { token: runnerToken } = (await exchanged.json()) as { token: string }
 
   let nextPainter = 1
-  /** A session, which reports `team` as its event team first when given one. */
-  const connect = async (token: string, team?: TerritoryTeam) => {
-    const painterId = nextPainter++
+  /**
+   * A session, which reports `team` as its event team first when given one: a new painter in a new
+   * browser, unless `as` names the painter and browser.
+   */
+  const connect = async (
+    token: string,
+    team?: TerritoryTeam,
+    as = { painterId: nextPainter++, clientId: uuidV7() },
+  ) => {
+    const { painterId, clientId } = as
     const query = new URLSearchParams({
       season: '0',
       painterId: String(painterId),
       painterName: `Painter ${painterId}`,
-      clientId: uuidV7(),
+      clientId,
     })
     const socket = new WebSocket(`${base.replace('http', 'ws')}/telemetry/presence?${query}`, [
       PRESENCE_PROTOCOL_V1,
@@ -110,6 +117,8 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     if (team !== undefined) send({ type: 'presence-update', team })
     return {
       sessionId: event.sessionId,
+      painterId,
+      clientId,
       events,
       send,
       close: () => socket.close(),
@@ -149,6 +158,12 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     painterToken,
     admin: (team?: TerritoryTeam) => connect(ADMIN, team),
     painter: (team?: TerritoryTeam) => connect(painterToken, team),
+    /** The same painter on another socket: from the same browser, or from `clientId`'s. */
+    again: (
+      session: { painterId: number; clientId: string },
+      team?: TerritoryTeam,
+      clientId = session.clientId,
+    ) => connect(painterToken, team, { painterId: session.painterId, clientId }),
     /** A session holding an event-runner token kept from backend 1.6.0. */
     legacyRunner: (team?: TerritoryTeam) => connect(runnerToken, team),
   }
@@ -693,3 +708,52 @@ it('logs a slot report from a finished round, through a team switch, until it ex
   }
   expect(slotLines()).toHaveLength(2)
 }, 30_000)
+
+it('hands a place to the same browser rejoining, and logs slot reports from both of its tabs', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const slots = () =>
+    info.mock.calls.filter(([line]) => String(line).includes('"event":"capture-slot"'))
+  const server = await start()
+  const host = await server.painter(GREEN)
+  host.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
+  await vi.waitFor(() => expect(host.run()).toBeDefined())
+  host.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
+  await vi.waitFor(() => expect(host.run()?.wall).toHaveLength(120))
+  const lobby = host.run()
+  host.send({ type: 'capture-drafted', run: lobby?.id ?? '', drafted: 60, cut: lobby?.cut ?? 0 })
+  await vi.waitFor(() => expect(host.run()?.members[0]?.drafted).toBe(60))
+  host.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(host.run()?.startsAt).not.toBeNull())
+  const run = host.run()
+  if (run === undefined || run.startsAt === null) throw new Error('Expected a started lobby')
+
+  // Someone claiming the same painter from another browser gets nothing.
+  const impostor = await server.again(host, GREEN, uuidV7())
+  impostor.send({ type: 'capture-join', run: run.id })
+  await settle()
+  expect(impostor.run()).toBeUndefined()
+  // The same browser in a new tab takes the place, slot and all; nobody is told whose browser.
+  const tab = await server.again(host, GREEN)
+  tab.send({ type: 'capture-join', run: run.id })
+  await vi.waitFor(() =>
+    expect(tab.run()?.members.map(({ sessionId }) => sessionId)).toEqual([tab.sessionId]),
+  )
+  expect(tab.run()?.members.some((member) => 'client' in member)).toBe(false)
+
+  const report = {
+    type: 'capture-timing',
+    run: run.id,
+    slotAt: run.startsAt,
+    firedLateMs: 2,
+    clickToSendMs: 41,
+    sendToResponseMs: 180,
+    status: 200,
+    wplaceRttMs: 95,
+    clockOffsetMs: -12,
+    clockRttMs: 30,
+  } as const
+  // The old tab's paint was already on its way; the new tab paints too.
+  host.send(report)
+  tab.send(report)
+  await vi.waitFor(() => expect(slots()).toHaveLength(2))
+})

@@ -266,6 +266,8 @@ export const CaptureRun = Schema.Struct({
       drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
       joined: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
       left: Schema.optionalKey(Schema.Literal(true)),
+      // Kept by the server, which strips it before sending.
+      client: Schema.optionalKey(Schema.String),
     }),
     MAX_CAPTURE_MEMBERS,
   ),

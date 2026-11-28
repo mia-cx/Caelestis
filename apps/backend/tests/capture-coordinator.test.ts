@@ -11,7 +11,14 @@ import {
   type Scope,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
-import { applyCaptureEvent, connectedCaptures, leaveCaptures } from '../src/presence/capture.js'
+import {
+  applyCaptureEvent,
+  connectedCaptures,
+  handedPlaces,
+  leaveCaptures,
+  reseatCaptures,
+  sentCaptures,
+} from '../src/presence/capture.js'
 
 type Event = Exclude<CaptureClientEvent, { readonly type: 'clock' | 'capture-timing' }>
 
@@ -23,7 +30,22 @@ const actor = (id: number, scope: Scope = 'report') => ({
   painter: { wplaceUserId: id, displayName: `Painter ${id}` },
   scope,
   team: 2 as const,
+  client: `browser${id}`,
 })
+
+/** The same painter as `actor(id)` on another socket of the same browser: a tab, or a reconnect. */
+const again = (id: number) => ({ ...actor(id), sessionId: `s${id}b` })
+
+/** Someone claiming `actor(id)`'s painter id from another browser. */
+const impostor = (id: number) => ({ ...again(id), client: 'elsewhere' })
+
+const owner = (id: number, client = `browser${id}`) => ({ painter: id, client })
+
+/** The sessions the room has open, `actor(id)`'s for each id, and `extra` ones. */
+const online = (
+  ids: readonly number[],
+  ...extra: (readonly [string, ReturnType<typeof owner>])[]
+) => new Map([...ids.map((id) => [`s${id}`, owner(id)] as const), ...extra])
 
 let ids = 0
 const apply = (runs: readonly CaptureRun[], event: Event, by = actor(COORDINATOR), now = 0) =>
@@ -100,9 +122,84 @@ describe('lobbies', () => {
 
   it('keeps its connected members, and closes once none is connected', () => {
     const runs = opened([2])
-    expect(connectedCaptures(runs, new Set(['s1', 's2']))).toBe(runs)
-    expect(order(connectedCaptures(runs, new Set(['s2'])))).toEqual([2])
-    expect(connectedCaptures(runs, new Set(['s9']))).toEqual([])
+    expect(connectedCaptures(runs, online([1, 2]))).toBe(runs)
+    expect(order(connectedCaptures(runs, online([2])))).toEqual([2])
+    expect(connectedCaptures(runs, online([9]))).toEqual([])
+  })
+})
+
+describe('a painter on a new socket', () => {
+  const sessions = (runs: readonly CaptureRun[]) =>
+    only(runs).members.map(({ sessionId }) => sessionId)
+
+  it('takes back their place on joining again, so they are never in a lobby twice', () => {
+    let runs = apply(opened([2, 3]), lock(60))
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, again(2))
+    expect(order(runs)).toEqual([2, 3, 1])
+    expect(sessions(runs)).toEqual(['s2b', 's3', 's1'])
+    // The same leg: nothing re-cut.
+    expect(only(runs).wall).not.toBeNull()
+  })
+
+  it('keeps their leg and slot through a reconnect during the countdown, into the next round', () => {
+    const started = apply(draftAll(apply(opened([2, 3]), lock(60))), { type: 'capture-go' })
+    // Painter 2's socket dropped and came back; the old one is gone.
+    const room = online([1, 3], ['s2b', owner(2)])
+    const back = connectedCaptures(started, room)
+    expect(sessions(back)).toEqual(['s2b', 's3', 's1'])
+    expect(captureLines(only(back))).toEqual(captureLines(only(started)))
+    const end = (only(back).startsAt ?? 0) + 60_000
+    const next = connectedCaptures(
+      apply(back, { type: 'capture-unlock' }, actor(COORDINATOR), end),
+      room,
+    )
+    expect(order(next)).toEqual([2, 3, 1])
+  })
+
+  it('keeps their place when the old socket only closes after the countdown, once back', () => {
+    const started = apply(draftAll(apply(opened([2, 3]), lock(60))), { type: 'capture-go' })
+    const end = (only(started).startsAt ?? 0) + 60_000
+    // The new socket is up while the old one still counts as open, so nothing moves yet.
+    expect(connectedCaptures(started, online([1, 2, 3], ['s2b', owner(2)]))).toBe(started)
+    // Then the old one closes: the coordinator hands its place over before it leaves.
+    const room = online([1, 3], ['s2b', owner(2)])
+    const closed = leaveCaptures(reseatCaptures(started, room), 's2', end) ?? []
+    const next = connectedCaptures(
+      apply(closed, { type: 'capture-unlock' }, actor(COORDINATOR), end),
+      room,
+    )
+    expect(order(next)).toEqual([2, 3, 1])
+    expect(sessions(next)).toEqual(['s2b', 's3', 's1'])
+  })
+
+  it('takes over the host’s place along with hosting', () => {
+    const runs = connectedCaptures(opened([2]), online([2], ['s1b', owner(1)]))
+    expect(only(runs).host).toBe('s1b')
+  })
+
+  it('leaves a place alone while its own session is still connected, until they join', () => {
+    const runs = opened([2])
+    expect(connectedCaptures(runs, online([1, 2], ['s2b', owner(2)]))).toBe(runs)
+  })
+
+  it('never hands a place to another browser claiming the same painter', () => {
+    const runs = apply(opened([2, 3]), lock(60))
+    // Joining: neither the place nor a second one.
+    expect(apply(runs, { type: 'capture-join', run: only(runs).id }, impostor(1))).toBe(runs)
+    // Reconnecting: the host's place stays theirs, and passes on as usual once they are gone.
+    const away = connectedCaptures(runs, online([2, 3], ['s1b', owner(1, 'elsewhere')]))
+    expect(sessions(away)).not.toContain('s1b')
+  })
+
+  it('names each place handed over, so its slot follows it', () => {
+    const started = apply(draftAll(apply(opened([2, 3]), lock(60))), { type: 'capture-go' })
+    const back = connectedCaptures(started, online([1, 3], ['s2b', owner(2)]))
+    expect(handedPlaces(started, back)).toEqual([[only(started).id, 's2', 's2b']])
+    expect(handedPlaces(back, back)).toEqual([])
+  })
+
+  it('never sends the browser a place belongs to', () => {
+    expect(JSON.stringify(sentCaptures(opened([2])))).not.toContain('browser')
   })
 })
 
@@ -141,11 +238,11 @@ describe('the host', () => {
   })
 
   it('passes on when the host disconnects, gathering or started', () => {
-    const gathering = connectedCaptures(opened([2, 3]), new Set(['s2', 's3']))
+    const gathering = connectedCaptures(opened([2, 3]), online([2, 3]))
     expect(only(gathering).host).toBe('s2')
     // A started lobby keeps a disconnected member's place, but not as host.
     const started = apply(draftAll(apply(opened([2, 3]), lock(60))), { type: 'capture-go' })
-    const kept = connectedCaptures(started, new Set(['s2', 's3']))
+    const kept = connectedCaptures(started, online([2, 3]))
     expect(order(kept)).toEqual(order(started))
     expect(only(kept).host).toBe('s2')
     const after = (only(kept).startsAt ?? 0) + 60_000
@@ -191,7 +288,7 @@ describe('the host', () => {
     // Once the opener leaves, the first member hosts; the room records it.
     const left = leaveCaptures(stored, 's1', 0) ?? []
     expect(host(left)).toBe(2)
-    expect(only(connectedCaptures(left, new Set(['s2', 's3']))).host).toBe('s2')
+    expect(only(connectedCaptures(left, online([2, 3]))).host).toBe('s2')
   })
 })
 
@@ -516,7 +613,7 @@ describe('the countdown', () => {
     expect(leaveCaptures(ghost, 's2', (only(ghost).startsAt ?? 0) + 1)).toBeNull()
     const next = connectedCaptures(
       apply(ghost, { type: 'capture-unlock' }, actor(COORDINATOR), end),
-      new Set(['s1', 's3']),
+      online([1, 3]),
     )
     expect(order(next)).toEqual([3, 1])
     // Painters can't start the next round.
@@ -557,6 +654,6 @@ describe('the countdown', () => {
     // A lobby whose remaining members all left closes.
     runs = leaveCaptures(runs, 's2', finished) ?? []
     runs = leaveCaptures(runs, 's1', finished) ?? []
-    expect(connectedCaptures(runs, new Set(['s1', 's2', 's3']))).toEqual([])
+    expect(connectedCaptures(runs, online([1, 2, 3]))).toEqual([])
   })
 })

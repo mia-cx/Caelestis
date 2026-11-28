@@ -23,6 +23,7 @@ import {
   type Scope,
   satisfiesScope,
   type TerritoryTeam,
+  type WplaceUserId,
 } from '@caelestis/shared'
 
 /** Who sent a capture event, as the room knows the socket. */
@@ -33,6 +34,14 @@ export interface CaptureActor {
   readonly scope: Scope
   /** The event team the session reported; it acts on that team's lobbies. */
   readonly team: TerritoryTeam
+  /** The hash of the session's browser client id: which places it may take over. */
+  readonly client: string
+}
+
+/** A connected session as reconnection sees it: whose it is, and from which browser. */
+export interface CaptureSeatOwner {
+  readonly painter: WplaceUserId
+  readonly client: string
 }
 
 type RunEvent = Exclude<CaptureClientEvent, { readonly type: 'clock' | 'capture-timing' }>
@@ -58,6 +67,7 @@ export const applyCaptureEvent = (
     painter: actor.painter,
     drafted: 0,
     joined,
+    client: actor.client,
   })
   if (event.type === 'capture-new') {
     const left = leaveCaptures(runs, actor.sessionId, now)
@@ -86,10 +96,17 @@ export const applyCaptureEvent = (
   }
   if (event.type === 'capture-join') {
     const target = runs.find(({ id }) => id === event.run)
-    if (target === undefined || target.startsAt !== null || memberOf(target, actor.sessionId))
-      return runs
+    if (target === undefined || memberOf(target, actor.sessionId)) return runs
+    // A painter is one member: joining again from a new tab or socket in the same browser takes
+    // back their place, leg and slot, also once the countdown has started. The painter id is the
+    // client's word, so a place held from another browser is not theirs to take, nor to double.
+    const place = placeOf(target, actor.painter.wplaceUserId)
+    if (place !== -1 && target.members[place]?.client !== actor.client) return runs
+    if (place === -1 && target.startsAt !== null) return runs
     const left = leaveCaptures(runs, actor.sessionId, now)
     if (left === null) return runs
+    if (place !== -1)
+      return left.map((run) => (run.id === target.id ? reseated(run, place, actor.sessionId) : run))
     const joined = Math.max(0, ...target.members.map((member) => (member.joined ?? 0) + 1))
     return left.map((run) =>
       run === target ? withMembers(run, [...run.members, me(joined)]) : run,
@@ -203,6 +220,19 @@ const applyOwnEvent = (
 const memberOf = (run: CaptureRun, sessionId: string): boolean =>
   run.members.some((entry) => entry.sessionId === sessionId && entry.left !== true)
 
+/** Where a painter sits in a lobby they have not left, or -1. */
+const placeOf = (run: CaptureRun, painter: WplaceUserId): number =>
+  run.members.findIndex((entry) => entry.left !== true && entry.painter.wplaceUserId === painter)
+
+/** The lobby with the member at `place` on a new session of theirs, hosting if the old one did. */
+const reseated = (run: CaptureRun, place: number, sessionId: string): CaptureRun => {
+  const member = run.members[place]
+  if (member === undefined) return run
+  const members = run.members.slice()
+  members[place] = { ...member, sessionId }
+  return { ...run, members, ...(run.host === member.sessionId ? { host: sessionId } : {}) }
+}
+
 const undrafted = (member: CaptureMember): CaptureMember =>
   member.drafted === 0 ? member : { ...member, drafted: 0 }
 
@@ -265,17 +295,54 @@ export const leaveCaptures = (
 }
 
 /**
+ * The lobbies with each place whose session is gone handed to a connected session of the same
+ * painter, from the same browser, that is in no lobby: a painter whose socket reconnected, or whose
+ * old socket only closed after they did, keeps their leg and slot. The same array when nobody
+ * comes back. `connected` holds each connected session's owner.
+ */
+export const reseatCaptures = (
+  runs: readonly CaptureRun[],
+  connected: ReadonlyMap<string, CaptureSeatOwner>,
+): readonly CaptureRun[] => {
+  const seated = new Set(
+    runs.flatMap(({ members }) =>
+      members.filter(({ left }) => left !== true).map(({ sessionId }) => sessionId),
+    ),
+  )
+  const owner = (painter: WplaceUserId, client: string | undefined) => `${painter}:${client}`
+  // Per painter and browser, a connected session in no lobby yet: the latest, if several.
+  const spare = new Map<string, string>()
+  for (const [sessionId, { painter, client }] of connected)
+    if (!seated.has(sessionId)) spare.set(owner(painter, client), sessionId)
+  if (spare.size === 0) return runs
+  let changed = false
+  const back = runs.map((before) =>
+    before.members.reduce((run, { sessionId, painter, left, client }, place) => {
+      const key = owner(painter.wplaceUserId, client)
+      const session = spare.get(key)
+      if (left === true || client === undefined || connected.has(sessionId) || !session) return run
+      spare.delete(key)
+      changed = true
+      return reseated(run, place, session)
+    }, before),
+  )
+  return changed ? back : runs
+}
+
+/**
  * The lobbies that still have a connected member, a lobby nobody is in closing, each hosted by a
- * connected member. A gathering lobby also drops members whose sessions are gone: one who
- * disconnected during a countdown kept their place until it ended, and must not carry into the next
- * round. A started lobby keeps them, so its host passes to the longest-standing connected member.
+ * connected member, after `reseatCaptures` gives returning painters their places back. A gathering
+ * lobby also drops members whose sessions are gone: one who disconnected during a countdown kept
+ * their place until it ended, and must not carry into the next round. A started lobby keeps them,
+ * so its host passes to the longest-standing connected member.
  */
 export const connectedCaptures = (
   runs: readonly CaptureRun[],
-  connected: ReadonlySet<string>,
+  connected: ReadonlyMap<string, CaptureSeatOwner>,
 ): readonly CaptureRun[] => {
-  let changed = false
-  const kept = runs.flatMap((run) => {
+  const back = reseatCaptures(runs, connected)
+  let changed = back !== runs
+  const kept = back.flatMap((run) => {
     if (!run.members.some(({ sessionId, left }) => left !== true && connected.has(sessionId))) {
       changed = true
       return []
@@ -332,6 +399,31 @@ const pinCoordinator = (run: CaptureRun): CaptureRun => {
   const others = run.members.filter((_, index) => index !== at)
   return { ...run, members: [...others.slice(0, last), coordinator, ...others.slice(last)] }
 }
+
+/** The lobbies as sessions receive them: without the browser each place belongs to. */
+export const sentCaptures = (runs: readonly CaptureRun[]): readonly CaptureRun[] =>
+  runs.map((run) => ({ ...run, members: run.members.map(({ client: _, ...member }) => member) }))
+
+/**
+ * The places handed to a new session between `before` and `after`, as `[lobby, from, to]`
+ * sessions: the same painter in the same place of the same lobby, on another session.
+ */
+export const handedPlaces = (
+  before: readonly CaptureRun[],
+  after: readonly CaptureRun[],
+): (readonly [string, string, string])[] =>
+  after.flatMap((run) => {
+    const old = before.find(({ id }) => id === run.id)
+    if (old === undefined) return []
+    return run.members.flatMap(({ sessionId, painter }, place) => {
+      const was = old.members[place]
+      return was !== undefined &&
+        was.sessionId !== sessionId &&
+        was.painter.wplaceUserId === painter.wplaceUserId
+        ? [[run.id, was.sessionId, sessionId] as const]
+        : []
+    })
+  })
 
 /** The lobbies that started their countdown between `before` and `after`. */
 export const newlyStarted = (
