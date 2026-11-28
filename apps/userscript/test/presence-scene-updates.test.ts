@@ -350,3 +350,17 @@ it("says planning failed when Wplace's map cannot be fetched", async () => {
   await vi.advanceTimersByTimeAsync(1_000)
   expect(card().model?.message).toBe('Planning failed. It tries again shortly.')
 })
+
+it('clears the planning failure once the same map can be read again', async () => {
+  await planning()
+  expect(card().model?.message).toBeUndefined()
+  const working = globalThis.fetch
+  // Wplace answers 503 once the cached map is due a refresh.
+  vi.stubGlobal('fetch', async () => new Response(null, { status: 503 }))
+  await vi.advanceTimersByTimeAsync(6_000)
+  expect(card().model?.message).toBe('Planning failed. It tries again shortly.')
+  // It recovers with the same map, so the plan on screen stands.
+  vi.stubGlobal('fetch', working)
+  await vi.advanceTimersByTimeAsync(6_000)
+  expect(card().model?.message).toBeUndefined()
+})

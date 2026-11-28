@@ -663,6 +663,12 @@ const plannedSnapshot = async (): Promise<typeof snapshotRead> => {
   }
 }
 
+const PLANNING_FAILED = 'Planning failed. It tries again shortly.'
+
+/** What the card says about the proposals planning last made. */
+const planMessage = (): string | undefined =>
+  proposals.length === 0 ? 'No wall fits here. Centre the map just outside your border.' : undefined
+
 /** One pass: re-plan the run if the map or where it is centred changed since the last plan. */
 const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
   if (planBusy) return
@@ -683,7 +689,14 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     // Plans hold a zone for each guard the lobby has now, which can be fewer than its setting.
     const guards = captureGuardCount(run)
     const inputs = `${run.painters}|${guards}|${focus.x},${focus.y}|${snapshot.hash}`
-    if (inputs === planInputs) return
+    if (inputs === planInputs) {
+      // The map came back unchanged after a failed read: the plan on screen stands again.
+      if (message === PLANNING_FAILED) {
+        message = planMessage()
+        render()
+      }
+      return
+    }
     const planned = await runPlanner({
       // The worker takes the bytes it is sent; later passes reuse the original.
       snapshot: snapshot.bytes.slice(),
@@ -697,10 +710,7 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     planInputs = inputs
     proposalsRun = run.id
     proposals = planned.map((proposal) => ({ ...proposal, id: proposalId(proposal) }))
-    message =
-      proposals.length === 0
-        ? 'No wall fits here. Centre the map just outside your border.'
-        : undefined
+    message = planMessage()
     log(
       'capture proposals',
       proposals.map(({ label, gained, pixels }) => ({ label, gained, pixels })),
@@ -709,7 +719,7 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     requestMapFrame()
   } catch (error) {
     warn('capture planning failed', String(error))
-    message = 'Planning failed. It tries again shortly.'
+    message = PLANNING_FAILED
   } finally {
     planBusy = false
   }
