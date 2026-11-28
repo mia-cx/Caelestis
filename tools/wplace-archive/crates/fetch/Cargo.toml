@@ -5,3 +5,11 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio.workspace = true
+wpa-classify = { path = "../classify" }
+wpa-contracts.workspace = true
+
+[dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
