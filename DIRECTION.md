@@ -31,6 +31,8 @@ An event server (`EVENT_SERVER`) coordinates a Wplace event apart from caelest.i
 Presence routes by the team each session reports, claims are off, and no token is bound to a team.
 Anyone who can write opens and hosts capture lobbies, any number per team, with no size cap.
 A locked wall is cut into legs: evenly across every painter, or into full legs with the rest kept in reserve. Up to half a lobby guards the anchors.
+Each wall end reaches 3 px into the team's own territory, so a cut at an anchor is that painter's to repaint rather than a detached wall.
+A lobby place belongs to a painter in one browser: a reconnect or new tab from that browser takes it back, and nobody else can.
 
 ## Boundaries
 
