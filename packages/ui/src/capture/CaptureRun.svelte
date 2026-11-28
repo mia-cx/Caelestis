@@ -442,6 +442,10 @@
   @media (pointer: coarse) {
     .card :global(button:is(.compact, .small)) { --button-size: 2.75rem; }
     .disclosure { min-block-size: 2.75rem; }
+    /* The 44px steppers keep their width; a long label such as "Anchor guards" wraps instead of
+       pushing the card sideways. */
+    .grid { grid-template-columns: minmax(0, 1fr) max-content; }
+    .grid :is(label, .label) { overflow-wrap: anywhere; }
     .grid .stepper :is(input, output) { block-size: 2.75rem; }
     .grid .stepper output.wide { inline-size: 4rem; }
     .stepper { gap: 0; }
