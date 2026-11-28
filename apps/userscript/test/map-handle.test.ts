@@ -38,3 +38,16 @@ it('captures the replacement of a map removed before its style ever loaded', asy
 
   expect(getMap()).toBe(replacement.map)
 })
+
+it('catches a map built before capture started on its first eased move', async () => {
+  const { map } = constructMap()
+  installMapCapture()
+  await settle()
+  expect(getMap()).toBeNull()
+
+  // MapLibre assigns this the first time the map eases, as a fling or a flyTo does.
+  Object.assign(map, { _easeOptions: {} })
+  await settle()
+
+  expect(getMap()).toBe(map)
+})

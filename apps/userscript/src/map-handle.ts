@@ -18,11 +18,29 @@ import { pageWindow } from './page-world.js'
  *   engine would have created, so nothing downstream can tell.
  * - Everything that depends on it degrades: without a Map we fall back to the URL, which reloads.
  *
- * It must run before MapLibre constructs, so it belongs at `document-start`, ahead of everything.
+ * It belongs at `document-start`, ahead of everything, where it catches the map as it is built.
+ * Some userscript managers inject later than that (Edge and Firefox on Android, iOS Userscripts),
+ * after the map exists. The map then still gains a few fields the first time it eases, so a late
+ * start catches it on the painter's first fling or the first programmatic move. A slow drag or a
+ * wheel zoom assigns none of them.
  */
 
-/** Assigned by MapLibre's `Map` during `_setupContainer`. Measured: `_canvasContainer` fires. */
-const WITNESS_PROPERTIES = ['_canvasContainer', '_controlContainer', '_canvas'] as const
+/**
+ * Names the Map first assigns itself: during `_setupContainer` (measured: `_canvasContainer` fires),
+ * and, for a script that starts after that, on its first ease, rotate or pitch (measured on Wplace's
+ * map: none of these exist once it has loaded, and all of them once it has moved).
+ */
+const WITNESS_PROPERTIES = [
+  '_canvasContainer',
+  '_controlContainer',
+  '_canvas',
+  '_easeOptions',
+  '_easeStart',
+  '_padding',
+  '_rotating',
+  '_pitching',
+  '_rolling',
+] as const
 
 /** A MapLibre custom layer, as `addLayer` takes it. */
 export interface CustomLayer {
@@ -230,6 +248,14 @@ export const installMapCapture = (realm: Window & typeof globalThis = pageWindow
 }
 
 export const getMap = (): MapLike | null => captured
+
+/**
+ * Whether Wplace's map is on the page but was built before Caelestis started, so it has not been
+ * captured yet: a late userscript manager. What needs the map waits for a capture on the painter's
+ * first fling; what doesn't should go ahead without it.
+ */
+export const mapCaptureMissed = (): boolean =>
+  captured === null && pageWindow().document.querySelector('canvas.maplibregl-canvas') !== null
 
 /** Remove the capture traps and release a disconnected map before capturing its replacement. */
 export const releaseMapCapture = (): void => {
