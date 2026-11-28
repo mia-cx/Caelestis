@@ -27,8 +27,11 @@ const RTT_SAMPLES = 16
 const PAINT_WAIT_MS = 10_000
 /** How often latency goes to event servers, while there is something new to say. */
 const REPORT_MS = 5 * 60_000
+/** How long a round trip counts toward the estimate; an older one may predate a network change. */
+const RTT_FRESH_MS = REPORT_MS
 
-const rtts: number[] = []
+/** Recent round trips, each with when it was measured, newest last. */
+const rtts: { readonly at: number; readonly ms: number }[] = []
 /** Round trips measured so far, and how many of them the last report had seen. */
 let measured = 0
 let reported = 0
@@ -38,9 +41,21 @@ let lastReportAt = Number.NEGATIVE_INFINITY
 let reportedPaint = false
 let reportTimer: ReturnType<typeof setTimeout> | undefined
 
-/** The median of Wplace's recent round trips, in milliseconds; null before the first. */
-export const wplaceRtt = (): number | null =>
-  [...rtts].sort((a, b) => a - b)[Math.floor(rtts.length / 2)] ?? null
+/** The round trips measured in the last five minutes, in milliseconds. */
+const freshRtts = (): number[] => {
+  const since = localClock() - RTT_FRESH_MS
+  return rtts.filter(({ at }) => at > since).map(({ ms }) => ms)
+}
+
+/** The median of Wplace's recent round trips, in milliseconds; null without one. */
+export const wplaceRtt = (samples = freshRtts()): number | null => {
+  const sorted = [...samples].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  const upper = sorted[middle]
+  if (upper === undefined) return null
+  const lower = sorted.length % 2 === 0 ? (sorted[middle - 1] ?? upper) : upper
+  return (lower + upper) / 2
+}
 
 /** A duration as a report carries it: whole milliseconds, within what the wire accepts. */
 export const reportMs = (ms: number): number =>
@@ -57,22 +72,25 @@ export interface PaintTiming {
 /** A click's timing as `timeNextPaint` gives it: only what can become of a request it waits on. */
 type ClickTiming = PaintTiming & { readonly status: PaintRequestStatus | 'no-request' }
 type Settle = (status: ClickTiming['status'], at?: number) => void
-/** Clicks waiting for a paint request: each takes the first one sent after it. */
-const watches = new Set<(sentAt: number) => Settle>()
+/** The click waiting for a paint request: `take` hands it the request sent at `sentAt`. */
+let watch: { readonly take: (sentAt: number) => Settle; readonly settle: Settle } | null = null
+/** The timing of the latest click on the world draft's Paint button. */
+let lastClick: Promise<ClickTiming> | null = null
 
 /**
  * Time the paint request Wplace sends after a Paint click at `clickedAt` (a `localClock()` time):
- * the first `/paint` POST from then on, or none within ten seconds. Every click still waiting
- * takes the same request, so a slot and the click hook can both time the slot's click.
+ * the first `/paint` POST from then on, or none within ten seconds. A later click takes the next
+ * request, so a click still waiting settles as `no-request` then.
  */
-export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> =>
-  new Promise((resolve) => {
+export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> => {
+  watch?.settle('no-request')
+  return new Promise((resolve) => {
     let sentAt: number | null = null
     let settled = false
     const settle: Settle = (status, at) => {
       if (settled) return
       settled = true
-      watches.delete(take)
+      if (watch === waiting) watch = null
       clearTimeout(timer)
       resolve({
         clickToSendMs: sentAt === null ? null : sentAt - clickedAt,
@@ -81,36 +99,42 @@ export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> =>
       })
     }
     const take = (at: number): Settle => {
-      watches.delete(take)
+      watch = null
       sentAt = at
       return settle
     }
-    watches.add(take)
+    const waiting = { take, settle }
+    watch = waiting
     const timer = setTimeout(
       () => settle(sentAt === null ? 'no-request' : 'no-response'),
       PAINT_WAIT_MS,
     )
   })
+}
+
+/**
+ * Press Paint through `press`, and return how the click went as the click hook timed it, so a
+ * capture slot and the latency report share one timing of it. Null when `press` pressed nothing.
+ */
+export const timedPress = (press: () => boolean): Promise<ClickTiming> | null => {
+  lastClick = null
+  return press() ? lastClick : null
+}
 
 const timingRoute: RequestRoute = (request) => {
   if (request.url.origin !== BACKEND_ORIGIN || tileFromUrl(request.raw) !== null) return undefined
   const sentAt = localClock()
-  const painted =
-    request.url.pathname === '/paint' && !request.isGet()
-      ? [...watches].map((take) => take(sentAt))
-      : []
+  const paint = request.url.pathname === '/paint' && !request.isGet() ? watch?.take(sentAt) : null
   return {
     response: (response) => {
       const at = localClock()
-      rtts.push(at - sentAt)
+      rtts.push({ at, ms: at - sentAt })
       if (rtts.length > RTT_SAMPLES) rtts.shift()
       measured++
-      for (const settle of painted) settle(response.status, at)
+      paint?.(response.status, at)
       return response
     },
-    failed: () => {
-      for (const settle of painted) settle('failed')
-    },
+    failed: () => paint?.('failed'),
   }
 }
 
@@ -129,10 +153,11 @@ const report = (): void => {
     ({ server, canWrite }) => canWrite && isEventServer(server.info),
   )
   if (servers.length === 0 || (measured === reported && paints.length === 0)) return
+  const samples = freshRtts()
   const event: LatencyReport = {
     type: 'latency-report',
-    wplaceRttMs: wholeMs(wplaceRtt()),
-    rttSamples: rtts.length,
+    wplaceRttMs: wholeMs(wplaceRtt(samples)),
+    rttSamples: samples.length,
     paints,
   }
   paints = []
@@ -158,7 +183,8 @@ const recordPaint = ({ clickToSendMs, sendToResponseMs, status }: ClickTiming): 
 const onClick = (event: Event): void => {
   const button = event.target instanceof Element ? event.target.closest('button') : null
   if (button === null || button !== worldPaintCommitButton()) return
-  void timeNextPaint(localClock()).then(recordPaint)
+  lastClick = timeNextPaint(localClock())
+  void lastClick.then(recordPaint)
 }
 
 /** Time Wplace's backend requests and Paint clicks, and report them to event servers. */

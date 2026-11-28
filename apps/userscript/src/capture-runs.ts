@@ -54,7 +54,7 @@ import {
   observeWplaceTiming,
   type PaintTiming,
   reportMs,
-  timeNextPaint,
+  timedPress,
   wholeMs,
   wplaceRtt,
 } from './capture-timing.js'
@@ -895,12 +895,10 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
       void reportSlot(view, run.id, slot, Promise.resolve(skipped), late, wplaceRttMs)
       return
     }
-    // Watch from before the click, so even a request the click sends at once is caught.
-    const paint = timeNextPaint(clickedAt)
-    const submitted = submitWorldPaintDraft()
-    if (!submitted) message = 'Paint was not ready at your slot.'
+    const paint = timedPress(submitWorldPaintDraft)
+    if (paint === null) message = 'Paint was not ready at your slot.'
     render()
-    void reportSlot(view, run.id, slot, submitted ? paint : null, late, wplaceRttMs)
+    void reportSlot(view, run.id, slot, paint, late, wplaceRttMs)
   }
   const timeout = setTimeout(fire, Math.max(0, at - localClock() - SPIN_MS))
   disarm = () => {

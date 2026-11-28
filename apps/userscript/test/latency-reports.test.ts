@@ -54,18 +54,22 @@ it("reports this tab's latency to Wplace to an event server, with each Paint cli
   }
 
   await roundTrip(100)
-  // The territory event's Paint panel is open; Wplace sends the paint 30 ms after its Paint click.
+  // The territory event's Paint panel is open; Wplace sends a paint 30 ms after a Paint click.
   document.body.insertAdjacentHTML(
     'beforeend',
     '<div><button>Cancel</button><button class="btn btn-primary">Paint (0:04)</button></div>',
   )
-  const paint = document.querySelector<HTMLButtonElement>('.btn-primary')
-  paint?.addEventListener('click', () => {
-    setTimeout(() => void window.fetch(`${BACKEND}/paint`, { method: 'POST' }), 30)
+  let sends = false
+  document.querySelector('.btn-primary')?.addEventListener('click', () => {
+    if (sends) setTimeout(() => void window.fetch(`${BACKEND}/paint`, { method: 'POST' }), 30)
   })
-  // A capture slot times the click it makes too; both get the same request.
-  const slot = timing.timeNextPaint(performance.timeOrigin + performance.now())
-  paint?.click()
+  // A click Wplace sends nothing for doesn't take the next click's request.
+  document.querySelector<HTMLButtonElement>('.btn-primary')?.click()
+  await vi.advanceTimersByTimeAsync(500)
+  sends = true
+  // A capture slot presses Paint the same way, and shares the click's timing.
+  const { submitWorldPaintDraft } = await import('../src/wplace-paint.js')
+  const slot = timing.timedPress(submitWorldPaintDraft)
   await vi.advanceTimersByTimeAsync(30 + 150)
   await answer(200)
   const painted = { clickToSendMs: 30, sendToResponseMs: 150, status: 200 }
@@ -73,16 +77,17 @@ it("reports this tab's latency to Wplace to an event server, with each Paint cli
   // The first paint is reported at once; the median is over both round trips.
   await vi.advanceTimersByTimeAsync(0)
   expect(reports(socket)).toEqual([
-    { type: 'latency-report', wplaceRttMs: 150, rttSamples: 2, paints: [painted] },
+    { type: 'latency-report', wplaceRttMs: 125, rttSamples: 2, paints: [painted] },
   ])
 
   // Five minutes with nothing new to say send nothing.
   await vi.advanceTimersByTimeAsync(5 * 60_000)
   expect(reports(socket)).toHaveLength(1)
-  // A new round trip goes out at the next report.
+  // A new round trip goes out at the next report, without those older than five minutes.
+  await vi.advanceTimersByTimeAsync(60_000)
   await roundTrip(120)
-  await vi.advanceTimersByTimeAsync(5 * 60_000)
+  await vi.advanceTimersByTimeAsync(4 * 60_000)
   expect(reports(socket).slice(1)).toEqual([
-    { type: 'latency-report', wplaceRttMs: 120, rttSamples: 3, paints: [] },
+    { type: 'latency-report', wplaceRttMs: 120, rttSamples: 1, paints: [] },
   ])
 })

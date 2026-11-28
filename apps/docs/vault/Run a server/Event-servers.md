@@ -42,4 +42,4 @@ kubectl -n caelestis-event logs -l app.kubernetes.io/name=caelestis,app.kubernet
   -c backend --since=6h --tail=-1 | grep '"event":"wplace-latency"' | jq -c .
 ```
 
-`wplaceRttMs` is the median of the browser's last `rttSamples` round trips to Wplace. `paints` lists each Paint click since the previous report, with `clickToSendMs`, `sendToResponseMs` and `status` as in slot lines.
+`wplaceRttMs` is the median of the browser's `rttSamples` round trips to Wplace in the last five minutes, null when it made none. `paints` lists each Paint click since the previous report, with `clickToSendMs`, `sendToResponseMs` and `status` as in slot lines.
