@@ -140,7 +140,11 @@ describe('external relational adapter contract', () => {
             // Stops the moment the rival settles, so no poll runs on this connection while it rolls back.
             const deadline = Date.now() + RIVAL_WAIT_MS
             for (;;) {
-              if (rivalSettled) throw new Error('Rival settled before the deadlock was formed')
+              if (rivalSettled) {
+                // A rival that failed rethrows its own error here; one that committed is the bug.
+                await rivalDone
+                throw new Error('Rival committed before the deadlock was formed')
+              }
               if (Number((await rivalWaiting.first<{ waiting: unknown }>())?.waiting) === 1) break
               if (Date.now() > deadline) throw new Error('Rival never waited on this transaction')
             }
