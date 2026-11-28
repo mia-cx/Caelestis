@@ -144,12 +144,19 @@ const applyOwnEvent = (
       return withMembers(run, members)
     }
     case 'capture-closer': {
-      // Any member: one who guards or stands by paints the closing leg instead, and the member it
-      // displaces takes their role, as when the opener is pinned.
-      const closer = run.members.find(({ sessionId }) => sessionId === event.member)
-      const coordinator = closer?.painter.wplaceUserId
-      if (coordinator === undefined || coordinator === run.coordinator) return run
-      return withMembers({ ...run, coordinator }, run.members)
+      // Any member, guards and reserves too. They swap places with the closer, who takes their
+      // old role, guard zone or reserve place; nobody else moves.
+      const to = run.members.findIndex(({ sessionId }) => sessionId === event.member)
+      const incoming = run.members[to]
+      if (incoming === undefined || incoming.painter.wplaceUserId === run.coordinator) return run
+      const from = captureCoordinatorIndex(run)
+      const outgoing = run.members[from]
+      const members = run.members.slice()
+      if (outgoing !== undefined) {
+        members[from] = incoming
+        members[to] = outgoing
+      }
+      return withMembers({ ...run, coordinator: incoming.painter.wplaceUserId }, members)
     }
     case 'capture-lock':
       // Every leg must fit a painter's charges, and every guard the lobby has needs its zone.

@@ -4,6 +4,8 @@ import {
   type CaptureRun,
   type CaptureSettings,
   captureLines,
+  isCaptureGuard,
+  isCaptureReserve,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import { applyCaptureEvent, connectedCaptures, leaveCaptures } from '../src/presence/capture.js'
@@ -259,7 +261,8 @@ describe('the closing leg', () => {
     expect(order(before)).toEqual([2, 3, 1])
     const runs = apply(before, closer(2))
     expect(only(runs)).toMatchObject({ opener: 1, coordinator: 2, cut: only(before).cut + 1 })
-    expect(order(runs)).toEqual([3, 1, 2])
+    // The two swap places; nobody else moves.
+    expect(order(runs)).toEqual([1, 3, 2])
     expect(drafted(runs)).toEqual([0, 0, 0])
     expect(captureLines(only(runs))[2]).toEqual(captureLines(only(before))[2])
   })
@@ -276,6 +279,28 @@ describe('the closing leg', () => {
     const runs = apply(opened([2, 3, 4], { guards: 1 }), closer(4))
     // The opener takes the guard's place, last.
     expect(order(runs)).toEqual([2, 3, 4, 1])
+  })
+
+  it('leaves reserves in reserve when a guard is given it', () => {
+    // A 120-pixel wall in reserve: two legs, a reserve, and a guard.
+    const before = apply(
+      opened([2, 3, 4], { distribution: 'reserve', guards: 1 }),
+      lock(120, [[0, 1]]),
+    )
+    const roles = (runs: readonly CaptureRun[]) =>
+      only(runs).members.map((_, index) =>
+        isCaptureGuard(only(runs), index)
+          ? 'guard'
+          : isCaptureReserve(only(runs), index)
+            ? 'reserve'
+            : 'leg',
+      )
+    expect(roles(before)).toEqual(['leg', 'leg', 'reserve', 'guard'])
+    const [, closing, reserve, guard] = order(before)
+    const runs = apply(before, closer(guard as number))
+    // Only the closer and the guard trade places; the reserve stays in reserve.
+    expect(order(runs)).toEqual([order(before)[0], guard, reserve, closing])
+    expect(roles(runs)).toEqual(['leg', 'leg', 'reserve', 'guard'])
   })
 
   it('is a runner’s to give, to a member, before the countdown', () => {
