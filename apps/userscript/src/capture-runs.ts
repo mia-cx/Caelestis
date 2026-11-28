@@ -782,8 +782,7 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
   // Go reaches this tab a moment after the server stamped it; the opening cue plays on arrival,
   // unless the tab woke too late for it to come before the slot.
   const opening = Math.max(go, now + CUE_LEAD_MS)
-  return [
-    ...(opening < slot ? [{ at: opening, tone: 'tick' as const }] : []),
+  const later = [
     ...TICK_SECONDS.map((seconds) => ({
       at: slot - seconds * 1_000,
       tone: 'tick' as const,
@@ -791,6 +790,10 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
     })).filter(({ at }) => at > opening && at >= go + CUE_GAP_MS),
     ...(slot > now ? [{ at: slot, tone: 'go' as const }] : []),
   ]
+  // An opening cue that arrives late and close before the next cue would sound with it: the next
+  // cue starts the count instead.
+  const crowded = later.some(({ at }) => at - opening < CUE_GAP_MS)
+  return [...(opening < slot && !crowded ? [{ at: opening, tone: 'tick' as const }] : []), ...later]
 }
 
 /** A duration as a report carries it: whole milliseconds, within what the wire accepts. */
@@ -1097,34 +1100,45 @@ const handleIntent = (intent: CaptureRunIntent): void => {
 }
 
 /**
+ * Where New lobby's settings are kept: each under its own key, so a tab saving one setting never
+ * writes back its older copy of the others, and no tab saving its whole state touches them.
+ */
+const lobbySettingKey = (name: keyof CaptureSettings): string => `caelestis.capture-lobby.${name}`
+
+const LOBBY_SETTINGS = Object.keys(DEFAULT_CAPTURE_SETTINGS) as (keyof CaptureSettings)[]
+
+/** Each lobby setting as this runner last chose it, the defaults for the rest. */
+const savedLobbySettings = (): CaptureSettings =>
+  normaliseCaptureSettings(
+    Object.fromEntries(
+      LOBBY_SETTINGS.map((name) => {
+        try {
+          return [name, JSON.parse(storedValue(lobbySettingKey(name)) ?? 'null')]
+        } catch {
+          return [name, null]
+        }
+      }),
+    ),
+  )
+
+/** Save the settings a runner just chose, each under its own key. */
+const saveLobbySettings = (change: Partial<CaptureSettings>): void => {
+  for (const name of LOBBY_SETTINGS) {
+    if (change[name] === undefined) continue
+    try {
+      storeValue(lobbySettingKey(name), JSON.stringify(change[name]))
+    } catch (error) {
+      warn('could not save a capture lobby setting', String(error))
+    }
+  }
+}
+
+/**
  * Send a runner's change to one of their lobby's settings, and only that one, and save it for the
  * next lobby they open. Guards are saved as chosen; a lobby uses at most half its members. A
  * change to the planning size drops the proposals planned for the old one, which the lobby would
  * refuse to lock in.
  */
-/**
- * Where New lobby's settings are kept: under their own key, read fresh and merged on every write,
- * so another tab saving its whole state never writes a stale copy of them back.
- */
-const LOBBY_SETTINGS_KEY = 'caelestis.capture-lobby-settings'
-
-/** Each lobby setting as this runner last chose it, the defaults for the rest. */
-const savedLobbySettings = (): CaptureSettings => {
-  try {
-    return normaliseCaptureSettings(JSON.parse(storedValue(LOBBY_SETTINGS_KEY) ?? 'null'))
-  } catch {
-    return DEFAULT_CAPTURE_SETTINGS
-  }
-}
-
-/** Save the settings a runner just chose, on top of what is saved already. */
-const saveLobbySettings = (change: Partial<CaptureSettings>): void => {
-  try {
-    storeValue(LOBBY_SETTINGS_KEY, JSON.stringify({ ...savedLobbySettings(), ...change }))
-  } catch (error) {
-    warn('could not save capture lobby settings', String(error))
-  }
-}
 
 const changeSettings = (view: Shown, change: Partial<CaptureSettings>): void => {
   if (view.run === null) return

@@ -139,7 +139,7 @@ it('opens every new lobby with the settings a runner last chose, after a reload 
  * and they paint at member `place`. Six pixels over three painters: places 0 and 1 paint first,
  * place 2 one stagger later.
  */
-const cuesAt = async (place: number, goArrivesLate = false) => {
+const cuesAt = async (place: number, lateMs = 0) => {
   const socket = await load()
   const now = Math.round(performance.timeOrigin + performance.now())
   socket.receive({ type: 'clock', sent: now, at: now })
@@ -157,7 +157,7 @@ const cuesAt = async (place: number, goArrivesLate = false) => {
     wall: [10, 10, 11, 10, 12, 10, 13, 10, 14, 10, 15, 10],
     // Go is stamped just after this tab's next tick arms the slot, so the opening beep is on time,
     // or, arriving late, 100 ms before this tab hears of it.
-    startsAt: (goArrivesLate ? now - 100 : now + 200) + 3_000,
+    startsAt: (lateMs > 0 ? now - lateMs : now + 200) + 3_000,
     staggerMs: 500,
     leadMs: 3_000,
   }
@@ -187,11 +187,32 @@ it('leaves out a tick that would land half a second after the opening beep', asy
 })
 
 it('keeps the two-second tick for a painter whom Go reached a moment late', async () => {
-  const cues = await cuesAt(0, true)
+  const cues = await cuesAt(0, 100)
   expect(cues.map(([, at]) => at)).toContain(-2_000)
   expect(cues.slice(-3)).toEqual([
     ['tick', -2_000],
     ['tick', -1_000],
     ['go', 0],
+  ])
+})
+
+it('leaves out an opening beep that Go brought so late it would sound with the next tick', async () => {
+  const cues = await cuesAt(0, 850)
+  expect(cues).toEqual([
+    ['tick', -2_000],
+    ['tick', -1_000],
+    ['go', 0],
+  ])
+})
+
+it('saves only the setting a runner changed, under its own key', async () => {
+  const socket = await load()
+  socket.receive({ type: 'capture-runs', runs: [lobby] })
+  const stored = await import('../src/stored-values.js')
+  const writes = vi.spyOn(stored, 'storeValue')
+  intent({ type: 'set-guards', guards: 2 })
+  // Another tab's newer Countdown, under its own key, can't be written back from this tab's copy.
+  expect(writes.mock.calls.filter(([key]) => key.startsWith('caelestis.capture-lobby'))).toEqual([
+    ['caelestis.capture-lobby.guards', '2'],
   ])
 })
