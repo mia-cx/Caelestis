@@ -340,7 +340,7 @@ const flush = (connection: Connection): void => {
       ...(sendViewport ? { viewport: viewport.value } : {}),
       ...(sendDraft ? { draft: draft.value } : {}),
       ...(sendQuickClaims ? { quickClaims: quickClaims.value } : {}),
-      ...(sendTeam && team.value !== null ? { team: team.value } : {}),
+      ...(sendTeam && team.value !== null ? { team: team.value, captureReady: true } : {}),
     })
   ) {
     const { sent } = connection
@@ -735,7 +735,7 @@ export const sendCapture = (server: ServerConnection, event: CaptureClientEvent)
   const { team } = local
   if (team !== null && connection.sent.team !== team) {
     connection.sent.team = team
-    enqueue(connection, () => ({ type: 'presence-update', team }))
+    enqueue(connection, () => ({ type: 'presence-update', team, captureReady: true }))
   }
   enqueue(connection, () => event)
   return true

@@ -18,6 +18,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import {
   applyCaptureEvent,
+  type CaptureActor,
   captureAssignments,
   connectedCaptures,
   handedPlaces,
@@ -51,7 +52,14 @@ const again = (id: number) => ({ ...actor(id), sessionId: `s${id}b` })
 /** Someone claiming `actor(id)`'s painter id from another browser. */
 const impostor = (id: number) => ({ ...again(id), client: 'elsewhere' })
 
-const owner = (id: number, client = `browser${id}`) => ({ painter: id, client })
+const owner = (id: number, client = `browser${id}`, readies = false) => ({
+  painter: id,
+  client,
+  readies,
+})
+
+/** `actor(id)` from a tab that said, with its team, that it has a Ready button. */
+const current = (id: number) => ({ ...actor(id), readies: true })
 
 /** The sessions the room has open, `actor(id)`'s for each id, and `extra` ones. */
 const online = (
@@ -60,8 +68,12 @@ const online = (
 ) => new Map([...ids.map((id) => [`s${id}`, owner(id)] as const), ...extra])
 
 let ids = 0
-const apply = (runs: readonly CaptureRun[], event: Event, by = actor(COORDINATOR), now = 0) =>
-  applyCaptureEvent(runs, event, by, now, () => `run${++ids}`)
+const apply = (
+  runs: readonly CaptureRun[],
+  event: Event,
+  by: CaptureActor = actor(COORDINATOR),
+  now = 0,
+) => applyCaptureEvent(runs, event, by, now, () => `run${++ids}`)
 
 /** One lobby the coordinator opened, joined by `joiners` in that order, then given its guards. */
 const opened = (
@@ -770,9 +782,17 @@ const report = (runs: readonly CaptureRun[], id: number, drafted: number, covere
   return apply(runs, event, actor(id))
 }
 
+/** Ready pressed, or released, on the lobby's current cut. */
+const readyEvent = (runs: readonly CaptureRun[], ready = true): Event => ({
+  type: 'capture-ready',
+  run: only(runs).id,
+  cut: only(runs).cut,
+  ready,
+})
+
 /** Painter `id` presses Ready, or releases it, on the lobby's current cut. */
 const press = (runs: readonly CaptureRun[], id: number, ready = true) =>
-  apply(runs, { type: 'capture-ready', run: only(runs).id, cut: only(runs).cut, ready }, actor(id))
+  apply(runs, readyEvent(runs, ready), actor(id))
 
 const go = (runs: readonly CaptureRun[]) => only(apply(runs, { type: 'capture-go' })).startsAt
 
@@ -862,12 +882,12 @@ describe('Ready', () => {
    * 40-pixel wall locked in.
    */
   const declared = () => {
-    let runs = apply([], { type: 'capture-new', ...SETTINGS, waitForReady: true, ready: false })
-    runs = apply(runs, { type: 'capture-join', run: only(runs).id, ready: false }, actor(2))
+    let runs = apply([], { type: 'capture-new', ...SETTINGS, waitForReady: true }, current(1))
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, current(2))
     return apply(runs, lock(40))
   }
 
-  it('waits for a tab that joined with a Ready button, before it reports anything', () => {
+  it('waits for a tab with a Ready button from when it joins, before it reports anything', () => {
     // Painter 1 drafts the whole wall and is Ready; painter 2's tab has said nothing since joining.
     const runs = press(report(declared(), 1, 20, covering(40, 0, 40)), 1)
     expect(only(runs).members.map(({ ready }) => ready)).toEqual([false, true])
@@ -881,7 +901,8 @@ describe('Ready', () => {
     expect(go(runs)).not.toBeNull()
     const seat = (next: readonly CaptureRun[]) => only(next).members[0]
     // A new tab of painter 2's browser joins, with a Ready button: it drafted nothing yet.
-    const joined = apply(runs, { type: 'capture-join', run: only(runs).id, ready: false }, again(2))
+    const newer = { ...again(2), readies: true }
+    const joined = apply(runs, { type: 'capture-join', run: only(runs).id }, newer)
     expect(seat(joined)).toMatchObject({ sessionId: 's2b', drafted: 0, ready: false })
     expect(seat(joined)?.covered).toBeUndefined()
     expect(go(joined)).toBeNull()
@@ -889,10 +910,36 @@ describe('Ready', () => {
     const old = apply(runs, { type: 'capture-join', run: only(runs).id }, again(2))
     expect(seat(old)?.ready).toBeUndefined()
     expect(go(old)).toBeNull()
-    // A reconnect says nothing: the place keeps its browser's Ready button, released.
-    const back = connectedCaptures(runs, online([1], ['s2b', owner(2)]))
-    expect(seat(back)).toMatchObject({ sessionId: 's2b', drafted: 0, ready: false })
-    expect(go(back)).toBeNull()
+  })
+
+  describe('handed to another tab of the same browser as one disconnects', () => {
+    // Painter 1 hosts, drafts the whole wall and is Ready, so only painter 2's Ready holds Start.
+    const hostDone = (runs: readonly CaptureRun[]) =>
+      press(report(runs, 1, 20, covering(40, 0, 40)), 1)
+    const handed = (runs: readonly CaptureRun[], readies: boolean) =>
+      connectedCaptures(runs, online([1], ['s2b', owner(2, 'browser2', readies)]))
+    const seat = (runs: readonly CaptureRun[]) => only(runs).members[0]
+
+    it('never waits for a 1.8.2 tab taking over from a tab with a Ready button', () => {
+      const runs = hostDone(declared())
+      expect(go(runs)).toBeNull()
+      const old = handed(runs, false)
+      expect(seat(old)?.sessionId).toBe('s2b')
+      expect(seat(old)?.ready).toBeUndefined()
+      expect(go(old)).not.toBeNull()
+    })
+
+    it('waits for a tab with a Ready button taking over from a 1.8.2 tab', () => {
+      let runs = apply([], { type: 'capture-new', ...SETTINGS, waitForReady: true }, current(1))
+      runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(2))
+      runs = hostDone(apply(runs, lock(40)))
+      // Painter 2's 1.8.2 tab has no button: the host can start.
+      expect(go(runs)).not.toBeNull()
+      const newer = handed(runs, true)
+      expect(seat(newer)).toMatchObject({ sessionId: 's2b', ready: false })
+      expect(go(newer)).toBeNull()
+      expect(go(apply(newer, readyEvent(newer), { ...again(2), readies: true }))).not.toBeNull()
+    })
   })
 })
 

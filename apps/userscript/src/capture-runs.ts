@@ -1130,8 +1130,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
               : "Caelestis hasn't read your event team yet. Paint one pixel in the arena, then try again."
           else {
             primeCaptureAudio()
-            // `ready: false`: this tab has a Ready button, so Wait for Ready waits for it.
-            sendCapture(server, { type: 'capture-new', ...savedLobbySettings(), ready: false })
+            sendCapture(server, { type: 'capture-new', ...savedLobbySettings() })
           }
         })
         .catch(() => {
@@ -1145,7 +1144,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       const chosen = eventViews().find((shown) => shown.runs.some(({ id }) => id === intent.id))
       if (chosen === undefined) break
       primeCaptureAudio()
-      sendCapture(chosen.server, { type: 'capture-join', run: intent.id, ready: false })
+      sendCapture(chosen.server, { type: 'capture-join', run: intent.id })
       syncCaptureClock(chosen.server)
       break
     }
@@ -1293,8 +1292,9 @@ const tick = (): void => {
       syncCaptureClock(view.server)
     }
     const line = captureLines(run)[mine]
-    // Joining says this tab has a Ready button. A place it holds without that, as one a lobby
-    // gave out before the server knew of Ready, says it once per place and cut until the lobby
+    // The socket says this tab has a Ready button with its team (`captureReady`), so every place
+    // it takes has one. A place it holds without that, as one a lobby gave out before the server
+    // knew of Ready, says it once per place and cut until the lobby
     // has it, and before any draft report, so a report can never complete the wall while the lobby
     // still takes this tab for one without the button. A server that predates Ready ignores it,
     // and the button stays hidden.

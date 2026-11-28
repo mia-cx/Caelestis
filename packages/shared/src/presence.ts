@@ -94,6 +94,12 @@ export interface PresenceUpdate {
    * within a team only, so a session that has not said shares and sees none of them.
    */
   readonly team?: TerritoryTeam
+  /**
+   * Sent with `team` by a tab whose capture lobby card has a Ready button. It holds for the
+   * session, so a place the session takes, by joining or by taking over from another tab, is one
+   * Wait for Ready waits for. A session that never says so is never waited for.
+   */
+  readonly captureReady?: true
 }
 
 export type PresenceClientEvent =

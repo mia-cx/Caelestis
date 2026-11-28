@@ -235,10 +235,8 @@ export type CaptureClientEvent =
       readonly leadMs?: number
       readonly distribution?: CaptureDistribution
       readonly waitForReady?: boolean
-      /** Sent by a tab with a Ready button, which takes its place with Ready released. */
-      readonly ready?: false
     }
-  | { readonly type: 'capture-join'; readonly run: string; readonly ready?: false }
+  | { readonly type: 'capture-join'; readonly run: string }
   | { readonly type: 'capture-leave' }
   /** Only the settings the host changed, so edits to different settings never undo each other. */
   | {
@@ -270,8 +268,9 @@ export type CaptureClientEvent =
       readonly cut: number
     }
   /**
-   * Press or release Ready on cut `cut` of lobby `run`. A tab with a Ready button sends
-   * `ready: false` once for each place it holds, so the lobby knows it can wait for that tab.
+   * Press or release Ready on cut `cut` of lobby `run`. A tab with a Ready button says so on its
+   * socket (`captureReady` in `presence-update`); it also sends `ready: false` for a place a
+   * server gave out before it knew of Ready, so the lobby knows it can wait for that tab.
    */
   | {
       readonly type: 'capture-ready'

@@ -314,14 +314,8 @@ export const PresenceClientEvent = Schema.Union([
     leadMs: Schema.optionalKey(CaptureLead),
     distribution: Schema.optionalKey(CaptureSettings.distribution),
     waitForReady: Schema.optionalKey(Schema.Boolean),
-    ready: Schema.optionalKey(Schema.Literal(false)),
   }),
-  Schema.Struct({
-    type: Schema.Literal('capture-join'),
-    run: Identifier,
-    // From a tab with a Ready button; a server that predates it drops the key.
-    ready: Schema.optionalKey(Schema.Literal(false)),
-  }),
+  Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
   Schema.Struct({
     type: Schema.Literal('capture-settings'),
@@ -395,6 +389,9 @@ export const PresenceClientEvent = Schema.Union([
     draft: Schema.optionalKey(Schema.NullOr(PresenceDraft)),
     quickClaims: Schema.optionalKey(QuickClaims),
     team: Schema.optionalKey(TerritoryTeam),
+    // Sent with the team by a tab whose capture lobby card has a Ready button, so Wait for Ready
+    // waits for a place this session holds. A server that predates it drops the key.
+    captureReady: Schema.optionalKey(Schema.Literal(true)),
   }),
 ])
 

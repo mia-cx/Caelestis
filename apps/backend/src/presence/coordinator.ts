@@ -66,6 +66,8 @@ interface Attachment extends PresenceConnection {
   readonly renewedAt?: number
   /** On an event server, the event team the session last reported. */
   readonly team?: TerritoryTeam
+  /** The session's tab has a capture lobby Ready button, as it said with its team. */
+  readonly captureReady?: true
 }
 
 /**
@@ -240,7 +242,11 @@ export class PresenceCoordinator<Client> {
           .filter(({ held }) => held.team === team)
           .map(({ held }) => [
             held.sessionId,
-            { painter: held.painter.wplaceUserId, client: held.clientHash },
+            {
+              painter: held.painter.wplaceUserId,
+              client: held.clientHash,
+              readies: held.captureReady === true,
+            },
           ]),
       )
       const updated = connectedCaptures(change(runs, connected), connected)
@@ -812,6 +818,7 @@ export class PresenceCoordinator<Client> {
         scope: attachment.credentialScope,
         team,
         client: attachment.clientHash,
+        readies: attachment.captureReady === true,
       }
       this.updateCapture(team, (runs) => applyCaptureEvent(runs, event, actor, Date.now(), uuidV7))
       return
@@ -851,6 +858,8 @@ export class PresenceCoordinator<Client> {
         ? {}
         : { quickClaims: quickClaims.map(({ x, y, w, h }) => [x, y, w, h] as const) }),
       ...(team === undefined ? {} : { team }),
+      // Set before the reseat below, so a place this session takes over knows it has the button.
+      ...(this.eventServer && event.captureReady === true ? { captureReady: true as const } : {}),
       lastSeenAt: now,
     } satisfies Attachment
     socket.serializeAttachment(updated)

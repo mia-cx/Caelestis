@@ -138,8 +138,11 @@ it('opens every new lobby with the settings its host last chose, after a reload 
       leadMs: 4_000,
       distribution: 'even',
       waitForReady: true,
-      ready: false,
     },
+  ])
+  // The team goes first, saying this tab has a Ready button, so the lobby waits for its place.
+  expect(sent(socket, 'presence-update').filter(({ team }) => team !== undefined)).toEqual([
+    { type: 'presence-update', team: 0, captureReady: true },
   ])
 })
 

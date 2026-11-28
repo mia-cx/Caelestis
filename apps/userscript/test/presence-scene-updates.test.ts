@@ -258,8 +258,7 @@ it('lists the team’s lobbies to a painter in none, and joins the one they choo
     lobbies: [{ id: 'run', name: other.displayName, members: 2, canJoin: true }],
   })
   intent({ type: 'join', id: 'run' })
-  // `ready: false` says this tab has a Ready button, so Wait for Ready waits for it.
-  expect(sent(socket, 'capture-join')).toEqual([{ type: 'capture-join', run: 'run', ready: false }])
+  expect(sent(socket, 'capture-join')).toEqual([{ type: 'capture-join', run: 'run' }])
 })
 
 it("counts a leg's pixels the team already holds on Wplace's map as drafted", async () => {

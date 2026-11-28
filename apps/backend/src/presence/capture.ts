@@ -39,12 +39,19 @@ export interface CaptureActor {
   readonly team: TerritoryTeam
   /** The hash of the session's browser client id: which places it may take over. */
   readonly client: string
+  /** The session's tab has a Ready button, as it said with its team (`captureReady`). */
+  readonly readies?: boolean
 }
 
-/** A connected session as reconnection sees it: whose it is, and from which browser. */
+/**
+ * A connected session as reconnection sees it: whose it is, from which browser, and whether its
+ * tab has a Ready button. Tabs of one browser can run different versions, so that is the
+ * session's own.
+ */
 export interface CaptureSeatOwner {
   readonly painter: WplaceUserId
   readonly client: string
+  readonly readies?: boolean
 }
 
 type RunEvent = Exclude<
@@ -70,9 +77,8 @@ export const applyCaptureEvent = (
   now: number,
   newId: () => string,
 ): readonly CaptureRun[] => {
-  // A tab with a Ready button says so as it joins, so Wait for Ready waits for it from the start.
-  const readies =
-    (event.type === 'capture-new' || event.type === 'capture-join') && event.ready === false
+  // A tab with a Ready button said so with its team, so Wait for Ready waits for it from the start.
+  const readies = actor.readies === true
   const me = (joined: number): CaptureMember => ({
     sessionId: actor.sessionId,
     painter: actor.painter,
@@ -291,15 +297,15 @@ const placeOf = (run: CaptureRun, painter: WplaceUserId): number =>
  * again if they had left the place, and hosting if the old session did.
  *
  * Before the countdown, what the old session drafted and its Ready were that tab's, so the new one
- * starts with nothing drafted and Ready released, and reports its own. Whether it has a Ready
- * button is `readies` when it joined to say so; a reconnect sends nothing, so it keeps that of the
- * browser the place belongs to. Once the countdown starts, the place keeps everything.
+ * starts with nothing drafted and Ready released, and reports its own. Whether Wait for Ready
+ * waits for it is the new session's own `readies`, never the old one's: tabs of one browser can
+ * run different versions. Once the countdown starts, the place keeps everything.
  */
 const reseated = (
   run: CaptureRun,
   place: number,
   sessionId: string,
-  readies?: boolean,
+  readies: boolean,
 ): CaptureRun => {
   const member = captureEveryone(run)[place]
   if (member === undefined) return run
@@ -313,14 +319,9 @@ const reseated = (
 }
 
 /** A place on a new session, before the countdown; see `reseated`. */
-const freshSeat = (
-  member: CaptureMember,
-  sessionId: string,
-  readies: boolean | undefined,
-): CaptureMember => {
+const freshSeat = (member: CaptureMember, sessionId: string, readies: boolean): CaptureMember => {
   const { ready: _, ...seat } = { ...undrafted(member), sessionId }
-  const ready = readies ?? member.ready !== undefined
-  return ready ? { ...seat, ready: false } : seat
+  return readies ? { ...seat, ready: false } : seat
 }
 
 /** The lobby with `waiting` as those waiting for the next lock-in, the key dropped when none. */
@@ -469,7 +470,7 @@ export const reseatCaptures = (
       if (left === true || client === undefined || connected.has(sessionId) || !session) return run
       spare.delete(key)
       changed = true
-      return reseated(run, place, session)
+      return reseated(run, place, session, connected.get(session)?.readies === true)
     }, before),
   )
   return changed ? back : runs
