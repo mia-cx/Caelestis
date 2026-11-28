@@ -201,7 +201,12 @@ export class PresenceCoordinator<Client> {
   ): void {
     const previous = this.captureRuns(team)
     const next = previous.then(async (runs) => {
-      const connected = new Set(this.sessionsOpen().map(({ held }) => held.sessionId))
+      // Only sessions still on this team count: one that switched team is gone from its lobbies.
+      const connected = new Set(
+        this.sessionsOpen()
+          .filter(({ held }) => held.team === team)
+          .map(({ held }) => held.sessionId),
+      )
       const updated = connectedCaptures(change(runs), connected)
       if (updated === runs) return runs
       if (updated.length === 0) await this.state.storage.delete(captureKey(team))

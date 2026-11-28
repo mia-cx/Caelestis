@@ -117,6 +117,9 @@ const applyOwnEvent = (
     case 'capture-close':
       return runner ? null : run
   }
+  // Once the closing leg is painted, a runner's unlock starts the lobby's next round.
+  if (event.type === 'capture-unlock' && runner && run.startsAt !== null)
+    return now > (captureEndsAt(run) ?? 0) ? nextRound(run) : run
   // Everything else is a runner's, and only until the countdown starts.
   if (!runner || run.startsAt !== null) return run
   switch (event.type) {
@@ -192,6 +195,18 @@ const recut = (run: CaptureRun): CaptureRun => {
   return { ...pinned, members: pinned.members.map(undrafted), cut: run.cut + 1 }
 }
 
+/**
+ * A finished lobby back to choosing its next wall: the same settings and members, without those
+ * who left after the last one, nothing drafted and no countdown.
+ */
+const nextRound = (run: CaptureRun): CaptureRun => {
+  const reset = unlocked({ ...run, startsAt: null })
+  return withMembers(
+    reset,
+    reset.members.filter(({ left }) => left !== true),
+  )
+}
+
 const unlocked = (run: CaptureRun): CaptureRun => recut({ ...run, wall: null, guardZones: [] })
 
 /**
@@ -229,15 +244,28 @@ export const leaveCaptures = (
   return left === own ? null : runs.map((run) => (run === own ? left : run))
 }
 
-/** The lobbies that still have a connected member; a lobby nobody is in closes. */
+/**
+ * The lobbies that still have a connected member, a lobby nobody is in closing. A gathering lobby
+ * also drops members whose sessions are gone: one who disconnected during a countdown kept their
+ * place until it ended, and must not carry into the next round.
+ */
 export const connectedCaptures = (
   runs: readonly CaptureRun[],
   connected: ReadonlySet<string>,
 ): readonly CaptureRun[] => {
-  const kept = runs.filter((run) =>
-    run.members.some(({ sessionId, left }) => left !== true && connected.has(sessionId)),
-  )
-  return kept.length === runs.length ? runs : kept
+  let changed = false
+  const kept = runs.flatMap((run) => {
+    if (!run.members.some(({ sessionId, left }) => left !== true && connected.has(sessionId))) {
+      changed = true
+      return []
+    }
+    if (run.startsAt !== null) return [run]
+    const present = run.members.filter(({ sessionId }) => connected.has(sessionId))
+    if (present.length === run.members.length) return [run]
+    changed = true
+    return [withMembers(run, present)]
+  })
+  return changed ? kept : runs
 }
 
 /**

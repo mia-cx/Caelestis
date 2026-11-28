@@ -176,6 +176,14 @@ describe('a runner inside a lobby', () => {
     expect(intents).toEqual([{ type: 'unlock' }, { type: 'go' }])
   })
 
+  it('offers runners the next shape once the capture has finished, and painters not', () => {
+    const intents: CaptureRunIntent[] = []
+    const finished = { ...gathering, phase: 'done' } satisfies CaptureRunModel
+    button(render(finished, intents), 'Plan next shape')?.click()
+    expect(intents).toEqual([{ type: 'unlock' }])
+    expect(button(render({ ...finished, admin: false }), 'Plan next shape')).toBeNull()
+  })
+
   it('adds guards up to half the lobby', () => {
     const intents: CaptureRunIntent[] = []
     const card = render({ ...gathering, guards: 2, maxGuards: 3 }, intents)
