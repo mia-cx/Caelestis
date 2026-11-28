@@ -771,6 +771,8 @@ const stopPlanning = (): void => {
 const TICK_SECONDS = [5, 3, 2, 1] as const
 /** The least time between the opening cue and the first tick, so a short countdown never doubles a beep. */
 const CUE_GAP_MS = 1_000
+/** Two cues closer than this run together: a late opening cue this close to the next is left out. */
+const CUE_CROWDED_MS = 400
 
 /**
  * One painter's beeps: when Go starts the countdown, then 5, 3, 2 and 1 seconds before their own
@@ -790,9 +792,9 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
     })).filter(({ at }) => at > opening && at >= go + CUE_GAP_MS),
     ...(slot > now ? [{ at: slot, tone: 'go' as const }] : []),
   ]
-  // An opening cue that arrives late and close before the next cue would sound with it: the next
-  // cue starts the count instead.
-  const crowded = later.some(({ at }) => at - opening < CUE_GAP_MS)
+  // An opening cue that arrives so late it would run into the next cue is left out: the next cue
+  // starts the count instead.
+  const crowded = later.some(({ at }) => at - opening < CUE_CROWDED_MS)
   return [...(opening < slot && !crowded ? [{ at: opening, tone: 'tick' as const }] : []), ...later]
 }
 

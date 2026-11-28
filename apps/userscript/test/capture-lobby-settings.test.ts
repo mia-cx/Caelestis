@@ -186,9 +186,13 @@ it('leaves out a tick that would land half a second after the opening beep', asy
   ])
 })
 
-it('keeps the two-second tick for a painter whom Go reached a moment late', async () => {
+it('keeps the opening beep and the two-second tick for a painter whom Go reached a moment late', async () => {
   const cues = await cuesAt(0, 100)
-  expect(cues.map(([, at]) => at)).toContain(-2_000)
+  // The opening beep plays on arrival, still well clear of the two-second tick.
+  expect(cues).toHaveLength(4)
+  const [opening] = cues
+  expect(opening?.[0]).toBe('tick')
+  expect(Number(opening?.[1])).toBeLessThan(-2_400)
   expect(cues.slice(-3)).toEqual([
     ['tick', -2_000],
     ['tick', -1_000],
