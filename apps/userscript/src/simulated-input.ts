@@ -39,20 +39,10 @@ const forwarded = new WeakSet<Event>()
 /** Whether Caelestis dispatched this event, rather than the painter or the browser. */
 export const isForwardedEvent = (event: Event): boolean => forwarded.has(event)
 
-const eraserPresses = new WeakSet<Event>()
-
-/** Whether this is Erase's forwarded key, which switches Wplace's tool and paints nothing. */
-export const isEraserPress = (event: Event): boolean => eraserPresses.has(event)
-
 /** Dispatch a key on `document`, where Wplace's paint panels listen for their keys. */
-const forwardKey = (
-  type: 'keydown' | 'keyup',
-  init: KeyboardEventInit,
-  marks?: WeakSet<Event>,
-): void => {
+const forwardKey = (type: 'keydown' | 'keyup', init: KeyboardEventInit): void => {
   const event = new KeyboardEvent(type, { ...init, bubbles: true })
   forwarded.add(event)
-  marks?.add(event)
   document.dispatchEvent(event)
 }
 
@@ -85,7 +75,8 @@ const chordEvent = (chord: string): KeyboardEventInit | null => {
 
 /**
  * The key that toggles Wplace's eraser: the painter's own `paint.eraser` binding, else Wplace's
- * default E. Null when they bound it to mouse buttons alone, or to nothing.
+ * default E. Null when they bound it to mouse buttons alone, or to nothing. A Space chord never
+ * counts: Wplace hears Space as Paint Hold first, so pressing it could start a stroke instead.
  */
 export const eraserKey = (): KeyboardEventInit | null => {
   let chords: unknown
@@ -99,7 +90,7 @@ export const eraserKey = (): KeyboardEventInit | null => {
   if (!Array.isArray(chords)) return chordEvent(ERASER_DEFAULT)
   for (const chord of chords) {
     const event = typeof chord === 'string' ? chordEvent(chord) : null
-    if (event !== null) return event
+    if (event !== null && event.code !== 'Space') return event
   }
   return null
 }
@@ -107,7 +98,7 @@ export const eraserKey = (): KeyboardEventInit | null => {
 /** Toggle Wplace's eraser with the painter's `paint.eraser` key. False when it has no key. */
 export const forwardEraserKey = (): boolean => {
   const key = eraserKey()
-  if (key !== null) forwardKey('keydown', key, eraserPresses)
+  if (key !== null) forwardKey('keydown', key)
   return key !== null
 }
 

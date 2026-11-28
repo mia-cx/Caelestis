@@ -5,7 +5,6 @@ import {
   forwardPaintMove,
   heldKeys,
   installHeldKeyTracker,
-  isEraserPress,
   isForwardedEvent,
   simulatedInputAllowed,
 } from './simulated-input.js'
@@ -89,8 +88,7 @@ export const syncPaintTargetMap = (map: MapLike | null): void => {
 export const installPaintTargetGuard = (): (() => void) => {
   installHeldKeyTracker()
   const keydown = (event: KeyboardEvent): void => {
-    // Erase bound to Space switches the tool and paints nothing, so it always reaches Wplace.
-    if (event.code !== 'Space' || !isPaintOpen() || isEraserPress(event)) return
+    if (event.code !== 'Space' || !isPaintOpen()) return
     if (typingInTextField(event)) return
     if (!stale) {
       holding = true

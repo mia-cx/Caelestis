@@ -8,12 +8,7 @@ import {
   refreshPaintTarget,
   syncPaintTargetMap,
 } from './paint-target-guard.js'
-import {
-  forwardEraserKey,
-  forwardPaintKey,
-  installHeldKeyTracker,
-  isForwardedEvent,
-} from './simulated-input.js'
+import { forwardPaintKey, installHeldKeyTracker, isForwardedEvent } from './simulated-input.js'
 
 const harness = vi.hoisted(() => ({
   open: true,
@@ -104,18 +99,6 @@ it('ignores Space after a camera move until a mouse move reaches Wplace', () => 
   move()
   key('keydown')
   expect(received).toEqual(['mousemove', 'keydown:Space'])
-})
-
-it('lets an Erase tap bound to Space through after a camera move, since it paints nothing', () => {
-  localStorage.setItem(
-    'wplace:controls:v1',
-    JSON.stringify({ bindings: { 'paint.hold': ['J'], 'paint.eraser': ['Space'] } }),
-  )
-  moveCamera()
-  forwardEraserKey()
-  key('keydown')
-  localStorage.clear()
-  expect(received).toEqual(['keydown:Space'])
 })
 
 it('holds moves back while Space stays down through a camera move', () => {

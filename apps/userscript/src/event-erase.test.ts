@@ -73,14 +73,14 @@ it('stays until the painter leaves an eraser it turned on, after its switch goes
   expect(eraseButton()).toBeNull()
 })
 
-it("presses the painter's own eraser key, and hides when only a mouse button erases", () => {
+it("presses the painter's own eraser key, never a Space one, and hides when only a mouse button erases", () => {
   installEventErase()
   openEventPanel()
   const keys: KeyboardEvent[] = []
   document.addEventListener('keydown', (event) => keys.push(event))
   localStorage.setItem(
     'wplace:controls:v1',
-    JSON.stringify({ bindings: { 'paint.eraser': ['MouseBack', 'Shift+X'] } }),
+    JSON.stringify({ bindings: { 'paint.eraser': ['MouseBack', 'Shift+Space', 'Shift+X'] } }),
   )
   setState({ simulatedInput: { 'event-erase': true } })
   eraseButton()?.click()
