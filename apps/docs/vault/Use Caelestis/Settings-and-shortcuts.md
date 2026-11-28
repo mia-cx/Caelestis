@@ -95,7 +95,7 @@ On the world map, each switch enables an action that sends simulated input to Wp
 | **Cycle unfinished colours** | The previous- and next-colour keys select a colour. | `UntrustedPalette` |
 | **Paint key commits drafts** | The paint key (B) commits an open draft. | `UntrustedPaintSubmit` |
 | **Paint at my capture slot** | Clicks Paint at your assigned [capture slot](Territory-event-capture-lobbies#draft-your-line-and-paint-at-zero). Territory Weekend only; removed after the event ends on 30 November 2026 at 16:00 UTC. | `UntrustedPaintSubmit` |
-| **Erase button in the event** | Adds Erase to the territory event's Paint panel, which has none, so phones can remove drafted pixels for the [caterpillar](Territory-event-capture-lobbies#draft-your-line-and-paint-at-zero). It presses Wplace's eraser key, `E`. | None yet. The key press is untrusted, but no Pawtect flag records it; Wplace could start flagging it. |
+| **Erase button in the event** | Adds Erase to the territory event's Paint panel, which has none, so phones can remove drafted pixels for the [caterpillar](Territory-event-capture-lobbies#draft-your-line-and-paint-at-zero). It presses your Wplace eraser key, `E` unless you changed it. If you turn the setting off while erasing, the button stays until you tap back to the pencil. | None yet. The key press is untrusted, but no Pawtect flag records it; Wplace could start flagging it. |
 
 Each description shows your assigned keys. With the switches off, Wplace's own picker can still read a world template colour. The colour cycling bindings appear grey under **Keyboard shortcuts**. The paint key opens the drawer. Use Wplace's paint button to submit the draft.
 

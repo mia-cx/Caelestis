@@ -1,5 +1,5 @@
 import { onStateChange } from './settings.js'
-import { forwardEraserKey, simulatedInputAllowed } from './simulated-input.js'
+import { eraserKey, forwardEraserKey, simulatedInputAllowed } from './simulated-input.js'
 import { onWplaceLayoutChange } from './ui/wplace-rail.js'
 import { arenaPaintActions, MAP_CANVAS, worldEraserActive } from './wplace-dom.js'
 import { wplaceLabel } from './wplace-messages.js'
@@ -15,8 +15,11 @@ import { onPaintSelectionChange } from './wplace-paint.js'
  * Wplace's trusted click handler.
  *
  * The key is untrusted. Wplace records no Pawtect flag for it today, but could start, so the button
- * shows only while its Dangerous settings switch is on. It wears Wplace's own button classes and
- * eraser icon, and shows pressed while the map's cursor is Wplace's eraser.
+ * shows only while its Dangerous settings switch is on, and while the eraser it turned on is still
+ * on: a painter who switches it off mid-draft can still tap back to the pencil. It presses the
+ * painter's own eraser key, and hides when they bound the eraser to mouse buttons alone. It wears
+ * Wplace's own button classes and eraser icon, and shows pressed while the map's cursor is
+ * Wplace's eraser.
  */
 
 const BUTTON_ID = 'caelestis-event-erase'
@@ -30,7 +33,9 @@ const ICON = {
 let button: HTMLButtonElement | null = null
 let icon: SVGPathElement | null = null
 let watchedCanvas: Element | null = null
-const cursorWatch = new MutationObserver(() => showPressed())
+/** Whether this button last turned the eraser on, so it owes the painter a way back. */
+let turnedOn = false
+const cursorWatch = new MutationObserver(() => sync())
 
 const showPressed = (): void => {
   const on = worldEraserActive()
@@ -53,7 +58,9 @@ const createButton = (): HTMLButtonElement => {
   svg.append(icon)
   created.append(svg)
   created.addEventListener('click', () => {
-    if (simulatedInputAllowed('event-erase')) forwardEraserKey()
+    if (!shown()) return
+    const wasOn = worldEraserActive()
+    if (forwardEraserKey()) turnedOn = !wasOn
   })
   return created
 }
@@ -65,9 +72,14 @@ const watchCursor = (canvas: Element | null): void => {
   if (canvas !== null) cursorWatch.observe(canvas, { attributeFilter: ['style'] })
 }
 
+/** Whether the button may show: switched on, or needed to leave an eraser it turned on. */
+const shown = (): boolean =>
+  eraserKey() !== null &&
+  (simulatedInputAllowed('event-erase') || (turnedOn && worldEraserActive()))
+
 /** Put the button beside the open event panel's Cancel and Paint, or take it away. */
 const sync = (): void => {
-  const actions = simulatedInputAllowed('event-erase') ? arenaPaintActions() : null
+  const actions = shown() ? arenaPaintActions() : null
   if (actions === null) {
     button?.remove()
     watchCursor(null)

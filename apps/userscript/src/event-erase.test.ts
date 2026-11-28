@@ -8,6 +8,7 @@ vi.mock('./alliance-editor-dom.js', () => ({
 }))
 
 afterEach(() => {
+  localStorage.clear()
   setState({ simulatedInput: {} })
   document.body.replaceChildren()
 })
@@ -47,6 +48,51 @@ it("presses Wplace's eraser key from the event panel only while its switch is on
   await Promise.resolve()
   expect(button?.getAttribute('aria-pressed')).toBe('true')
 
+  canvas.style.cursor = 'var(--cursor-pencil)'
+  await Promise.resolve()
   setState({ simulatedInput: {} })
+  expect(eraseButton()).toBeNull()
+})
+
+it('stays until the painter leaves an eraser it turned on, after its switch goes off', async () => {
+  installEventErase()
+  const canvas = openEventPanel()
+  setState({ simulatedInput: { 'event-erase': true } })
+  const keys: string[] = []
+  document.addEventListener('keydown', (event) => keys.push(event.code))
+  eraseButton()?.click()
+  canvas.style.cursor = 'var(--cursor-eraser)'
+  await Promise.resolve()
+
+  setState({ simulatedInput: {} })
+  expect(keys).toEqual(['KeyE'])
+  eraseButton()?.click()
+  expect(keys).toEqual(['KeyE', 'KeyE'])
+  canvas.style.cursor = 'var(--cursor-pencil)'
+  await Promise.resolve()
+  expect(eraseButton()).toBeNull()
+})
+
+it("presses the painter's own eraser key, and hides when only a mouse button erases", () => {
+  installEventErase()
+  openEventPanel()
+  const keys: KeyboardEvent[] = []
+  document.addEventListener('keydown', (event) => keys.push(event))
+  localStorage.setItem(
+    'wplace:controls:v1',
+    JSON.stringify({ bindings: { 'paint.eraser': ['MouseBack', 'Shift+X'] } }),
+  )
+  setState({ simulatedInput: { 'event-erase': true } })
+  eraseButton()?.click()
+  expect(keys.map(({ code, key, shiftKey }) => ({ code, key, shiftKey }))).toEqual([
+    { code: 'KeyX', key: 'X', shiftKey: true },
+  ])
+
+  localStorage.setItem(
+    'wplace:controls:v1',
+    JSON.stringify({ bindings: { 'paint.eraser': ['MouseBack'] } }),
+  )
+  setState({ simulatedInput: {} })
+  setState({ simulatedInput: { 'event-erase': true } })
   expect(eraseButton()).toBeNull()
 })

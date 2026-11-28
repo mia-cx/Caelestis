@@ -5,6 +5,7 @@ import {
   WORLD_PIXELS,
 } from '@caelestis/shared'
 import { activeAllianceEditorStage } from './alliance-editor-dom.js'
+import { pageWindow } from './page-world.js'
 import { getState } from './settings.js'
 import { typingInTextField, worldPaintMounted } from './wplace-dom.js'
 
@@ -49,8 +50,56 @@ const forwardKey = (type: 'keydown' | 'keyup', init: KeyboardEventInit): void =>
 export const forwardPaintKey = (type: 'keydown' | 'keyup'): void =>
   forwardKey(type, { code: 'Space', key: ' ' })
 
-/** Toggle Wplace's eraser with its default `paint.eraser` key. */
-export const forwardEraserKey = (): void => forwardKey('keydown', { code: 'KeyE', key: 'e' })
+/** Where Wplace saves the painter's rebound controls: `{ bindings: { [action]: chords } }`. */
+const WPLACE_CONTROLS = 'wplace:controls:v1'
+const ERASER_ACTION = 'paint.eraser'
+const ERASER_DEFAULT = 'E'
+
+/**
+ * The key event for one of Wplace's chords, such as `E` or `Mod+Shift+E`: modifiers in Wplace's
+ * order, then the key as its matcher names it. Null for a mouse button, which no key can press.
+ */
+const chordEvent = (chord: string): KeyboardEventInit | null => {
+  const plusKey = chord === '+' || chord.endsWith('++')
+  const parts = (plusKey ? chord.slice(0, -2) : chord).split('+').filter(Boolean)
+  const key = plusKey ? '+' : parts.pop()
+  if (key === undefined || key.startsWith('Mouse')) return null
+  const shiftKey = parts.includes('Shift')
+  const modifiers = { ctrlKey: parts.includes('Mod'), altKey: parts.includes('Alt'), shiftKey }
+  if (/^[A-Z]$/.test(key))
+    return { ...modifiers, key: shiftKey ? key : key.toLowerCase(), code: `Key${key}` }
+  if (/^\d$/.test(key)) return { ...modifiers, key, code: `Digit${key}` }
+  if (key === 'Space') return { ...modifiers, key: ' ', code: 'Space' }
+  return { ...modifiers, key, code: key.length > 1 ? key : '' }
+}
+
+/**
+ * The key that toggles Wplace's eraser: the painter's own `paint.eraser` binding, else Wplace's
+ * default E. Null when they bound it to mouse buttons alone, or to nothing.
+ */
+export const eraserKey = (): KeyboardEventInit | null => {
+  let chords: unknown
+  try {
+    chords = JSON.parse(pageWindow().localStorage.getItem(WPLACE_CONTROLS) ?? 'null')?.bindings?.[
+      ERASER_ACTION
+    ]
+  } catch {
+    // Unreadable controls are Wplace's defaults to Wplace too.
+  }
+  if (!Array.isArray(chords)) return chordEvent(ERASER_DEFAULT)
+  for (const chord of chords) {
+    const event = typeof chord === 'string' ? chordEvent(chord) : null
+    if (event !== null) return event
+  }
+  return null
+}
+
+/** Toggle Wplace's eraser with the painter's `paint.eraser` key. False when it has no key. */
+export const forwardEraserKey = (): boolean => {
+  const key = eraserKey()
+  if (key !== null) forwardKey('keydown', key)
+  return key !== null
+}
 
 type ClientPosition = { readonly clientX: number; readonly clientY: number }
 

@@ -123,9 +123,9 @@ const SIMULATED_INPUT_TABLE = {
   'event-erase': {
     label: 'Erase button in the event',
     hint: [
-      "Adds Erase to the territory event's Paint panel, so phones can remove drafted pixels. It presses Wplace's eraser key, ",
+      "Adds Erase to the territory event's Paint panel, so phones can remove drafted pixels. It presses your Wplace eraser key, ",
       { fixed: 'E' },
-      '.',
+      ' unless you changed it.',
     ],
     flags: [],
   },
