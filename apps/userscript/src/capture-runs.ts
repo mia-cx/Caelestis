@@ -981,7 +981,7 @@ const tick = (): void => {
     const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
     if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
       draftedSentAt = localClock()
-      sendCapture(view.server, { type: 'capture-drafted', drafted, cut: run.cut })
+      sendCapture(view.server, { type: 'capture-drafted', run: run.id, drafted, cut: run.cut })
     }
     // Only a member with pixels to place is armed; an empty leg has nothing to submit.
     if (run.startsAt !== null && (line?.length ?? 0) > 0) armSlot(view, run, mine)

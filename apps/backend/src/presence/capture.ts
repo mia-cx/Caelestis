@@ -95,8 +95,14 @@ const applyOwnEvent = (
     case 'capture-drafted': {
       const member = run.members.findIndex((entry) => entry.sessionId === sessionId)
       const current = run.members[member]
-      // A report measured before the last re-cut is about a leg this member no longer has.
-      if (current === undefined || event.cut !== run.cut || current.drafted === event.drafted)
+      // A report measured in another lobby, or before the last re-cut, is about a leg this member
+      // no longer has.
+      if (
+        current === undefined ||
+        event.run !== run.id ||
+        event.cut !== run.cut ||
+        current.drafted === event.drafted
+      )
         return run
       const members = run.members.slice()
       members[member] = { ...current, drafted: event.drafted }

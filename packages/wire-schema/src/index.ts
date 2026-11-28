@@ -281,6 +281,7 @@ export const PresenceClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal('capture-unlock') }),
   Schema.Struct({
     type: Schema.Literal('capture-drafted'),
+    run: Identifier,
     drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
     cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
   }),

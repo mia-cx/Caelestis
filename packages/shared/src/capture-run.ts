@@ -85,8 +85,8 @@ export interface CaptureRun {
   readonly startsAt: number | null
   readonly staggerMs: number
   /**
-   * Counts every re-cut of the members' legs. A draft report names the cut it measured, so one
-   * sent before a re-cut never counts against the new leg.
+   * Counts every re-cut of the members' legs. A draft report names the lobby and cut it measured,
+   * so one sent before a re-cut, or from a lobby the painter has since left, never counts.
    */
   readonly cut: number
 }
@@ -129,7 +129,12 @@ export type CaptureClientEvent =
       readonly guardZones: readonly (readonly number[])[]
     }
   | { readonly type: 'capture-unlock' }
-  | { readonly type: 'capture-drafted'; readonly drafted: number; readonly cut: number }
+  | {
+      readonly type: 'capture-drafted'
+      readonly run: string
+      readonly drafted: number
+      readonly cut: number
+    }
   | { readonly type: 'capture-go' }
   | { readonly type: 'capture-close' }
   | { readonly type: 'clock'; readonly sent: number }

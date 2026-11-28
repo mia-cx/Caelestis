@@ -59,7 +59,12 @@ const draftAll = (runs: readonly CaptureRun[]) => {
     (held, { painter }, index) =>
       apply(
         held,
-        { type: 'capture-drafted', drafted: (lines[index]?.length ?? 0) / 2, cut: run.cut },
+        {
+          type: 'capture-drafted',
+          run: run.id,
+          drafted: (lines[index]?.length ?? 0) / 2,
+          cut: run.cut,
+        },
         actor(painter.wplaceUserId),
       ),
     runs,
@@ -185,14 +190,27 @@ describe('locking in a wall', () => {
 
   it('ignores a draft report measured before the last re-cut', () => {
     let runs = apply(opened([2, 3]), lock(120))
-    const before = only(runs).cut
+    const { id, cut: before } = only(runs)
     // Painters 2 and 3 swap equal legs; painter 2's report about their old leg arrives after.
     runs = apply(runs, { type: 'capture-move', member: 's2', by: 1 })
-    const swapped = apply(runs, { type: 'capture-drafted', drafted: 40, cut: before }, actor(2))
-    expect(swapped).toBe(runs)
-    expect(
-      drafted(apply(runs, { type: 'capture-drafted', drafted: 40, cut: only(runs).cut }, actor(2))),
-    ).toEqual([0, 40, 0])
+    const report = (cut: number) =>
+      apply(runs, { type: 'capture-drafted', run: id, drafted: 40, cut }, actor(2))
+    expect(report(before)).toBe(runs)
+    expect(drafted(report(only(runs).cut))).toEqual([0, 40, 0])
+  })
+
+  it('ignores a draft report measured in another lobby with the same cut', () => {
+    // Two locked lobbies at the same cut; painter 2 moves from the first to the second.
+    let runs = apply(opened([2]), lock(40))
+    runs = apply(runs, { type: 'capture-new', ...SETTINGS }, runner(3))
+    runs = apply(runs, lock(40), runner(3))
+    const [first, second] = runs
+    if (first === undefined || second === undefined) throw new Error('Expected two lobbies')
+    runs = apply(runs, { type: 'capture-join', run: second.id }, actor(2))
+    const joined = runs[1]
+    if (joined === undefined) throw new Error('Expected the second lobby')
+    const late = { type: 'capture-drafted', run: first.id, drafted: 20, cut: joined.cut } as const
+    expect(apply(runs, late, actor(2))).toBe(runs)
   })
 
   it('cancels back to choosing, with nothing drafted', () => {
@@ -210,11 +228,11 @@ describe('the countdown', () => {
     expect(apply(runs, { type: 'capture-go' })).toBe(runs)
     runs = apply(runs, lock(40, [[0, 1]]))
     // Painter 2 has drafted 19 of 20; the guard has drafted nothing.
-    const { cut } = only(runs)
-    runs = apply(runs, { type: 'capture-drafted', drafted: 19, cut }, actor(2))
-    runs = apply(runs, { type: 'capture-drafted', drafted: 20, cut }, actor(1))
+    const { id: run, cut } = only(runs)
+    runs = apply(runs, { type: 'capture-drafted', run, drafted: 19, cut }, actor(2))
+    runs = apply(runs, { type: 'capture-drafted', run, drafted: 20, cut }, actor(1))
     expect(apply(runs, { type: 'capture-go' })).toBe(runs)
-    runs = apply(runs, { type: 'capture-drafted', drafted: 20, cut }, actor(2))
+    runs = apply(runs, { type: 'capture-drafted', run, drafted: 20, cut }, actor(2))
     expect(only(apply(runs, { type: 'capture-go' }, runner(), 1_000)).startsAt).toBe(
       1_000 + CAPTURE_LEAD_MS,
     )
