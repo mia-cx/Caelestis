@@ -7,4 +7,6 @@ Host a shared template library and dashboard for your group. The backend records
 
 [Self-hosting](Self-hosting) compares the deployment options. Then follow [Run with Docker](Run-with-Docker), [Deploy on Cloudflare](Deploy-on-Cloudflare), or [Kubernetes with Helm](Kubernetes-with-Helm).
 
+For Wplace's Territory Weekend, see [Event servers](Event-servers). Event-server support will be removed after the event ends on 30 November 2026 at 16:00 UTC.
+
 Once it runs, see [Authentication and tokens](Authentication-and-tokens), [Deployment and upgrades](Deployment-and-upgrades), and [Storage and backups](Storage-and-backups).

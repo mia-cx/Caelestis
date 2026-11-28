@@ -61,6 +61,8 @@ Assigning a key already in use removes its previous assignment. **Reset** restor
 
 ![Shortcut rows with their key controls, with the previous and next unfinished colour bindings greyed out.](images/settings/rebinding.png)
 
+On the Territory Weekend arena, `B` opens **Paint** and `Shift+B` opens **Swap shade**. See how to [join a capture lobby](Territory-event-capture-lobbies) or [run an event server](Event-servers). With **Paint key commits drafts** on, the same key submits its open panel. These event bindings will be removed after Territory Weekend ends on 30 November 2026 at 16:00 UTC.
+
 ## Wplace appearance and performance
 
 In Wplace's accessibility settings, **FalseType font** changes the font and **Caelestis cursors** changes the pointer artwork. Both switches also appear in the extension popup.
@@ -81,7 +83,7 @@ Before sharing logs or profiles, remove tokens and private information. See [Tro
 
 ## Dangerous settings
 
-On the world map, each switch enables an action that sends simulated input to Wplace. All seven switches start off. Wplace records the listed Pawtect flags with paint submissions.
+On the world map, each switch enables an action that sends simulated input to Wplace. All switches start off. Wplace records the listed Pawtect flags with paint submissions.
 
 | Switch | What it does | Wplace flags |
 | --- | --- | --- |
@@ -91,7 +93,8 @@ On the world map, each switch enables an action that sends simulated input to Wp
 | **Update cursor after flying** | When a flight, jump or pan ends under a still mouse, Wplace's hover square and Space target move to where the mouse points. | `UntrustedPointer` |
 | **Paint past skipped pixels** | Shift+Space keeps painting beyond pixels it skips. | `UntrustedPaintHold`, `UntrustedPointer` |
 | **Cycle unfinished colours** | The previous- and next-colour keys select a colour. | `UntrustedPalette` |
-| **Paint key commits drafts** | The paint key (B) commits an open draft. On the territory event canvas, the shade swap key (Shift+B) commits an open shade swap too. | `UntrustedPaintSubmit` |
+| **Paint key commits drafts** | The paint key (B) commits an open draft. | `UntrustedPaintSubmit` |
+| **Paint at my capture slot** | Clicks Paint at your assigned [capture slot](Territory-event-capture-lobbies#draft-your-line-and-paint-at-zero). Territory Weekend only; removed after the event ends on 30 November 2026 at 16:00 UTC. | `UntrustedPaintSubmit` |
 
 Each description shows your assigned keys. With the switches off, Wplace's own picker can still read a world template colour. The colour cycling bindings appear grey under **Keyboard shortcuts**. The paint key opens the drawer. Use Wplace's paint button to submit the draft.
 
