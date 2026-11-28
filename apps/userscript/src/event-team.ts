@@ -33,13 +33,17 @@ const teamIn = (body: unknown): TerritoryTeam | null => {
  */
 export const readEventTeam = async (): Promise<TerritoryTeam | null> => {
   if (team !== null) return team
-  const response = await pageWindow().fetch(`${BACKEND_ORIGIN}${LEADERBOARD_PATH}`, {
+  // The signal comes from the page too: a page fetch can refuse one from another realm.
+  const page = pageWindow()
+  const response = await page.fetch(`${BACKEND_ORIGIN}${LEADERBOARD_PATH}`, {
     credentials: 'include',
-    signal: AbortSignal.timeout(TEAM_LOOKUP_MS),
+    signal: page.AbortSignal.timeout(TEAM_LOOKUP_MS),
   })
   if (!response.ok) throw new Error(`territory leaderboard ${response.status}`)
-  // Lookups can overlap; a late answer from before the painter joined never undoes a known team.
-  team ??= teamIn(await response.json())
+  // Read before assigning: `??=` checks `team` first, so a team found while this body was still
+  // parsing would be overwritten. A late answer from before the painter joined never undoes it.
+  const read = teamIn(await response.json())
+  team ??= read
   return team
 }
 
