@@ -244,15 +244,28 @@ export const leaveCaptures = (
   return left === own ? null : runs.map((run) => (run === own ? left : run))
 }
 
-/** The lobbies that still have a connected member; a lobby nobody is in closes. */
+/**
+ * The lobbies that still have a connected member, a lobby nobody is in closing. A gathering lobby
+ * also drops members whose sessions are gone: one who disconnected during a countdown kept their
+ * place until it ended, and must not carry into the next round.
+ */
 export const connectedCaptures = (
   runs: readonly CaptureRun[],
   connected: ReadonlySet<string>,
 ): readonly CaptureRun[] => {
-  const kept = runs.filter((run) =>
-    run.members.some(({ sessionId, left }) => left !== true && connected.has(sessionId)),
-  )
-  return kept.length === runs.length ? runs : kept
+  let changed = false
+  const kept = runs.flatMap((run) => {
+    if (!run.members.some(({ sessionId, left }) => left !== true && connected.has(sessionId))) {
+      changed = true
+      return []
+    }
+    if (run.startsAt !== null) return [run]
+    const present = run.members.filter(({ sessionId }) => connected.has(sessionId))
+    if (present.length === run.members.length) return [run]
+    changed = true
+    return [withMembers(run, present)]
+  })
+  return changed ? kept : runs
 }
 
 /**

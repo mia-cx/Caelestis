@@ -100,9 +100,10 @@ describe('lobbies', () => {
     expect(only(runs).members).toHaveLength(41)
   })
 
-  it('closes once no member is connected', () => {
+  it('keeps its connected members, and closes once none is connected', () => {
     const runs = opened([2])
-    expect(connectedCaptures(runs, new Set(['s2']))).toBe(runs)
+    expect(connectedCaptures(runs, new Set(['s1', 's2']))).toBe(runs)
+    expect(order(connectedCaptures(runs, new Set(['s2'])))).toEqual([2])
     expect(connectedCaptures(runs, new Set(['s9']))).toEqual([])
   })
 })
@@ -397,6 +398,16 @@ describe('the countdown', () => {
     })
     expect(order(runs)).toEqual([3, 1])
     expect(drafted(runs)).toEqual([0, 0])
+    // A painter whose tab closed during the countdown kept their place until it ended; the next
+    // round drops them once the room sees they are gone.
+    const ghost = apply(draftAll(apply(opened([2, 3]), lock(60))), { type: 'capture-go' })
+    const end = (only(ghost).startsAt ?? 0) + 60_000
+    expect(leaveCaptures(ghost, 's2', (only(ghost).startsAt ?? 0) + 1)).toBeNull()
+    const next = connectedCaptures(
+      apply(ghost, { type: 'capture-unlock' }, runner(), end),
+      new Set(['s1', 's3']),
+    )
+    expect(order(next)).toEqual([3, 1])
     // Painters can't start the next round.
     const finished = apply(draftAll(apply(runs, lock(60))), { type: 'capture-go' })
     const later = (only(finished).startsAt ?? 0) + 60_000
