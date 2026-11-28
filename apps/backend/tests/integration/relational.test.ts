@@ -19,6 +19,8 @@ import {
 const migrationRoot = process.cwd()
 const postgresUrl = process.env.CAELESTIS_TEST_POSTGRES_URL
 const mariaUrl = process.env.CAELESTIS_TEST_MARIADB_URL
+/** How long the deadlock test waits for its rival session to queue behind it. */
+const RIVAL_WAIT_MS = 5_000
 
 if (process.env.CAELESTIS_INTEGRATION_DATABASE !== '1') {
   throw new Error(
@@ -120,21 +122,28 @@ describe('external relational adapter contract', () => {
           await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 2').run()
           if (attempts === 1) {
             // The rival waits on this transaction for row 2, and commits once it gets it.
+            let rivalSettled = false
             rivalDone = rival
               .query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 2')
               .then(() => rival.commit())
+              .finally(() => {
+                rivalSettled = true
+              })
+            // Awaited after the transaction; this only keeps an early failure from going unhandled.
+            rivalDone.catch(() => undefined)
             // innodb_trx is server-wide: unrelated lock waits must not strand this callback.
             const rivalWaiting = sql
               .prepare(
                 "SELECT COUNT(*) AS waiting FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ? AND trx_state = 'LOCK WAIT'",
               )
               .bind(rival.threadId)
-            await Promise.race([
-              expect.poll(() => rivalWaiting.first()).toMatchObject({ waiting: 1 }),
-              rivalDone.then(() => {
-                throw new Error('Rival completed before the deadlock was formed')
-              }),
-            ])
+            // Stops the moment the rival settles, so no poll runs on this connection while it rolls back.
+            const deadline = Date.now() + RIVAL_WAIT_MS
+            for (;;) {
+              if (rivalSettled) throw new Error('Rival settled before the deadlock was formed')
+              if (Number((await rivalWaiting.first<{ waiting: unknown }>())?.waiting) === 1) break
+              if (Date.now() > deadline) throw new Error('Rival never waited on this transaction')
+            }
           }
           // Closes the cycle on the first attempt: this waits on the rival for row 1.
           await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 1').run()
