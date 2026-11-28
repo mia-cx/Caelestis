@@ -7,6 +7,7 @@ import { installTransfers } from './application/transfer.js'
 import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
 import { installDraftPixels } from './draft-pixels.js'
+import { installEventTeam } from './event-team.js'
 import { installAllianceOverlayLayer } from './gl/artboard-layer.js'
 import { installOverlayLayers } from './gl/overlay-layers.js'
 import { installKeyboardShortcuts } from './keyboard-shortcuts.js'
@@ -90,6 +91,7 @@ export const installPageHooks = (): void => {
   // After the request observer, so its startup read of the alliance is observed too.
   step('alliance surface observer', installAllianceSurfaceObserver)
   step('account reads', observeAccountReads)
+  step('event team', installEventTeam)
 }
 
 /**
