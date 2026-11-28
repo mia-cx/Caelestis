@@ -29,11 +29,24 @@
   const needs = (n: number): string => `Needs ${n} more ${n === 1 ? 'painter' : 'painters'}`
   /** What a member's row says under their name, e.g. "Host · Closes wall". */
   const roles = (member: CaptureRunMember): string =>
-    [member.hosts ? 'Host' : '', member.closes ? 'Closes wall' : member.reserve ? 'Reserve' : '']
+    [
+      member.hosts ? 'Host' : '',
+      member.vacant
+        ? 'Left'
+        : member.waiting
+          ? 'Waiting'
+          : member.closes
+            ? 'Closes wall'
+            : member.reserve
+              ? 'Reserve'
+              : '',
+    ]
       .filter(Boolean)
       .join(' · ')
+  /** Rows of members in their place; an empty place or a waiting member has no seat to change. */
+  const seated = (member: CaptureRunMember): boolean => !member.vacant && !member.waiting
   /** The rows the host can move; the closer's place is fixed. */
-  const movable = $derived(model.members.filter((member) => !member.closes))
+  const movable = $derived(model.members.filter((member) => !member.closes && seated(member)))
   const counting = $derived(model.phase === 'countdown')
   const ordinal = new Intl.PluralRules('en', { type: 'ordinal' })
   const SUFFIX: Partial<Record<Intl.LDMLPluralRule, string>> = { one: 'st', two: 'nd', few: 'rd' }
@@ -82,7 +95,8 @@
   /** The bar's line under the title: open lobbies, or the lobby's size and, once locked, readiness. */
   const summary = $derived.by(() => {
     if (listing) return [model.lobbies.length === 0 ? 'None open' : `${model.lobbies.length} open`]
-    const size = painters(model.members.length)
+    // A place left empty is nobody in the lobby.
+    const size = painters(model.members.filter((member) => !member.vacant).length)
     // The legs Start countdown waits on: guards and reserves don't hold it.
     const legs = model.members.filter((member) => member.length > 0 && !member.guard)
     if (!gathering || legs.length === 0) return [size]
@@ -214,21 +228,21 @@
         <ol class="members" aria-label="Paint order">
           {#each model.members as member, index (member.id)}
             {@const ready = member.length > 0 && member.drafted >= member.length}
-            <li class:me={member.me} class:ordered={model.canRun && gathering && !member.closes}>
-              {#if member.guard}<span class="place" aria-label="Anchor guard" title="Anchor guard">G</span>{:else}<span class="place">{index + 1}</span>{/if}
+            <li class:me={member.me} class:ordered={model.canRun && gathering && !member.closes && seated(member)}>
+              {#if member.guard}<span class="place" aria-label="Anchor guard" title="Anchor guard">G</span>{:else if member.waiting}<span class="place"></span>{:else}<span class="place">{index + 1}</span>{/if}
               <span class="swatch" style:background-color={member.colour} aria-hidden="true"></span>
               <span class="who">
                 <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
                 {#if roles(member)}<span class="role">{roles(member)}</span>{/if}
               </span>
-              {#if member.length > 0}
+              {#if member.length > 0 && !member.vacant}
                 <span class="ready" class:done={ready} aria-label={`${member.drafted} of ${member.length} pixels drafted`}>{#if ready}<Icon name="check" size="0.875rem" />{/if}{member.drafted}/{member.length}</span>
               {/if}
               {#if member.me && member.length > 0 && model.phase !== 'done'}
                 <Button label="Show my line" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'show-line' })}><Icon name="flyTo" size="0.875rem" /></Button>
               {/if}
               <!-- The closer keeps their place: their row doesn't move, and moves step over it. -->
-              {#if model.canRun && gathering && !member.closes}
+              {#if model.canRun && gathering && !member.closes && seated(member)}
                 {@const place = movable.indexOf(member)}
                 <span class="order">
                   <Button label={`Give ${member.name} the closing leg`} title="Give closing leg" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'closer', id: member.id })}><Icon name="flag" size="0.875rem" /></Button>

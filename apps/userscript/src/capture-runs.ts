@@ -5,6 +5,7 @@ import {
   type CaptureTimingReport,
   captureCoordinatorIndex,
   captureEndsAt,
+  captureEveryone,
   captureGuardCount,
   captureHostIndex,
   captureLead,
@@ -15,6 +16,7 @@ import {
   captureSlot,
   captureStep,
   captureSteps,
+  captureVacant,
   DEFAULT_CAPTURE_SETTINGS,
   decodePng,
   GUARD_MARGIN,
@@ -153,7 +155,7 @@ const eventViews = (): Shown[] =>
       run:
         // A member who left a finished lobby keeps their place in it but is no longer in it.
         view.runs.find((run) =>
-          run.members.some(({ sessionId, left }) => sessionId === view.sessionId && !left),
+          captureEveryone(run).some(({ sessionId, left }) => sessionId === view.sessionId && !left),
         ) ?? null,
     }))
 
@@ -176,8 +178,9 @@ const active = (): Shown | null => {
 const runsLobby = (view: Shown): boolean =>
   view.run !== null &&
   (hasServerAdminToken(view.server) ||
-    view.run.members[captureHostIndex(view.run)]?.sessionId === view.sessionId)
+    captureEveryone(view.run)[captureHostIndex(view.run)]?.sessionId === view.sessionId)
 
+/** This tab's place in its lobby, or -1 outside one and while it waits for the next lock-in. */
 const memberIndex = (view: Shown): number =>
   view.run?.members.findIndex((member) => member.sessionId === view.sessionId) ?? -1
 
@@ -938,6 +941,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   const closer = run === null ? -1 : captureCoordinatorIndex(run)
   const host = run === null ? -1 : captureHostIndex(run)
   const saved = savedLobbySettings()
+  const status = message ?? vacancyMessage(run, canRun)
   return {
     phase,
     collapsed: cardCollapsed(),
@@ -955,18 +959,24 @@ const model = (view: Shown | null): CaptureRunModel | null => {
         ? anchor
         : null,
     lobbies: run === null ? lobbiesOf(eventViews()) : [],
-    members: (run?.members ?? []).map((member, index) => ({
-      id: member.sessionId,
-      name: member.painter.displayName,
-      colour: presenceCss(member.painter.wplaceUserId),
-      drafted: member.drafted,
-      length: (lines[index]?.length ?? 0) / 2,
-      me: index === mine,
-      guard: run !== null && isCaptureGuard(run, index),
-      reserve: run !== null && isCaptureReserve(run, index),
-      closes: index === closer,
-      hosts: index === host,
-    })),
+    members: (run === null ? [] : captureEveryone(run)).map((member, index) => {
+      // Past the places, those waiting for the next lock-in: no leg, role or slot yet.
+      const placed = run !== null && index < run.members.length
+      return {
+        id: member.sessionId,
+        name: member.painter.displayName,
+        colour: presenceCss(member.painter.wplaceUserId),
+        drafted: member.drafted,
+        length: (lines[index]?.length ?? 0) / 2,
+        me: member.sessionId === view.sessionId,
+        guard: placed && isCaptureGuard(run, index),
+        reserve: placed && isCaptureReserve(run, index),
+        closes: index === closer,
+        hosts: index === host,
+        vacant: member.left === true && run?.startsAt === null,
+        waiting: !placed,
+      }
+    }),
     role:
       run === null || mine < 0
         ? null
@@ -995,8 +1005,16 @@ const model = (view: Shown | null): CaptureRunModel | null => {
         : null,
     turns: run === null ? 0 : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
-    ...(message === undefined ? {} : { message }),
+    ...(status === undefined ? {} : { message: status }),
   }
+}
+
+/** Why the countdown can't start yet, when someone left a part the lock-in gave them. */
+const vacancyMessage = (run: CaptureRun | null, canRun: boolean): string | undefined => {
+  if (run === null || !captureVacant(run)) return undefined
+  return canRun
+    ? 'Someone left. Cancel the proposed shape and lock in again.'
+    : 'Someone left. Waiting for the host to lock in again.'
 }
 
 /**
@@ -1010,8 +1028,9 @@ const lobbiesOf = (views: readonly Shown[]): CaptureRunModel['lobbies'] =>
         .filter((run) => run.startsAt === null)
         .map((run) => ({
           id: run.id,
-          name: run.members[captureHostIndex(run)]?.painter.displayName ?? 'Lobby',
-          members: run.members.length,
+          name: captureEveryone(run)[captureHostIndex(run)]?.painter.displayName ?? 'Lobby',
+          // Those waiting for a lock-in count; places left empty since one don't.
+          members: captureEveryone(run).filter(({ left }) => left !== true).length,
           canJoin: view.canWrite,
         })),
     )
@@ -1220,7 +1239,7 @@ const tick = (): void => {
     if (line !== undefined && run.startsAt === null) refreshHeldMap()
     const drafted = line === undefined ? 0 : draftedOn(run.team, line)
     const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
-    if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
+    if (mine >= 0 && drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
       draftedSentAt = localClock()
       sendCapture(view.server, { type: 'capture-drafted', run: run.id, drafted, cut: run.cut })
     }

@@ -3,22 +3,28 @@ import {
   type CaptureClientEvent,
   type CaptureRun,
   type CaptureSettings,
+  captureEveryone,
   captureGuardCount,
   captureHostIndex,
   captureLines,
+  captureSlot,
+  captureVacant,
   isCaptureGuard,
   isCaptureReserve,
+  MAX_CAPTURE_MEMBERS,
   type Scope,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
 import {
   applyCaptureEvent,
+  captureAssignments,
   connectedCaptures,
   handedPlaces,
   leaveCaptures,
   reseatCaptures,
   sentCaptures,
 } from '../src/presence/capture.js'
+import * as released from './support/released-capture-run.js'
 
 type Event = Exclude<
   CaptureClientEvent,
@@ -74,6 +80,10 @@ const only = (runs: readonly CaptureRun[]): CaptureRun => {
 }
 const order = (runs: readonly CaptureRun[]) =>
   only(runs).members.map(({ painter }) => painter.wplaceUserId)
+const waiting = (runs: readonly CaptureRun[]) =>
+  (only(runs).waiting ?? []).map(({ painter }) => painter.wplaceUserId)
+const host = (runs: readonly CaptureRun[]) =>
+  captureEveryone(only(runs))[captureHostIndex(only(runs))]?.painter.wplaceUserId
 const drafted = (runs: readonly CaptureRun[]) => only(runs).members.map((member) => member.drafted)
 const legs = (runs: readonly CaptureRun[]) =>
   captureLines(only(runs)).map((line) => line.length / 2)
@@ -204,13 +214,14 @@ describe('a painter on a new socket', () => {
   })
 
   it('never sends the browser a place belongs to', () => {
-    expect(JSON.stringify(sentCaptures(opened([2])))).not.toContain('browser')
+    const runs = apply(opened([2]), lock(60))
+    const waited = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(3))
+    expect(waiting(waited)).toEqual([3])
+    expect(JSON.stringify(sentCaptures(waited))).not.toContain('browser')
   })
 })
 
 describe('the host', () => {
-  const host = (runs: readonly CaptureRun[]) =>
-    only(runs).members[captureHostIndex(only(runs))]?.painter.wplaceUserId
   const painters = (by: ReturnType<typeof actor>, runs: readonly CaptureRun[]) =>
     only(apply(runs, { type: 'capture-settings', painters: 7 }, by)).painters
 
@@ -374,7 +385,92 @@ describe('locking in a wall', () => {
     expect(apply(runs, lock(20))).toBe(runs)
   })
 
-  it('goes back to choosing when a departure leaves fewer guards than the wall was planned for', () => {
+  it('keeps every leg, role and draft when a painter joins after the lock-in', () => {
+    // Two painters and the coordinator share 120 pixels; painter 4 guards.
+    let runs = draftAll(apply(opened([2, 3, 4], { guards: 1 }), lock(120, [[0, 1]])))
+    const before = only(runs)
+    runs = apply(runs, { type: 'capture-join', run: before.id }, actor(5))
+    // Painter 5 waits, with no place, leg or slot, until the next lock-in.
+    expect(order(runs)).toEqual([2, 3, 1, 4])
+    expect(waiting(runs)).toEqual([5])
+    expect(legs(runs)).toEqual([40, 40, 40, 1])
+    expect(drafted(runs)).toEqual([40, 40, 40, 1])
+    expect(only(runs).cut).toBe(before.cut)
+    expect(isCaptureGuard(only(runs), 3)).toBe(true)
+    const started = only(apply(runs, { type: 'capture-go' }))
+    expect([...captureAssignments(started).keys()]).toEqual(['s2', 's3', 's1', 's4'])
+    // Locking in again cuts the wall for all five.
+    runs = apply(apply(runs, { type: 'capture-unlock' }), lock(120, [[0, 1]]))
+    expect(waiting(runs)).toEqual([])
+    expect(legs(runs)).toEqual([30, 30, 30, 30, 1])
+  })
+
+  it('lets a waiting painter leave at any time, and host once nobody placed is left', () => {
+    let runs = apply(opened([2]), lock(120))
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(3))
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(4))
+    runs = leaveCaptures(runs, 's1', 0) ?? []
+    runs = leaveCaptures(runs, 's2', 0) ?? []
+    // Both places are empty: the longest-waiting painter hosts, so someone can lock in again.
+    expect(host(runs)).toBe(3)
+    runs = apply(runs, { type: 'capture-unlock' }, actor(3))
+    expect(order(runs)).toEqual([3, 4])
+    // Waiting has no slot to keep, so they leave a lobby mid-countdown.
+    runs = draftAll(apply(runs, lock(60), actor(3)))
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(5))
+    runs = apply(runs, { type: 'capture-go' }, actor(3))
+    expect(leaveCaptures(runs, 's3', 0)).toBeNull()
+    expect(waiting(leaveCaptures(runs, 's5', 0) ?? [])).toEqual([])
+  })
+
+  it('refuses a join past the most members a lobby sends, but not a painter taking their place back', () => {
+    // Locked for painters 1 and 2, and joined since by everyone else up to the most members.
+    const locked = only(apply(opened([2]), lock(60)))
+    const rest = Array.from({ length: MAX_CAPTURE_MEMBERS - 2 }, (_, index) => {
+      const { sessionId, painter, client } = actor(index + 3)
+      return { sessionId, painter, client, drafted: 0, joined: index + 2 }
+    })
+    let runs: readonly CaptureRun[] = [{ ...locked, waiting: rest }]
+    expect(only(runs).members.length + waiting(runs).length).toBe(MAX_CAPTURE_MEMBERS)
+    const past = actor(MAX_CAPTURE_MEMBERS + 1)
+    expect(apply(runs, { type: 'capture-join', run: only(runs).id }, past)).toBe(runs)
+    // An empty place still counts, and its painter takes it back from the same browser.
+    runs = leaveCaptures(runs, 's2', 0) ?? []
+    expect(apply(runs, { type: 'capture-join', run: only(runs).id }, past)).toBe(runs)
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, again(2))
+    expect(captureVacant(only(runs))).toBe(false)
+  })
+
+  it('leaves a departed painter’s leg empty until the host locks in again', () => {
+    let runs = draftAll(apply(opened([2, 3]), lock(120)))
+    const before = only(runs)
+    runs = leaveCaptures(runs, 's2', 0) ?? []
+    // Nobody else's leg or draft changes, and the countdown waits.
+    expect(order(runs)).toEqual([2, 3, 1])
+    expect(legs(runs)).toEqual([40, 40, 40])
+    expect(drafted(runs)).toEqual([0, 40, 40])
+    expect(only(runs).cut).toBe(before.cut)
+    expect(captureVacant(only(runs))).toBe(true)
+    expect(apply(runs, { type: 'capture-go' })).toBe(runs)
+    // Cancel proposed shape, then Lock in: the two left share the wall.
+    runs = apply(apply(runs, { type: 'capture-unlock' }), lock(120))
+    expect(order(runs)).toEqual([3, 1])
+    expect(legs(runs)).toEqual([60, 60])
+  })
+
+  it('gives a disconnected painter their empty place back when they join again', () => {
+    let runs = draftAll(apply(opened([2, 3]), lock(120)))
+    runs = connectedCaptures(runs, online([1, 3]))
+    expect(captureVacant(only(runs))).toBe(true)
+    // From another browser, the place is not theirs.
+    expect(apply(runs, { type: 'capture-join', run: only(runs).id }, impostor(2))).toBe(runs)
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, again(2))
+    expect(only(runs).members.map(({ sessionId }) => sessionId)).toEqual(['s2b', 's3', 's1'])
+    expect(captureVacant(only(runs))).toBe(false)
+    expect(legs(runs)).toEqual([40, 40, 40])
+  })
+
+  it('holds a departed guard’s zone empty, and plans for the guards left after', () => {
     // Four members and two guards; one leaves, so half the lobby is one guard.
     let runs = apply(
       opened([2, 3, 4], { guards: 2 }),
@@ -383,8 +479,9 @@ describe('locking in a wall', () => {
         [1, 1],
       ]),
     )
-    expect(only(runs).wall).not.toBeNull()
     runs = leaveCaptures(runs, 's4', 0) ?? []
+    expect(captureVacant(only(runs))).toBe(true)
+    runs = apply(runs, { type: 'capture-unlock' })
     expect(only(runs)).toMatchObject({ wall: null, guardZones: [], guards: 2 })
     // A wall planned for the one guard the lobby has now locks in.
     expect(only(apply(runs, lock(40, [[0, 1]]))).wall).toEqual(wall(40))
@@ -395,23 +492,18 @@ describe('locking in a wall', () => {
     expect(apply(runs, lock(20), actor(2))).toBe(runs)
   })
 
-  it('re-cuts the same wall and resets drafted when the roster or order changes', () => {
-    let runs = draftAll(apply(opened([2, 3]), lock(120)))
-    expect(legs(runs)).toEqual([40, 40, 40])
-    expect(drafted(runs)).toEqual([40, 40, 40])
-
+  it('re-cuts the same wall for everyone in the lobby when the host reorders it', () => {
+    // Painter 4 joins after the lock-in and waits; painter 3 leaves their leg empty.
+    let runs = draftAll(apply(opened([2, 3, 5]), lock(120)))
     runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(4))
+    runs = leaveCaptures(runs, 's3', 0) ?? []
+    // Painter 2 trades places with painter 5, past the empty place, and the wall is cut again.
+    runs = apply(runs, { type: 'capture-move', member: 's2', by: 1 })
+    expect(order(runs)).toEqual([5, 2, 4, 1])
+    expect(waiting(runs)).toEqual([])
     expect(legs(runs)).toEqual([30, 30, 30, 30])
     expect(drafted(runs)).toEqual([0, 0, 0, 0])
-
-    runs = draftAll(runs)
-    runs = apply(runs, { type: 'capture-move', member: 's2', by: 1 })
-    expect(order(runs)).toEqual([3, 2, 4, 1])
-    expect(drafted(runs)).toEqual([0, 0, 0, 0])
-
-    // Painter 4 leaves: three painters share the wall again.
-    runs = leaveCaptures(runs, 's4', 0) ?? []
-    expect(legs(runs)).toEqual([40, 40, 40])
+    expect(captureVacant(only(runs))).toBe(false)
   })
 
   it('ignores a draft report measured before the last re-cut', () => {
@@ -499,12 +591,9 @@ describe('the closing leg', () => {
   })
 
   it('swaps with whoever holds the closing leg once the closer has left', () => {
-    // Two legs, two reserves and a guard; the opener, closing, leaves.
-    let runs = apply(
-      opened([2, 3, 4, 5], { distribution: 'reserve', guards: 1 }),
-      lock(120, [[0, 1]]),
-    )
-    runs = leaveCaptures(runs, 's1', 0) ?? []
+    // The opener, closing, leaves; then two legs, a reserve and a guard lock in.
+    let runs = leaveCaptures(opened([2, 3, 4, 5], { distribution: 'reserve', guards: 1 }), 's1', 0)
+    runs = apply(runs ?? [], lock(120, [[0, 1]]), actor(2))
     expect(order(runs)).toEqual([2, 3, 4, 5])
     expect(roles(runs)).toEqual(['leg', 'leg', 'reserve', 'guard'])
     // The guard takes the closing leg from painter 3, who guards; reserve 4 stays in reserve.
@@ -660,5 +749,78 @@ describe('the countdown', () => {
     runs = leaveCaptures(runs, 's2', finished) ?? []
     runs = leaveCaptures(runs, 's1', finished) ?? []
     expect(connectedCaptures(runs, online([1, 2, 3]))).toEqual([])
+  })
+})
+
+describe('a tab on userscript 1.8.2', () => {
+  /** A start time, so slots can be compared before the countdown would start. */
+  const STARTS_AT = 1_000_000
+
+  /**
+   * The places an old tab sees in what the server sends, each with the line and slot its code
+   * derives, after checking they are the server's own: both lobbies started at `STARTS_AT`.
+   */
+  const agreed = (runs: readonly CaptureRun[]) => {
+    const server = { ...only(runs), startsAt: STARTS_AT }
+    const [sent] = JSON.parse(JSON.stringify(sentCaptures([server])))
+    const old = released.decodeCaptureRun(sent)
+    if (old === null) throw new Error('The old tab refused the lobby')
+    const places = old.members.map(({ sessionId }, index) => ({
+      sessionId,
+      line: released.captureLines(old)[index],
+      slot: released.captureSlot(old, index),
+    }))
+    expect(places).toEqual(
+      server.members.map(({ sessionId }, index) => ({
+        sessionId,
+        line: captureLines(server)[index],
+        slot: captureSlot(server, index),
+      })),
+    )
+    return places.map(({ sessionId }) => sessionId)
+  }
+
+  it.each([
+    ['a leg each', {}],
+    ['legs and reserves', { distribution: 'reserve' as const }],
+  ])('derives the server’s legs and slots after a late join and a departure: %s', (_, settings) => {
+    let runs = draftAll(apply(opened([2, 3, 4], { guards: 1, ...settings }), lock(90, [[0, 1]])))
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(5))
+    // The old tab doesn't see painter 5, who has no place to paint from yet.
+    expect(waiting(runs)).toEqual([5])
+    expect(agreed(runs)).not.toContain('s5')
+    runs = leaveCaptures(runs, 's2', 0) ?? []
+    agreed(runs)
+    // The next lock-in gives painter 5 a place, which the old tab then sees too.
+    runs = apply(apply(runs, { type: 'capture-unlock' }), lock(90, [[0, 1]]))
+    expect(agreed(runs)).toContain('s5')
+  })
+})
+
+describe('after a lock-in, with places left empty', () => {
+  it('goes back to choosing when every place empties before the countdown, seating those waiting', () => {
+    let runs = apply(opened([2]), lock(60))
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(3))
+    expect(waiting(runs)).toEqual([3])
+    runs = leaveCaptures(runs, 's2', 0) ?? []
+    runs = leaveCaptures(runs, 's1', 0) ?? []
+    // The waiting painter is now a member every client version sees, and hosts.
+    expect(only(runs)).toMatchObject({ wall: null, host: 's3' })
+    expect(order(runs)).toEqual([3])
+    expect(waiting(runs)).toEqual([])
+  })
+
+  it('moves a painter past an empty place to the next painter, and nowhere past the last', () => {
+    let runs = apply(draftAll(apply(opened([2, 3, 4]), lock(120))), { type: 'capture-settings' })
+    runs = leaveCaptures(runs, `s${order(runs)[1]}`, 0) ?? []
+    const [first, empty, third] = only(runs).members
+    expect(empty?.left).toBe(true)
+    // Moving the first painter down trades places with the third, past the empty place.
+    const moved = apply(runs, { type: 'capture-move', member: first?.sessionId ?? '', by: 1 })
+    expect(order(moved).indexOf(first?.painter.wplaceUserId ?? 0)).toBeGreaterThan(
+      order(moved).indexOf(third?.painter.wplaceUserId ?? 0),
+    )
+    // With no painter below the third but the pinned closer, its move changes nothing at all.
+    expect(apply(runs, { type: 'capture-move', member: third?.sessionId ?? '', by: 1 })).toBe(runs)
   })
 })

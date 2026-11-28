@@ -255,6 +255,16 @@ const CaptureLead = integerBetween(MIN_CAPTURE_LEAD_MS, MAX_CAPTURE_LEAD_MS).che
   ),
 )
 
+const CaptureMember = Schema.Struct({
+  sessionId: PresenceSessionId,
+  painter: PresenceIdentity,
+  drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+  joined: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
+  left: Schema.optionalKey(Schema.Literal(true)),
+  // Kept by the server, which strips it before sending.
+  client: Schema.optionalKey(Schema.String),
+})
+
 export const CaptureRun = Schema.Struct({
   id: Identifier,
   team: TerritoryTeam,
@@ -263,25 +273,25 @@ export const CaptureRun = Schema.Struct({
   // Missing on a lobby stored by backend 1.6.0, which its opener hosts.
   host: Schema.optionalKey(PresenceSessionId),
   ...CaptureSettings,
-  members: boundedArray(
-    Schema.Struct({
-      sessionId: PresenceSessionId,
-      painter: PresenceIdentity,
-      drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
-      joined: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
-      left: Schema.optionalKey(Schema.Literal(true)),
-      // Kept by the server, which strips it before sending.
-      client: Schema.optionalKey(Schema.String),
-    }),
-    MAX_CAPTURE_MEMBERS,
-  ),
+  members: boundedArray(CaptureMember, MAX_CAPTURE_MEMBERS),
+  // Joined after the lock-in. Missing while nobody waits; clients before it drop the key, so
+  // `members` alone cuts their legs the same as the server's.
+  waiting: Schema.optionalKey(boundedArray(CaptureMember, MAX_CAPTURE_MEMBERS)),
   wall: Schema.NullOr(CaptureWall),
   guardZones: CaptureGuardZones,
   startsAt: Schema.NullOr(Epoch),
   // Missing on a lobby stored before runners could set it.
   leadMs: Schema.optionalKey(CaptureLead),
   cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
-})
+}).pipe(
+  Schema.check(
+    booleanFilter(
+      (run: { readonly members: readonly unknown[]; readonly waiting?: readonly unknown[] }) =>
+        run.members.length + (run.waiting?.length ?? 0) <= MAX_CAPTURE_MEMBERS,
+      `a capture lobby holds at most ${MAX_CAPTURE_MEMBERS} members`,
+    ),
+  ),
+)
 
 export const PresenceClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal('presence-heartbeat') }),

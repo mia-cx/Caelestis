@@ -11,9 +11,12 @@ import { isWorkIdentity } from './work.js'
  *
  * Lobbies live in a presence room, any number per event team. Any painter who can write opens one
  * and joins it as its host; painters join from the team's lobby list. The host, or an administrator
- * in the lobby, locks in a wall, and the wall is cut into one leg per painting member, so every member, server and client, derives the same legs
- * from the lobby with `captureLines`. Painters go in pairs from the wall's two anchors: painter `i`
- * (from 0) paints leg `i` at `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which
+ * in the lobby, locks in a wall, and the wall is cut into one leg per painting member, so every
+ * member, server and client, derives the same legs from the lobby with `captureLines`. Only Lock in
+ * hands out legs: a painter who joins afterwards waits in `waiting`, without one, until the next
+ * lock-in, and one who leaves before the countdown leaves their place empty. `members` holds exactly
+ * the places the lock-in gave out, so a client that predates `waiting` derives the same legs.
+ * Painters go in pairs from the wall's two anchors: painter `i` (from 0) paints leg `i` at `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which
  * each client estimates with `clock` round trips. The lobby's coordinator always paints in the last
  * step while a member, so the closing leg, and the captured area, is theirs: the painter who opened
  * it, until whoever runs the lobby hands the closing leg to another member. The host and the closer
@@ -73,8 +76,9 @@ export interface CaptureMember {
    */
   readonly joined?: number
   /**
-   * Set when they left after the closing leg was painted. They keep their place, so everyone
-   * else keeps the leg, slot and guard role the countdown started with.
+   * Set when they left a place they hold: after the closing leg was painted, or after the lock-in
+   * gave them a part. They keep the place, so everyone else keeps the leg, slot and guard role it
+   * gave them. Before the countdown, they take it back by joining again from the same browser.
    */
   readonly left?: true
   /**
@@ -109,8 +113,16 @@ export interface CaptureRun {
   /** Anchor guards live planning gives zones to, and the most members who guard. */
   readonly guards: number
   readonly distribution: CaptureDistribution
-  /** In paint order, guards last. */
+  /**
+   * In paint order, guards last: everyone while the host is still choosing, and once a wall is
+   * locked in, the places the lock-in gave out, including any left empty since.
+   */
   readonly members: readonly CaptureMember[]
+  /**
+   * Who joined after the lock-in, in the order they joined: they have no leg, role or slot until
+   * the next lock-in seats them. Missing while nobody waits.
+   */
+  readonly waiting?: readonly CaptureMember[]
   /**
    * The locked-in wall: its pixels to paint from anchor A to anchor B, as flat world coordinates
    * `[x0, y0, x1, y1, …]`. Null while the host is still choosing.
@@ -312,6 +324,10 @@ export type CaptureServerEvent =
   /** Answers a client's `clock`: `at` is the server's time when it answered. */
   | { readonly type: 'clock'; readonly sent: number; readonly at: number }
 
+/** Everyone in the lobby: its places in paint order, then those waiting for the next lock-in. */
+export const captureEveryone = (run: CaptureRun): readonly CaptureMember[] =>
+  run.waiting === undefined ? run.members : [...run.members, ...run.waiting]
+
 /** The most anchor guards a lobby of this size sets: half of it, rounded down. */
 export const maxCaptureGuards = (run: CaptureRun): number =>
   Math.min(MAX_CAPTURE_PAINTERS, Math.floor(run.members.length / 2))
@@ -398,17 +414,23 @@ export const captureLines = (run: CaptureRun): readonly (readonly number[])[] =>
 }
 
 /**
- * The member order after moving member `id` one place earlier (-1) or later (1), as session ids.
- * The coordinator keeps the last painter's place, so they don't move and a move steps over them.
- * Null when the move has nowhere to go.
+ * The member order after member `id` trades places with the next painter earlier (-1) or later (1),
+ * as session ids. The coordinator keeps the last painter's place and a place left empty keeps its
+ * own, so a move steps over both. Null when the move has nowhere to go, or `id` left their place.
  */
 export const moveCaptureMember = (run: CaptureRun, id: string, by: -1 | 1): string[] | null => {
   const pinned = captureCoordinatorIndex(run)
-  const order = run.members.filter((_, index) => index !== pinned).map(({ sessionId }) => sessionId)
+  const rest = run.members.filter((_, index) => index !== pinned)
+  const order = rest.map(({ sessionId }) => sessionId)
   const from = order.indexOf(id)
-  const to = from + by
-  if (from < 0 || to < 0 || to >= order.length) return null
-  order.splice(to, 0, ...order.splice(from, 1))
+  if (from < 0 || rest[from]?.left === true) return null
+  // A place left empty has nobody to trade with: the move passes it, to the next painter still in one.
+  let to = from + by
+  while (rest[to]?.left === true) to += by
+  const neighbour = order[to]
+  if (neighbour === undefined) return null
+  order[to] = id
+  order[from] = neighbour
   return order
 }
 
@@ -421,25 +443,36 @@ export const capturePaintersDrafted = (run: CaptureRun): boolean => {
 }
 
 /**
- * Whether the countdown may start: a wall is locked in, its legs fit the painting members, and
- * everyone with a leg has drafted it.
+ * Whether someone left a leg or guard zone the lock-in gave them, before the countdown. Nobody else
+ * takes it over: the host locks in again to cut the wall for who is left.
+ */
+export const captureVacant = (run: CaptureRun): boolean =>
+  run.startsAt === null &&
+  run.wall !== null &&
+  run.members.some((member, index) => member.left === true && !isCaptureReserve(run, index))
+
+/**
+ * Whether the countdown may start: a wall is locked in, its legs fit the painting members, nobody
+ * has left theirs, and everyone with a leg has drafted it.
  */
 export const captureReady = (run: CaptureRun): boolean =>
   run.startsAt === null &&
   run.wall !== null &&
   captureShortfall(run.wall.length / 2, capturePainterCount(run)) === 0 &&
+  !captureVacant(run) &&
   capturePaintersDrafted(run)
 
 /**
- * The member index of the lobby's host, or -1 when nobody eligible is in it: the recorded host while
- * they are in it, else the member who joined first, ties in member order. A lobby stored by backend 1.6.0 records no host, so its
- * opener hosts while in it. `eligible` narrows who may host, as to the connected sessions.
+ * The host's index in `captureEveryone`, or -1 when nobody eligible is in the lobby: the recorded
+ * host while they are in it, else the member who joined first, ties in member order. A lobby stored
+ * by backend 1.6.0 records no host, so its opener hosts while in it. `eligible` narrows who may
+ * host, as to the connected sessions.
  */
 export const captureHostIndex = (
   run: CaptureRun,
   eligible: (member: CaptureMember) => boolean = () => true,
 ): number => {
-  const { members } = run
+  const members = captureEveryone(run)
   const present = members.flatMap((member, index) =>
     member.left !== true && eligible(member) ? [index] : [],
   )
@@ -521,6 +554,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     staggerMs,
     leadMs,
     cut,
+    waiting,
   } = value
   if (
     typeof id !== 'string' ||
@@ -541,7 +575,13 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !(startsAt === null || isSafeInteger(startsAt)) ||
     !isSafeInteger(staggerMs) ||
     !(leadMs === undefined || isSafeInteger(leadMs)) ||
-    !isSafeInteger(cut)
+    !isSafeInteger(cut) ||
+    !(
+      waiting === undefined ||
+      (Array.isArray(waiting) &&
+        members.length + waiting.length <= MAX_CAPTURE_MEMBERS &&
+        waiting.every(isMember))
+    )
   )
     return null
   return {
@@ -560,5 +600,6 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     staggerMs,
     ...(leadMs === undefined ? {} : { leadMs }),
     cut,
+    ...(waiting === undefined ? {} : { waiting }),
   }
 }

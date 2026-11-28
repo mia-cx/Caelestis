@@ -27,6 +27,10 @@ export interface CaptureRunMember {
   readonly closes: boolean
   /** The lobby's host, who runs it; at first its opener, who also closes. */
   readonly hosts: boolean
+  /** They left the place the lock-in gave them, before the countdown: it stays empty. */
+  readonly vacant: boolean
+  /** They joined after the lock-in and wait for the next, with no leg or place yet. */
+  readonly waiting: boolean
 }
 
 /** A lobby in the list, for painters outside every lobby. */

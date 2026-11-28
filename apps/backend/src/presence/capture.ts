@@ -6,6 +6,7 @@ import {
   type CaptureTimingReport,
   captureCoordinatorIndex,
   captureEndsAt,
+  captureEveryone,
   captureGuardCount,
   captureHostIndex,
   captureLead,
@@ -17,6 +18,7 @@ import {
   captureStep,
   isCaptureGuard,
   isCaptureReserve,
+  MAX_CAPTURE_MEMBERS,
   maxCaptureGuards,
   moveCaptureMember,
   type PainterIdentity,
@@ -105,23 +107,25 @@ export const applyCaptureEvent = (
     // A painter is one member: joining again from a new tab or socket in the same browser takes
     // back their place, leg and slot, also once the countdown has started. The painter id is the
     // client's word, so a place held from another browser is not theirs to take, nor to double.
+    const everyone = captureEveryone(target)
     const place = placeOf(target, actor.painter.wplaceUserId)
-    if (place !== -1 && target.members[place]?.client !== actor.client) return runs
-    if (place === -1 && target.startsAt !== null) return runs
+    if (place !== -1 && everyone[place]?.client !== actor.client) return runs
+    // Nobody new joins once the countdown starts, nor a lobby as full as the wire allows: clients
+    // refuse a lobby with more members than that.
+    if (place === -1 && (target.startsAt !== null || everyone.length >= MAX_CAPTURE_MEMBERS))
+      return runs
     const left = leaveCaptures(runs, actor.sessionId, now)
     if (left === null) return runs
     if (place !== -1)
       return left.map((run) => (run.id === target.id ? reseated(run, place, actor.sessionId) : run))
-    const joined = Math.max(0, ...target.members.map((member) => (member.joined ?? 0) + 1))
-    return left.map((run) =>
-      run === target ? withMembers(run, [...run.members, me(joined)]) : run,
-    )
+    const joined = Math.max(0, ...everyone.map((member) => (member.joined ?? 0) + 1))
+    return left.map((run) => (run === target ? joinedBy(run, me(joined)) : run))
   }
   const own = runs.find((run) => memberOf(run, actor.sessionId))
   if (own === undefined) return runs
   const hosting =
     satisfiesScope(actor.scope, 'admin') ||
-    own.members[captureHostIndex(own)]?.sessionId === actor.sessionId
+    captureEveryone(own)[captureHostIndex(own)]?.sessionId === actor.sessionId
   const next = applyOwnEvent(own, event, actor.sessionId, hosting, now)
   if (next === own) return runs
   return next === null
@@ -189,12 +193,17 @@ const applyOwnEvent = (
       return withMembers(run, members)
     }
     case 'capture-closer': {
-      // Any member, guards and reserves too. They swap places with whoever holds the closing leg,
-      // the closer or, once the closer has left, the member pinned there since; that member takes
-      // their old role, guard zone or reserve place, and nobody else moves.
+      // Any member with a place, guards and reserves too. They swap places with whoever holds the
+      // closing leg, the closer or, once the closer has left, the member pinned there since; that
+      // member takes their old role, guard zone or reserve place, and nobody else moves.
       const to = run.members.findIndex(({ sessionId }) => sessionId === event.member)
       const incoming = run.members[to]
-      if (incoming === undefined || incoming.painter.wplaceUserId === run.coordinator) return run
+      if (
+        incoming === undefined ||
+        incoming.left === true ||
+        incoming.painter.wplaceUserId === run.coordinator
+      )
+        return run
       const from = captureLegCount(run) - 1
       const outgoing = run.members[from]
       const members = run.members.slice()
@@ -204,14 +213,17 @@ const applyOwnEvent = (
       }
       return withMembers({ ...run, coordinator: incoming.painter.wplaceUserId }, members)
     }
-    case 'capture-lock':
+    case 'capture-lock': {
+      const { wall, guardZones } = event
+      const next = { ...seatedAll(run), wall, guardZones }
       // Every leg must fit a painter's charges, and every guard the lobby has needs its zone.
       if (
-        event.guardZones.length !== captureGuardCount(run) ||
-        captureShortfall(event.wall.length / 2, capturePainterCount(run)) > 0
+        guardZones.length !== captureGuardCount(next) ||
+        captureShortfall(wall.length / 2, capturePainterCount(next)) > 0
       )
         return run
-      return recut({ ...run, wall: event.wall, guardZones: event.guardZones })
+      return recut(next)
+    }
     case 'capture-unlock':
       return run.wall === null ? run : unlocked(run)
     case 'capture-go':
@@ -223,19 +235,80 @@ const applyOwnEvent = (
 
 /** Whether a session is in a lobby, rather than having left it once it finished. */
 const memberOf = (run: CaptureRun, sessionId: string): boolean =>
-  run.members.some((entry) => entry.sessionId === sessionId && entry.left !== true)
+  captureEveryone(run).some((entry) => entry.sessionId === sessionId && entry.left !== true)
 
-/** Where a painter sits in a lobby they have not left, or -1. */
+/**
+ * Where a painter is in a lobby, as an index in `captureEveryone`, or -1: a place they have not
+ * left, a spot among those waiting, or before the countdown a place they left empty after the
+ * lock-in, which is still theirs to take back.
+ */
 const placeOf = (run: CaptureRun, painter: WplaceUserId): number =>
-  run.members.findIndex((entry) => entry.left !== true && entry.painter.wplaceUserId === painter)
+  captureEveryone(run).findIndex(
+    (entry) =>
+      entry.painter.wplaceUserId === painter && (entry.left !== true || run.startsAt === null),
+  )
 
-/** The lobby with the member at `place` on a new session of theirs, hosting if the old one did. */
+/**
+ * The lobby with the member at `place` in `captureEveryone` on a new session of theirs, in it
+ * again if they had left the place, and hosting if the old session did.
+ */
 const reseated = (run: CaptureRun, place: number, sessionId: string): CaptureRun => {
-  const member = run.members[place]
+  const member = captureEveryone(run)[place]
   if (member === undefined) return run
-  const members = run.members.slice()
-  members[place] = { ...member, sessionId }
-  return { ...run, members, ...(run.host === member.sessionId ? { host: sessionId } : {}) }
+  const { left: _, ...back } = member
+  const seat = { ...back, sessionId }
+  const host = run.host === member.sessionId ? { host: sessionId } : {}
+  const spot = place - run.members.length
+  return spot < 0
+    ? { ...run, members: run.members.with(place, seat), ...host }
+    : { ...run, waiting: (run.waiting ?? []).with(spot, seat), ...host }
+}
+
+/** The lobby with `waiting` as those waiting for the next lock-in, the key dropped when none. */
+const withWaiting = (
+  { waiting: _, ...run }: CaptureRun,
+  waiting: readonly CaptureMember[],
+): CaptureRun => (waiting.length === 0 ? run : { ...run, waiting })
+
+/**
+ * The lobby with everyone in it given a place, as Lock in gives them out: places left empty go,
+ * and those waiting take places after `members`, the lobby's own by default.
+ */
+const seatedAll = (
+  { waiting = [], ...run }: CaptureRun,
+  members: readonly CaptureMember[] = run.members,
+): CaptureRun => ({ ...run, members: [...members.filter(({ left }) => left !== true), ...waiting] })
+
+/**
+ * The lobby with a new member. Before a lock-in they take their part when it is cut; after one,
+ * they wait without a leg until the next, and nobody else's leg, role or draft changes.
+ */
+const joinedBy = (run: CaptureRun, member: CaptureMember): CaptureRun =>
+  run.wall === null
+    ? withMembers(run, [...run.members, member])
+    : withWaiting(run, [...(run.waiting ?? []), member])
+
+/**
+ * The lobby without the members `gone` picks, before its countdown. Before a lock-in they leave
+ * the order. After one, nobody else's leg, role or order changes: a member waiting for the next
+ * lock-in goes, and one the lock-in gave a place leaves it empty, which holds the countdown until
+ * the host locks in again.
+ */
+const withoutMembers = (run: CaptureRun, gone: (member: CaptureMember) => boolean): CaptureRun => {
+  if (run.wall === null)
+    return withMembers(
+      run,
+      run.members.filter((member) => !gone(member)),
+    )
+  const members = run.members.map((member) =>
+    gone(member) ? { ...member, drafted: 0, left: true as const } : member,
+  )
+  const waiting = (run.waiting ?? []).filter((member) => !gone(member))
+  // With every place empty the lock-in holds nobody: back to choosing, with those waiting seated,
+  // so a host is someone every client version sees in the lobby.
+  if (members.every(({ left }) => left === true))
+    return unlocked(withWaiting({ ...run, members }, waiting))
+  return hosted(withWaiting({ ...run, members }, waiting))
 }
 
 const undrafted = (member: CaptureMember): CaptureMember =>
@@ -254,34 +327,34 @@ const recut = (run: CaptureRun): CaptureRun => {
  * A finished lobby back to choosing its next wall: the same settings and members, without those
  * who left after the last one, nothing drafted and no countdown.
  */
-const nextRound = (run: CaptureRun): CaptureRun => {
-  const reset = unlocked({ ...run, startsAt: null })
-  return withMembers(
-    reset,
-    reset.members.filter(({ left }) => left !== true),
-  )
-}
+const nextRound = (run: CaptureRun): CaptureRun => unlocked({ ...run, startsAt: null })
 
-const unlocked = (run: CaptureRun): CaptureRun => recut({ ...run, wall: null, guardZones: [] })
+/** The lobby back to choosing: no wall, places left empty gone, and nobody waiting. */
+const unlocked = (run: CaptureRun): CaptureRun =>
+  recut(hosted({ ...seatedAll(run), wall: null, guardZones: [] }))
 
 /**
- * The lobby without a session, as when it leaves or its socket closes. Once the countdown starts,
- * every member keeps their place, so everyone keeps the leg, slot and guard role it started with:
- * nobody leaves until the closing leg is painted, and then a member who leaves is only marked.
+ * The lobby without a session, as when it leaves or its socket closes; see `withoutMembers`. Once
+ * the countdown starts, every member with a place keeps it, so everyone keeps the leg, slot and
+ * guard role it started with: nobody leaves until the closing leg is painted, and then a member
+ * who leaves is only marked. A member waiting for a lock-in has no slot and leaves at any time.
  */
 export const leaveCapture = (run: CaptureRun, sessionId: string, now: number): CaptureRun => {
   if (!memberOf(run, sessionId)) return run
-  if (run.startsAt !== null) {
-    if (now <= (captureEndsAt(run) ?? 0)) return run
-    const members = run.members.map((entry) =>
-      entry.sessionId === sessionId ? { ...entry, left: true as const } : entry,
+  const leaving = (entry: CaptureMember) => entry.sessionId === sessionId && entry.left !== true
+  if (run.startsAt === null) return withoutMembers(run, leaving)
+  if (!run.members.some(leaving))
+    return hosted(
+      withWaiting(
+        run,
+        (run.waiting ?? []).filter((entry) => !leaving(entry)),
+      ),
     )
-    return hosted({ ...run, members })
-  }
-  return withMembers(
-    run,
-    run.members.filter((entry) => entry.sessionId !== sessionId),
+  if (now <= (captureEndsAt(run) ?? 0)) return run
+  const members = run.members.map((entry) =>
+    leaving(entry) ? { ...entry, left: true as const } : entry,
   )
+  return hosted({ ...run, members })
 }
 
 /**
@@ -310,8 +383,10 @@ export const reseatCaptures = (
   connected: ReadonlyMap<string, CaptureSeatOwner>,
 ): readonly CaptureRun[] => {
   const seated = new Set(
-    runs.flatMap(({ members }) =>
-      members.filter(({ left }) => left !== true).map(({ sessionId }) => sessionId),
+    runs.flatMap((run) =>
+      captureEveryone(run)
+        .filter(({ left }) => left !== true)
+        .map(({ sessionId }) => sessionId),
     ),
   )
   const owner = (painter: WplaceUserId, client: string | undefined) => `${painter}:${client}`
@@ -322,7 +397,7 @@ export const reseatCaptures = (
   if (spare.size === 0) return runs
   let changed = false
   const back = runs.map((before) =>
-    before.members.reduce((run, { sessionId, painter, left, client }, place) => {
+    captureEveryone(before).reduce((run, { sessionId, painter, left, client }, place) => {
       const key = owner(painter.wplaceUserId, client)
       const session = spare.get(key)
       if (left === true || client === undefined || connected.has(sessionId) || !session) return run
@@ -337,9 +412,9 @@ export const reseatCaptures = (
 /**
  * The lobbies that still have a connected member, a lobby nobody is in closing, each hosted by a
  * connected member, after `reseatCaptures` gives returning painters their places back. A gathering
- * lobby also drops members whose sessions are gone: one who disconnected during a countdown kept
- * their place until it ended, and must not carry into the next round. A started lobby keeps them,
- * so its host passes to the longest-standing connected member.
+ * lobby also lets members whose sessions are gone go, as `withoutMembers` does: one who
+ * disconnected during a countdown kept their place until it ended, and must not carry into the next
+ * round. A started lobby keeps them, so its host passes to the longest-standing connected member.
  */
 export const connectedCaptures = (
   runs: readonly CaptureRun[],
@@ -347,16 +422,14 @@ export const connectedCaptures = (
 ): readonly CaptureRun[] => {
   const back = reseatCaptures(runs, connected)
   let changed = back !== runs
+  const gone = ({ sessionId, left }: CaptureMember) => left !== true && !connected.has(sessionId)
   const kept = back.flatMap((run) => {
-    if (!run.members.some(({ sessionId, left }) => left !== true && connected.has(sessionId))) {
+    const everyone = captureEveryone(run)
+    if (!everyone.some(({ sessionId, left }) => left !== true && connected.has(sessionId))) {
       changed = true
       return []
     }
-    const present = run.members.filter(({ sessionId }) => connected.has(sessionId))
-    const trimmed =
-      run.startsAt !== null || present.length === run.members.length
-        ? run
-        : withMembers(run, present)
+    const trimmed = run.startsAt !== null || !everyone.some(gone) ? run : withoutMembers(run, gone)
     const next = hosted(trimmed, ({ sessionId }) => connected.has(sessionId))
     if (next !== run) changed = true
     return [next]
@@ -365,13 +438,16 @@ export const connectedCaptures = (
 }
 
 /**
- * The lobby with its members in a new order, the coordinator pinned. Members' legs come from their
- * places and the lobby's size, so any change to either re-cuts the wall and nobody has drafted
- * their new leg until they report it.
+ * The lobby with its members in a new order, the coordinator pinned, as a lobby still choosing or
+ * the host sets it. Members' legs come from their places and the lobby's size, so any change to
+ * either re-cuts the wall and nobody has drafted their new leg until they report it. A locked wall
+ * is cut again for everyone in the lobby, as Lock in cuts it: empty places go, and members waiting
+ * for a lock-in take a part.
  */
 const withMembers = (run: CaptureRun, members: readonly CaptureMember[]): CaptureRun => {
-  const next = hosted(pinCoordinator({ ...run, members }))
+  const next = hosted(pinCoordinator(seatedAll(run, members)))
   const same =
+    run.waiting === undefined &&
     next.members.length === run.members.length &&
     next.members.every((member, index) => member.sessionId === run.members[index]?.sessionId)
   if (same) return next
@@ -386,7 +462,7 @@ const withMembers = (run: CaptureRun, members: readonly CaptureMember[]): Captur
  * same object when nothing changes, or when nobody eligible is left to host.
  */
 const hosted = (run: CaptureRun, eligible?: (member: CaptureMember) => boolean): CaptureRun => {
-  const host = run.members[captureHostIndex(run, eligible)]?.sessionId
+  const host = captureEveryone(run)[captureHostIndex(run, eligible)]?.sessionId
   return host === undefined || host === run.host ? run : { ...run, host }
 }
 
@@ -394,7 +470,7 @@ const hosted = (run: CaptureRun, eligible?: (member: CaptureMember) => boolean):
  * The lobby with its coordinator, if they are a member, moved to the last leg's place, so they
  * always paint in the final step and close the wall. Everyone else keeps their order; a
  * coordinator who would be a guard or a reserve paints instead, and the member they displace
- * takes their role.
+ * takes their role. One waiting for a lock-in has no place to move until it seats them.
  */
 const pinCoordinator = (run: CaptureRun): CaptureRun => {
   const at = captureCoordinatorIndex(run)
@@ -406,12 +482,20 @@ const pinCoordinator = (run: CaptureRun): CaptureRun => {
 }
 
 /** The lobbies as sessions receive them: without the browser each place belongs to. */
-export const sentCaptures = (runs: readonly CaptureRun[]): readonly CaptureRun[] =>
-  runs.map((run) => ({ ...run, members: run.members.map(({ client: _, ...member }) => member) }))
+export const sentCaptures = (runs: readonly CaptureRun[]): readonly CaptureRun[] => {
+  const sent = (members: readonly CaptureMember[]) =>
+    members.map(({ client: _, ...member }) => member)
+  return runs.map((run) =>
+    run.waiting === undefined
+      ? { ...run, members: sent(run.members) }
+      : { ...run, members: sent(run.members), waiting: sent(run.waiting) },
+  )
+}
 
 /**
  * The places handed to a new session between `before` and `after`, as `[lobby, from, to]`
- * sessions: the same painter in the same place of the same lobby, on another session.
+ * sessions: the same painter in the same place of the same lobby, or the same spot among those
+ * waiting, on another session.
  */
 export const handedPlaces = (
   before: readonly CaptureRun[],
@@ -420,8 +504,9 @@ export const handedPlaces = (
   after.flatMap((run) => {
     const old = before.find(({ id }) => id === run.id)
     if (old === undefined) return []
-    return run.members.flatMap(({ sessionId, painter }, place) => {
-      const was = old.members[place]
+    const places = captureEveryone(old)
+    return captureEveryone(run).flatMap(({ sessionId, painter }, place) => {
+      const was = places[place]
       return was !== undefined &&
         was.sessionId !== sessionId &&
         was.painter.wplaceUserId === painter.wplaceUserId
