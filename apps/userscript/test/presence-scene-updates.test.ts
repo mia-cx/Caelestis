@@ -237,3 +237,132 @@ it('lists the team’s lobbies to a painter in none, and joins the one they choo
   intent({ type: 'join', id: 'run' })
   expect(sent(socket, 'capture-join')).toEqual([{ type: 'capture-join', run: 'run' }])
 })
+
+it("counts a leg's pixels the team already holds on Wplace's map as drafted", async () => {
+  const { socket } = await connect({ capture: 1 })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  const { encodeIndexedPng, TERRITORY_ARENA, TERRITORY_TEAMS, TILE_SIZE, TRANSPARENT_INDEX } =
+    await import('@caelestis/shared')
+  // Wplace's map: the team already holds the first two pixels of the wall, this painter's leg.
+  const size = TERRITORY_ARENA.size
+  const owner = new Uint8Array(size * size).fill(TRANSPARENT_INDEX)
+  owner.fill(TERRITORY_TEAMS[0].colour, 0, 2)
+  const snapshot = await encodeIndexedPng(size, size, owner)
+  vi.stubGlobal('fetch', async (url: unknown) =>
+    String(url).endsWith('/territory/snapshot')
+      ? new Response(snapshot.slice())
+      : new Response(null, { status: 404 }),
+  )
+  const { installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  const left = TERRITORY_ARENA.tileX * TILE_SIZE
+  const top = TERRITORY_ARENA.tileY * TILE_SIZE
+  const wall = [0, 1, 2, 3].flatMap((x) => [left + x, top])
+  socket.receive({ type: 'capture-runs', runs: [lobby(wall, 0)] })
+  // Decoding an arena-sized map takes real time, longer under a loaded test run.
+  await vi.waitFor(
+    async () => {
+      await vi.advanceTimersByTimeAsync(500)
+      expect(sent(socket, 'capture-drafted').at(-1)).toMatchObject({ drafted: 2 })
+    },
+    { timeout: 10_000 },
+  )
+
+  // The server takes the report, as it would.
+  const reported = lobby(wall, 0)
+  const [self, ...others] = reported.members
+  if (self === undefined) throw new Error('Expected this painter in the lobby')
+  reported.members = [{ ...self, drafted: 2 }, ...others]
+  socket.receive({ type: 'capture-runs', runs: [reported] })
+  // Wplace stops answering: tries back off, and the old read stops counting once it is stale.
+  let tries = 0
+  vi.stubGlobal('fetch', async (url: unknown) => {
+    if (String(url).endsWith('/territory/snapshot')) tries++
+    throw new TypeError('Failed to fetch')
+  })
+  await vi.advanceTimersByTimeAsync(31_000)
+  expect(tries).toBeLessThanOrEqual(8)
+  expect(sent(socket, 'capture-drafted').at(-1)).toMatchObject({ drafted: 0 })
+}, 20_000)
+
+it("doesn't press Paint at a slot when nothing is drafted on the leg", async () => {
+  const { socket } = await connect({ capture: 1 })
+  // The slot spins out its last milliseconds on the tab's monotonic clock, so that clock runs for
+  // real here; timers and the date stay fake.
+  vi.useRealTimers()
+  vi.useFakeTimers({
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+  })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  const { setState } = await import('../src/settings.js')
+  setState({ simulatedInput: { 'capture-paint': true } })
+  // The territory event's Paint panel is open, its Paint button ready.
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    '<div><button>Cancel</button><button class="btn btn-primary">Paint (0:04)</button></div>',
+  )
+  let clicks = 0
+  document.querySelector('.btn-primary')?.addEventListener('click', () => clicks++)
+  // One leg pixel is paint Wplace already accepted, not yet in a tile read: still nothing open.
+  const { beginSubmission, retainAcceptedPaint } = await import('../src/tile-pixels.js')
+  const { TERRITORY_TEAMS } = await import('@caelestis/shared')
+  const submission = {}
+  beginSubmission(submission)
+  retainAcceptedPaint(
+    submission,
+    [{ x: 0, y: 0, pixels: { x: [10], y: [10], colors: [TERRITORY_TEAMS[0].colour] } }],
+    1,
+    1,
+  )
+  const { installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  const now = performance.timeOrigin + performance.now()
+  const started = {
+    ...lobby([10, 10, 11, 10, 12, 10, 13, 10], 0),
+    startsAt: Math.round(now) + 600,
+  }
+  socket.receive({ type: 'capture-runs', runs: [started] })
+  // Answer each clock ping at once, so the slot can be scheduled on this tab's clock.
+  const answered = new Set<number>()
+  for (let step = 0; step < 20; step++) {
+    await vi.advanceTimersByTimeAsync(100)
+    await new Promise((resolve) => setImmediate(resolve))
+    for (const { sent: at } of sent(socket, 'clock')) {
+      if (answered.has(at)) continue
+      answered.add(at)
+      socket.receive({ type: 'clock', sent: at, at })
+    }
+  }
+  expect(clicks).toBe(0)
+  // The timing log tells a skipped slot apart from one whose Paint wasn't ready.
+  expect(sent(socket, 'capture-timing').map(({ status }) => status)).toEqual(['nothing-drafted'])
+  document.body.replaceChildren()
+  setState({ simulatedInput: {} })
+})
+
+it("says planning failed when Wplace's map cannot be fetched", async () => {
+  const { socket } = await connect({ capture: 1, scope: 'event_runner' })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  vi.stubGlobal('fetch', async () => {
+    throw new TypeError('Failed to fetch')
+  })
+  const { installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  socket.receive({ type: 'capture-runs', runs: [lobby(null, 0)] })
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(card().model?.message).toBe('Planning failed. It tries again shortly.')
+})
+
+it('clears the planning failure once the same map can be read again', async () => {
+  await planning()
+  expect(card().model?.message).toBeUndefined()
+  const working = globalThis.fetch
+  // Wplace answers 503 once the cached map is due a refresh.
+  vi.stubGlobal('fetch', async () => new Response(null, { status: 503 }))
+  await vi.advanceTimersByTimeAsync(6_000)
+  expect(card().model?.message).toBe('Planning failed. It tries again shortly.')
+  // It recovers with the same map, so the plan on screen stands.
+  vi.stubGlobal('fetch', working)
+  await vi.advanceTimersByTimeAsync(6_000)
+  expect(card().model?.message).toBeUndefined()
+})

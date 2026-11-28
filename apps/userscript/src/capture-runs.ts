@@ -60,7 +60,7 @@ import {
   wplaceRtt,
 } from './capture-timing.js'
 import { log, warn } from './debug.js'
-import { comparisonDraftPixelAt } from './draft-pixels.js'
+import { comparisonDraftPixelAt, nativeDraftPixelAt } from './draft-pixels.js'
 import { eventTeam, readEventTeam } from './event-team.js'
 import { getMap, type MapLike, onMapAttached } from './map-handle.js'
 import { requestMapFrame, viewportCentre } from './map-view.js'
@@ -98,6 +98,8 @@ import { BACKEND_ORIGIN } from './wplace-raster.js'
 const ELEMENT_ID = 'caelestis-capture-run'
 /** How often Wplace refreshes its territory map; guards and planning read it no more often. */
 const SNAPSHOT_MS = 5_000
+/** How long a painter's read of the map counts toward their leg when it can't be read again. */
+const HELD_MAP_MS = 30_000
 /** How long after a guard's slot their anchor is first checked, so the start can land. */
 const WATCH_GRACE_MS = 3_000
 /** How often a member's drafted count is re-read and the countdown redrawn. */
@@ -201,17 +203,65 @@ const syncTeam = (): void => {
     .catch(() => undefined)
 }
 
-/** Whether this tab has drafted a pixel in a colour that claims for `team`. */
-const draftedPixel = (team: TerritoryTeam, { x, y }: { x: number; y: number }): boolean => {
+/**
+ * Wplace's territory map as a painter last read it, so a leg's pixels the team already holds count
+ * as done: they are painted in its colour already, and Wplace has nothing left to draft there.
+ */
+let heldMap: { readonly hash: number; readonly map: TerritoryMap; readonly at: number } | null =
+  null
+let heldLoading = false
+
+/** Read the map again once Wplace has refreshed it; called while a painter drafts their leg. */
+const refreshHeldMap = (): void => {
+  if (heldLoading) return
+  heldLoading = true
+  void plannedSnapshot()
+    .then(async (snapshot) => {
+      if (snapshot === null) return
+      if (heldMap?.hash === snapshot.hash) {
+        heldMap = { ...heldMap, at: snapshot.at }
+        return
+      }
+      const image = await decodePng(snapshot.bytes.slice())
+      const map = territoryMapFromImage(image, PALETTE_RGB)
+      heldMap = { hash: snapshot.hash, map, at: snapshot.at }
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      heldLoading = false
+    })
+}
+
+/**
+ * Whether this tab has drafted a pixel in a colour that claims for `team`. `open` reads only the
+ * draft Wplace still has open, without paint it already accepted.
+ */
+const draftedPixel = (
+  team: TerritoryTeam,
+  { x, y }: { x: number; y: number },
+  open = false,
+): boolean => {
   const { colour, dark } = TERRITORY_TEAMS[team]
   const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
   const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
-  const drafted = comparisonDraftPixelAt(tile, offset)
+  const drafted = open ? nativeDraftPixelAt(tile, offset) : comparisonDraftPixelAt(tile, offset)
   return drafted === colour || drafted === dark
 }
 
+/**
+ * Whether a leg pixel is done for `team`: this tab has drafted it, or the team already holds it on
+ * Wplace's map.
+ */
+const donePixel = (team: TerritoryTeam, pixel: { x: number; y: number }): boolean => {
+  if (draftedPixel(team, pixel)) return true
+  // A map that could not be read again for a while may no longer be true: count nothing held.
+  const map = heldMap !== null && localClock() - heldMap.at < HELD_MAP_MS ? heldMap.map : undefined
+  const local = map === undefined ? null : worldToArena(pixel)
+  return map !== undefined && local !== null && map.owner[local.y * map.size + local.x] === team
+}
+
 const draftedOn = (team: TerritoryTeam, line: readonly number[]): number =>
-  linePixels(line).filter((pixel) => draftedPixel(team, pixel)).length
+  linePixels(line).filter((pixel) => donePixel(team, pixel)).length
 
 /** This painter's own line, split into what they have drafted and what is left to draft. */
 const mineCache = new Map<string, readonly CaptureItem[]>()
@@ -221,7 +271,7 @@ const mineItems = (
   colour: Rgb,
 ): readonly CaptureItem[] => {
   const pixels = linePixels(line)
-  const done = pixels.map((pixel) => draftedPixel(team, pixel))
+  const done = pixels.map((pixel) => donePixel(team, pixel))
   const key = `${team}|${line.join(',')}|${done.map(Number).join('')}`
   const cached = mineCache.get(key)
   if (cached !== undefined) return cached
@@ -599,15 +649,25 @@ const plannedSnapshot = async (): Promise<typeof snapshotRead> => {
   const now = localClock()
   if (snapshotRead !== null && now - snapshotRead.at < SNAPSHOT_MS) return snapshotRead
   if (now - snapshotFailedAt < PLAN_RETRY_MS) return null
-  const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
-  if (!response.ok) {
+  try {
+    const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
+    if (!response.ok) throw new Error(`territory snapshot ${response.status}`)
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    snapshotRead = { bytes, hash: hashBytes(bytes), at: now }
+    return snapshotRead
+  } catch (error) {
+    // A refused request and an unreachable one wait the same before the next try; planning
+    // still says it failed.
     snapshotFailedAt = now
-    return null
+    throw error
   }
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  snapshotRead = { bytes, hash: hashBytes(bytes), at: now }
-  return snapshotRead
 }
+
+const PLANNING_FAILED = 'Planning failed. It tries again shortly.'
+
+/** What the card says about the proposals planning last made. */
+const planMessage = (): string | undefined =>
+  proposals.length === 0 ? 'No wall fits here. Centre the map just outside your border.' : undefined
 
 /** One pass: re-plan the run if the map or where it is centred changed since the last plan. */
 const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
@@ -629,7 +689,14 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     // Plans hold a zone for each guard the lobby has now, which can be fewer than its setting.
     const guards = captureGuardCount(run)
     const inputs = `${run.painters}|${guards}|${focus.x},${focus.y}|${snapshot.hash}`
-    if (inputs === planInputs) return
+    if (inputs === planInputs) {
+      // The map came back unchanged after a failed read: the plan on screen stands again.
+      if (message === PLANNING_FAILED) {
+        message = planMessage()
+        render()
+      }
+      return
+    }
     const planned = await runPlanner({
       // The worker takes the bytes it is sent; later passes reuse the original.
       snapshot: snapshot.bytes.slice(),
@@ -643,10 +710,7 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     planInputs = inputs
     proposalsRun = run.id
     proposals = planned.map((proposal) => ({ ...proposal, id: proposalId(proposal) }))
-    message =
-      proposals.length === 0
-        ? 'No wall fits here. Centre the map just outside your border.'
-        : undefined
+    message = planMessage()
     log(
       'capture proposals',
       proposals.map(({ label, gained, pixels }) => ({ label, gained, pixels })),
@@ -655,7 +719,7 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     requestMapFrame()
   } catch (error) {
     warn('capture planning failed', String(error))
-    message = 'Planning failed. It tries again shortly.'
+    message = PLANNING_FAILED
   } finally {
     planBusy = false
   }
@@ -812,7 +876,19 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
       void reportSlot(view, run.id, slot, Promise.resolve(missed), late, wplaceRtt())
       return
     }
+    // A leg the team already holds has nothing drafted: pressing Paint would only submit
+    // whatever else is in the draft.
+    const leg = captureLines(run)[index] ?? []
     const wplaceRttMs = wplaceRtt()
+    if (!linePixels(leg).some((pixel) => draftedPixel(run.team, pixel, true))) {
+      const skipped = {
+        clickToSendMs: null,
+        sendToResponseMs: null,
+        status: 'nothing-drafted' as const,
+      }
+      void reportSlot(view, run.id, slot, Promise.resolve(skipped), late, wplaceRttMs)
+      return
+    }
     // Watch from before the click, so even a request the click sends at once is caught.
     const paint = timeNextPaint(clickedAt)
     const submitted = submitWorldPaintDraft()
@@ -1061,6 +1137,8 @@ const tick = (): void => {
     const line = captureLines(run)[mine]
     // Report whatever the lobby does not already say, including after the server resets it for a
     // re-cut leg; the report interval keeps a report still in flight from repeating often.
+    // Pixels the team already holds count too, so the map is kept fresh while drafting.
+    if (line !== undefined && run.startsAt === null) refreshHeldMap()
     const drafted = line === undefined ? 0 : draftedOn(run.team, line)
     const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
     if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {

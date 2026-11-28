@@ -182,10 +182,15 @@ export const comparisonDraftPixels = (tile: TileCoord, observed = 0): Uint8Array
   return combined
 }
 
+/** One pixel of Wplace's own open draft, without paint it already accepted; `UNPAINTED` if none. */
+export const nativeDraftPixelAt = (tile: TileCoord, offset: number): number => {
+  const key = tileKey(tile)
+  return draftOfTile.get(key)?.[offset] ?? draftedOffsets.get(key)?.get(offset) ?? UNPAINTED
+}
+
 /** One pixel of `comparisonDraftPixels`, without building the tile. */
 export const comparisonDraftPixelAt = (tile: TileCoord, offset: number, observed = 0): number => {
-  const key = tileKey(tile)
-  const native = draftOfTile.get(key)?.[offset] ?? draftedOffsets.get(key)?.get(offset) ?? UNPAINTED
+  const native = nativeDraftPixelAt(tile, offset)
   if (native !== UNPAINTED) return native
   return pendingAcceptedPixelAt(tile, offset, observed) ?? UNPAINTED
 }

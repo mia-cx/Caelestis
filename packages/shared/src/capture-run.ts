@@ -167,12 +167,14 @@ export interface CaptureTimingReport extends CaptureSlotTiming {
 
 /**
  * What became of the paint request at a slot: Wplace's HTTP status, or `missed` (the tab woke too
- * late to click), `unsubmitted` (Paint was not ready), `no-request` (Wplace sent none in time),
+ * late to click), `nothing-drafted` (the leg had nothing open to submit, so Paint was not pressed),
+ * `unsubmitted` (Paint was not ready), `no-request` (Wplace sent none in time),
  * `no-response` (it never answered in time) or `failed` (the request errored).
  */
 export type CapturePaintStatus =
   | number
   | 'missed'
+  | 'nothing-drafted'
   | 'unsubmitted'
   | 'no-request'
   | 'no-response'
