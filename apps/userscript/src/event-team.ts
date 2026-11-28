@@ -1,7 +1,7 @@
 import type { TerritoryTeam } from '@caelestis/shared'
-import { installValueHook } from './page-hooks.js'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { pageWindow } from './page-world.js'
+import { observeTerritorySocket, type TerritoryMessage } from './territory-socket.js'
 import { accountIdentity } from './wplace-account.js'
 import { BACKEND_ORIGIN } from './wplace-raster.js'
 
@@ -9,9 +9,6 @@ import { BACKEND_ORIGIN } from './wplace-raster.js'
 const TEAM_LOOKUP_MS = 5_000
 
 const LEADERBOARD_PATH = '/territory/leaderboard'
-
-/** Wplace's territory socket, which its event store and scoreboard read the painter's team from. */
-const TERRITORY_SOCKET_PATH = '/territory/ws'
 
 /**
  * This painter's Wplace event team, once read; null until then. Event servers share presence and
@@ -113,47 +110,14 @@ const leaderboardRoute: RequestRoute = (request) => {
  * connection, the reply to Join, and the reply to each paint, under `result`. Its scoreboard shows
  * the team from these, for every painter on a team, ranked or not.
  */
-const onTerritoryMessage = (event: MessageEvent): void => {
-  if (team !== null || typeof event.data !== 'string' || !event.data.includes('"me"')) return
-  let message: { t?: unknown; authed?: unknown; me?: unknown; result?: { me?: unknown } } | null
-  try {
-    message = JSON.parse(event.data)
-  } catch {
-    return
-  }
-  const me = (message?.me ?? message?.result?.me) as { team?: unknown } | null | undefined
+const onTerritoryMessage = (message: TerritoryMessage): void => {
+  if (team !== null) return
+  const me = (message.me ?? (message.result as { me?: unknown } | undefined)?.me) as
+    | { team?: unknown }
+    | null
+    | undefined
   team ??= asTeam(me?.team)
-  if (message?.t === 'hello') unjoined = message.authed === true && message.me === null
-}
-
-const territoryHost = new URL(BACKEND_ORIGIN).host
-
-const isTerritorySocket = (url: unknown, realm: Window & typeof globalThis): boolean => {
-  if (typeof url !== 'string') return false
-  const parsed = new URL(url, realm.location?.href)
-  return parsed.host === territoryHost && parsed.pathname === TERRITORY_SOCKET_PATH
-}
-
-/**
- * Listen on the territory socket Wplace opens. The page's `WebSocket` becomes a proxy that builds
- * every socket natively and adds one message listener to the territory one; nothing is sent.
- */
-const tapTerritorySocket = (realm: Window & typeof globalThis): void => {
-  const native = realm.WebSocket
-  if (typeof native !== 'function') return
-  const tapped = new Proxy(native, {
-    construct(target, args, newTarget) {
-      const socket = Reflect.construct(target, args, newTarget) as WebSocket
-      try {
-        if (isTerritorySocket(args[0], realm))
-          socket.addEventListener('message', onTerritoryMessage)
-      } catch {
-        // An unreadable URL leaves the socket unobserved; the leaderboard still carries the team.
-      }
-      return socket
-    },
-  })
-  installValueHook(realm, 'WebSocket', tapped)
+  if (message.t === 'hello') unjoined = message.authed === true && message.me === null
 }
 
 /**
@@ -161,6 +125,6 @@ const tapTerritorySocket = (realm: Window & typeof globalThis): void => {
  * page hooks, before Wplace opens its socket: one opened earlier is never observed.
  */
 export const installEventTeam = (): void => {
-  tapTerritorySocket(pageWindow())
+  observeTerritorySocket({ received: onTerritoryMessage })
   observePageRequests(leaderboardRoute)
 }
