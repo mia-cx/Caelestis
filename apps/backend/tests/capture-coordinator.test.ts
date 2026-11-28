@@ -12,6 +12,7 @@ import {
   isCaptureGuard,
   isCaptureReserve,
   MAX_CAPTURE_MEMBERS,
+  packBits,
   type Scope,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
@@ -752,6 +753,111 @@ describe('the countdown', () => {
   })
 })
 
+/** `covered` for a wall of `pixels`, with the wall pixels from `from` up to `to` drafted. */
+const covering = (pixels: number, from: number, to: number) =>
+  packBits(Uint8Array.from({ length: pixels }, (_, at) => (at >= from && at < to ? 1 : 0)))
+
+/** Painter `id` reports `drafted` of their own leg and, from a tab that has it, `covered`. */
+const report = (runs: readonly CaptureRun[], id: number, drafted: number, covered?: string) => {
+  const { id: run, cut } = only(runs)
+  const event: Event = {
+    type: 'capture-drafted',
+    run,
+    drafted,
+    cut,
+    ...(covered ? { covered } : {}),
+  }
+  return apply(runs, event, actor(id))
+}
+
+/** Painter `id` presses Ready, or releases it, on the lobby's current cut. */
+const press = (runs: readonly CaptureRun[], id: number, ready = true) =>
+  apply(runs, { type: 'capture-ready', run: only(runs).id, cut: only(runs).cut, ready }, actor(id))
+
+const go = (runs: readonly CaptureRun[]) => only(apply(runs, { type: 'capture-go' })).startsAt
+
+describe('the wall drafted by anyone', () => {
+  // Opened by 1 and joined by 2, a 40-pixel wall: painter 2 has pixels 0..19, the closer 20..39.
+
+  it('starts the countdown once someone has drafted every leg, whoever it belongs to', () => {
+    let runs = apply(opened([2]), lock(40))
+    runs = report(runs, 1, 20, covering(40, 0, 40))
+    expect(only(runs).members.map(({ drafted }) => drafted)).toEqual([0, 20])
+    expect(go(runs)).not.toBeNull()
+  })
+
+  it('counts an overlap once, and none of an old tab’s leg it hasn’t finished', () => {
+    // The closer drafts their leg and 10 pixels of painter 2's; painter 2's old tab has 19 of 20.
+    let runs = report(apply(opened([2]), lock(40)), 1, 20, covering(40, 10, 40))
+    runs = report(runs, 2, 19)
+    expect(go(runs)).toBeNull()
+    // Painter 2 updates and drafts 0..15, over the closer's 10..15: the wall is whole.
+    runs = report(runs, 2, 15, covering(40, 0, 15))
+    expect(go(runs)).not.toBeNull()
+  })
+
+  it('keeps no coverage that doesn’t fit the wall, nor any past a re-cut', () => {
+    let runs = apply(opened([2]), lock(40))
+    runs = report(runs, 1, 20, covering(48, 0, 48))
+    expect(only(runs).members.map(({ covered }) => covered)).toEqual([undefined, undefined])
+    runs = report(runs, 1, 20, covering(40, 0, 40))
+    expect(only(apply(runs, lock(40))).members.map(({ covered }) => covered)).toEqual([
+      undefined,
+      undefined,
+    ])
+  })
+})
+
+describe('Ready', () => {
+  /** Painters 1 to 3, the last a guard, Wait for Ready on, every tab with Ready, all drafted. */
+  const waiting = () => {
+    let runs = opened([2, 3], { guards: 1 })
+    runs = apply(runs, { type: 'capture-settings', waitForReady: true })
+    runs = draftAll(apply(runs, lock(40, [[0, 1]])))
+    return [1, 2, 3].reduce((held, id) => press(held, id, false), runs)
+  }
+
+  it('is saved with the lobby, and off unless the host turns it on', () => {
+    expect(only(opened([])).waitForReady).toBeUndefined()
+    const runs = apply([], { type: 'capture-new', ...SETTINGS, waitForReady: true })
+    expect(only(runs).waitForReady).toBe(true)
+    expect(only(apply(runs, { type: 'capture-settings', waitForReady: false })).waitForReady).toBe(
+      undefined,
+    )
+  })
+
+  it('holds the start until everyone who paints at a slot is Ready, the guard too', () => {
+    let runs = press(press(waiting(), 1), 2)
+    expect(go(runs)).toBeNull()
+    runs = press(runs, 3)
+    expect(go(runs)).not.toBeNull()
+    // With Wait for Ready off, nobody's Ready holds it.
+    expect(go(apply(waiting(), { type: 'capture-settings', waitForReady: false }))).not.toBeNull()
+  })
+
+  it('never waits for a tab with no Ready button', () => {
+    let runs = opened([2])
+    runs = apply(runs, { type: 'capture-settings', waitForReady: true })
+    // Painter 2's tab predates Ready and never says it has one.
+    runs = press(draftAll(apply(runs, lock(40))), 1)
+    expect(go(runs)).not.toBeNull()
+  })
+
+  it('resets when the legs are re-cut, and ignores a press from before', () => {
+    const ready = [1, 2, 3].reduce((held, id) => press(held, id), waiting())
+    const readiness = (runs: readonly CaptureRun[]) => only(runs).members.map((m) => m.ready)
+    expect(readiness(ready)).toEqual([true, true, true])
+    const moved = apply(ready, { type: 'capture-move', member: 's2', by: 1 })
+    expect(readiness(moved)).toEqual([false, false, false])
+    const relocked = apply(apply(ready, { type: 'capture-unlock' }), lock(40, [[0, 1]]))
+    expect(readiness(relocked)).toEqual([false, false, false])
+    // A press sent on the cut before the re-cut is about a leg nobody has any more.
+    const { id: run, cut } = only(ready)
+    const stale = { type: 'capture-ready', run, cut, ready: true } as const
+    expect(apply(relocked, stale, actor(2))).toBe(relocked)
+  })
+})
+
 describe('a tab on userscript 1.8.2', () => {
   /** A start time, so slots can be compared before the countdown would start. */
   const STARTS_AT = 1_000_000
@@ -794,6 +900,15 @@ describe('a tab on userscript 1.8.2', () => {
     // The next lock-in gives painter 5 a place, which the old tab then sees too.
     runs = apply(apply(runs, { type: 'capture-unlock' }), lock(90, [[0, 1]]))
     expect(agreed(runs)).toContain('s5')
+  })
+
+  it('derives the server’s legs and slots from a lobby with coverage and Ready', () => {
+    let runs = opened([2, 3], { guards: 1 })
+    runs = apply(runs, { type: 'capture-settings', waitForReady: true })
+    runs = report(apply(runs, lock(40, [[0, 1]])), 1, 20, covering(40, 0, 40))
+    runs = press(press(runs, 1), 2, false)
+    expect(only(runs).members.some(({ covered }) => covered !== undefined)).toBe(true)
+    expect(agreed(runs)).toHaveLength(3)
   })
 })
 

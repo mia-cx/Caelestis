@@ -108,12 +108,14 @@ it('opens every new lobby with the settings its host last chose, after a reload 
   const { setState } = await import('../src/settings.js')
   setState({ notifyUpdates: false })
   const otherTab = storedValue('caelestis.state.v2') ?? '{}'
-  // Two edits before the server answers either: both are kept.
+  // Three edits before the server answers any: all are kept.
   intent({ type: 'set-lead', leadMs: 4_000 })
   intent({ type: 'set-guards', guards: 2 })
+  intent({ type: 'set-wait-for-ready', waitForReady: true })
   expect(sent(socket, 'capture-settings')).toEqual([
     { type: 'capture-settings', leadMs: 4_000 },
     { type: 'capture-settings', guards: 2 },
+    { type: 'capture-settings', waitForReady: true },
   ])
   // After this tab's last save, the other tab saves an unrelated setting, writing back its copy
   // of the state.
@@ -135,6 +137,7 @@ it('opens every new lobby with the settings its host last chose, after a reload 
       staggerMs: 500,
       leadMs: 4_000,
       distribution: 'even',
+      waitForReady: true,
     },
   ])
 })

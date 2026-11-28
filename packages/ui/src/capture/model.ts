@@ -14,9 +14,17 @@ export interface CaptureRunMember {
   readonly name: string
   /** The painter's presence colour as CSS, the same colour their leg is drawn in on the map. */
   readonly colour: string
-  /** Pixels of their leg they have drafted, and the leg's length; length 0 before a lock-in. */
+  /**
+   * Pixels of their leg drafted by anyone in the lobby, and the leg's length; length 0 before a
+   * lock-in. Start countdown waits for every leg to be drafted, whoever drafts it.
+   */
   readonly drafted: number
   readonly length: number
+  /**
+   * Whether they pressed Ready, for someone who paints at a slot before the countdown; null for
+   * everyone else. `no-button` is a tab too old to have Ready, which Wait for Ready doesn't wait for.
+   */
+  readonly ready: 'ready' | 'unready' | 'no-button' | null
   /** This tab's painter. */
   readonly me: boolean
   /** An anchor guard: thickens one end of the wall at the start, then holds it. */
@@ -89,6 +97,8 @@ export interface CaptureRunModel {
   readonly staggerMs: number
   /** Time from Start countdown to the first painter's slot, within the shared lead bounds. */
   readonly leadMs: number
+  /** Start countdown also waits for every member whose tab has Ready to press it. */
+  readonly waitForReady: boolean
   /**
    * For a guard once the countdown has started: whether their anchor still belongs to the team.
    * `cut` also plays an alarm; the guard repaints it from their zone.
@@ -104,7 +114,10 @@ export interface CaptureRunModel {
   readonly locked: boolean
   /** With a wall locked in, the painters still needed before every leg fits; 0 when none. */
   readonly needs: number
-  /** For whoever runs the lobby: the countdown may start: every painter has drafted their leg. */
+  /**
+   * For whoever runs the lobby: the countdown may start: the whole wall is drafted and, with Wait
+   * for Ready on, everyone it waits for is Ready.
+   */
   readonly canStart: boolean
   /**
    * When this tab's painter paints, as a `performance.now()` time, while counting down and they
@@ -130,6 +143,9 @@ export type CaptureRunIntent =
   | { readonly type: 'set-stagger'; readonly staggerMs: number }
   | { readonly type: 'set-lead'; readonly leadMs: number }
   | { readonly type: 'set-distribution'; readonly distribution: 'even' | 'reserve' }
+  | { readonly type: 'set-wait-for-ready'; readonly waitForReady: boolean }
+  /** Press or release this painter's Ready. */
+  | { readonly type: 'set-ready'; readonly ready: boolean }
   /** Open a lobby and join it. */
   | { readonly type: 'open' }
   | { readonly type: 'join'; readonly id: string }

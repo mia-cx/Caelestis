@@ -16,6 +16,7 @@ const ada = {
   hosts: false,
   vacant: false,
   waiting: false,
+  ready: null,
 } satisfies CaptureRunMember
 const bea = { ...ada, id: 'b', name: 'Bea', colour: 'blue', drafted: 12, me: true }
 
@@ -32,6 +33,7 @@ const counting = {
   staggerMs: 500,
   leadMs: 10_000,
   distribution: 'even',
+  waitForReady: false,
   anchor: null,
   members: [ada, bea],
   role: 'painter',
@@ -76,7 +78,7 @@ describe('the card collapsing to its bar', () => {
     const intents: CaptureRunIntent[] = []
     const open = render({ ...gathering, locked: true }, intents)
     expect(bar(open)?.getAttribute('aria-expanded')).toBe('true')
-    expect(bar(open)?.textContent).toContain('2 painters · 1 of 2 ready')
+    expect(bar(open)?.textContent).toContain('2 painters · 1 of 2 drafted')
     bar(open)?.click()
     expect(intents).toEqual([{ type: 'set-collapsed', collapsed: true }])
 
@@ -165,6 +167,65 @@ describe('the lobby list', () => {
     expect(intents.at(-1)).toEqual({ type: 'open' })
 
     expect(button(render({ ...listing, canOpen: false }), 'New lobby')).toBeNull()
+  })
+})
+
+describe('Ready', () => {
+  const ready = (me: CaptureRunMember['ready'], other: CaptureRunMember['ready']) =>
+    ({
+      ...gathering,
+      canRun: false,
+      members: [
+        { ...ada, ready: other },
+        { ...bea, ready: me },
+      ],
+    }) satisfies CaptureRunModel
+
+  it('is a toggle for this painter alone, pressed once they are Ready', () => {
+    const intents: CaptureRunIntent[] = []
+    const card = render(ready('unready', 'ready'), intents)
+    const toggle = button(card, 'Ready')
+    expect(toggle?.getAttribute('aria-pressed')).toBe('false')
+    toggle?.click()
+    expect(intents).toEqual([{ type: 'set-ready', ready: true }])
+    // Only one Ready button: Ada's readiness is read from her row.
+    expect(card.querySelectorAll('button[aria-pressed]')).toHaveLength(1)
+    const rows = [...card.querySelectorAll('[aria-label="Paint order"] li')]
+    expect(rows[0]?.textContent).toContain('Ready')
+    expect(rows[1]?.textContent).not.toContain('Ready')
+
+    const pressed = render(ready('ready', 'ready'), intents)
+    expect(button(pressed, 'Ready')?.getAttribute('aria-pressed')).toBe('true')
+    button(pressed, 'Ready')?.click()
+    expect(intents.at(-1)).toEqual({ type: 'set-ready', ready: false })
+  })
+
+  it('has no button where the lobby has no Ready for this painter, or no wall yet', () => {
+    expect(button(render(ready('no-button', null)), 'Ready')).toBeNull()
+    expect(button(render(ready(null, null)), 'Ready')).toBeNull()
+    expect(button(render({ ...ready('unready', null), locked: false }), 'Ready')).toBeNull()
+  })
+
+  it('counts who is Ready with Wait for Ready on, and names a tab it can’t wait for', () => {
+    const card = render({ ...ready('unready', 'no-button'), waitForReady: true, collapsed: true })
+    expect(card.querySelector('h2')?.textContent).toContain('1 of 2 drafted · 0 of 1 ready')
+    expect(card.textContent).toContain('No Ready button')
+    // Off, the summary and rows say nothing of it.
+    const off = render(ready('unready', 'no-button'))
+    expect(off.querySelector('h2')?.textContent).not.toContain('of 1 ready')
+    expect(off.textContent).not.toContain('No Ready button')
+  })
+
+  it('is a host setting, switched in Settings', () => {
+    const intents: CaptureRunIntent[] = []
+    const card = render(gathering, intents)
+    const toggle = card.querySelector<HTMLInputElement>(
+      '[role="switch"][aria-label="Wait for Ready"]',
+    )
+    expect(toggle?.checked).toBe(false)
+    toggle?.click()
+    expect(intents).toEqual([{ type: 'set-wait-for-ready', waitForReady: true }])
+    expect(render({ ...gathering, canRun: false }).querySelector('[role="switch"]')).toBeNull()
   })
 })
 

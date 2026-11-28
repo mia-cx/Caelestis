@@ -9,6 +9,7 @@
   } from '@caelestis/shared'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
+  import Toggle from '../foundations/Toggle.svelte'
   import type { CaptureRunIntent, CaptureRunMember, CaptureRunModel } from './model.js'
 
   let { model, onIntent }: { model: CaptureRunModel; onIntent: (intent: CaptureRunIntent) => void } =
@@ -27,7 +28,7 @@
   const listing = $derived(model.phase === 'list')
   const painters = (n: number): string => `${n} ${n === 1 ? 'painter' : 'painters'}`
   const needs = (n: number): string => `Needs ${n} more ${n === 1 ? 'painter' : 'painters'}`
-  /** What a member's row says under their name, e.g. "Host · Closes wall". */
+  /** What a member's row says under their name, e.g. "Host · Closes wall · Ready". */
   const roles = (member: CaptureRunMember): string =>
     [
       member.hosts ? 'Host' : '',
@@ -40,9 +41,19 @@
             : member.reserve
               ? 'Reserve'
               : '',
+      member.ready === 'ready'
+        ? 'Ready'
+        : member.ready === 'no-button' && model.waitForReady
+          ? 'No Ready button'
+          : '',
     ]
       .filter(Boolean)
       .join(' · ')
+  /** This painter's Ready, while they paint at a slot and their tab's lobby has Ready; else null. */
+  const myReady = $derived.by(() => {
+    const ready = model.members.find((member) => member.me)?.ready
+    return ready === 'ready' || ready === 'unready' ? ready === 'ready' : null
+  })
   /** Rows of members in their place; an empty place or a waiting member has no seat to change. */
   const seated = (member: CaptureRunMember): boolean => !member.vacant && !member.waiting
   /** The rows the host can move; the closer's place is fixed. */
@@ -100,8 +111,15 @@
     // The legs Start countdown waits on: guards and reserves don't hold it.
     const legs = model.members.filter((member) => member.length > 0 && !member.guard)
     if (!gathering || legs.length === 0) return [size]
-    const ready = legs.filter((member) => member.drafted >= member.length).length
-    return [size, `${ready} of ${legs.length} ready`]
+    const drafted = legs.filter((member) => member.drafted >= member.length).length
+    // With Wait for Ready on, the painters it waits for too.
+    const awaited = model.members.filter(({ ready }) => ready === 'ready' || ready === 'unready')
+    const ready = awaited.filter((member) => member.ready === 'ready').length
+    return [
+      size,
+      `${drafted} of ${legs.length} drafted`,
+      ...(model.waitForReady && awaited.length > 0 ? [`${ready} of ${awaited.length} ready`] : []),
+    ]
   })
 
   /** The host's settings fold away to their values; open while they set up a lobby. */
@@ -113,6 +131,7 @@
     DISTRIBUTIONS.find(({ id }) => id === model.distribution)?.label ?? '',
     `${model.staggerMs} ms`,
     `${model.leadMs / 1000} s`,
+    ...(model.waitForReady ? ['Wait for Ready'] : []),
   ])
 
   const clampPainters = (n: number): number => Math.min(model.maxPainters, Math.max(1, Math.round(n)))
@@ -220,6 +239,11 @@
               <output class="caelestis-field wide">{model.leadMs / 1000} s</output>
               <Button label="Longer countdown" kind="ghost" size="small" iconOnly disabled={model.leadMs >= MAX_CAPTURE_LEAD_MS} onclick={() => onIntent({ type: 'set-lead', leadMs: model.leadMs + CAPTURE_LEAD_STEP_MS })}><Icon name="add" /></Button>
             </div>
+            <span class="label" aria-hidden="true">Wait for Ready</span>
+            <!-- The whole cell toggles it, so the target is big enough for a finger. -->
+            <label class="switch">
+              <Toggle label="Wait for Ready" checked={model.waitForReady} onChange={(waitForReady) => onIntent({ type: 'set-wait-for-ready', waitForReady })} />
+            </label>
           </div>
         </div>
       {/if}
@@ -262,6 +286,12 @@
           <li>Click Paint when your timer hits 0</li>
           {#if model.role === 'guard'}<li>Watch and repair your anchor point</li>{/if}
         </ol>
+      {/if}
+
+      {#if gathering && model.locked && myReady !== null}
+        <div class="ready-toggle">
+          <Button label="Ready" size="small" pressed={myReady} onclick={() => onIntent({ type: 'set-ready', ready: !myReady })}>{#if myReady}<Icon name="check" size="0.875rem" />{/if}Ready</Button>
+        </div>
       {/if}
 
       {#if model.canRun && gathering && (model.locked || model.proposals.length > 0)}
@@ -389,6 +419,7 @@
   .grid .stepper output.wide { inline-size: 4.5rem; }
   .body[hidden], .grid[hidden] { display: none; }
   .stepper, .choices { display: flex; align-items: center; gap: 0.125rem; }
+  .switch { display: flex; align-items: center; min-block-size: 2rem; cursor: pointer; }
   .stepper input {
     inline-size: 3rem;
     block-size: 2rem;
@@ -461,6 +492,7 @@
     .grid { grid-template-columns: minmax(0, 1fr) max-content; }
     .grid :is(label, .label) { overflow-wrap: anywhere; }
     .grid .stepper :is(input, output) { block-size: 2.75rem; }
+    .switch { min-block-size: 2.75rem; }
     .grid .stepper output.wide { inline-size: 4rem; }
     .stepper { gap: 0; }
     .members li.ordered { flex-wrap: wrap; row-gap: 0; padding-block-start: 0.375rem; }

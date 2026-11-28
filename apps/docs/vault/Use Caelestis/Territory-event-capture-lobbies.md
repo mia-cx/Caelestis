@@ -28,6 +28,7 @@ Centre the map just outside your team's border where you want the wall. Proposal
 | **Legs** | **Even** divides the wall among all non-guards. **Reserve** uses the fewest painters who can cover it; the rest stand by without a leg or slot. |
 | **Stagger** | Leave 100–2,000 ms between paint steps. Painters working from opposite ends can share a step. |
 | **Countdown** | Allow 3–30 seconds from **Start countdown** to the first slot. |
+| **Wait for Ready** | Hold **Start countdown** until everyone who paints at a slot, guards included, has chosen **Ready**. A painter on an older Caelestis has no Ready button: their row says **No Ready button**, and the start doesn't wait for them. Off by default. |
 
 Your browser remembers these settings for your next lobby. Choose **Lock in** beside a proposal to assign one leg per wall painter, at most 60 pixels each. **Needs N more painters** means the wall is too long for the current group. Wait for more painters or choose a shorter wall.
 
@@ -36,9 +37,10 @@ The host starts with the closing leg. Before the countdown, use **Give closing l
 ## Draft your line and paint at zero
 
 1. Choose **Show my line** on your row. Open the event's **Paint** panel. If your leg doesn't touch your territory, follow the caterpillar guide: draft a short chain from your territory, adding at the front and removing at the back until you reach your line. Remove pixels with Wplace's eraser key, `E`. The event panel has no Erase button, so on a phone, turn on **Erase button in the event** in [Dangerous settings](Settings-and-shortcuts#dangerous-settings).
-2. Draft the highlighted pixels, but don't submit yet. Your row counts pixels you've drafted **and** pixels your team already holds. Each end of the wall starts 3 pixels inside your territory, so if an enemy cuts the border there, the painter at that end drafts those pixels back first. When every wall leg is ready, the host can choose **Start countdown**. Guards and reserves don't hold up the start.
-3. Listen for the opening beep, then the ticks at 5, 3, 2 and 1 seconds before **your** slot when time allows. Click **Paint** at the final tone, when your timer reaches zero. By default you submit by hand. **Paint at my capture slot** in [Dangerous settings](Settings-and-shortcuts#dangerous-settings) can click Paint for you; Wplace flags that click as `UntrustedPaintSubmit`.
-4. If Wplace refuses your pixels, for example because the previous step hasn't landed yet, your draft stays. Click **Paint** again to submit it.
+2. Draft the highlighted pixels, but don't submit yet. You can also draft other legs, and teammates can draft yours; whoever drafts a pixel paints it at their own slot. Each row counts its leg's pixels drafted by anyone with a slot, **and** pixels your team already holds. Each end of the wall starts 3 pixels inside your territory, so if an enemy cuts the border there, the painter at that end drafts those pixels back first. When every pixel of the wall is drafted, the host can choose **Start countdown**. Guard zones don't hold up the start, and reserves' drafts don't count, because reserves have no slot.
+3. Choose **Ready** when you're set, so nobody has to say it in chat. Your row says **Ready** for everyone. Ready clears whenever the legs change: a new lock-in, a cancelled shape, or a new paint order.
+4. Listen for the opening beep, then the ticks at 5, 3, 2 and 1 seconds before **your** slot when time allows. Click **Paint** at the final tone, when your timer reaches zero. By default you submit by hand. **Paint at my capture slot** in [Dangerous settings](Settings-and-shortcuts#dangerous-settings) can click Paint for you; Wplace flags that click as `UntrustedPaintSubmit`.
+5. If Wplace refuses your pixels, for example because the previous step hasn't landed yet, your draft stays. Click **Paint** again to submit it.
 
 If you're an anchor guard, draft your marked zone and paint at the first step. After the wall's last slot, watch for **Anchor cut** and the three-tone alarm. Repaint your line to restore the connection.
 
