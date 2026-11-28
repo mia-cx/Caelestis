@@ -41,6 +41,9 @@ version = "0.0.0"
 [[package]]
 name = "wpa-schedule"
 version = "0.0.0"
+dependencies = [
+ "wpa-contracts",
+]
 
 [[package]]
 name = "wpa-state-index"
