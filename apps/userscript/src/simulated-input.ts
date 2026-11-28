@@ -39,10 +39,20 @@ const forwarded = new WeakSet<Event>()
 /** Whether Caelestis dispatched this event, rather than the painter or the browser. */
 export const isForwardedEvent = (event: Event): boolean => forwarded.has(event)
 
+const eraserPresses = new WeakSet<Event>()
+
+/** Whether this is Erase's forwarded key, which switches Wplace's tool and paints nothing. */
+export const isEraserPress = (event: Event): boolean => eraserPresses.has(event)
+
 /** Dispatch a key on `document`, where Wplace's paint panels listen for their keys. */
-const forwardKey = (type: 'keydown' | 'keyup', init: KeyboardEventInit): void => {
+const forwardKey = (
+  type: 'keydown' | 'keyup',
+  init: KeyboardEventInit,
+  marks?: WeakSet<Event>,
+): void => {
   const event = new KeyboardEvent(type, { ...init, bubbles: true })
   forwarded.add(event)
+  marks?.add(event)
   document.dispatchEvent(event)
 }
 
@@ -54,16 +64,23 @@ export const forwardPaintKey = (type: 'keydown' | 'keyup'): void =>
 const WPLACE_CONTROLS = 'wplace:controls:v1'
 const ERASER_ACTION = 'paint.eraser'
 const ERASER_DEFAULT = 'E'
+const PAINT_HOLD_ACTION = 'paint-hold'
+const PAINT_HOLD_DEFAULT = 'Space'
+
+/** One of Wplace's chords, such as `E` or `Mod+Shift+E`: its modifiers, then its key. */
+const chordParts = (chord: string): { readonly key: string; readonly modifiers: string[] } => {
+  const plusKey = chord === '+' || chord.endsWith('++')
+  const modifiers = (plusKey ? chord.slice(0, -2) : chord).split('+').filter(Boolean)
+  return { key: plusKey ? '+' : (modifiers.pop() ?? ''), modifiers }
+}
 
 /**
- * The key event for one of Wplace's chords, such as `E` or `Mod+Shift+E`: modifiers in Wplace's
- * order, then the key as its matcher names it. Null for a mouse button, which no key can press.
+ * The key event for one of Wplace's chords, with its key as Wplace's matcher names it. Null for a
+ * mouse button, which no key can press.
  */
 const chordEvent = (chord: string): KeyboardEventInit | null => {
-  const plusKey = chord === '+' || chord.endsWith('++')
-  const parts = (plusKey ? chord.slice(0, -2) : chord).split('+').filter(Boolean)
-  const key = plusKey ? '+' : parts.pop()
-  if (key === undefined || key.startsWith('Mouse')) return null
+  const { key, modifiers: parts } = chordParts(chord)
+  if (key === '' || key.startsWith('Mouse')) return null
   const shiftKey = parts.includes('Shift')
   const modifiers = { ctrlKey: parts.includes('Mod'), altKey: parts.includes('Alt'), shiftKey }
   if (/^[A-Z]$/.test(key))
@@ -73,24 +90,32 @@ const chordEvent = (chord: string): KeyboardEventInit | null => {
   return { ...modifiers, key, code: key.length > 1 ? key : '' }
 }
 
-/**
- * The key that toggles Wplace's eraser: the painter's own `paint.eraser` binding, else Wplace's
- * default E. Null when they bound it to mouse buttons alone, or to nothing. A Space chord never
- * counts: Wplace hears Space as Paint Hold first, so pressing it could start a stroke instead.
- */
-export const eraserKey = (): KeyboardEventInit | null => {
+/** An action's chords as the painter bound them, else Wplace's default. */
+const chordsFor = (action: string, fallback: string): string[] => {
   let chords: unknown
   try {
     chords = JSON.parse(pageWindow().localStorage.getItem(WPLACE_CONTROLS) ?? 'null')?.bindings?.[
-      ERASER_ACTION
+      action
     ]
   } catch {
     // Unreadable controls are Wplace's defaults to Wplace too.
   }
-  if (!Array.isArray(chords)) return chordEvent(ERASER_DEFAULT)
-  for (const chord of chords) {
-    const event = typeof chord === 'string' ? chordEvent(chord) : null
-    if (event !== null && event.code !== 'Space') return event
+  if (!Array.isArray(chords)) return [fallback]
+  return chords.filter((chord): chord is string => typeof chord === 'string')
+}
+
+/**
+ * The key that toggles Wplace's eraser: the painter's own `paint.eraser` binding, else Wplace's
+ * default E. A chord on Paint Hold's key never counts: Wplace checks Paint Hold first, by key
+ * alone, so pressing it could start a stroke. Null when no keyboard chord is left.
+ */
+export const eraserKey = (): KeyboardEventInit | null => {
+  const holdKeys = new Set(
+    chordsFor(PAINT_HOLD_ACTION, PAINT_HOLD_DEFAULT).map((chord) => chordParts(chord).key),
+  )
+  for (const chord of chordsFor(ERASER_ACTION, ERASER_DEFAULT)) {
+    const event = holdKeys.has(chordParts(chord).key) ? null : chordEvent(chord)
+    if (event !== null) return event
   }
   return null
 }
@@ -98,7 +123,7 @@ export const eraserKey = (): KeyboardEventInit | null => {
 /** Toggle Wplace's eraser with the painter's `paint.eraser` key. False when it has no key. */
 export const forwardEraserKey = (): boolean => {
   const key = eraserKey()
-  if (key !== null) forwardKey('keydown', key)
+  if (key !== null) forwardKey('keydown', key, eraserPresses)
   return key !== null
 }
 
