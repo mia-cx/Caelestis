@@ -5,6 +5,8 @@ import { frameQueue } from './frame-queue.js'
 import { notifyListeners } from './listeners.js'
 import { simulatedInputAllowed } from './simulated-input.js'
 import {
+  arenaCommitButton,
+  arenaOpenButton,
   paintDrawer,
   paintDrawerCloseButton,
   paintDrawerCommitButton,
@@ -89,22 +91,37 @@ export const undoPaintDraft = (): boolean => movePaintHistory('undo')
 /** Redo the most recently undone draft pixel, if Wplace currently has one. */
 export const redoPaintDraft = (): boolean => movePaintHistory('redo')
 
+/** Wplace flags a simulated click on a commit button (`UntrustedPaintSubmit`), so its switch gates it. */
+const commitPaint = (button: HTMLButtonElement | null): boolean =>
+  simulatedInputAllowed('paint-commit') && clickEnabled(button)
+
+const clickOpen = (button: HTMLButtonElement | null): boolean => {
+  button?.click()
+  return button !== null
+}
+
 /**
- * Open Wplace's paint mode, or submit through the drawer's own Paint button when it is already
- * open. Wplace flags a simulated click on that button (`UntrustedPaintSubmit`), so an open drawer
- * is left alone unless the `paint-commit` switch allows it. A mounted palette whose controls cannot
- * be identified must not fall through to an unrelated action elsewhere on the page.
+ * Open Wplace's paint mode, or submit through the open drawer's or event panel's own Paint button.
+ * A mounted palette whose controls cannot be identified must not fall through to an unrelated
+ * action elsewhere on the page.
  */
 export const performPaintAction = (): boolean => {
   const root = activePaintRoot()
   if (paintPaletteSwatches(root).length > 0) {
-    if (!simulatedInputAllowed('paint-commit')) return false
     const drawer = paintDrawer(root)
-    return clickEnabled(drawer === null ? null : paintDrawerCommitButton(drawer))
+    return commitPaint(drawer === null ? null : paintDrawerCommitButton(drawer))
   }
-  const button = paintOpenButton(root)
-  button?.click()
-  return button !== null
+  const arenaCommit = arenaCommitButton(root, 'paint')
+  if (arenaCommit !== null) return commitPaint(arenaCommit)
+  return clickOpen(paintOpenButton(root))
+}
+
+/** Open the territory event's Swap shade, or submit the open swap through its own button. */
+export const performShadeSwapAction = (): boolean => {
+  const root = activePaintRoot()
+  const commit = arenaCommitButton(root, 'territory_shade_swap')
+  if (commit !== null) return commitPaint(commit)
+  return clickOpen(arenaOpenButton(root, 'territory_shade_swap'))
 }
 
 /**

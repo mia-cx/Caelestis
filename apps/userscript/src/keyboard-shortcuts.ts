@@ -33,6 +33,7 @@ import { handleTemplateStudioIntent, isTemplateStudioOpen } from './ui/template-
 import {
   cancelPaintDraft,
   performPaintAction,
+  performShadeSwapAction,
   redoPaintDraft,
   undoPaintDraft,
 } from './wplace-paint.js'
@@ -142,6 +143,7 @@ export const installKeyboardShortcuts = (
     'cycle-colour-previous': { run: cycle(-1) },
     'cycle-colour-next': { run: cycle(1) },
     'paint-action': { run: performPaintAction, withoutSurface: true },
+    'shade-swap': { run: performShadeSwapAction },
     'cancel-paint': { run: cancelPaintDraft, withoutSurface: true },
     'fly-to-colour': {
       run: () => {

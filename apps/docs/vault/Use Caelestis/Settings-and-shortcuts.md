@@ -91,7 +91,7 @@ On the world map, each switch enables an action that sends simulated input to Wp
 | **Update cursor after flying** | When a flight, jump or pan ends under a still mouse, Wplace's hover square and Space target move to where the mouse points. | `UntrustedPointer` |
 | **Paint past skipped pixels** | Shift+Space keeps painting beyond pixels it skips. | `UntrustedPaintHold`, `UntrustedPointer` |
 | **Cycle unfinished colours** | The previous- and next-colour keys select a colour. | `UntrustedPalette` |
-| **Paint key commits drafts** | The paint key commits an open draft. | `UntrustedPaintSubmit` |
+| **Paint key commits drafts** | The paint key (B) commits an open draft. On the territory event canvas, the shade swap key (Shift+B) commits an open shade swap too. | `UntrustedPaintSubmit` |
 
 Each description shows your assigned keys. With the switches off, Wplace's own picker can still read a world template colour. The colour cycling bindings appear grey under **Keyboard shortcuts**. The paint key opens the drawer. Use Wplace's paint button to submit the draft.
 

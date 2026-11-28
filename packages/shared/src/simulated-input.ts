@@ -102,10 +102,12 @@ const SIMULATED_INPUT_TABLE = {
     label: 'Paint key commits drafts',
     hint: [
       { key: 'paint-action' },
-      " commits an open paint draft by clicking Wplace's Paint button.",
+      ' and ',
+      { key: 'shade-swap' },
+      " commit an open paint draft or shade swap by clicking Wplace's Paint or Swap shade button.",
     ],
     flags: ['UntrustedPaintSubmit'],
-    shortcuts: { 'paint-action': { part: 'Committing' } },
+    shortcuts: { 'paint-action': { part: 'Committing' }, 'shade-swap': { part: 'Committing' } },
   },
   'capture-paint': {
     label: 'Paint at my capture slot',
