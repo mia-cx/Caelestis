@@ -161,9 +161,9 @@ export class PresenceCoordinator<Client> {
   /** Per team, lobby changes one at a time, each reading the lobbies the previous one stored. */
   private readonly captureQueues = new Map<TerritoryTeam, Promise<readonly CaptureRun[]>>()
   /**
-   * Each member's slot in recently started lobbies, by `lobby:session`, so a slot report is checked
-   * against the slot it was given even after its lobby closed. Kept in memory only, a while past
-   * each lobby's closing slot.
+   * Each member's slot in recently started lobbies, by `lobby:session:slot`, so a slot report is
+   * checked against the slot it was given even after its lobby closed or started its next round.
+   * Kept in memory only, until a while past each lobby's closing slot.
    */
   private readonly assignedSlots = new Map<
     string,
@@ -262,7 +262,7 @@ export class PresenceCoordinator<Client> {
       if (until < now) this.assignedSlots.delete(key)
     const until = (captureEndsAt(run) ?? now) + ASSIGNED_SLOT_MS
     for (const [sessionId, slot] of captureAssignments(run))
-      this.assignedSlots.set(`${run.id}:${sessionId}`, { slot, until })
+      this.assignedSlots.set(`${run.id}:${sessionId}:${slot.slotAt}`, { slot, until })
   }
 
   stop(): void {
@@ -733,11 +733,13 @@ export class PresenceCoordinator<Client> {
     }
     if (attachment.credentialScope === 'read') return
     if (event.type === 'capture-timing') {
-      // Logged for reading slot timing afterwards; the lobby never holds it.
-      const { team } = attachment
-      if (team === undefined) return
-      const assigned = this.assignedSlots.get(`${event.run}:${attachment.sessionId}`)?.slot
-      void this.captureRuns(team).then((runs) => {
+      // Logged for reading slot timing afterwards; the lobby never holds it. Only a slot the server
+      // gave this session, and not yet past its grace period, is logged.
+      const held = this.assignedSlots.get(`${event.run}:${attachment.sessionId}:${event.slotAt}`)
+      if (held === undefined || held.until < Date.now()) return
+      const assigned = held.slot
+      // The lobby lives with the team it started on, whatever team the painter reports now.
+      void this.captureRuns(assigned.team).then((runs) => {
         const closed = !runs.some(({ id }) => id === event.run)
         const line = captureSlotLog(event, assigned, attachment.painter, closed)
         if (line !== null) console.info(JSON.stringify(line))
