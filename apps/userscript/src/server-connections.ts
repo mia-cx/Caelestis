@@ -1,4 +1,4 @@
-import { canonicalServerUrl, isRecord, SCOPES, type Scope, satisfiesScope } from '@caelestis/shared'
+import { canonicalServerUrl, isRecord, SCOPES, type Scope } from '@caelestis/shared'
 import { mapLimit } from './concurrency.js'
 import { log, warn } from './debug.js'
 import { notifyListeners } from './listeners.js'
@@ -55,7 +55,6 @@ export const sameServerConnection = (left: ServerConnection, right: ServerConnec
   (left.tokenUsable !== false) === (right.tokenUsable !== false) &&
   left.status === right.status &&
   left.isAdmin === right.isAdmin &&
-  left.canRunCaptures === right.canRunCaptures &&
   left.season === right.season &&
   (left.info === null
     ? right.info === null
@@ -116,12 +115,6 @@ export const serverLabel = (server: ServerConnection): string => server.info?.na
 /** Whether this connection has a usable token whose admin scope the server has verified. */
 export const hasServerAdminToken = (server: ServerConnection): boolean =>
   server.status === 'connected' && server.isAdmin && Boolean(activeServerToken(server))
-
-/** Whether this connection has a usable token the server says may run capture runs. */
-export const canRunServerCaptures = (server: ServerConnection): boolean =>
-  server.status === 'connected' &&
-  server.canRunCaptures === true &&
-  Boolean(activeServerToken(server))
 
 /** Whether this immutable connection snapshot is still the configured lifetime for its URL. */
 export const isCurrentServerConnection = (server: ServerConnection): boolean => {
@@ -565,9 +558,6 @@ export const probeServer = async (
       ...(effectiveToken === null && token !== null ? { tokenUsable: false as const } : {}),
       status: 'connected',
       isAdmin: scope === 'admin',
-      ...(scope !== null && satisfiesScope(scope, 'event_runner')
-        ? { canRunCaptures: true as const }
-        : {}),
       season: manifest.season,
       lastVerified: { serverId: info.id, season: manifest.season },
       ...version,

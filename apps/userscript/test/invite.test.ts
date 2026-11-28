@@ -3,7 +3,7 @@ import {
   adminToken,
   backendFetch,
   createTestBackend,
-  mintEventRunnerInvite,
+  eventRunnerInvite,
   readToken,
   reportToken,
 } from './backend.js'
@@ -12,7 +12,7 @@ import { importStateModules } from './state-modules.js'
 const origin = 'https://invite.test'
 
 const installBackend = async () => {
-  const { app } = await createTestBackend()
+  const { app } = await createTestBackend({ withRunnerInvite: true })
   const fetch = vi.fn(backendFetch(app, origin))
   vi.stubGlobal('fetch', fetch)
   window.fetch = fetch
@@ -50,19 +50,18 @@ it('connects a new server with the invite token and tells connect listeners', as
   expect(invite.clearHash).toHaveBeenCalledOnce()
 })
 
-it('trades a one-use event-runner invite for a kept token that runs captures', async () => {
+it('trades a one-use event-runner invite from backend 1.6.0 for a kept token', async () => {
   const fetch = await installBackend()
   const invite = await load()
-  const inviteToken = await mintEventRunnerInvite(fetch, origin)
+  const inviteToken = eventRunnerInvite
 
   const outcome = await invite.accept(inviteToken)
 
   expect(outcome?.kind).toBe('connected')
   const [server] = invite.getState().servers
-  expect(server).toMatchObject({ status: 'connected', isAdmin: false, canRunCaptures: true })
+  expect(server).toMatchObject({ status: 'connected', isAdmin: false })
   expect(server?.token).toEqual(expect.any(String))
   expect(server?.token).not.toBe(inviteToken)
-  expect(server !== undefined && invite.canRunServerCaptures(server)).toBe(true)
   const spent = await fetch(`${origin}/v1/auth/exchange`, {
     method: 'POST',
     headers: { authorization: `Bearer ${inviteToken}` },
@@ -71,9 +70,9 @@ it('trades a one-use event-runner invite for a kept token that runs captures', a
 })
 
 it('leaves an event-runner invite unspent when the connection list is full', async () => {
-  const fetch = await installBackend()
+  await installBackend()
   const invite = await load()
-  const inviteToken = await mintEventRunnerInvite(fetch, origin)
+  const inviteToken = eventRunnerInvite
   for (let index = 0; index < invite.MAX_CONNECTED_SERVERS; index++)
     invite.upsertServer({
       url: `https://full-${index}.test`,
@@ -94,7 +93,7 @@ it('keeps an exchanged invite for a retry when the manifest fails, and the old t
   const fetch = await installBackend()
   const invite = await load()
   await invite.accept(reportToken)
-  const inviteToken = await mintEventRunnerInvite(fetch, origin)
+  const inviteToken = eventRunnerInvite
   const answer = fetch.getMockImplementation()
   fetch.mockImplementation(async (input, init) =>
     new URL(String(input)).pathname.endsWith('/manifest')
@@ -109,21 +108,7 @@ it('keeps an exchanged invite for a retry when the manifest fails, and the old t
   expect((await invite.accept(inviteToken))?.kind).toBe('connected')
   const [server] = invite.getState().servers
   expect(server?.token).not.toBe(reportToken)
-  expect(server !== undefined && invite.canRunServerCaptures(server)).toBe(true)
-})
-
-it.each([
-  [reportToken, false],
-  [adminToken, true],
-])('offers capture control to %s only when its scope reaches event runner', async (token, runs) => {
-  await installBackend()
-  const invite = await load()
-
-  await invite.accept(token)
-
-  const [server] = invite.getState().servers
-  expect(server?.token).toBe(token)
-  expect(server !== undefined && invite.canRunServerCaptures(server)).toBe(runs)
+  expect(server?.token).not.toBe(inviteToken)
 })
 
 it('leaves a fragment that is not an invite alone', async () => {

@@ -7,18 +7,15 @@ title: Event servers
 
 ## Enable event mode
 
-Set `EVENT_SERVER=true` on the backend, or set `server.eventServer: true` in your [Helm values](Kubernetes-with-Helm). Leave it off for a regular server. An event server advertises `capture: 1` for capture lobbies and `eventRunners: 1` for runner invites.
+Set `EVENT_SERVER=true` on the backend, or set `server.eventServer: true` in your [Helm values](Kubernetes-with-Helm). Leave it off for a regular server. An event server advertises `capture: 1` for capture lobbies.
 
-Presence follows the Wplace team each session reports. Painters and runners see only their team's painters; administrators see painters from every team. [Capture lobbies](Territory-event-capture-lobbies) stay within a team, even for administrators. Region claims are off.
+Presence follows the Wplace team each session reports. Painters see only their team's painters; administrators see painters from every team. [Capture lobbies](Territory-event-capture-lobbies) stay within a team, even for administrators. Region claims are off.
 
-## Invite painters and runners
+## Invite painters
 
-[Create a token](Authentication-and-tokens#create-a-token) in **Settings → Access tokens** under the event server. Choose the scope for the person's role:
+[Create a **Report** token](Authentication-and-tokens#create-a-token) in **Settings → Access tokens** under the event server and share it with your painters. You can share one report token across teams; no token is bound to a team.
 
-- **Report** lets painters join lobbies. You can share a report token across teams; no token is bound to a team.
-- **Event runner** (`event_runner`) lets someone open and manage lobbies without giving them administrator access. Create one invite per runner and send it privately. Administrators can also run lobbies.
-
-When the runner connects, their browser sends the invite as the bearer token to `POST /v1/auth/exchange`. The server consumes it and returns a fresh token with the same label and scope. The browser keeps the replacement. The original invite won't work a second time.
+Anyone with a report token can open a lobby and host it. The host runs their lobby: its settings, order, wall and countdown. If the host leaves, the member who has been in the lobby longest takes over. Administrators can run any lobby they join.
 
 ## Read the countdown and slot logs
 

@@ -256,12 +256,15 @@ export const CaptureRun = Schema.Struct({
   team: TerritoryTeam,
   opener: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   coordinator: Schema.NullOr(integerBetween(0, Number.MAX_SAFE_INTEGER)),
+  // Missing on a lobby stored by backend 1.6.0, which its opener hosts.
+  host: Schema.optionalKey(PresenceSessionId),
   ...CaptureSettings,
   members: boundedArray(
     Schema.Struct({
       sessionId: PresenceSessionId,
       painter: PresenceIdentity,
       drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+      joined: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
       left: Schema.optionalKey(Schema.Literal(true)),
     }),
     MAX_CAPTURE_MEMBERS,
@@ -548,7 +551,6 @@ export const ServerInfo = Schema.Struct({
   liveTileOffers: Schema.optionalKey(Schema.Literal(1)),
   presence: Schema.optionalKey(Schema.Literal(1)),
   capture: Schema.optionalKey(Schema.Literal(1)),
-  eventRunners: Schema.optionalKey(Schema.Literal(1)),
   livePaintParts: Schema.optionalKey(Schema.Literal(1)),
   discordInviteUrl: Schema.optionalKey(DiscordInviteUrl),
   version: Schema.optionalKey(boundedString(64)),

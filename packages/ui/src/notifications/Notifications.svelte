@@ -119,7 +119,7 @@
   {@const inviteCopyLabel = secret.inviteCopyStatus === 'copied' ? 'Copied link' : secret.inviteCopyStatus === 'unavailable' ? 'Select link' : 'Copy invite link'}
   <Modal open={secretOpen} labelledby="secret-title" initialFocus={copySecret} onClosed={() => (secret = null)}>
     <div class="dialog-box token-box">
-      <header><h2 id="secret-title">{secret.oneUse ? 'One-use invite created' : 'Access token created'}</h2></header>
+      <header><h2 id="secret-title">Access token created</h2></header>
       <div class="dialog-body">
         <p class="lead">For {secret.label}.</p>
         <p class="note">Copy the token or invite link before closing.</p>

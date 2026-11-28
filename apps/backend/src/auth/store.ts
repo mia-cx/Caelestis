@@ -13,8 +13,8 @@ export interface AccessToken {
   readonly createdWithToken: string
   readonly createdAt: Millis
   /**
-   * Present on a one-use `event_runner` invite, which authenticates only its own exchange. Every
-   * other token omits it.
+   * Present on a one-use `event_runner` invite minted by backend 1.6.0, which authenticates only
+   * its own exchange until redeemed. Every other token omits it; #984 drops them.
    */
   readonly invite?: true
 }

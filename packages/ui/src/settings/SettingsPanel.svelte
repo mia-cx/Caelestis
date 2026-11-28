@@ -188,7 +188,7 @@
                 <div class="new-token">
                   <div class="new-token-row">
                     <input class="caelestis-field" type="text" maxlength="128" value={accessLabelDrafts[server.url] ?? ''} oninput={(event) => accessLabelDrafts[server.url] = event.currentTarget.value} placeholder="Who is it for?" aria-label="New token label" onkeydown={(event) => { if (event.key === 'Enter') submitAccessToken(server) }} />
-                    <select class="caelestis-select" aria-label="New token scope" value={accessScopeDrafts[server.url] ?? 'report'} onchange={(event) => accessScopeDrafts[server.url] = event.currentTarget.value as AccessTokenScope}><option value="read">Read</option><option value="report">Report</option>{#if server.accessTokens.eventRunners}<option value="event_runner">Event runner</option>{/if}<option value="admin">Admin</option></select>
+                    <select class="caelestis-select" aria-label="New token scope" value={accessScopeDrafts[server.url] ?? 'report'} onchange={(event) => accessScopeDrafts[server.url] = event.currentTarget.value as AccessTokenScope}><option value="read">Read</option><option value="report">Report</option><option value="admin">Admin</option></select>
                     <Button label="Create" kind="primary" size="small" disabled={server.accessTokens.creating === true} onclick={() => submitAccessToken(server)} />
                   </div>
                   {#if server.accessTokens.createError !== undefined}<p class="error token-error" role="status">{server.accessTokens.createError}</p>{/if}

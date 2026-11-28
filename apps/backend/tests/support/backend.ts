@@ -40,6 +40,24 @@ export const createTestBackend = async (
   return { ...stores, app }
 }
 
+/**
+ * A one-use event-runner invite as backend 1.6.0 minted it; nothing mints them now (#984). Returns
+ * the invite's secret and hash.
+ */
+export const seedInvite = async (sql: SqlStore, label = 'event_runner') => {
+  const token = `INVITE-${label}`
+  const tokenHash = await hashToken(token)
+  await sql.insertAccessToken({
+    tokenHash,
+    label,
+    scope: 'event_runner',
+    createdWithToken: await hashToken(adminToken),
+    createdAt: millis(2),
+    invite: true,
+  })
+  return { token, tokenHash }
+}
+
 /** `sql` with `onCall` run before every method call made through it, whatever the method. */
 export const countCalls = (sql: SqlStore, onCall: () => void): SqlStore =>
   new Proxy(sql, {

@@ -3,7 +3,7 @@ import {
   adminToken,
   backendFetch,
   createTestBackend,
-  mintEventRunnerInvite,
+  eventRunnerInvite,
   readToken,
 } from './backend.js'
 
@@ -15,7 +15,7 @@ afterEach(() => {
 })
 
 it('stores the token an event-runner invite trades for and never puts it in the panel', async () => {
-  const { app } = await createTestBackend()
+  const { app } = await createTestBackend({ withRunnerInvite: true })
   const fetch = backendFetch(app, origin)
   vi.stubGlobal('fetch', fetch)
   window.fetch = fetch
@@ -24,11 +24,14 @@ it('stores the token an event-runner invite trades for and never puts it in the 
   const { getState } = await import('../src/settings.js')
   const settings = await import('../src/ui/settings-controller.js')
   await connectServer(origin, readToken)
-  const invite = await mintEventRunnerInvite(fetch, origin)
+  const invite = eventRunnerInvite
 
   settings.handleSettingsIntent({ type: 'update-server-token', url: origin, token: invite })
 
-  await vi.waitFor(() => expect(getState().servers[0]?.canRunCaptures).toBe(true))
+  await vi.waitFor(() =>
+    expect(getState().servers[0]).toMatchObject({ status: 'connected', isAdmin: false }),
+  )
+  await vi.waitFor(() => expect(getState().servers[0]?.token).not.toBe(readToken))
   const kept = getState().servers[0]?.token ?? ''
   expect([readToken, invite, '']).not.toContain(kept)
   const panel = JSON.stringify(settings.settingsModel())

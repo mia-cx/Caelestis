@@ -1,6 +1,6 @@
 import { TERRITORY_EVENT } from '@caelestis/shared'
-import type { CaptureRunIntent } from '@caelestis/ui/elements'
-import { afterEach, expect, it, vi } from 'vitest'
+import type { CaptureRunIntent, CaptureRunModel } from '@caelestis/ui/elements'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { connectPresence, FakeWebSocket, SELF_SESSION } from './presence-socket.js'
 
 const painter = { wplaceUserId: 42, displayName: 'Mia' }
@@ -9,7 +9,7 @@ vi.mock('../src/wplace-account.js', () => ({
   accountIdentity: () => painter,
   loadAccount: async () => undefined,
 }))
-// Wplace's leaderboard puts this runner on team 0.
+// Wplace's leaderboard puts this painter on team 0.
 vi.mock('../src/event-team.js', () => ({ eventTeam: () => 0, readEventTeam: async () => 0 }))
 vi.mock('../src/capture-planning.js', () => ({ planProposals: async () => [] }))
 const audio = vi.hoisted(() => ({ cues: [] as { at: number; tone: string }[] }))
@@ -51,10 +51,10 @@ afterEach(() => {
   FakeWebSocket.instances = []
 })
 
-/** A page load: stored settings read, then an event runner connected to an event server. */
-const load = async () => {
+/** A page load: stored settings read, then a painter connected to an event server. */
+const load = async (scope: 'report' | 'admin' = 'report') => {
   ;(await import('../src/settings.js')).loadState()
-  const connected = await connectPresence({ capture: 1, scope: 'event_runner' })
+  const connected = await connectPresence({ capture: 1, scope, canWrite: true })
   dispose = connected.dispose
   vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
   const { installCaptureRuns } = await import('../src/capture-runs.js')
@@ -62,12 +62,12 @@ const load = async () => {
   return connected.socket
 }
 
-const reload = () => {
+const reload = (scope?: 'report' | 'admin') => {
   dispose?.()
   vi.clearAllTimers()
   vi.resetModules()
   FakeWebSocket.instances = []
-  return load()
+  return load(scope)
 }
 
 const intent = (detail: CaptureRunIntent) =>
@@ -78,12 +78,13 @@ const intent = (detail: CaptureRunIntent) =>
 const sent = (socket: FakeWebSocket, type: string) =>
   socket.sent.map((data) => JSON.parse(data)).filter((event) => event.type === type)
 
-/** A runner's own lobby, as a server opened it from their settings. */
+/** This painter's own lobby, as a server opened it from their settings. */
 const lobby = {
   id: 'run',
   team: 0,
   opener: painter.wplaceUserId,
   coordinator: painter.wplaceUserId,
+  host: SELF_SESSION,
   painters: 5,
   guards: 0,
   distribution: 'even',
@@ -95,10 +96,10 @@ const lobby = {
   guardZones: [],
 }
 
-it('opens every new lobby with the settings a runner last chose, after a reload too', async () => {
+it('opens every new lobby with the settings its host last chose, after a reload too', async () => {
   let socket = await load()
   socket.receive({ type: 'capture-runs', runs: [lobby] })
-  // Another tab's whole saved state, as it holds it before this runner changes anything.
+  // Another tab's whole saved state, as it holds it before this painter changes anything.
   const { storedValue, storeValue } = await import('../src/stored-values.js')
   const { setState } = await import('../src/settings.js')
   setState({ notifyUpdates: false })
@@ -120,7 +121,7 @@ it('opens every new lobby with the settings a runner last chose, after a reload 
   socket.receive({ type: 'capture-runs', runs: [] })
   intent({ type: 'open' })
   await vi.advanceTimersByTimeAsync(0)
-  // Guards are saved as chosen; the server lets at most half the lobby guard. Settings this runner
+  // Guards are saved as chosen; the server lets at most half the lobby guard. Settings this painter
   // never chose keep their defaults.
   expect(sent(socket, 'capture-new')).toEqual([
     {
@@ -209,7 +210,7 @@ it('leaves out an opening beep that Go brought so late it would sound with the n
   ])
 })
 
-it('saves only the setting a runner changed, under its own key', async () => {
+it('saves only the setting the host changed, under its own key', async () => {
   const socket = await load()
   socket.receive({ type: 'capture-runs', runs: [lobby] })
   const stored = await import('../src/stored-values.js')
@@ -219,4 +220,77 @@ it('saves only the setting a runner changed, under its own key', async () => {
   expect(writes.mock.calls.filter(([key]) => key.startsWith('caelestis.capture-lobby'))).toEqual([
     ['caelestis.capture-lobby.guards', '2'],
   ])
+})
+
+describe('hosting', () => {
+  const model = () =>
+    (
+      document.getElementById('caelestis-capture-run') as
+        | (HTMLElement & { model?: CaptureRunModel })
+        | null
+    )?.model
+  const bea = { wplaceUserId: 7, displayName: 'Bea' }
+  const member = (id: string, who = bea, joined = 0) => ({
+    sessionId: id.repeat(16),
+    painter: who,
+    drafted: 0,
+    joined,
+  })
+  /** Bea's lobby, which this painter joined after her. */
+  const beas = {
+    ...lobby,
+    opener: bea.wplaceUserId,
+    coordinator: bea.wplaceUserId,
+    host: 'b'.repeat(16),
+    members: [member('b'), { sessionId: SELF_SESSION, painter, drafted: 0, joined: 1 }],
+  }
+  const receive = async (socket: FakeWebSocket, runs: readonly object[]) => {
+    socket.receive({ type: 'capture-runs', runs })
+    await vi.advanceTimersByTimeAsync(0)
+  }
+
+  it('lists the largest lobby first, lobbies of one size oldest first, and offers New lobby', async () => {
+    const socket = await load()
+    const cy = { wplaceUserId: 8, displayName: 'Cy' }
+    const of = (id: string, host: typeof bea, size: number) => ({
+      ...lobby,
+      id,
+      opener: host.wplaceUserId,
+      coordinator: host.wplaceUserId,
+      host: 'b'.repeat(16),
+      members: Array.from({ length: size }, (_, index) =>
+        member(index === 0 ? 'b' : String(index), index === 0 ? host : cy, index),
+      ),
+    })
+    // Lobby ids are UUIDv7, so they order by when each lobby opened, whatever order they arrive in.
+    const older = '018f0000-0000-7000-8000-000000000001'
+    const newer = '018f0000-0000-7000-8000-000000000002'
+    const biggest = '018f0000-0000-7000-8000-000000000003'
+    await receive(socket, [of(newer, cy, 1), of(biggest, cy, 3), of(older, bea, 1)])
+    expect(model()).toMatchObject({ phase: 'list', canOpen: true })
+    expect(model()?.lobbies.map(({ id, name, members }) => [id, name, members])).toEqual([
+      [biggest, 'Cy', 3],
+      [older, 'Bea', 1],
+      [newer, 'Cy', 1],
+    ])
+  })
+
+  it('gives the running controls to the host alone, or an administrator', async () => {
+    let socket = await load()
+    await receive(socket, [beas])
+    expect(model()).toMatchObject({ phase: 'gathering', canRun: false })
+    expect(model()?.members.map(({ name, hosts }) => [name, hosts])).toEqual([
+      ['Bea', true],
+      ['Mia', false],
+    ])
+    // Bea leaves: this painter has been in the lobby longest, so hosts it.
+    await receive(socket, [{ ...beas, host: SELF_SESSION, members: beas.members.slice(1) }])
+    expect(model()).toMatchObject({ canRun: true })
+    expect(model()?.members[0]?.hosts).toBe(true)
+
+    // An administrator runs a lobby they don't host.
+    socket = await reload('admin')
+    await receive(socket, [beas])
+    expect(model()).toMatchObject({ canRun: true })
+  })
 })

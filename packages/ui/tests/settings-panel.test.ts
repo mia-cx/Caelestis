@@ -252,6 +252,51 @@ describe('settings panel intent boundary', () => {
     expect(current.textContent).toContain('0.9.0')
   })
 
+  it('mints read, report and admin tokens, and still lists a kept event-runner token', () => {
+    const target = document.body.appendChild(document.createElement('div'))
+    mounted.push(
+      mount(SettingsPanel, {
+        target,
+        props: {
+          model: {
+            ...settings(),
+            servers: [
+              {
+                url: 'https://event.example.org',
+                name: 'Event',
+                status: 'connected',
+                expanded: true,
+                tokenSaved: true,
+                isAdmin: true,
+                accessTokens: {
+                  status: 'ready',
+                  tokens: [
+                    {
+                      tokenHash: 'a'.repeat(64),
+                      label: 'Organiser',
+                      scope: 'event_runner',
+                      createdAt: 0,
+                      bootstrap: false,
+                    },
+                  ],
+                  hasMore: false,
+                  created: 0,
+                },
+              },
+            ],
+          },
+        },
+      }),
+    )
+    const picker = target.querySelector<HTMLSelectElement>('select[aria-label="New token scope"]')
+    expect([...(picker?.options ?? [])].map(({ value }) => value)).toEqual([
+      'read',
+      'report',
+      'admin',
+    ])
+    expect(target.querySelector('.access-token')?.textContent).toContain('event runner')
+  })
+
   it('offers import and send only while the other build is installed', () => {
     const intents: SettingsIntent[] = []
     const render = (model: SettingsModel) => {

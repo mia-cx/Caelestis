@@ -2,9 +2,11 @@ import { once } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { millis } from '@caelestis/shared'
 import { FilesystemObjectStorage } from '@caelestis/storage/filesystem'
 import { afterEach, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
+import { hashToken } from '../../src/auth/tokens.js'
 import { readNodeConfig } from '../../src/node/config.js'
 import { openNodeRuntime } from '../../src/node/runtime.js'
 import { listenNodeServer } from '../../src/node/server.js'
@@ -76,13 +78,20 @@ it('serves authenticated HTTP and upgrades, revokes, and closes real WebSockets'
   ).toBe(204)
   expect((await revoked)[0]).toBe(1008)
 
-  // An admin who listed the runner before it redeemed its invite still revokes it by that row.
-  const invited = await fetch(`${base}/backend/v1/admin/tokens`, {
-    method: 'POST',
-    headers: { authorization: 'Bearer runtime-admin', 'content-type': 'application/json' },
-    body: JSON.stringify({ label: 'runtime runner', scope: 'event_runner' }),
+  // An admin who listed the runner before it redeemed its backend 1.6.0 invite still revokes it
+  // by that row.
+  const invite = {
+    token: 'runtime-runner-invite',
+    tokenHash: await hashToken('runtime-runner-invite'),
+  }
+  await runtime.sql.insertAccessToken({
+    tokenHash: invite.tokenHash,
+    label: 'runtime runner',
+    scope: 'event_runner',
+    createdWithToken: await hashToken('runtime-admin'),
+    createdAt: millis(Date.now()),
+    invite: true,
   })
-  const invite = (await invited.json()) as { token: string; tokenHash: string }
   const exchanged = await fetch(`${base}/backend/v1/auth/exchange`, {
     method: 'POST',
     headers: { authorization: `Bearer ${invite.token}` },

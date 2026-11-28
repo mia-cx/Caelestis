@@ -6,6 +6,7 @@ import {
   captureCoordinatorIndex,
   captureEndsAt,
   captureGuardCount,
+  captureHostIndex,
   captureLead,
   captureLines,
   capturePainterCount,
@@ -71,7 +72,7 @@ import {
   syncCaptureClock,
 } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
-import { canRunServerCaptures } from './server-connections.js'
+import { hasServerAdminToken } from './server-connections.js'
 import { getState, onStateChange } from './settings.js'
 import { storedValue, storeValue } from './stored-values.js'
 import { navigateTo } from './templates/navigate.js'
@@ -85,7 +86,7 @@ import { BACKEND_ORIGIN } from './wplace-raster.js'
  *
  * Lobbies live in a server's presence room (`presence-client` holds them). This module lists the
  * team's lobbies, shows the one this painter is in, plans walls live from Wplace's territory map
- * for a runner in a lobby until one is locked in, reports how much of this painter's leg is
+ * for the lobby's host until one is locked in, reports how much of this painter's leg is
  * drafted, draws every leg on the map, and at this painter's slot presses Paint when the Dangerous
  * settings switch allows it.
  *
@@ -156,19 +157,25 @@ const eventViews = (): Shown[] =>
     }))
 
 /**
- * The event server this tab coordinates on: the one whose lobby it is in, else one it runs
- * captures on (as an administrator or event runner), else the first. A tab is in one lobby at a
- * time; outside one, the card lists the lobbies of every event server.
+ * The event server this tab coordinates on: the one whose lobby it is in, else one it can open a
+ * lobby on, else the first. A tab is in one lobby at a time; outside one, the card lists the
+ * lobbies of every event server.
  */
 const active = (): Shown | null => {
   const views = eventViews()
   return (
     views.find((view) => view.run !== null) ??
-    views.find((view) => canRunServerCaptures(view.server)) ??
+    views.find((view) => view.canWrite) ??
     views[0] ??
     null
   )
 }
+
+/** Whether this tab runs the lobby it is in: as its host, or as an administrator. */
+const runsLobby = (view: Shown): boolean =>
+  view.run !== null &&
+  (hasServerAdminToken(view.server) ||
+    view.run.members[captureHostIndex(view.run)]?.sessionId === view.sessionId)
 
 const memberIndex = (view: Shown): number =>
   view.run?.members.findIndex((member) => member.sessionId === view.sessionId) ?? -1
@@ -420,7 +427,7 @@ const itemsOf = (proposal: Proposal, team: TerritoryTeam, colour: Rgb): readonly
 }
 
 /**
- * The walls a runner is choosing between, while the lobby they were planned for has none locked
+ * The walls the host is choosing between, while the lobby they were planned for has none locked
  * in. A teammate joining arrives as a new lobby with the same plans, so the same masks come back
  * and the map uploads nothing again. Once the previews hide, the last ones are let go rather than
  * held until the next time plans show.
@@ -441,7 +448,7 @@ const proposalsFor = (run: CaptureRun): typeof proposals =>
     : []
 
 /**
- * What this painter's lobby, or the walls a runner is choosing between, puts on the map, all in
+ * What this painter's lobby, or the walls the host is choosing between, puts on the map, all in
  * the lobby's team colours: the colour painters paint in for this painter's own leg, their anchor
  * and the shape, and the team's dark shade for everyone else's legs.
  */
@@ -719,16 +726,16 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
   }
 }
 
-/** Whether this tab plans for the lobby it is in: a runner's, with no wall locked in yet. */
+/** Whether this tab plans for the lobby it is in: one it runs, with no wall locked in yet. */
 const plansFor = (view: Shown | null): view is Shown & { readonly run: CaptureRun } =>
   view !== null &&
   view.run !== null &&
   view.run.startsAt === null &&
   view.run.wall === null &&
-  canRunServerCaptures(view.server)
+  runsLobby(view)
 
 /**
- * Plan live while this tab is a runner in a lobby with no wall locked in, and stop otherwise.
+ * Plan live while this tab runs a lobby with no wall locked in, and stop otherwise.
  * Planning belongs to the lobby it started for; locking in stops it and cancelling resumes it.
  */
 const syncPlanning = (): void => {
@@ -918,14 +925,14 @@ const phaseOf = (view: Shown | null): CaptureRunModel['phase'] => {
 }
 
 /**
- * The card for the active server: this painter's lobby, or else the team's lobbies to join. A
- * painter who is in none sees the card only while there is one to join; a runner always does.
+ * The card for the active server: this painter's lobby, or else the team's lobbies to join and
+ * New lobby. A painter who can't write sees the card only while there is a lobby to see.
  */
 const model = (view: Shown | null): CaptureRunModel | null => {
   if (view === null) return null
   const run = view.run
-  const admin = canRunServerCaptures(view.server)
-  if (run === null && !admin && lobbiesOf(eventViews()).length === 0) return null
+  const canRun = runsLobby(view)
+  if (run === null && !view.canWrite && lobbiesOf(eventViews()).length === 0) return null
   const mine = memberIndex(view)
   const phase = phaseOf(view)
   const lines = run === null ? [] : captureLines(run)
@@ -935,10 +942,12 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
   const closer = run === null ? -1 : captureCoordinatorIndex(run)
+  const host = run === null ? -1 : captureHostIndex(run)
   const saved = savedLobbySettings()
   return {
     phase,
-    admin,
+    canRun,
+    canOpen: view.canWrite,
     painters: run?.painters ?? saved.painters,
     maxPainters: MAX_CAPTURE_PAINTERS,
     guards: run === null ? 0 : captureGuardCount(run),
@@ -961,6 +970,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
       guard: run !== null && isCaptureGuard(run, index),
       reserve: run !== null && isCaptureReserve(run, index),
       closes: index === closer,
+      hosts: index === host,
     })),
     role:
       run === null || mine < 0
@@ -982,7 +992,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
           })),
     locked: run?.wall != null,
     needs: run?.wall == null ? 0 : captureShortfall(run.wall.length / 2, capturePainterCount(run)),
-    canStart: admin && run !== null && captureReady(run),
+    canStart: canRun && run !== null && captureReady(run),
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
     myTurn:
       run !== null && mine >= 0 && !idle && !isCaptureGuard(run, mine)
@@ -994,24 +1004,25 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   }
 }
 
-/** The lobbies of every event server whose countdown has not started, for the list. */
+/**
+ * The lobbies of every event server whose countdown has not started, for the list: the largest
+ * first, and lobbies of one size in the order they opened.
+ */
 const lobbiesOf = (views: readonly Shown[]): CaptureRunModel['lobbies'] =>
-  views.flatMap((view) =>
-    view.runs
-      .filter((run) => run.startsAt === null)
-      .map((run) => {
-        const owner =
-          run.members.find(
-            ({ painter }) => painter.wplaceUserId === (run.opener ?? run.coordinator),
-          ) ?? run.members[0]
-        return {
+  views
+    .flatMap((view) =>
+      view.runs
+        .filter((run) => run.startsAt === null)
+        .map((run) => ({
           id: run.id,
-          name: owner?.painter.displayName ?? 'Lobby',
+          name: run.members[captureHostIndex(run)]?.painter.displayName ?? 'Lobby',
           members: run.members.length,
           canJoin: view.canWrite,
-        }
-      }),
-  )
+        })),
+    )
+    // Largest first; at the same size, the older lobby first, across servers too: lobby ids are
+    // UUIDv7, so they sort by when the lobby was opened.
+    .sort((a, b) => b.members - a.members || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
 const handleIntent = (intent: CaptureRunIntent): void => {
   const view = active()
@@ -1034,10 +1045,10 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       changeSettings(view, { leadMs: intent.leadMs })
       break
     case 'open': {
-      // The lobby is for this runner's team.
+      // The lobby is for this painter's team.
       void refreshTeam()
         .then((team) => {
-          // The runner chose this server; a change while Wplace answered drops it.
+          // The painter chose this server; a change while Wplace answered drops it.
           if (active()?.server.url !== server.url) return
           setPresenceTeam(team)
           if (team === null) message = 'Join a team in the event first.'
@@ -1109,7 +1120,7 @@ const lobbySettingKey = (name: keyof CaptureSettings): string => `caelestis.capt
 
 const LOBBY_SETTINGS = Object.keys(DEFAULT_CAPTURE_SETTINGS) as (keyof CaptureSettings)[]
 
-/** Each lobby setting as this runner last chose it, the defaults for the rest. */
+/** Each lobby setting as this painter last chose it, the defaults for the rest. */
 const savedLobbySettings = (): CaptureSettings =>
   normaliseCaptureSettings(
     Object.fromEntries(
@@ -1123,7 +1134,7 @@ const savedLobbySettings = (): CaptureSettings =>
     ),
   )
 
-/** Save the settings a runner just chose, each under its own key. */
+/** Save the settings a host just chose, each under its own key. */
 const saveLobbySettings = (change: Partial<CaptureSettings>): void => {
   for (const name of LOBBY_SETTINGS) {
     if (change[name] === undefined) continue
@@ -1136,7 +1147,7 @@ const saveLobbySettings = (change: Partial<CaptureSettings>): void => {
 }
 
 /**
- * Send a runner's change to one of their lobby's settings, and only that one, and save it for the
+ * Send the host's change to one of their lobby's settings, and only that one, and save it for the
  * next lobby they open. Guards are saved as chosen; a lobby uses at most half its members. A
  * change to the planning size drops the proposals planned for the old one, which the lobby would
  * refuse to lock in.

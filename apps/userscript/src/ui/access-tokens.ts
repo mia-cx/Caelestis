@@ -100,7 +100,6 @@ export const accessTokensModel = (
       ...(token.bootstrap !== true && view.revoking.has(token.tokenHash) ? { pending: true } : {}),
     })),
     hasMore: cached?.nextCursor !== null && cached?.nextCursor !== undefined,
-    ...(server.info?.eventRunners === 1 ? { eventRunners: true } : {}),
     ...(view.loadingMore ? { loadingMore: true } : {}),
     ...(view.creating ? { creating: true } : {}),
     ...(view.createError === undefined ? {} : { createError: view.createError }),
@@ -150,7 +149,6 @@ export const createServerAccessToken = (
       label,
       result.token,
       `https://wplace.live/#${encodeInvite(server.url, result.token)}`,
-      scope === 'event_runner',
     )
     if (!isCurrentInventory(inventory)) return
     reloadAccessTokens(server, onChange, true)

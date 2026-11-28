@@ -31,8 +31,6 @@ export interface SettingsAccessTokensModel {
   readonly status: 'loading' | 'ready' | 'error'
   readonly tokens: readonly SettingsAccessTokenModel[]
   readonly hasMore: boolean
-  /** The server says it mints event-runner invites, so the scope picker offers them. */
-  readonly eventRunners?: true
   readonly loadingMore?: boolean
   readonly creating?: boolean
   readonly createError?: string

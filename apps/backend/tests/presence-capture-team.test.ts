@@ -49,7 +49,6 @@ class GatedStorage extends SqlCoordinatorStorage {
  */
 const withSession = async (
   gated: 'get' | 'put',
-  scope: 'report' | 'event_runner',
   body: (session: {
     storage: GatedStorage
     send: (event: object) => void
@@ -88,7 +87,7 @@ const withSession = async (
         painter: { wplaceUserId: 1, displayName: 'Painter' },
         tokenHash: 'a'.repeat(64),
         clientHash: 'b'.repeat(64),
-        credentialScope: scope,
+        credentialScope: 'report',
         anonymous: false,
         revocable: false,
         metricClient: 'userscript',
@@ -110,7 +109,7 @@ const withSession = async (
 }
 
 it('sends the lobbies of the team a session switched to, never a late read of the one it left', async () => {
-  await withSession('get', 'report', async ({ storage, send, lobbies }) => {
+  await withSession('get', async ({ storage, send, lobbies }) => {
     const green: CaptureRun = {
       id: uuidV7(),
       team: GREEN,
@@ -140,7 +139,7 @@ it('sends the lobbies of the team a session switched to, never a late read of th
 })
 
 it('never sends a team’s changed lobbies to a session that left that team during the write', async () => {
-  await withSession('put', 'event_runner', async ({ storage, send, lobbies }) => {
+  await withSession('put', async ({ storage, send, lobbies }) => {
     send({ type: 'presence-update', team: GREEN })
     await vi.waitFor(() => expect(lobbies()).toHaveLength(1))
     // Opening a Green lobby stalls in its write; the session then reports Orange.

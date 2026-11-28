@@ -6,6 +6,7 @@ import {
   CAPTURE_LEAD_MS,
   type CaptureRun,
   captureSlot,
+  millis,
   PRESENCE_PROTOCOL_V1,
   type PresenceClientEvent,
   type PresenceServerEvent,
@@ -16,6 +17,7 @@ import {
 import { FilesystemObjectStorage } from '@caelestis/storage/filesystem'
 import { afterEach, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
+import { hashToken } from '../../src/auth/tokens.js'
 import { readNodeConfig } from '../../src/node/config.js'
 import { openNodeRuntime } from '../../src/node/runtime.js'
 import { listenNodeServer } from '../../src/node/server.js'
@@ -56,7 +58,7 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
   }
   cleanups.push(stop)
   const base = `http://127.0.0.1:${server.port}/backend/v1`
-  const mint = async (scope: 'report' | 'event_runner') => {
+  const mint = async (scope: 'report') => {
     const minted = await fetch(`${base}/admin/tokens`, {
       method: 'POST',
       headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
@@ -65,9 +67,19 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     return ((await minted.json()) as { token: string }).token
   }
   const painterToken = await mint('report')
+  // Nothing mints event-runner invites now; one minted by backend 1.6.0 still exchanges.
+  const invite = 'capture-runner-invite'
+  await runtime.sql.insertAccessToken({
+    tokenHash: await hashToken(invite),
+    label: 'Runner',
+    scope: 'event_runner',
+    createdWithToken: await hashToken(ADMIN),
+    createdAt: millis(Date.now()),
+    invite: true,
+  })
   const exchanged = await fetch(`${base}/auth/exchange`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${await mint('event_runner')}` },
+    headers: { authorization: `Bearer ${invite}` },
   })
   const { token: runnerToken } = (await exchanged.json()) as { token: string }
 
@@ -137,7 +149,8 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     painterToken,
     admin: (team?: TerritoryTeam) => connect(ADMIN, team),
     painter: (team?: TerritoryTeam) => connect(painterToken, team),
-    runner: (team?: TerritoryTeam) => connect(runnerToken, team),
+    /** A session holding an event-runner token kept from backend 1.6.0. */
+    legacyRunner: (team?: TerritoryTeam) => connect(runnerToken, team),
   }
 }
 
@@ -194,13 +207,11 @@ it('ignores the single-run events of userscripts from before lobbies', async () 
 
 it('lists several lobbies per team, each kept from the other teams', async () => {
   const server = await start()
-  const first = await server.runner(GREEN)
+  const first = await server.painter(GREEN)
   const second = await server.admin(GREEN)
   const painter = await server.painter(GREEN)
   const orange = await server.admin(ORANGE)
 
-  // A reporter can't open one.
-  painter.send({ type: 'capture-new', ...SETTINGS })
   first.send({ type: 'capture-new', ...SETTINGS })
   second.send({ type: 'capture-new', ...SETTINGS, painters: 5 })
   orange.send({ type: 'capture-new', ...SETTINGS })
@@ -226,43 +237,43 @@ it('lists several lobbies per team, each kept from the other teams', async () =>
 
 it('runs a lobby from opening to the countdown, cutting the wall for whoever is in it', async () => {
   const server = await start()
-  const runner = await server.runner(GREEN)
+  const host = await server.painter(GREEN)
   const painters = [await server.painter(GREEN), await server.painter(GREEN)]
   const late = await server.painter(GREEN)
 
-  runner.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
-  await vi.waitFor(() => expect(runner.run()).toBeDefined())
-  const id = runner.run()?.id ?? ''
+  host.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
+  await vi.waitFor(() => expect(host.run()).toBeDefined())
+  const id = host.run()?.id ?? ''
   for (const painter of painters) painter.send({ type: 'capture-join', run: id })
   // More members than the Painters setting is fine; the opener moves to the closing place.
   await vi.waitFor(() =>
-    expect(runner.run()?.members.map((m) => m.sessionId)).toEqual([
+    expect(host.run()?.members.map((m) => m.sessionId)).toEqual([
       painters[0]?.sessionId,
       painters[1]?.sessionId,
-      runner.sessionId,
+      host.sessionId,
     ]),
   )
 
   // A 180-pixel wall is three full legs; with three members it locks in.
-  runner.send({ type: 'capture-lock', wall: wall(181), guardZones: [] })
+  host.send({ type: 'capture-lock', wall: wall(181), guardZones: [] })
   await settle()
-  expect(runner.run()?.wall).toBeNull()
-  runner.send({ type: 'capture-lock', wall: wall(180), guardZones: [] })
+  expect(host.run()?.wall).toBeNull()
+  host.send({ type: 'capture-lock', wall: wall(180), guardZones: [] })
   await vi.waitFor(() => expect(painters[0]?.run()?.wall).toHaveLength(360))
 
-  const cut = runner.run()?.cut ?? 0
-  const lobby = runner.run()?.id ?? ''
-  for (const session of [painters[0], runner])
+  const cut = host.run()?.cut ?? 0
+  const lobby = host.run()?.id ?? ''
+  for (const session of [painters[0], host])
     session?.send({ type: 'capture-drafted', run: lobby, drafted: 60, cut })
-  await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([60, 0, 60]))
-  runner.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(host.run()?.members.map((m) => m.drafted)).toEqual([60, 0, 60]))
+  host.send({ type: 'capture-go' })
   await settle()
-  expect(runner.run()?.startsAt).toBeNull()
+  expect(host.run()?.startsAt).toBeNull()
 
   painters[1]?.send({ type: 'capture-drafted', run: lobby, drafted: 60, cut })
-  await vi.waitFor(() => expect(runner.run()?.members[1]?.drafted).toBe(60))
+  await vi.waitFor(() => expect(host.run()?.members[1]?.drafted).toBe(60))
   const before = Date.now()
-  runner.send({ type: 'capture-go' })
+  host.send({ type: 'capture-go' })
   await vi.waitFor(() => expect(late.runs()[0]?.startsAt).not.toBeNull())
   const run = late.runs()[0]
   if (run === undefined || run.startsAt === null) throw new Error('Expected a started lobby')
@@ -274,60 +285,108 @@ it('runs a lobby from opening to the countdown, cutting the wall for whoever is 
   late.send({ type: 'capture-join', run: id })
   painters[0]?.close()
   await settle()
-  expect(runner.run()?.members).toHaveLength(3)
+  expect(host.run()?.members).toHaveLength(3)
 
-  runner.send({ type: 'capture-close' })
+  host.send({ type: 'capture-close' })
   await vi.waitFor(() => expect(painters[1]?.runs()).toEqual([]))
 })
 
-it('lets a runner give the closing leg to another member', async () => {
+it('lets the host give the closing leg to another member', async () => {
   const server = await start()
-  const runner = await server.runner(GREEN)
+  const host = await server.painter(GREEN)
   const painter = await server.painter(GREEN)
-  runner.send({ type: 'capture-new', ...SETTINGS })
-  await vi.waitFor(() => expect(runner.run()).toBeDefined())
-  painter.send({ type: 'capture-join', run: runner.run()?.id ?? '' })
-  await vi.waitFor(() => expect(runner.run()?.members).toHaveLength(2))
-  const closer = () => runner.run()?.members.at(-1)?.sessionId
+  host.send({ type: 'capture-new', ...SETTINGS })
+  await vi.waitFor(() => expect(host.run()).toBeDefined())
+  painter.send({ type: 'capture-join', run: host.run()?.id ?? '' })
+  await vi.waitFor(() => expect(host.run()?.members).toHaveLength(2))
+  const closer = () => host.run()?.members.at(-1)?.sessionId
 
   // A painter can't take it.
   painter.send({ type: 'capture-closer', member: painter.sessionId })
   await settle()
-  expect(closer()).toBe(runner.sessionId)
-  runner.send({ type: 'capture-closer', member: painter.sessionId })
+  expect(closer()).toBe(host.sessionId)
+  host.send({ type: 'capture-closer', member: painter.sessionId })
   await vi.waitFor(() => expect(closer()).toBe(painter.sessionId))
+})
+
+it('lets a painter host a lobby, passing it on when they disconnect', async () => {
+  const server = await start()
+  const host = await server.painter(GREEN)
+  const second = await server.painter(GREEN)
+  const third = await server.painter(GREEN)
+  host.send({ type: 'capture-new', ...SETTINGS })
+  await vi.waitFor(() => expect(host.run()).toBeDefined())
+  const id = host.run()?.id ?? ''
+  second.send({ type: 'capture-join', run: id })
+  await vi.waitFor(() => expect(host.run()?.members).toHaveLength(2))
+  third.send({ type: 'capture-join', run: id })
+  await vi.waitFor(() => expect(host.run()?.members).toHaveLength(3))
+  expect(host.run()?.host).toBe(host.sessionId)
+
+  // Another member can't run it; the host can.
+  second.send({ type: 'capture-settings', painters: 6 })
+  await settle()
+  expect(host.run()?.painters).toBe(3)
+  host.send({ type: 'capture-settings', painters: 5 })
+  await vi.waitFor(() => expect(second.run()?.painters).toBe(5))
+
+  // The host's tab closes: the member who joined next hosts, and runs it.
+  host.close()
+  await vi.waitFor(() => expect(third.run()?.host).toBe(second.sessionId))
+  third.send({ type: 'capture-settings', painters: 7 })
+  second.send({ type: 'capture-settings', painters: 4 })
+  await vi.waitFor(() => expect(third.run()?.painters).toBe(4))
+})
+
+it('lets a kept event-runner token open and host a lobby like any painter', async () => {
+  const server = await start()
+  const runner = await server.legacyRunner(GREEN)
+  const painter = await server.painter(GREEN)
+  painter.send({ type: 'capture-new', ...SETTINGS })
+  await vi.waitFor(() => expect(runner.runs()).toHaveLength(1))
+  runner.send({ type: 'capture-join', run: runner.runs()[0]?.id ?? '' })
+  await vi.waitFor(() => expect(painter.run()?.members).toHaveLength(2))
+  // In a painter's lobby the runner is only a member.
+  runner.send({ type: 'capture-settings', painters: 6 })
+  await settle()
+  expect(painter.run()?.painters).toBe(3)
+  // Its own lobby it hosts.
+  runner.send({ type: 'capture-new', ...SETTINGS })
+  await vi.waitFor(() => expect(runner.run()?.host).toBe(runner.sessionId))
+  runner.send({ type: 'capture-settings', painters: 6 })
+  await vi.waitFor(() => expect(runner.run()?.painters).toBe(6))
 })
 
 it('leaves a member who switched team during the countdown out of the next round', async () => {
   const server = await start()
-  const runner = await server.runner(GREEN)
+  const host = await server.painter(GREEN)
   const painter = await server.painter(GREEN)
-  runner.send({ type: 'capture-new', painters: 2, staggerMs: 100 })
-  await vi.waitFor(() => expect(runner.run()).toBeDefined())
-  painter.send({ type: 'capture-join', run: runner.run()?.id ?? '' })
-  await vi.waitFor(() => expect(runner.run()?.members).toHaveLength(2))
-  runner.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
-  await vi.waitFor(() => expect(runner.run()?.wall).toHaveLength(120))
-  const { id = '', cut = 0 } = runner.run() ?? {}
-  for (const session of [runner, painter])
+  host.send({ type: 'capture-new', painters: 2, staggerMs: 100 })
+  await vi.waitFor(() => expect(host.run()).toBeDefined())
+  painter.send({ type: 'capture-join', run: host.run()?.id ?? '' })
+  await vi.waitFor(() => expect(host.run()?.members).toHaveLength(2))
+  host.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
+  await vi.waitFor(() => expect(host.run()?.wall).toHaveLength(120))
+  const { id = '', cut = 0 } = host.run() ?? {}
+  for (const session of [host, painter])
     session.send({ type: 'capture-drafted', run: id, drafted: 30, cut })
-  await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([30, 30]))
-  runner.send({ type: 'capture-go' })
-  await vi.waitFor(() => expect(runner.run()?.startsAt).not.toBeNull())
+  await vi.waitFor(() => expect(host.run()?.members.map((m) => m.drafted)).toEqual([30, 30]))
+  host.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(host.run()?.startsAt).not.toBeNull())
   // Mid-countdown the painter reports another team; their socket stays open.
   painter.send({ type: 'presence-update', team: ORANGE })
   await settle()
-  // Once the capture has finished, the runner plans the next shape.
+  // Once the capture has finished, the host plans the next shape.
   vi.useFakeTimers({ toFake: ['Date'] })
   try {
     vi.setSystemTime(Date.now() + 60_000)
-    runner.send({ type: 'capture-unlock' })
+    host.send({ type: 'capture-unlock' })
     await settle()
   } finally {
     vi.useRealTimers()
   }
-  expect(runner.run()).toMatchObject({ startsAt: null, wall: null })
-  expect(runner.run()?.members.map((m) => m.sessionId)).toEqual([runner.sessionId])
+  expect(host.run()).toMatchObject({ startsAt: null, wall: null })
+  expect(host.run()?.members.map((m) => m.sessionId)).toEqual([host.sessionId])
 }, 20_000)
 
 it('answers clock requests with the server time', async () => {
@@ -365,7 +424,7 @@ it('shows an admin every team, and each peer its team, on an event server', asyn
   const server = await start()
   const viewport = { x: 636_000, y: 1_028_000, w: 64, h: 64 }
   const green = await server.painter(GREEN)
-  const orange = await server.runner(ORANGE)
+  const orange = await server.legacyRunner(ORANGE)
   const admin = await server.admin(GREEN)
   for (const session of [green, orange, admin]) session.send({ type: 'presence-update', viewport })
 
@@ -391,7 +450,7 @@ it('sends peers without a team on a server that is not an event server', async (
   expect(admin.teamOf(painter.sessionId)).toBeUndefined()
 })
 
-it.each(['painter', 'runner'] as const)(
+it.each(['painter', 'legacyRunner'] as const)(
   'lets one %s token connect as two teams, each seeing only its own team',
   async (kind) => {
     const server = await start()
@@ -485,17 +544,17 @@ it('logs a countdown as it starts, and each slot report from a member of it', as
       })
       .filter((line) => line?.event === event)
   const server = await start()
-  const runner = await server.runner(GREEN)
-  runner.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
-  await vi.waitFor(() => expect(runner.run()).toBeDefined())
-  runner.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
-  await vi.waitFor(() => expect(runner.run()?.wall).toHaveLength(120))
-  const lobby = runner.run()
-  runner.send({ type: 'capture-drafted', run: lobby?.id ?? '', drafted: 60, cut: lobby?.cut ?? 0 })
-  await vi.waitFor(() => expect(runner.run()?.members[0]?.drafted).toBe(60))
-  runner.send({ type: 'capture-go' })
-  await vi.waitFor(() => expect(runner.run()?.startsAt).not.toBeNull())
-  const run = runner.run()
+  const host = await server.painter(GREEN)
+  host.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
+  await vi.waitFor(() => expect(host.run()).toBeDefined())
+  host.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
+  await vi.waitFor(() => expect(host.run()?.wall).toHaveLength(120))
+  const lobby = host.run()
+  host.send({ type: 'capture-drafted', run: lobby?.id ?? '', drafted: 60, cut: lobby?.cut ?? 0 })
+  await vi.waitFor(() => expect(host.run()?.members[0]?.drafted).toBe(60))
+  host.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(host.run()?.startsAt).not.toBeNull())
+  const run = host.run()
   if (run === undefined || run.startsAt === null) throw new Error('Expected a started lobby')
   await vi.waitFor(() =>
     expect(lines('capture-countdown')).toEqual([
@@ -523,9 +582,9 @@ it('logs a countdown as it starts, and each slot report from a member of it', as
     clockRttMs: 30,
   } as const
   // Malformed, then for a slot that is not this member's: neither is logged, nor closes the socket.
-  runner.send({ ...report, firedLateMs: -1 })
-  runner.send({ ...report, slotAt: run.startsAt + SETTINGS.staggerMs })
-  runner.send(report)
+  host.send({ ...report, firedLateMs: -1 })
+  host.send({ ...report, slotAt: run.startsAt + SETTINGS.staggerMs })
+  host.send(report)
   await vi.waitFor(() => expect(lines('capture-slot')).toHaveLength(1))
   expect(lines('capture-slot')[0]).toEqual({
     event: 'capture-slot',
@@ -544,15 +603,15 @@ it('logs a countdown as it starts, and each slot report from a member of it', as
     clockRttMs: 30,
   })
 
-  // A runner closes the lobby while a report is still on its way; it is logged, marked closed.
+  // A host closes the lobby while a report is still on its way; it is logged, marked closed.
   // First wait out the presence rate limit's one-second window.
   await new Promise((resolve) => setTimeout(resolve, 1_100))
-  runner.send({ type: 'capture-close' })
-  await vi.waitFor(() => expect(runner.runs()).toEqual([]))
+  host.send({ type: 'capture-close' })
+  await vi.waitFor(() => expect(host.runs()).toEqual([]))
   // Reports for a slot it was never given, in that lobby or one that never existed, are not.
-  runner.send({ ...report, slotAt: run.startsAt + SETTINGS.staggerMs })
-  runner.send({ ...report, run: uuidV7() })
-  runner.send({ ...report, status: 'missed', clickToSendMs: null, sendToResponseMs: null })
+  host.send({ ...report, slotAt: run.startsAt + SETTINGS.staggerMs })
+  host.send({ ...report, run: uuidV7() })
+  host.send({ ...report, status: 'missed', clickToSendMs: null, sendToResponseMs: null })
   await vi.waitFor(() => expect(lines('capture-slot')).toHaveLength(2))
   expect(lines('capture-slot')[1]).toMatchObject({
     lobby: run.id,
@@ -569,21 +628,21 @@ it('logs a slot report from a finished round, through a team switch, until it ex
       .map(([line]) => JSON.parse(String(line)) as { event?: string; slotAt?: number })
       .filter((line) => line.event === 'capture-slot')
   const server = await start()
-  const runner = await server.runner(GREEN)
+  const host = await server.painter(GREEN)
   const painter = await server.painter(GREEN)
   /** Lock a 60-pixel wall, both members draft their 30-pixel legs, and the countdown starts. */
   const round = async () => {
-    runner.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
-    await vi.waitFor(() => expect(runner.run()?.wall).toHaveLength(120))
-    const { id = '', cut = 0 } = runner.run() ?? {}
-    for (const session of [runner, painter])
+    host.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
+    await vi.waitFor(() => expect(host.run()?.wall).toHaveLength(120))
+    const { id = '', cut = 0 } = host.run() ?? {}
+    for (const session of [host, painter])
       session.send({ type: 'capture-drafted', run: id, drafted: 30, cut })
-    await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([30, 30]))
-    runner.send({ type: 'capture-go' })
+    await vi.waitFor(() => expect(host.run()?.members.map((m) => m.drafted)).toEqual([30, 30]))
+    host.send({ type: 'capture-go' })
     await vi.waitFor(() => expect(painter.run()?.startsAt).not.toBeNull())
     return painter.run()?.startsAt ?? 0
   }
-  const lobby = () => runner.run()?.id ?? ''
+  const lobby = () => host.run()?.id ?? ''
   const report = (run: string, slotAt: number) =>
     painter.send({
       type: 'capture-timing',
@@ -599,20 +658,20 @@ it('logs a slot report from a finished round, through a team switch, until it ex
     })
   const pause = () => new Promise((resolve) => setTimeout(resolve, 1_100))
 
-  runner.send({ type: 'capture-new', ...SETTINGS, painters: 2 })
-  await vi.waitFor(() => expect(runner.run()).toBeDefined())
+  host.send({ type: 'capture-new', ...SETTINGS, painters: 2 })
+  await vi.waitFor(() => expect(host.run()).toBeDefined())
   painter.send({ type: 'capture-join', run: lobby() })
-  await vi.waitFor(() => expect(runner.run()?.members).toHaveLength(2))
+  await vi.waitFor(() => expect(host.run()?.members).toHaveLength(2))
   const first = await round()
   const id = lobby()
   await pause()
   // The first round finishes and the next one starts before the painter's report arrives.
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(first + 60_000)
-  runner.send({ type: 'capture-unlock' })
+  host.send({ type: 'capture-unlock' })
   await settle()
   vi.useRealTimers()
-  await vi.waitFor(() => expect(runner.run()?.startsAt).toBeNull())
+  await vi.waitFor(() => expect(host.run()?.startsAt).toBeNull())
   const second = await round()
   await pause()
   report(id, first)

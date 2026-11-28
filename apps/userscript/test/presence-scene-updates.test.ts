@@ -91,6 +91,7 @@ const lobby = (
   team: 0,
   opener: 0,
   coordinator: null,
+  host: SELF_SESSION,
   painters: 2,
   guards: 0,
   distribution: 'even',
@@ -126,11 +127,11 @@ it('cuts the locked wall into legs from every lobby update and reuses them betwe
 })
 
 /**
- * An event runner on an event server, in a lobby with no wall locked in: planning starts on its
+ * A lobby's host on an event server, with no wall locked in: planning starts on its
  * own, and the planner offers a wall along y 10 and one along y 50 with the area it would enclose.
  */
 const planning = async () => {
-  const { socket } = await connect({ capture: 1, scope: 'event_runner' })
+  const { socket } = await connect({ capture: 1, scope: 'report' })
   vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
   const { captureItems, installCaptureRuns } = await import('../src/capture-runs.js')
   installCaptureRuns()
@@ -219,13 +220,14 @@ it('lists the team’s lobbies to a painter in none, and joins the one they choo
   vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
   const { installCaptureRuns } = await import('../src/capture-runs.js')
   installCaptureRuns()
-  // The opener gave the closing leg to a teammate listed first; the lobby keeps the opener's name.
+  // The host gave the closing leg to a teammate listed first; the lobby keeps the host's name.
   const closer = { sessionId: 'd'.repeat(16), painter: { wplaceUserId: 8, displayName: 'Closer' } }
   const opened = lobby(null, 0)
   const theirs = {
     ...opened,
     opener: other.wplaceUserId,
     coordinator: closer.painter.wplaceUserId,
+    host: TEAMMATE,
     members: [{ ...closer, drafted: 0 }, ...opened.members.slice(1)],
   }
   const started = { ...theirs, id: 'started', startsAt: TERRITORY_EVENT.startsAt }
@@ -341,7 +343,7 @@ it("doesn't press Paint at a slot when nothing is drafted on the leg", async () 
 })
 
 it("says planning failed when Wplace's map cannot be fetched", async () => {
-  const { socket } = await connect({ capture: 1, scope: 'event_runner' })
+  const { socket } = await connect({ capture: 1, scope: 'report' })
   vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
   vi.stubGlobal('fetch', async () => {
     throw new TypeError('Failed to fetch')

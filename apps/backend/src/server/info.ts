@@ -6,7 +6,6 @@ import type { ServerAssetRecord, ServerSettings } from './store.js'
 /** The protocols only an event server (`EVENT_SERVER=true`) serves, as `/server` advertises them. */
 export const EVENT_CAPABILITIES = {
   capture: 1,
-  eventRunners: 1,
 } as const satisfies Partial<ServerInfo>
 
 /** What `/server` and every manifest say about this deployment before operator settings apply. */

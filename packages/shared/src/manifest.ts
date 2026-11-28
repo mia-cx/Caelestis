@@ -49,8 +49,6 @@ export interface ServerInfo {
    * Wplace's territory event; see `isEventServer`.
    */
   readonly capture?: 1
-  /** Present when the server mints one-use `event_runner` invites and exchanges them at `/auth/exchange`. */
-  readonly eventRunners?: 1
   /** Accepts bounded paint-part transfers on live protocol v2. */
   readonly livePaintParts?: 1
   /** Canonical `https://discord.gg/<code>` the public home page offers as a join action. */

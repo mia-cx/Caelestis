@@ -73,7 +73,7 @@ export const connectPresence = async ({
   canWrite,
 }: {
   readonly capture?: 1
-  readonly scope?: 'event_runner' | 'admin'
+  readonly scope?: 'report' | 'admin'
   readonly canWrite?: boolean | undefined
 } = {}) => {
   vi.useFakeTimers()
@@ -95,9 +95,8 @@ export const connectPresence = async ({
     },
     token: scope === undefined ? null : `${scope}-token`,
     status: 'connected' as const,
-    // As a connection probe records it: either scope may run captures, and only admin is admin.
+    // As a connection probe records it: only admin is admin.
     isAdmin: scope === 'admin',
-    ...(scope === undefined ? {} : { canRunCaptures: true as const }),
     season: 1,
   }
   state.upsertServer(server)

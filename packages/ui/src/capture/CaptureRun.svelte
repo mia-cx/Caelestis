@@ -9,7 +9,7 @@
   } from '@caelestis/shared'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
-  import type { CaptureRunIntent, CaptureRunModel } from './model.js'
+  import type { CaptureRunIntent, CaptureRunMember, CaptureRunModel } from './model.js'
 
   let { model, onIntent }: { model: CaptureRunModel; onIntent: (intent: CaptureRunIntent) => void } =
     $props()
@@ -27,7 +27,12 @@
   const listing = $derived(model.phase === 'list')
   const painters = (n: number): string => `${n} ${n === 1 ? 'painter' : 'painters'}`
   const needs = (n: number): string => `Needs ${n} more ${n === 1 ? 'painter' : 'painters'}`
-  /** The rows an administrator can move; the closer's place is fixed. */
+  /** What a member's row says under their name, e.g. "Host · Closes wall". */
+  const roles = (member: CaptureRunMember): string =>
+    [member.hosts ? 'Host' : '', member.closes ? 'Closes wall' : member.reserve ? 'Reserve' : '']
+      .filter(Boolean)
+      .join(' · ')
+  /** The rows the host can move; the closer's place is fixed. */
   const movable = $derived(model.members.filter((member) => !member.closes))
   const counting = $derived(model.phase === 'countdown')
   const ordinal = new Intl.PluralRules('en', { type: 'ordinal' })
@@ -101,7 +106,7 @@
               <span class="plan-label">{lobby.name}</span>
               <span class="plan-stats">{painters(lobby.members)}</span>
             </span>
-            <Button label="Join" size="compact" kind={model.admin ? 'default' : 'primary'} disabled={!lobby.canJoin} onclick={() => onIntent({ type: 'join', id: lobby.id })}>Join<span class="hidden"> {lobby.name}</span></Button>
+            <Button label="Join" size="compact" kind="primary" disabled={!lobby.canJoin} onclick={() => onIntent({ type: 'join', id: lobby.id })}>Join<span class="hidden"> {lobby.name}</span></Button>
           </li>
         {/each}
       </ul>
@@ -109,7 +114,7 @@
       <p class="empty">No open lobbies</p>
     {/if}
   {:else}
-    {#if model.admin && gathering}
+    {#if model.canRun && gathering}
       <div class="settings">
         <label for="capture-run-painters">Painters</label>
         <div class="stepper">
@@ -172,7 +177,7 @@
             <span class="swatch" style:background-color={member.colour} aria-hidden="true"></span>
             <span class="who">
               <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
-              {#if member.closes}<span class="closes">Closes wall</span>{:else if member.reserve}<span class="closes">Reserve</span>{/if}
+              {#if roles(member)}<span class="role">{roles(member)}</span>{/if}
             </span>
             {#if member.length > 0}
               <span class="ready" class:done={ready} aria-label={`${member.drafted} of ${member.length} pixels drafted`}>{#if ready}<Icon name="check" size="0.875rem" />{/if}{member.drafted}/{member.length}</span>
@@ -181,7 +186,7 @@
               <Button label="Show my line" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'show-line' })}><Icon name="flyTo" size="0.875rem" /></Button>
             {/if}
             <!-- The closer keeps their place: their row doesn't move, and moves step over it. -->
-            {#if model.admin && gathering && !member.closes}
+            {#if model.canRun && gathering && !member.closes}
               {@const place = movable.indexOf(member)}
               <span class="order">
                 <Button label={`Give ${member.name} the closing leg`} title="Give closing leg" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'closer', id: member.id })}><Icon name="flag" size="0.875rem" /></Button>
@@ -203,7 +208,7 @@
       </ol>
     {/if}
 
-    {#if model.admin && gathering && (model.locked || model.proposals.length > 0)}
+    {#if model.canRun && gathering && (model.locked || model.proposals.length > 0)}
       <div class="plans">
         {#if model.locked}
           {#if model.needs > 0}<p class="plan-stats">{needs(model.needs)}</p>{/if}
@@ -228,13 +233,13 @@
 
   {#if model.message}<p class="message">{model.message}</p>{/if}
 
-  {#if listing ? model.admin : gathering || model.phase === 'done' || model.admin}
+  {#if listing ? model.canOpen : gathering || model.phase === 'done' || model.canRun}
     <footer>
       {#if listing}
-        <Button label="New lobby" kind="primary" size="small" onclick={() => onIntent({ type: 'open' })} />
+        <Button label="New lobby" kind={model.lobbies.length > 0 ? 'default' : 'primary'} size="small" onclick={() => onIntent({ type: 'open' })} />
       {:else}
         {#if model.phase !== 'countdown'}<Button label="Leave" kind="ghost" size="small" onclick={() => onIntent({ type: 'leave' })} />{/if}
-        {#if model.admin}
+        {#if model.canRun}
           <span class="end">
             <Button label="Close lobby" kind="danger-ghost" size="small" onclick={() => onIntent({ type: 'close' })} />
             {#if gathering && model.locked}<Button label="Start countdown" kind="primary" size="small" disabled={!model.canStart} onclick={() => onIntent({ type: 'go' })} />{/if}
@@ -327,9 +332,9 @@
   .place { inline-size: 1rem; color: var(--caelestis-muted-text); text-align: end; }
   .swatch { flex: none; inline-size: 0.75rem; block-size: 0.75rem; border: 1px solid color-mix(in oklab, var(--caelestis-text) 30%, transparent); border-radius: 2px; }
   .who { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; }
-  .name, .closes { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name, .role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .you { margin-inline-start: 0.25em; color: var(--caelestis-muted-text); }
-  .closes { color: var(--caelestis-muted-text); font-size: 0.75rem; line-height: 1.2; }
+  .role { color: var(--caelestis-muted-text); font-size: 0.75rem; line-height: 1.2; }
   .ready { display: inline-flex; align-items: center; gap: 0.125rem; color: var(--caelestis-muted-text); }
   .ready.done { color: var(--caelestis-success); }
   .order { display: inline-flex; }
