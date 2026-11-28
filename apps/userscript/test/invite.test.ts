@@ -158,6 +158,34 @@ it('rotates the token of a stored server', async () => {
   expect(invite.connected).toHaveBeenCalledOnce()
 })
 
+it('replaces a stale stored token while the startup re-probe marks it rejected', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval'] })
+  const fetch = await installBackend()
+  const invite = await load()
+  await invite.accept(readToken)
+  const [stored] = invite.getState().servers
+  invite.upsertServer({ ...stored!, token: 'stale-token-from-an-earlier-event' })
+  let release!: () => void
+  const held = new Promise<void>((resolve) => (release = resolve))
+  const answer = fetch.getMockImplementation()
+  fetch.mockImplementation(async (input, init) => {
+    if (new URL(String(input)).pathname.endsWith('/auth/exchange')) await held
+    return await answer!(input, init)
+  })
+
+  // A page load re-probes the stored row while the invite in its address bar is being accepted.
+  invite.installServerConnections()
+  const outcome = invite.accept(reportToken)
+  await vi.waitFor(() => expect(invite.getState().servers[0]?.status).toBe('needs-token'))
+  release()
+
+  expect((await outcome)?.kind).toBe('connected')
+  expect(invite.getState().servers).toMatchObject([
+    { url: origin, token: reportToken, status: 'connected' },
+  ])
+  vi.useRealTimers()
+})
+
 it('keeps the stored credential when the invite token is refused', async () => {
   await installBackend()
   const invite = await load()
@@ -230,4 +258,66 @@ it('answers a second invite busy while one is in flight, without probing it', as
   expect(second).toEqual({ kind: 'busy', url: 'https://other.test', disconnecting: false })
   expect((await first)?.kind).toBe('connected')
   expect(fetch.mock.calls.every(([input]) => new URL(String(input)).origin === origin)).toBe(true)
+})
+
+it('tells the painter an opened invite connected even with action feedback off', async () => {
+  await installBackend()
+  vi.resetModules()
+  const { getState } = await import('../src/settings.js')
+  const { openInviteFromLocation } = await import('../src/ui/settings-controller.js')
+  const { encodeInvite } = await import('../src/invite.js')
+  history.replaceState(null, '', `/#${encodeInvite(origin, readToken)}`)
+  expect(getState().notifyActivity).toBe(false)
+
+  await openInviteFromLocation()
+
+  const toasts = document.getElementById('caelestis-notifications') as
+    | (HTMLElement & { model?: { toasts: readonly { message: string }[] } })
+    | null
+  expect(toasts?.model?.toasts.map((toast) => toast.message)).toEqual([
+    'Connected to Userscript contract server.',
+  ])
+  expect(location.hash).toBe('')
+})
+
+it('lets a disconnect that starts mid-invite win, and says the invite was cancelled', async () => {
+  // An earlier test's toasts stay in the document; this one reads only its own.
+  document.getElementById('caelestis-notifications')?.remove()
+  const fetch = await installBackend()
+  vi.resetModules()
+  const { getState } = await import('../src/settings.js')
+  const connections = await import('../src/server-connections.js')
+  const { openInviteFromLocation } = await import('../src/ui/settings-controller.js')
+  const { consumeInvite, encodeInvite } = await import('../src/invite.js')
+  await consumeInvite(`#${encodeInvite(origin, readToken)}`, () => {})
+  const connected = vi.fn()
+  connections.onServerConnected(connected)
+  // The invite's first request waits; the disconnect's goodbye waits, with the row still present.
+  let sendInvite!: () => void
+  const inviteHeld = new Promise<void>((resolve) => (sendInvite = resolve))
+  const answer = fetch.getMockImplementation()
+  fetch.mockImplementation(async (input, init) => {
+    if (new URL(String(input)).pathname.endsWith('/auth/exchange')) await inviteHeld
+    return await answer!(input, init)
+  })
+  let finishGoodbye!: () => void
+  const goodbye = new Promise<void>((resolve) => (finishGoodbye = resolve))
+  connections.onServerRemoving(() => goodbye)
+
+  history.replaceState(null, '', `/#${encodeInvite(origin, adminToken)}`)
+  const opened = openInviteFromLocation()
+  const removed = connections.removeServer(origin)
+  sendInvite()
+  await opened
+  finishGoodbye()
+  await removed
+
+  expect(connected).not.toHaveBeenCalled()
+  expect(getState().servers).toEqual([])
+  const toasts = document.getElementById('caelestis-notifications') as
+    | (HTMLElement & { model?: { toasts: readonly { message: string }[] } })
+    | null
+  expect(toasts?.model?.toasts.map((toast) => toast.message)).toContain(
+    'The invite was cancelled because the server was disconnected.',
+  )
 })

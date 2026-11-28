@@ -30,7 +30,7 @@ import {
   reloadAccessTokens,
   revokeServerAccessToken,
 } from './access-tokens.js'
-import { requestConfirmation, showToast } from './notification-host.js'
+import { requestConfirmation, showAmbientToast, showToast } from './notification-host.js'
 import { syncPanelButtons } from './rail.js'
 
 /**
@@ -308,7 +308,8 @@ const disconnectServer = async (url: string): Promise<void> => {
  * Consume an invite fragment left in the address bar, at startup and on `hashchange`.
  *
  * `history.replaceState` clears it without reloading, firing `hashchange` again, or disturbing
- * Wplace's own query string and history state.
+ * Wplace's own query string and history state. The outcome always shows, whatever the activity
+ * preference and whether the panel has mounted: a painter who opened a link sees nothing else.
  */
 export const openInviteFromLocation = async (): Promise<void> => {
   const outcome = await consumeInvite(location.hash, () =>
@@ -316,25 +317,31 @@ export const openInviteFromLocation = async (): Promise<void> => {
   )
   switch (outcome?.kind) {
     case 'malformed':
-      showToast("That invite link isn't valid.", 'error')
+      showAmbientToast("That invite link isn't valid.", 'error')
       break
     case 'busy':
-      showToast(`Still connecting to ${outcome.url}. Open the invite again in a moment.`, 'error')
+      showAmbientToast(
+        `Still connecting to ${outcome.url}. Open the invite again in a moment.`,
+        'error',
+      )
       break
     case 'already':
-      showToast(`Already connected to ${serverLabel(outcome.server)}.`, 'info')
+      showAmbientToast(`Already connected to ${serverLabel(outcome.server)}.`, 'info')
       break
     case 'connected':
-      showToast(`Connected to ${serverLabel(outcome.server)}.`, 'info')
+      showAmbientToast(`Connected to ${serverLabel(outcome.server)}.`, 'info')
       break
     case 'full':
-      showToast(SERVER_LIMIT_MESSAGE, 'error')
+      showAmbientToast(SERVER_LIMIT_MESSAGE, 'error')
       break
     case 'refused':
-      showToast(`${outcome.server.url} didn't accept the invite's token.`, 'error')
+      showAmbientToast(`${outcome.server.url} didn't accept the invite's token.`, 'error')
       break
     case 'unreachable':
-      showToast(`Could not reach ${outcome.server.url}.`, 'error')
+      showAmbientToast(`Could not reach ${outcome.server.url}.`, 'error')
+      break
+    case 'superseded':
+      showAmbientToast('The invite was cancelled because the server was disconnected.', 'info')
       break
   }
   refreshSettings()
