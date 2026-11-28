@@ -2,7 +2,8 @@
 title: Event servers
 ---
 
-**Temporary:** Event servers are only for Wplace's Territory Weekend. This support will be removed after the event ends on Monday, 30 November 2026 at 16:00 UTC.
+> [!WARNING] Temporary
+> Event servers are only for Wplace's Territory Weekend. This support will be removed after the event ends on Monday, 30 November 2026 at 16:00 UTC.
 
 ## Enable event mode
 

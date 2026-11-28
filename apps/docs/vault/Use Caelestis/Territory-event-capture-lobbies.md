@@ -2,7 +2,8 @@
 title: Territory event capture lobbies
 ---
 
-**Temporary:** This support is only for Wplace's Territory Weekend. It will be removed after the event ends on Monday, 30 November 2026 at 16:00 UTC.
+> [!WARNING] Temporary
+> This support is only for Wplace's Territory Weekend. It will be removed after the event ends on Monday, 30 November 2026 at 16:00 UTC.
 
 A capture lobby helps your team paint a wall in one timed sequence. Each painter drafts a section of the wall (a *leg*) and waits for their slot to submit it.
 
