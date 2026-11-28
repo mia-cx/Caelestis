@@ -7,6 +7,7 @@ import {
   captureCoordinatorIndex,
   captureEndsAt,
   captureGuardCount,
+  captureLead,
   captureLegCount,
   capturePainterCount,
   captureReady,
@@ -56,21 +57,23 @@ export const applyCaptureEvent = (
   if (event.type === 'capture-new') {
     const left = runner ? leaveCaptures(runs, actor.sessionId, now) : null
     if (left === null) return runs
-    const { painters, staggerMs, distribution = 'even' } = event
+    const { painters, staggerMs, guards = 0, leadMs = CAPTURE_LEAD_MS } = event
+    const { distribution = 'even' } = event
     const opened: CaptureRun = {
       id: newId(),
       team: actor.team,
       opener: actor.painter.wplaceUserId,
       coordinator: actor.painter.wplaceUserId,
       painters,
-      // At most half the lobby guards, and a lobby of one has none.
-      guards: 0,
+      // The guards chosen: as painters join, up to half the lobby guard.
+      guards,
       distribution,
       members: [me],
       wall: null,
       guardZones: [],
       startsAt: null,
       staggerMs,
+      leadMs,
       cut: 0,
     }
     return [...left, opened]
@@ -130,16 +133,16 @@ const applyOwnEvent = (
   switch (event.type) {
     case 'capture-settings': {
       const { painters = run.painters, staggerMs = run.staggerMs } = event
-      const { distribution = run.distribution } = event
+      const { distribution = run.distribution, leadMs = captureLead(run) } = event
       // At most half the lobby guards.
       const guards =
         event.guards === undefined ? run.guards : Math.min(event.guards, maxCaptureGuards(run))
-      const next = { ...run, painters, guards, staggerMs, distribution }
+      const next = { ...run, painters, guards, staggerMs, leadMs, distribution }
       // The locked wall was planned for the old size: back to choosing.
       if (painters !== run.painters || guards !== run.guards) return unlocked(next)
       // The same wall, cut into a different number of legs.
       if (distribution !== run.distribution) return recut(next)
-      return staggerMs === run.staggerMs ? run : next
+      return staggerMs === run.staggerMs && leadMs === captureLead(run) ? run : next
     }
     case 'capture-move': {
       const order = moveCaptureMember(run, event.member, event.by)
@@ -180,7 +183,7 @@ const applyOwnEvent = (
     case 'capture-go':
       // Members report their own drafted counts, so this holds honest clients to their legs; a
       // client that lies about its draft can still start short.
-      return captureReady(run) ? { ...run, startsAt: now + CAPTURE_LEAD_MS } : run
+      return captureReady(run) ? { ...run, startsAt: now + captureLead(run) } : run
   }
 }
 

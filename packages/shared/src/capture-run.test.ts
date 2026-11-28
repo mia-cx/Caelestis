@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CAPTURE_LEAD_MS,
   type CaptureRun,
   captureEndsAt,
   captureGuardCount,
+  captureLead,
   captureLines,
   capturePaintersDrafted,
   captureShortfall,
   captureSlot,
+  DEFAULT_CAPTURE_SETTINGS,
   decodeCaptureRun,
   isCaptureReserve,
   MAX_CAPTURE_LINE_PIXELS,
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_WALL_PIXELS,
+  normaliseCaptureSettings,
 } from './capture-run.js'
 import { MAX_PRESENCE_MESSAGE_CODE_UNITS } from './presence.js'
 import { WORLD_PIXELS } from './tiles.js'
@@ -138,8 +142,42 @@ it('fits the largest lock-in in one presence message', () => {
   expect(lockIn.length).toBeLessThanOrEqual(MAX_PRESENCE_MESSAGE_CODE_UNITS)
 })
 
-it('decodes a lobby stored before its opener was recorded', () => {
-  // Backend 1.5.0 stored lobbies without `opener`; one still open after an upgrade must decode.
+it('decodes a lobby stored before its opener or lead was recorded', () => {
+  // Backend 1.5.0 stored lobbies without `opener` or `leadMs`; one still open after an upgrade
+  // must decode, and counts down for the default lead.
   const { opener: _, ...stored } = lobby(40, [0, 0])
-  expect(decodeCaptureRun(JSON.parse(JSON.stringify(stored)))).toEqual(stored)
+  const decoded = decodeCaptureRun(JSON.parse(JSON.stringify(stored)))
+  expect(decoded).toEqual(stored)
+  expect(decoded === null ? null : captureLead(decoded)).toBe(CAPTURE_LEAD_MS)
+  const withLead = { ...stored, leadMs: 4_000 }
+  expect(decodeCaptureRun(withLead)).toEqual(withLead)
+})
+
+describe('normaliseCaptureSettings', () => {
+  it('counts down 10 s by default, from 3 s to 30 s in whole seconds', () => {
+    expect(normaliseCaptureSettings(undefined)).toEqual(DEFAULT_CAPTURE_SETTINGS)
+    expect(DEFAULT_CAPTURE_SETTINGS.leadMs).toBe(10_000)
+    const lead = (leadMs: unknown) => normaliseCaptureSettings({ leadMs }).leadMs
+    expect([1_000, 3_000, 4_400, 30_000, 45_000, 'soon'].map(lead)).toEqual([
+      3_000, 3_000, 4_000, 30_000, 30_000, 10_000,
+    ])
+  })
+
+  it('keeps every stored setting within its bounds', () => {
+    expect(
+      normaliseCaptureSettings({
+        painters: 40,
+        guards: -1,
+        staggerMs: 520,
+        leadMs: 5_000,
+        distribution: 'reserve',
+      }),
+    ).toEqual({
+      painters: MAX_CAPTURE_PAINTERS,
+      guards: 0,
+      staggerMs: 500,
+      leadMs: 5_000,
+      distribution: 'reserve',
+    })
+  })
 })

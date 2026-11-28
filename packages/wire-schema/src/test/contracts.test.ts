@@ -88,6 +88,12 @@ describe('wire schema public contracts', () => {
     for (const staggerMs of [100, 750, 2_000])
       expect(decode(PresenceClientEvent, { ...open, staggerMs })).toEqual({ ...open, staggerMs })
     for (const staggerMs of [50, 525, 2_050]) invalid(PresenceClientEvent, { ...open, staggerMs })
+    // A countdown lead runs from 3 s to 30 s in whole seconds; a client that sends none gets 10 s.
+    const settings = { type: 'capture-settings' }
+    for (const leadMs of [3_000, 7_000, 30_000])
+      expect(decode(PresenceClientEvent, { ...settings, leadMs })).toEqual({ ...settings, leadMs })
+    for (const leadMs of [2_000, 4_500, 31_000])
+      invalid(PresenceClientEvent, { ...settings, leadMs })
     expect(
       decode(RegionDocument, {
         items: [{ id: 'brush', op: 'add', shape: { kind: 'rectangle', x: 1, y: 2, w: 3, h: 4 } }],

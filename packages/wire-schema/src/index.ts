@@ -1,11 +1,13 @@
 import type * as Shared from '@caelestis/shared'
 import {
+  CAPTURE_LEAD_STEP_MS,
   CAPTURE_STAGGER_STEP_MS,
   isCompactCaptureLine,
   isPresenceDraft,
   isRegionDocument,
   isRegionItem,
   isRegionShape,
+  MAX_CAPTURE_LEAD_MS,
   MAX_CAPTURE_LINE_PIXELS,
   MAX_CAPTURE_MEMBERS,
   MAX_CAPTURE_PAINTERS,
@@ -34,6 +36,7 @@ import {
   MAX_REGION_SHAPE_EXTENT,
   MAX_STROKE_WIDTH,
   MAX_TILE_OFFERS,
+  MIN_CAPTURE_LEAD_MS,
   MIN_CAPTURE_STAGGER_MS,
   MIN_REGION_SHAPE_CORNERS,
   PALETTE_SIZE,
@@ -241,6 +244,13 @@ const CaptureSettings = {
   distribution: Schema.Literals(['even', 'reserve']),
 }
 
+const CaptureLead = integerBetween(MIN_CAPTURE_LEAD_MS, MAX_CAPTURE_LEAD_MS).check(
+  booleanFilter(
+    (ms: number) => ms % CAPTURE_LEAD_STEP_MS === 0,
+    `a capture lead is a multiple of ${CAPTURE_LEAD_STEP_MS} ms`,
+  ),
+)
+
 export const CaptureRun = Schema.Struct({
   id: Identifier,
   team: TerritoryTeam,
@@ -259,6 +269,8 @@ export const CaptureRun = Schema.Struct({
   wall: Schema.NullOr(CaptureWall),
   guardZones: CaptureGuardZones,
   startsAt: Schema.NullOr(Epoch),
+  // Missing on a lobby stored before runners could set it.
+  leadMs: Schema.optionalKey(CaptureLead),
   cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
 })
 
@@ -268,6 +280,8 @@ export const PresenceClientEvent = Schema.Union([
     type: Schema.Literal('capture-new'),
     painters: CaptureSettings.painters,
     staggerMs: CaptureSettings.staggerMs,
+    guards: Schema.optionalKey(CaptureSettings.guards),
+    leadMs: Schema.optionalKey(CaptureLead),
     distribution: Schema.optionalKey(CaptureSettings.distribution),
   }),
   Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
@@ -277,6 +291,7 @@ export const PresenceClientEvent = Schema.Union([
     painters: Schema.optionalKey(CaptureSettings.painters),
     guards: Schema.optionalKey(CaptureSettings.guards),
     staggerMs: Schema.optionalKey(CaptureSettings.staggerMs),
+    leadMs: Schema.optionalKey(CaptureLead),
     distribution: Schema.optionalKey(CaptureSettings.distribution),
   }),
   Schema.Struct({

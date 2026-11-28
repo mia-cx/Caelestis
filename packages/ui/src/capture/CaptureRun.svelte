@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { CAPTURE_STAGGER_STEP_MS, MAX_CAPTURE_STAGGER_MS, MIN_CAPTURE_STAGGER_MS } from '@caelestis/shared'
+  import {
+    CAPTURE_LEAD_STEP_MS,
+    CAPTURE_STAGGER_STEP_MS,
+    MAX_CAPTURE_LEAD_MS,
+    MAX_CAPTURE_STAGGER_MS,
+    MIN_CAPTURE_LEAD_MS,
+    MIN_CAPTURE_STAGGER_MS,
+  } from '@caelestis/shared'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import type { CaptureRunIntent, CaptureRunModel } from './model.js'
@@ -127,6 +134,12 @@
           <Button label="Shorter stagger" kind="ghost" size="small" iconOnly disabled={model.staggerMs <= MIN_CAPTURE_STAGGER_MS} onclick={() => onIntent({ type: 'set-stagger', staggerMs: model.staggerMs - CAPTURE_STAGGER_STEP_MS })}><Icon name="remove" /></Button>
           <output class="caelestis-field wide">{model.staggerMs} ms</output>
           <Button label="Longer stagger" kind="ghost" size="small" iconOnly disabled={model.staggerMs >= MAX_CAPTURE_STAGGER_MS} onclick={() => onIntent({ type: 'set-stagger', staggerMs: model.staggerMs + CAPTURE_STAGGER_STEP_MS })}><Icon name="add" /></Button>
+        </div>
+        <span class="label" id="capture-run-lead">Countdown</span>
+        <div class="stepper" role="group" aria-labelledby="capture-run-lead">
+          <Button label="Shorter countdown" kind="ghost" size="small" iconOnly disabled={model.leadMs <= MIN_CAPTURE_LEAD_MS} onclick={() => onIntent({ type: 'set-lead', leadMs: model.leadMs - CAPTURE_LEAD_STEP_MS })}><Icon name="remove" /></Button>
+          <output class="caelestis-field wide">{model.leadMs / 1000} s</output>
+          <Button label="Longer countdown" kind="ghost" size="small" iconOnly disabled={model.leadMs >= MAX_CAPTURE_LEAD_MS} onclick={() => onIntent({ type: 'set-lead', leadMs: model.leadMs + CAPTURE_LEAD_STEP_MS })}><Icon name="add" /></Button>
         </div>
       </div>
     {/if}

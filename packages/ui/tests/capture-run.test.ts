@@ -25,6 +25,7 @@ const counting = {
   guards: 0,
   maxGuards: 2,
   staggerMs: 500,
+  leadMs: 10_000,
   distribution: 'even',
   anchor: null,
   members: [ada, bea],
@@ -141,6 +142,24 @@ describe('a runner inside a lobby', () => {
     // A painter sees no settings, and nobody does once the countdown runs.
     expect(button(render({ ...gathering, admin: false }), 'Longer stagger')).toBeNull()
     expect(button(render({ ...counting, admin: true }), 'Longer stagger')).toBeNull()
+  })
+
+  it('steps the countdown by a second from 3 s to 30 s', () => {
+    const intents: CaptureRunIntent[] = []
+    const card = render({ ...gathering, leadMs: 4_000 }, intents)
+    expect(card.textContent).toContain('4 s')
+    button(card, 'Shorter countdown')?.click()
+    button(card, 'Longer countdown')?.click()
+    expect(intents).toEqual([
+      { type: 'set-lead', leadMs: 3_000 },
+      { type: 'set-lead', leadMs: 5_000 },
+    ])
+    expect(button(render({ ...gathering, leadMs: 3_000 }), 'Shorter countdown')?.disabled).toBe(
+      true,
+    )
+    expect(button(render({ ...gathering, leadMs: 30_000 }), 'Longer countdown')?.disabled).toBe(
+      true,
+    )
   })
 
   it('locks in a proposal that fits, and says how many painters one that does not needs', () => {

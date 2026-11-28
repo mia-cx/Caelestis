@@ -3,6 +3,7 @@ import {
   type CaptureClientEvent,
   type CaptureRun,
   type CaptureSettings,
+  captureGuardCount,
   captureLines,
   isCaptureGuard,
   isCaptureReserve,
@@ -143,8 +144,13 @@ describe('settings', () => {
   })
 
   it('let at most half the lobby guard, rounded down', () => {
-    // A lobby of one has no guards, whatever its opener last chose.
-    expect(only(opened([])).guards).toBe(0)
+    // A lobby opens with the guards its opener last chose, and guards once enough painters join.
+    let chosen = apply([], { type: 'capture-new', ...SETTINGS, guards: 2 })
+    expect(captureGuardCount(only(chosen))).toBe(0)
+    const id = only(chosen).id
+    for (const joiner of [2, 3, 4, 5])
+      chosen = apply(chosen, { type: 'capture-join', run: id }, actor(joiner))
+    expect(captureGuardCount(only(chosen))).toBe(2)
     // Five members: two may guard.
     const runs = apply(opened([2, 3, 4, 5]), { type: 'capture-settings', guards: 9 })
     expect(only(runs).guards).toBe(2)
@@ -368,6 +374,21 @@ describe('the countdown', () => {
     expect(apply(runs, { type: 'capture-go' })).toBe(runs)
     runs = apply(runs, { type: 'capture-drafted', run, drafted: 20, cut }, actor(2))
     expect(only(apply(runs, { type: 'capture-go' }, runner(), 1_000)).startsAt).toBe(
+      1_000 + CAPTURE_LEAD_MS,
+    )
+  })
+
+  it('starts the lobby’s own lead before the first slot', () => {
+    const ready = draftAll(apply(opened([2], { leadMs: 3_000 }), lock(40)))
+    expect(only(apply(ready, { type: 'capture-go' }, runner(), 1_000)).startsAt).toBe(4_000)
+    // A runner can change it until the countdown; it keeps the locked wall.
+    const longer = apply(ready, { type: 'capture-settings', leadMs: 20_000 })
+    expect(only(longer)).toMatchObject({ leadMs: 20_000, wall: wall(40), cut: only(ready).cut })
+    expect(only(apply(longer, { type: 'capture-go' }, runner(), 1_000)).startsAt).toBe(21_000)
+    // Backend 1.5.0 stored lobbies without a lead; one still open after an upgrade starts with the
+    // default.
+    const { leadMs: _, ...stored } = only(ready)
+    expect(only(apply([stored], { type: 'capture-go' }, runner(), 1_000)).startsAt).toBe(
       1_000 + CAPTURE_LEAD_MS,
     )
   })
