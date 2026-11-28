@@ -31,7 +31,8 @@ it("reports this tab's latency to Wplace to an event server, with each Paint cli
   const answers: ((response: Response) => void)[] = []
   const serverFetch = window.fetch
   window.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-    String(input).startsWith(BACKEND)
+    URL.parse(input instanceof Request ? input.url : String(input), window.location.href)
+      ?.origin === BACKEND
       ? new Promise<Response>((resolve) => answers.push(resolve))
       : serverFetch(input, init)) as typeof fetch
   teardown.push(() => {
