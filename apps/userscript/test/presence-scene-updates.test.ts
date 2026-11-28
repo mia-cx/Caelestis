@@ -1,6 +1,7 @@
 import { setFlagsFromString } from 'node:v8'
 import { runInNewContext } from 'node:vm'
 import { type PresenceRect, TERRITORY_EVENT } from '@caelestis/shared'
+import type { CaptureRunIntent, CaptureRunModel } from '@caelestis/ui/elements'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { PlannedProposal } from '../src/capture-planning.js'
 import { connectPresence, FakeWebSocket, SELF_SESSION } from './presence-socket.js'
@@ -78,113 +79,97 @@ it('redraws peers from every presence message and reuses the scene between them'
   expect(presenceScene().map((item) => item.rect)).toEqual([rect(20)])
 })
 
-it('redraws capture lines from every run update and reuses them between updates', async () => {
+const TEAMMATE = 'c'.repeat(16)
+
+/** This painter's team's one lobby, with this painter and a teammate in it. */
+const lobby = (
+  wall: readonly number[] | null,
+  drafted: number,
+  joined: readonly string[] = [],
+) => ({
+  id: 'run',
+  team: 0,
+  coordinator: null,
+  painters: 2,
+  guards: 0,
+  startsAt: null,
+  staggerMs: 500,
+  cut: 0,
+  members: [SELF_SESSION, TEAMMATE, ...joined].map((sessionId, index) => ({
+    sessionId,
+    painter: index === 0 ? painter : other,
+    drafted: index === 1 ? drafted : 0,
+  })),
+  wall,
+  guardZones: [],
+})
+
+it('cuts the locked wall into legs from every lobby update and reuses them between updates', async () => {
   const { socket } = await connect({ capture: 1 })
   const { captureItems } = await import('../src/capture-runs.js')
-  const run = (drafted: number) =>
-    socket.receive({
-      type: 'capture',
-      run: {
-        id: 'run',
-        team: 0,
-        painters: 2,
-        guards: 0,
-        startsAt: null,
-        staggerMs: 500,
-        members: [
-          { sessionId: SELF_SESSION, painter, drafted: 0 },
-          { sessionId: 'c'.repeat(16), painter: other, drafted },
-        ],
-        lines: [
-          [10, 10, 11, 10],
-          [10, 12, 11, 12],
-        ],
-      },
-    })
-  run(0)
+  // Four pixels: this painter takes the two from anchor A, the teammate the two from anchor B.
+  const wall = [10, 10, 11, 10, 12, 10, 13, 10]
+  const update = (drafted: number) =>
+    socket.receive({ type: 'capture-runs', runs: [lobby(wall, drafted)] })
+  update(0)
   const gathering = captureItems()
-  // The other painter's line is outlined until drafted; this painter's own is still to draft.
-  expect(gathering.map((item) => item.kind)).toEqual(['pending', 'todo'])
+  // The teammate's leg is outlined until drafted; this painter's own is still to draft.
+  expect(gathering.map((item) => [item.kind, item.rect])).toEqual([
+    ['pending', { x: 12, y: 10, w: 2, h: 1 }],
+    ['todo', { x: 10, y: 10, w: 2, h: 1 }],
+  ])
   expect(captureItems()).toBe(gathering)
-  run(2)
+  update(2)
   expect(captureItems().map((item) => item.kind)).toEqual(['ready', 'todo'])
 })
 
 /**
- * An event runner on an event server whose gathering run has the top wall published, asking for
- * plans again: the planner offers the top wall and a bottom one, so the bottom one is the candidate.
+ * An event runner on an event server, in a lobby with no wall locked in: planning starts on its
+ * own, and the planner offers a wall along y 10 and one along y 50 with the area it would enclose.
  */
-const proposeAgain = async () => {
+const planning = async () => {
   const { socket } = await connect({ capture: 1, scope: 'event_runner' })
   vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
   const { captureItems, installCaptureRuns } = await import('../src/capture-runs.js')
   installCaptureRuns()
-  // Two walls the planner offers: one along y 10, one along y 50 with the area it would enclose.
   const wall = (y: number): PlannedProposal => ({
     label: `Wall at ${y}`,
     gained: 6,
     pixels: 4,
-    lines: [
-      [10, y, 11, y],
-      [10, y + 2, 11, y + 2],
-    ],
+    wall: [10, y, 11, y, 12, y, 13, y],
+    guardZones: [],
     area:
       y === 50
-        ? { rect: { x: 10, y, w: 2, h: 3 }, mask: new Uint8Array(6).fill(1), count: 6 }
+        ? { rect: { x: 10, y, w: 4, h: 3 }, mask: new Uint8Array(12).fill(1), count: 12 }
         : null,
   })
   const [top, bottom] = [wall(10), wall(50)]
   planner.plans = [top, bottom]
-  const run = (published: PlannedProposal, drafted: number, startsAt: number | null = null) =>
-    socket.receive({
-      type: 'capture',
-      run: {
-        id: 'run',
-        team: 0,
-        painters: 2,
-        guards: 0,
-        startsAt,
-        staggerMs: 500,
-        members: [
-          { sessionId: 'c'.repeat(16), painter: other, drafted },
-          { sessionId: 'd'.repeat(16), painter: other, drafted: 0 },
-        ],
-        lines: published.lines,
-      },
-    })
-  const intent = (type: 'propose' | 'go') =>
-    document
-      .getElementById('caelestis-capture-run')
-      ?.dispatchEvent(new CustomEvent('caelestis-capture-run-intent', { detail: { type } }))
-  run(top, 0)
-  intent('propose')
+  const update = (locked: PlannedProposal | null, joined: readonly string[] = []) =>
+    socket.receive({ type: 'capture-runs', runs: [lobby(locked?.wall ?? null, 0, joined)] })
+  update(null)
   await vi.advanceTimersByTimeAsync(0)
-  return { captureItems, run, intent, top, bottom }
+  return { captureItems, update, top, socket }
 }
 
-it("keeps candidate masks across a teammate's progress, and follows the published plan", async () => {
-  const { captureItems, run, top, bottom } = await proposeAgain()
-  const below = (y: number) => captureItems().filter((item) => item.rect.y >= y)
-  const candidates = below(50)
-  expect(candidates.map((item) => item.kind)).toEqual(['area', 'pending', 'pending'])
+it('plans in a lobby on its own, keeping candidate masks while teammates join', async () => {
+  const { captureItems, update } = await planning()
+  const candidates = captureItems()
+  expect(candidates.map((item) => [item.kind, item.rect.y])).toEqual([
+    ['pending', 10],
+    ['area', 50],
+    ['pending', 50],
+  ])
 
-  run(top, 1)
-  // Same masks after a progress update, so the map has nothing to upload again.
-  const after = below(50)
+  update(null, ['d'.repeat(16)])
+  // Same masks after a teammate joins, so the map has nothing to upload again.
+  const after = captureItems()
   expect(after).toHaveLength(candidates.length)
   for (const [index, item] of after.entries()) expect(item.pixels).toBe(candidates[index]?.pixels)
-
-  // Publishing the bottom wall instead shows the top one as the candidate.
-  run(bottom, 1)
-  const above = captureItems().filter((item) => item.rect.y < 50)
-  expect(above.map((item) => [item.kind, item.rect.y])).toEqual([
-    ['pending', 10],
-    ['pending', 12],
-  ])
 })
 
-it('lets go of the candidate masks once the run starts', async () => {
-  const { captureItems, run, intent, top } = await proposeAgain()
+it('lets go of the candidate masks once a wall is locked in', async () => {
+  const { captureItems, update, top } = await planning()
   // Read inside a function so the test itself never holds the candidate's mask.
   const candidateLine = () => {
     const line = captureItems().find((item) => item.kind === 'pending' && item.rect.y === 50)
@@ -192,13 +177,53 @@ it('lets go of the candidate masks once the run starts', async () => {
     return new WeakRef(line?.pixels ?? {})
   }
   const shown = candidateLine()
-  intent('go')
-  // The first frame after Go already sees the started run.
-  run(top, 2, TERRITORY_EVENT.startsAt + 3_660_000)
+  // The first frame after the lock already sees the locked lobby.
+  update(top)
   expect(captureItems().some((item) => item.rect.y >= 50)).toBe(false)
   // A new WeakRef holds its target until the current task ends, so collect after a real one.
   vi.useRealTimers()
   await new Promise((done) => setTimeout(done, 0))
   collect()
   expect(shown.deref()).toBeUndefined()
+})
+
+const card = () => {
+  const element = document.getElementById('caelestis-capture-run') as
+    | (HTMLElement & { model?: CaptureRunModel })
+    | null
+  if (element === null) throw new Error('Expected the capture card')
+  return element
+}
+const intent = (detail: CaptureRunIntent) =>
+  card().dispatchEvent(new CustomEvent('caelestis-capture-run-intent', { detail }))
+const sent = (socket: FakeWebSocket, type: string) =>
+  socket.sent.map((data) => JSON.parse(data)).filter((event) => event.type === type)
+
+it("locks in a proposal's wall and guard zones for the lobby", async () => {
+  const { top, socket } = await planning()
+  // Four pixels over two painters: every leg fits, so both proposals can lock in.
+  expect(card().model?.proposals.map(({ id, needs }) => [id, needs])).toEqual([
+    ['10,10:13,10', 0],
+    ['10,50:13,50', 0],
+  ])
+  intent({ type: 'lock', id: '10,10:13,10' })
+  expect(sent(socket, 'capture-lock')).toEqual([
+    { type: 'capture-lock', wall: top.wall, guardZones: [] },
+  ])
+})
+
+it('lists the team’s lobbies to a painter in none, and joins the one they choose', async () => {
+  const { socket } = await connect({ capture: 1, canWrite: true })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  const { installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  const theirs = { ...lobby(null, 0), members: lobby(null, 0).members.slice(1) }
+  const started = { ...theirs, id: 'started', startsAt: TERRITORY_EVENT.startsAt }
+  socket.receive({ type: 'capture-runs', runs: [theirs, started] })
+  expect(card().model).toMatchObject({
+    phase: 'list',
+    lobbies: [{ id: 'run', name: other.displayName, members: 1, canJoin: true }],
+  })
+  intent({ type: 'join', id: 'run' })
+  expect(sent(socket, 'capture-join')).toEqual([{ type: 'capture-join', run: 'run' }])
 })

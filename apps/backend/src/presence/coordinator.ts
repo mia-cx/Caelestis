@@ -31,7 +31,7 @@ import type { AccessTokenStore } from '../auth/store.js'
 import { createLiveSessionFence, type LiveHost, type LiveSocket } from '../live/session.js'
 import type { IngestTimingSnapshot, IngestTimings } from '../metrics/ingest-timing.js'
 import { ownedRegionIds, type RegionOwner, type RegionStore } from '../work/region-store.js'
-import { applyCaptureEvent, leaveCapture } from './capture.js'
+import { applyCaptureEvent, connectedCaptures, leaveCaptures } from './capture.js'
 import { presenceRectWithinSurface } from './geometry.js'
 import { PeerGrid } from './peer-grid.js'
 import type { PresenceConnection, PresenceRoomId } from './port.js'
@@ -98,8 +98,11 @@ interface LiveSession {
 }
 
 const CLAIM_RENEW_INTERVAL_MS = 60 * 60 * 1_000
-/** Storage key of one team's capture run in the room, so it survives hibernation. */
-const captureKey = (team: TerritoryTeam): string => `capture-run:${team}`
+/**
+ * Storage key of one team's capture lobbies in the room, so they survive hibernation. Single runs
+ * stored under `capture-run:<team>` before lobbies are never read.
+ */
+const captureKey = (team: TerritoryTeam): string => `capture-runs:${team}`
 /** The earliest claim expiry. The room's identity is stored beside it but read from the room. */
 interface RegionExpiry extends PresenceRoomId {
   readonly at: number | null
@@ -142,8 +145,8 @@ export class PresenceCoordinator<Client> {
   /** When the last tick started, so the next one keeps to the tick interval however long it ran. */
   private tickStartedAt = Number.NEGATIVE_INFINITY
   private stopped = false
-  /** Per team, capture run changes one at a time, each reading the run the previous one stored. */
-  private readonly captureQueues = new Map<TerritoryTeam, Promise<CaptureRun | null>>()
+  /** Per team, lobby changes one at a time, each reading the lobbies the previous one stored. */
+  private readonly captureQueues = new Map<TerritoryTeam, Promise<readonly CaptureRun[]>>()
 
   constructor(
     private readonly state: PresenceHost<Client>,
@@ -157,7 +160,7 @@ export class PresenceCoordinator<Client> {
      */
     private readonly routeRevocation: (tokenHash: string) => Promise<void>,
     /**
-     * Whether this is an event server: it runs one capture run per event team, shares viewports and
+     * Whether this is an event server: it runs capture lobbies per event team, shares viewports and
      * drafts within each team only, and takes no quick claims.
      */
     private readonly eventServer = false,
@@ -176,31 +179,39 @@ export class PresenceCoordinator<Client> {
     return held
   }
 
-  /** A team's capture run as last stored, after any change still being applied. */
-  private captureRun(team: TerritoryTeam): Promise<CaptureRun | null> {
+  /** A team's lobbies as last stored, after any change still being applied. */
+  private captureRuns(team: TerritoryTeam): Promise<readonly CaptureRun[]> {
     let queued = this.captureQueues.get(team)
     if (queued === undefined) {
-      queued = this.state.storage.get<CaptureRun>(captureKey(team)).then((run) => run ?? null)
+      queued = this.state.storage
+        .get<readonly CaptureRun[]>(captureKey(team))
+        .then((runs) => runs ?? [])
       this.captureQueues.set(team, queued)
     }
     return queued
   }
 
-  /** Apply one change to a team's run, store it, and send it to that team's sessions if changed. */
+  /**
+   * Apply one change to a team's lobbies, close those with no connected member, store them, and
+   * send them to that team's sessions if changed.
+   */
   private updateCapture(
     team: TerritoryTeam,
-    change: (run: CaptureRun | null) => CaptureRun | null,
+    change: (runs: readonly CaptureRun[]) => readonly CaptureRun[],
   ): void {
-    const previous = this.captureRun(team)
-    const next = previous.then(async (run) => {
-      const updated = change(run)
-      if (updated === run) return run
-      if (updated === null) await this.state.storage.delete(captureKey(team))
+    const previous = this.captureRuns(team)
+    const next = previous.then(async (runs) => {
+      const connected = new Set(this.sessionsOpen().map(({ held }) => held.sessionId))
+      const updated = connectedCaptures(change(runs), connected)
+      if (updated === runs) return runs
+      if (updated.length === 0) await this.state.storage.delete(captureKey(team))
       else await this.state.storage.put(captureKey(team), updated)
       const payload = JSON.stringify({
-        type: 'capture',
-        run: updated,
+        type: 'capture-runs',
+        runs: updated,
       } satisfies PresenceServerEvent)
+      // Recipients are read after the write: a session that switched team meanwhile has already
+      // been sent its new team's lobbies and must not get these.
       for (const { socket, held } of this.sessionsOpen())
         if (held.team === team) this.sendEncoded(socket, payload)
       return updated
@@ -538,8 +549,12 @@ export class PresenceCoordinator<Client> {
     this.local.delete(attachment.sessionId)
     this.dirty.add(attachment.sessionId)
     this.armTick()
-    if (attachment.team !== undefined)
-      this.updateCapture(attachment.team, (run) => run && leaveCapture(run, attachment.sessionId))
+    if (attachment.team !== undefined) this.leaveCaptures(attachment.team, attachment.sessionId)
+  }
+
+  /** Take a session out of its team's lobbies, unless its countdown holds it there. */
+  private leaveCaptures(team: TerritoryTeam, sessionId: string): void {
+    this.updateCapture(team, (runs) => leaveCaptures(runs, sessionId, Date.now()) ?? runs)
   }
 
   private close(socket: LiveSocket, code: number, reason: string): void {
@@ -614,7 +629,7 @@ export class PresenceCoordinator<Client> {
             canWrite: credentialScope !== 'read' && !anonymous,
           },
         )
-        // A capture run reaches the session once it reports its team.
+        // Capture lobbies reach the session once it reports its team.
         this.dirty.add(sessionId)
         this.armTick()
         await this.armAlarm(open)
@@ -685,7 +700,7 @@ export class PresenceCoordinator<Client> {
         scope: attachment.credentialScope,
         team,
       }
-      this.updateCapture(team, (run) => applyCaptureEvent(run, event, actor, Date.now(), uuidV7))
+      this.updateCapture(team, (runs) => applyCaptureEvent(runs, event, actor, Date.now(), uuidV7))
       return
     }
     // Anonymous sessions are read scope, so the early return above keeps their quick claims out.
@@ -727,16 +742,15 @@ export class PresenceCoordinator<Client> {
     } satisfies Attachment
     socket.serializeAttachment(updated)
     if (team !== undefined && team !== attachment.team) {
-      // A new team: leave the old team's run, see the new one's.
+      // A new team: leave the old team's lobby, see the new one's.
       const left = attachment.team
-      if (left !== undefined)
-        this.updateCapture(left, (run) => run && leaveCapture(run, attachment.sessionId))
-      void this.captureRun(team).then((run) => {
+      if (left !== undefined) this.leaveCaptures(left, attachment.sessionId)
+      void this.captureRuns(team).then((runs) => {
         // The read can finish after the session closed or switched again; then it is not theirs.
         if (socket.readyState !== 1) return
         const held = attachmentOf(socket)
         if (held === null || held.closed || held.team !== team) return
-        this.send({ socket, held }, { type: 'capture', run })
+        this.send({ socket, held }, { type: 'capture-runs', runs })
       })
     }
     this.dirty.add(attachment.sessionId)

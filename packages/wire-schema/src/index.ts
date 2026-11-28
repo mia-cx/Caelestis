@@ -8,8 +8,10 @@ import {
   isRegionShape,
   MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_LINE_PIXELS,
+  MAX_CAPTURE_MEMBERS,
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_STAGGER_MS,
+  MAX_CAPTURE_WALL_PIXELS,
   MAX_DESCRIPTION_LENGTH,
   MAX_HOME_COPY_LENGTH,
   MAX_LIVE_MESSAGE_BYTES,
@@ -208,15 +210,16 @@ const PresenceIdentity = Schema.Struct({
 })
 const PresenceSessionId = Schema.String.check(Schema.isPattern(/^[0-9a-f]{16}$/))
 
-const CaptureLine = boundedArray(
-  integerBetween(0, WORLD_PIXELS - 1),
-  MAX_CAPTURE_LINE_PIXELS * 2,
-).check(
-  booleanFilter(
-    (line: readonly number[]) => line.length % 2 === 0 && isCompactCaptureLine(line),
-    'a capture line is pairs of coordinates within a bounded box',
-  ),
-)
+const captureLine = (pixels: number) =>
+  boundedArray(integerBetween(0, WORLD_PIXELS - 1), pixels * 2).check(
+    booleanFilter(
+      (line: readonly number[]) => line.length % 2 === 0 && isCompactCaptureLine(line),
+      'a capture line is pairs of coordinates within a bounded box',
+    ),
+  )
+const CaptureLine = captureLine(MAX_CAPTURE_LINE_PIXELS)
+const CaptureWall = captureLine(MAX_CAPTURE_WALL_PIXELS)
+const CaptureGuardZones = boundedArray(CaptureLine, MAX_CAPTURE_GUARDS)
 const Epoch = integerBetween(0, Number.MAX_SAFE_INTEGER)
 
 const TerritoryTeam = Schema.Literals([0, 1, 2, 3])
@@ -228,46 +231,59 @@ const CaptureStagger = integerBetween(MIN_CAPTURE_STAGGER_MS, MAX_CAPTURE_STAGGE
   ),
 )
 
+const CaptureSettings = {
+  painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
+  guards: integerBetween(0, MAX_CAPTURE_GUARDS),
+  staggerMs: CaptureStagger,
+}
+
 export const CaptureRun = Schema.Struct({
   id: Identifier,
   team: TerritoryTeam,
   coordinator: Schema.NullOr(integerBetween(0, Number.MAX_SAFE_INTEGER)),
-  painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
-  guards: integerBetween(0, MAX_CAPTURE_GUARDS),
+  ...CaptureSettings,
   members: boundedArray(
     Schema.Struct({
       sessionId: PresenceSessionId,
       painter: PresenceIdentity,
       drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+      left: Schema.optionalKey(Schema.Literal(true)),
     }),
-    MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS,
+    MAX_CAPTURE_MEMBERS,
   ),
-  lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
+  wall: Schema.NullOr(CaptureWall),
+  guardZones: CaptureGuardZones,
   startsAt: Schema.NullOr(Epoch),
-  staggerMs: CaptureStagger,
+  cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
 })
 
 export const PresenceClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal('presence-heartbeat') }),
-  Schema.Struct({
-    type: Schema.Literal('capture-open'),
-    painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
-    guards: integerBetween(0, MAX_CAPTURE_GUARDS),
-    staggerMs: Schema.optionalKey(CaptureStagger),
-  }),
+  Schema.Struct({ type: Schema.Literal('capture-new'), ...CaptureSettings }),
   Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
   Schema.Struct({
-    type: Schema.Literal('capture-order'),
-    order: boundedArray(PresenceSessionId, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
+    type: Schema.Literal('capture-settings'),
+    painters: Schema.optionalKey(CaptureSettings.painters),
+    guards: Schema.optionalKey(CaptureSettings.guards),
+    staggerMs: Schema.optionalKey(CaptureSettings.staggerMs),
   }),
   Schema.Struct({
-    type: Schema.Literal('capture-plan'),
-    lines: boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS + MAX_CAPTURE_GUARDS),
+    type: Schema.Literal('capture-move'),
+    member: PresenceSessionId,
+    by: Schema.Literals([-1, 1]),
   }),
+  Schema.Struct({
+    type: Schema.Literal('capture-lock'),
+    wall: CaptureWall,
+    guardZones: CaptureGuardZones,
+  }),
+  Schema.Struct({ type: Schema.Literal('capture-unlock') }),
   Schema.Struct({
     type: Schema.Literal('capture-drafted'),
+    run: Identifier,
     drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+    cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
   }),
   Schema.Struct({ type: Schema.Literal('capture-go') }),
   Schema.Struct({ type: Schema.Literal('capture-close') }),
@@ -412,7 +428,10 @@ export const PresenceServerEvent = Schema.Union([
     regions: Schema.Array(RegionClaim),
     ownedRegionIds: Schema.optionalKey(Schema.Array(Identifier)),
   }),
-  Schema.Struct({ type: Schema.Literal('capture'), run: Schema.NullOr(CaptureRun) }),
+  Schema.Struct({
+    type: Schema.Literal('capture-runs'),
+    runs: boundedArray(CaptureRun, MAX_PRESENCE_SUBSCRIBERS),
+  }),
   Schema.Struct({ type: Schema.Literal('clock'), sent: Epoch, at: Epoch }),
 ])
 

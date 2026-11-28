@@ -11,6 +11,9 @@
   const ANNOUNCED_SECONDS = [1, 2, 3, 5, 10] as const
 
   const gathering = $derived(model.phase === 'gathering')
+  const listing = $derived(model.phase === 'list')
+  const painters = (n: number): string => `${n} ${n === 1 ? 'painter' : 'painters'}`
+  const needs = (n: number): string => `Needs ${n} more ${n === 1 ? 'painter' : 'painters'}`
   /** The rows an administrator can move; the closer's place is fixed. */
   const movable = $derived(model.members.filter((member) => !member.closes))
   const counting = $derived(model.phase === 'countdown')
@@ -45,12 +48,12 @@
 
   /** Polite and text-only: the string, and so the DOM, changes only on the announced seconds. */
   const announcement = $derived.by(() => {
-    if (model.phase === 'gathering') return 'Capture run open'
-    if (model.phase === 'done') return 'Capture run finished'
+    if (model.phase === 'gathering') return model.locked ? 'Wall locked in' : 'In capture lobby'
+    if (model.phase === 'done') return 'Capture finished'
     if (!counting) return ''
     if (deadline === null || left === 0) return mine ? 'Paint now' : 'Painting'
     const mark = ANNOUNCED_SECONDS.find((second) => second >= Math.ceil(left / 1000))
-    if (mark === undefined) return 'Capture run started'
+    if (mark === undefined) return 'Countdown started'
     return mine ? `Paint in ${seconds(mark)}` : `First painter in ${seconds(mark)}`
   })
 
@@ -70,16 +73,31 @@
 <section class="card caelestis-surface" aria-labelledby="capture-run-title">
   <header>
     <Icon name="painters" size="1.125rem" />
-    <h2 id="capture-run-title">Capture run</h2>
-    {#if model.phase !== 'none'}
-      {@const places = model.painters + model.guards}
-      <span class="count" aria-label={`${model.members.length} of ${places} places taken`}>{model.members.length}/{places}</span>
+    <h2 id="capture-run-title">{listing ? 'Capture lobbies' : 'Capture lobby'}</h2>
+    {#if !listing}
+      <span class="count" aria-label={painters(model.members.length)}>{model.members.length}</span>
     {/if}
   </header>
 
-  {#if model.phase === 'none'}
-    {#if model.admin}
-      <div class="open">
+  {#if listing}
+    {#if model.lobbies.length > 0}
+      <ul class="lobbies" aria-label="Open lobbies">
+        {#each model.lobbies as lobby (lobby.id)}
+          <li>
+            <span class="plan">
+              <span class="plan-label">{lobby.name}</span>
+              <span class="plan-stats">{painters(lobby.members)}</span>
+            </span>
+            <Button label="Join" size="compact" kind={model.admin ? 'default' : 'primary'} disabled={!lobby.canJoin} onclick={() => onIntent({ type: 'join', id: lobby.id })}>Join<span class="hidden"> {lobby.name}</span></Button>
+          </li>
+        {/each}
+      </ul>
+    {:else}
+      <p class="empty">No open lobbies</p>
+    {/if}
+  {:else}
+    {#if model.admin && gathering}
+      <div class="settings">
         <label for="capture-run-painters">Painters</label>
         <div class="stepper">
           <Button label="Fewer painters" kind="ghost" size="small" iconOnly disabled={model.painters <= 1} onclick={() => setPainters(model.painters - 1)}><Icon name="remove" /></Button>
@@ -98,10 +116,8 @@
           <output class="caelestis-field wide">{model.staggerMs} ms</output>
           <Button label="Longer stagger" kind="ghost" size="small" iconOnly disabled={model.staggerMs >= MAX_CAPTURE_STAGGER_MS} onclick={() => onIntent({ type: 'set-stagger', staggerMs: model.staggerMs + CAPTURE_STAGGER_STEP_MS })}><Icon name="add" /></Button>
         </div>
-        <Button label="Open run" kind="primary" size="small" onclick={() => onIntent({ type: 'open' })} />
       </div>
     {/if}
-  {:else}
     {#if guarding}
       <div class="clock" class:cut={model.anchor === 'cut'}>
         <p class="lead"><span>Anchor guard</span></p>
@@ -119,7 +135,7 @@
         <p class="big">{clock(left)}</p>
       </div>
     {:else if model.phase === 'done'}
-      <p class="big done">Run finished</p>
+      <p class="big done">Capture finished</p>
     {/if}
 
     {#if model.members.length > 0}
@@ -150,11 +166,9 @@
           </li>
         {/each}
       </ol>
-    {:else}
-      <p class="empty">No painters yet</p>
     {/if}
 
-    {#if model.role !== null && gathering}
+    {#if model.role !== null && gathering && model.locked}
       <ol class="steps" aria-label="What to do">
         <li>Make your way over to your leg by drawing like a caterpillar</li>
         <li>Wait for the countdown</li>
@@ -163,22 +177,21 @@
       </ol>
     {/if}
 
-    {#if model.admin && gathering}
+    {#if model.admin && gathering && (model.locked || model.proposals.length > 0)}
       <div class="plans">
-        <Button label={model.proposing ? 'Stop planning' : model.proposals.length > 0 ? 'Propose again' : 'Propose plans'} size="small" onclick={() => onIntent({ type: 'propose' })} />
-        {#if model.proposals.length > 0}
-          <ul aria-label="Plans">
+        {#if model.locked}
+          {#if model.needs > 0}<p class="plan-stats">{needs(model.needs)}</p>{/if}
+          <Button label="Cancel proposed shape" size="small" onclick={() => onIntent({ type: 'unlock' })} />
+        {:else}
+          <ul aria-label="Proposals">
             {#each model.proposals as proposal (proposal.id)}
-              <li class:published={proposal.published}>
+              <li>
                 <span class="plan">
                   <span class="plan-label">{proposal.label}</span>
                   <span class="plan-stats">Gains {proposal.gained.toLocaleString()} · paints {proposal.pixels.toLocaleString()}</span>
+                  {#if proposal.needs > 0}<span class="plan-stats">{needs(proposal.needs)}</span>{/if}
                 </span>
-                {#if proposal.published}
-                  <span class="state"><Icon name="check" size="0.875rem" />Published</span>
-                {:else}
-                  <Button label="Publish" size="compact" onclick={() => onIntent({ type: 'publish', id: proposal.id })}>Publish<span class="hidden"> {proposal.label}</span></Button>
-                {/if}
+                <Button label="Lock in" size="compact" disabled={proposal.needs > 0} onclick={() => onIntent({ type: 'lock', id: proposal.id })}>Lock in<span class="hidden"> {proposal.label}</span></Button>
               </li>
             {/each}
           </ul>
@@ -189,21 +202,20 @@
 
   {#if model.message}<p class="message">{model.message}</p>{/if}
 
-  {#if model.phase !== 'none'}
-    {@const join = gathering && !model.joined && model.canJoin}
-    {@const leave = gathering && model.joined}
-    {#if join || leave || model.admin}
-      <footer>
-        {#if join}<Button label="Join run" kind={model.admin ? 'default' : 'primary'} size="small" onclick={() => onIntent({ type: 'join' })} />{/if}
-        {#if leave}<Button label="Leave run" kind="ghost" size="small" onclick={() => onIntent({ type: 'leave' })} />{/if}
+  {#if listing ? model.admin : gathering || model.phase === 'done' || model.admin}
+    <footer>
+      {#if listing}
+        <Button label="New lobby" kind="primary" size="small" onclick={() => onIntent({ type: 'open' })} />
+      {:else}
+        {#if model.phase !== 'countdown'}<Button label="Leave" kind="ghost" size="small" onclick={() => onIntent({ type: 'leave' })} />{/if}
         {#if model.admin}
           <span class="end">
-            <Button label="Close run" kind="danger-ghost" size="small" onclick={() => onIntent({ type: 'close' })} />
-            {#if gathering}<Button label="Go" kind="primary" size="small" disabled={!model.canStart} onclick={() => onIntent({ type: 'go' })} />{/if}
+            <Button label="Close lobby" kind="danger-ghost" size="small" onclick={() => onIntent({ type: 'close' })} />
+            {#if gathering && model.locked}<Button label="Start countdown" kind="primary" size="small" disabled={!model.canStart} onclick={() => onIntent({ type: 'go' })} />{/if}
           </span>
         {/if}
-      </footer>
-    {/if}
+      {/if}
+    </footer>
   {/if}
 
   <!-- Mounted for the card's lifetime so changes are announced; not atomic, so a countdown tick
@@ -238,9 +250,9 @@
   .count, .place, .ready, .plan-stats, .turn, .big { font-variant-numeric: tabular-nums; }
   .count { color: var(--caelestis-muted-text); font-weight: 600; }
 
-  .open { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-  .open :is(label, .label) { font-weight: 600; }
-  .open .stepper output {
+  .settings { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--caelestis-border); }
+  .settings :is(label, .label) { font-weight: 600; }
+  .settings .stepper output {
     display: grid;
     place-items: center;
     inline-size: 3rem;
@@ -248,7 +260,7 @@
     font: 600 0.875rem/1 var(--caelestis-font);
     font-variant-numeric: tabular-nums;
   }
-  .open .stepper output.wide { inline-size: 4.5rem; }
+  .settings .stepper output.wide { inline-size: 4.5rem; }
   .stepper { display: flex; flex: 1; align-items: center; gap: 0.125rem; }
   .stepper input {
     inline-size: 3rem;
@@ -275,7 +287,7 @@
   .clock.now :is(.lead span:first-child, .big) { color: var(--caelestis-primary); }
   .clock.cut .big { color: var(--caelestis-danger); }
 
-  .members, .plans ul { display: flex; flex-direction: column; gap: 0.125rem; margin: 0; padding: 0; list-style: none; }
+  .members, .plans ul, .lobbies { display: flex; flex-direction: column; gap: 0.125rem; margin: 0; padding: 0; list-style: none; }
   .members li {
     display: flex;
     align-items: center;
@@ -298,12 +310,10 @@
 
   .plans { display: flex; flex-direction: column; align-items: start; gap: 0.375rem; padding-block-start: 0.5rem; border-block-start: 1px solid var(--caelestis-border); }
   .plans ul { align-self: stretch; }
-  .plans li { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.375rem; border-radius: calc(var(--caelestis-radius) - 2px); }
-  .plans li.published { background: var(--caelestis-raised-surface); }
+  .plans li, .lobbies li { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.375rem; border-radius: calc(var(--caelestis-radius) - 2px); }
   .plan { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; }
   .plan-label { font-weight: 600; overflow-wrap: anywhere; }
   .plan-stats { color: var(--caelestis-muted-text); font-size: 0.75rem; }
-  .state { display: inline-flex; align-items: center; gap: 0.125rem; color: var(--caelestis-success); font-weight: 600; font-size: 0.75rem; }
 
 
   .message { color: var(--caelestis-muted-text); overflow-wrap: anywhere; }

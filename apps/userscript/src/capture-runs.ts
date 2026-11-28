@@ -4,8 +4,13 @@ import {
   CAPTURE_STAGGER_MS,
   CAPTURE_STAGGER_STEP_MS,
   type CaptureRun,
+  type CaptureSettings,
   captureCoordinatorIndex,
-  capturePaintersDrafted,
+  captureEndsAt,
+  captureLines,
+  capturePainterCount,
+  captureReady,
+  captureShortfall,
   captureSlot,
   captureStep,
   captureSteps,
@@ -18,7 +23,6 @@ import {
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_STAGGER_MS,
   MIN_CAPTURE_STAGGER_MS,
-  moveCaptureMember,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -30,12 +34,7 @@ import {
   territoryMapFromImage,
   worldToArena,
 } from '@caelestis/shared'
-import type {
-  CaelestisElement,
-  CaptureProposal,
-  CaptureRunIntent,
-  CaptureRunModel,
-} from '@caelestis/ui/elements'
+import type { CaelestisElement, CaptureRunIntent, CaptureRunModel } from '@caelestis/ui/elements'
 import { type CaptureCue, primeCaptureAudio, scheduleCaptureCues } from './capture-cues.js'
 import { type PlannedProposal, type PlanRequest, planProposals } from './capture-planning.js'
 import {
@@ -73,12 +72,13 @@ import { submitWorldPaintDraft } from './wplace-paint.js'
 import { BACKEND_ORIGIN } from './wplace-raster.js'
 
 /**
- * Capture runs in Wplace's territory event, from this tab's side.
+ * Capture lobbies in Wplace's territory event, from this tab's side.
  *
- * The run itself lives in a server's presence room (`presence-client` holds it). This module picks
- * the run to show, plans walls from Wplace's live territory map for an administrator, reports how
- * much of this painter's line is drafted, draws every line on the map, and at this painter's slot
- * presses Paint when the Dangerous settings switch allows it.
+ * Lobbies live in a server's presence room (`presence-client` holds them). This module lists the
+ * team's lobbies, shows the one this painter is in, plans walls live from Wplace's territory map
+ * for a runner in a lobby until one is locked in, reports how much of this painter's leg is
+ * drafted, draws every leg on the map, and at this painter's slot presses Paint when the Dangerous
+ * settings switch allows it.
  *
  * Slots are on the server's clock. Joining and starting each sync this tab's clock against the
  * server's, so a slot lands at the same instant in every browser whatever its latency or skew.
@@ -108,13 +108,12 @@ const PLAN_RETRY_MS = 5_000
 /** The share of the view the arena must fill for the card to show. */
 const ARENA_VIEW_SHARE = 0.25
 
-interface Proposal extends CaptureProposal {
-  /** Each painter's line as flat world coordinates. */
-  readonly lines: readonly (readonly number[])[]
-  /** What the wall would enclose. */
-  readonly area: RegionShapePixels | null
+interface Proposal extends PlannedProposal {
+  /** The wall's two anchors, so it names the same shape across passes. */
+  readonly id: string
 }
 
+/** The settings the next lobby this runner opens starts with: the last they chose. */
 let painters = 3
 let guards = MAX_CAPTURE_GUARDS
 let staggerMs = CAPTURE_STAGGER_MS
@@ -131,29 +130,44 @@ let draftedSentAt = Number.NEGATIVE_INFINITY
 let teamTriedAt = Number.NEGATIVE_INFINITY
 let joinedRun: string | null = null
 
+/** An event server's lobbies, with the one this tab's session is in. */
+interface Shown extends CaptureView {
+  readonly run: CaptureRun | null
+}
+
+/** Every event server's lobbies as this tab sees them. */
+const eventViews = (): Shown[] =>
+  captureViews()
+    .filter((view) => isEventServer(view.server.info))
+    .map((view) => ({
+      ...view,
+      run:
+        // A member who left a finished lobby keeps their place in it but is no longer in it.
+        view.runs.find((run) =>
+          run.members.some(({ sessionId, left }) => sessionId === view.sessionId && !left),
+        ) ?? null,
+    }))
+
 /**
- * The event server this tab coordinates on, with its run: the one whose run it has joined, else one
- * it runs captures on (as an administrator or event runner), one with a run first, else the first.
- * A tab works on one event server at a time, so runs on any other stay out of the card rather than
- * competing for it.
+ * The event server this tab coordinates on: the one whose lobby it is in, else one it runs
+ * captures on (as an administrator or event runner), else the first. A tab is in one lobby at a
+ * time; outside one, the card lists the lobbies of every event server.
  */
-const active = (): CaptureView | null => {
-  const views = captureViews().filter((view) => isEventServer(view.server.info))
-  const administered = views.filter((view) => canRunServerCaptures(view.server))
+const active = (): Shown | null => {
+  const views = eventViews()
   return (
-    views.find((view) => memberIndex(view) >= 0) ??
-    administered.find((view) => view.run !== null) ??
-    administered[0] ??
+    views.find((view) => view.run !== null) ??
+    views.find((view) => canRunServerCaptures(view.server)) ??
     views[0] ??
     null
   )
 }
 
-const memberIndex = (view: CaptureView): number =>
+const memberIndex = (view: Shown): number =>
   view.run?.members.findIndex((member) => member.sessionId === view.sessionId) ?? -1
 
 /** Local `localClock()` time of a server time, once this tab's clock is synced. */
-const localTime = (view: CaptureView, serverTime: number): number | null =>
+const localTime = (view: Shown, serverTime: number): number | null =>
   view.clockOffset === null ? null : serverTime - view.clockOffset
 
 /**
@@ -225,9 +239,9 @@ let planFailed: { readonly key: string; readonly at: number } | null = null
 let demoStep = 0
 
 const planKey = (run: CaptureRun, mine: number): string =>
-  `${run.id}:${mine}:${run.lines.map((line) => line.join(',')).join(';')}`
+  `${run.id}:${(captureLines(run)[mine] ?? []).join(',')}:${run.wall?.join(',')}`
 
-/** Read the map for a published plan once, for its enclosed area and this painter's demo. */
+/** Read the map for a locked wall once, for its enclosed area and this painter's demo. */
 const loadPlanView = (run: CaptureRun, mine: number): void => {
   const key = planKey(run, mine)
   if (planView?.key === key || planLoading === key) return
@@ -244,11 +258,11 @@ const loadPlanView = (run: CaptureRun, mine: number): void => {
         planFailed = { key, at: localClock() }
         return
       }
-      const line = mine >= 0 ? linePixels(run.lines[mine] ?? []) : []
+      const line = mine >= 0 ? linePixels(captureLines(run)[mine] ?? []) : []
       const first = line[0]
       planView = {
         key,
-        area: enclosedArea(map, team, run.lines),
+        area: enclosedArea(map, team, [run.wall ?? []]),
         demo: first === undefined ? [] : caterpillarFrames(approachPath(map, team, first), line),
       }
       demoStep = 0
@@ -266,19 +280,19 @@ const loadPlanView = (run: CaptureRun, mine: number): void => {
 const kindOf = (run: CaptureRun, index: number, mine: number): CaptureItemKind => {
   if (index === mine) return 'mine'
   const member = run.members[index]
-  const length = (run.lines[index]?.length ?? 0) / 2
+  const length = (captureLines(run)[index]?.length ?? 0) / 2
   return member !== undefined && length > 0 && member.drafted >= length ? 'ready' : 'pending'
 }
 
 const reducedMotion = (): boolean =>
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
-/** Whether this painter's demo shows: while gathering, until their line is drafted. */
-const demoPlaying = (view: CaptureView): boolean => {
+/** Whether this painter's demo shows: while gathering, until their leg is drafted. */
+const demoPlaying = (view: Shown): boolean => {
   const run = view.run
   const mine = memberIndex(view)
   if (run === null || run.startsAt !== null || mine < 0 || planView === null) return false
-  const length = (run.lines[mine]?.length ?? 0) / 2
+  const length = (captureLines(run)[mine]?.length ?? 0) / 2
   return planView.demo.length > 0 && (run.members[mine]?.drafted ?? 0) < length
 }
 
@@ -335,13 +349,13 @@ const proposalItems = new WeakMap<
   { readonly team: TerritoryTeam; readonly items: readonly CaptureItem[] }
 >()
 
-/** A candidate's area and lines in its team's colour, built once per plan and team. */
+/** A candidate's area, wall and guard zones in its team's colour, built once per plan and team. */
 const itemsOf = (proposal: Proposal, team: TerritoryTeam, colour: Rgb): readonly CaptureItem[] => {
   const held = proposalItems.get(proposal)
   if (held?.team === team) return held.items
   const items = [
     ...(proposal.area === null ? [] : [masked('area', proposal.area, colour)]),
-    ...proposal.lines.flatMap((line) => {
+    ...[proposal.wall, ...proposal.guardZones].flatMap((line) => {
       const pixels = pixelMask(linePixels(line))
       return pixels === null ? [] : [masked('pending', pixels, colour)]
     }),
@@ -351,23 +365,21 @@ const itemsOf = (proposal: Proposal, team: TerritoryTeam, colour: Rgb): readonly
 }
 
 /**
- * The plans an administrator is choosing between, while the run they were planned for gathers,
- * less the one already published. A teammate's progress arrives as a new run with the same plans,
- * so the same masks come back and the map uploads nothing again. Once the previews hide, the last
- * ones are let go rather than held until the next time plans show.
+ * The walls a runner is choosing between, while the lobby they were planned for has none locked
+ * in. A teammate joining arrives as a new lobby with the same plans, so the same masks come back
+ * and the map uploads nothing again. Once the previews hide, the last ones are let go rather than
+ * held until the next time plans show.
  */
 const candidateItems = (run: CaptureRun, colour: Rgb): readonly CaptureItem[] => {
-  if (run.startsAt !== null || proposalsRun !== run.id)
+  if (run.startsAt !== null || run.wall !== null || proposalsRun !== run.id)
     return candidatesBuilt(NO_ITEMS, () => NO_ITEMS)
-  const shown = proposals
-    .filter((proposal) => !sameLines(run.lines, proposal.lines))
-    .map((proposal) => itemsOf(proposal, run.team, colour))
+  const shown = proposals.map((proposal) => itemsOf(proposal, run.team, colour))
   return candidatesBuilt(shown, () => shown.flat())
 }
 
 /**
- * What the shown run, or the plans an administrator is choosing between, puts on the map, all in
- * the run's team colours: the colour painters paint in for this painter's own leg, their anchor
+ * What this painter's lobby, or the walls a runner is choosing between, puts on the map, all in
+ * the lobby's team colours: the colour painters paint in for this painter's own leg, their anchor
  * and the shape, and the team's dark shade for everyone else's legs.
  */
 export const captureItems = (): readonly CaptureItem[] => {
@@ -375,31 +387,32 @@ export const captureItems = (): readonly CaptureItem[] => {
   const run = view?.run ?? null
   if (view === null || run === null) return NO_ITEMS
   const { colour, dark } = teamShades(run.team)
-  if (run.lines.length === 0) return candidateItems(run, colour)
+  // A locked wall hides the candidates, and this lets their masks go.
+  const candidates = candidateItems(run, colour)
+  if (run.wall === null) return candidates
   const mine = memberIndex(view)
+  const lines = captureLines(run)
   const key = `${planView?.key ?? ''}|${run.members.map(({ drafted }) => drafted).join(',')}`
   let held = itemsCache.get(run)
   if (held?.key !== key) {
     const items: CaptureItem[] = []
     if (planView?.area) items.push(masked('area', planView.area, colour))
-    run.lines.forEach((line, index) => {
+    lines.forEach((line, index) => {
       const pixels = pixelMask(linePixels(line))
       if (pixels !== null) {
         const kind = kindOf(run, index, mine)
-        // This painter's own line is added per frame below, split by what they have drafted.
+        // This painter's own leg is added per frame below, split by what they have drafted.
         if (kind !== 'mine') items.push(masked(kind, pixels, dark))
       }
     })
-    for (let index = run.painters; index < run.lines.length; index++)
+    for (let index = capturePainterCount(run); index < lines.length; index++)
       for (const rect of anchorRects(run, index, GUARD_MARGIN))
         items.push({ kind: 'anchor', rect, pixels: null, colour: index === mine ? colour : dark })
     held = { key, items }
     itemsCache.set(run, held)
   }
-  // Candidates from Propose again show beside the published plan until Go.
-  const myLine = mine < 0 ? undefined : run.lines[mine]
+  const myLine = mine < 0 ? undefined : lines[mine]
   const own = myLine === undefined ? NO_ITEMS : mineItems(run.team, myLine, colour)
-  const candidates = candidateItems(run, colour)
   const plan = planView
   // Under reduced motion the guide holds still on the whole route instead of crawling.
   const step =
@@ -411,10 +424,9 @@ export const captureItems = (): readonly CaptureItem[] => {
           const frame = pixelMask(step < 0 ? plan.demo.flat() : (plan.demo[step] ?? []))
           return frame === null ? null : masked('demo', frame, colour)
         })
-  return shownBuilt([held.items, own, candidates, demo], () => [
+  return shownBuilt([held.items, own, demo], () => [
     ...held.items,
     ...own,
-    ...candidates,
     ...(demo === null ? [] : [demo]),
   ])
 }
@@ -461,7 +473,7 @@ const checkAnchor = async (run: CaptureRun, index: number, key: string): Promise
 }
 
 /** Watch this guard's anchor from just after the wall's last slot until the run ends. */
-const watchAnchor = (view: CaptureView | null, run: CaptureRun | null, index: number): void => {
+const watchAnchor = (view: Shown | null, run: CaptureRun | null, index: number): void => {
   const key =
     view !== null &&
     run !== null &&
@@ -476,7 +488,7 @@ const watchAnchor = (view: CaptureView | null, run: CaptureRun | null, index: nu
   watching = key
   anchor = 'intact'
   if (key === null || run === null || view === null) return
-  const last = captureSlot(run, run.painters - 1)
+  const last = captureEndsAt(run)
   const from = last === null ? null : localTime(view, last + WATCH_GRACE_MS)
   const check = () =>
     void checkAnchor(run, index, key).catch((error) => warn('anchor check failed', String(error)))
@@ -560,11 +572,8 @@ const runPlanner = async (request: PlanRequest): Promise<PlannedProposal[]> => {
 }
 
 /** A proposal's id: its wall's two anchors, so it names the same shape across passes. */
-const proposalId = ({ lines }: PlannedProposal): string => {
-  const a = lines[0] ?? []
-  const b = lines[1] ?? []
-  return `${a[0]},${a[1]}:${b[0]},${b[1]}`
-}
+const proposalId = ({ wall }: PlannedProposal): string =>
+  `${wall[0]},${wall[1]}:${wall.at(-2)},${wall.at(-1)}`
 
 /** Wplace's map, read again only once Wplace has refreshed it, and not soon after a failure. */
 const plannedSnapshot = async (): Promise<typeof snapshotRead> => {
@@ -612,11 +621,7 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     // Only a finished plan counts as done, so a failed one runs again on the next pass.
     planInputs = inputs
     proposalsRun = run.id
-    proposals = planned.map((proposal) => ({
-      ...proposal,
-      id: proposalId(proposal),
-      published: false,
-    }))
+    proposals = planned.map((proposal) => ({ ...proposal, id: proposalId(proposal) }))
     message =
       proposals.length === 0
         ? 'No wall fits here. Centre the map just outside your border.'
@@ -635,33 +640,43 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
   }
 }
 
+/** Whether this tab plans for the lobby it is in: a runner's, with no wall locked in yet. */
+const plansFor = (view: Shown | null): view is Shown & { readonly run: CaptureRun } =>
+  view !== null &&
+  view.run !== null &&
+  view.run.startsAt === null &&
+  view.run.wall === null &&
+  canRunServerCaptures(view.server)
+
 /**
- * Re-plan continuously until the administrator locks a plan in, starts, or closes the run. Planning
- * belongs to the run it started for: it stops when the card shows another run, or this tab is no
- * longer that server's administrator.
+ * Plan live while this tab is a runner in a lobby with no wall locked in, and stop otherwise.
+ * Planning belongs to the lobby it started for; locking in stops it and cancelling resumes it.
  */
-const startPlanning = (view: CaptureView, run: CaptureRun): void => {
+const syncPlanning = (): void => {
+  const view = active()
+  if (!plansFor(view)) {
+    if (planningFor === null) return
+    // Its proposals and message, such as "No wall fits here", are stale once planning stops; a
+    // cancelled lock plans afresh.
+    stopPlanning()
+    proposals = []
+    message = undefined
+    return
+  }
+  if (planningFor?.server === view.server.url && planningFor.run === view.run.id) return
   stopPlanning()
-  const bound: Planning = { server: view.server.url, run: run.id }
+  const bound: Planning = { server: view.server.url, run: view.run.id }
   planningFor = bound
   planInputs = ''
   message = undefined
   const pass = () => {
     const now = active()
-    const current = now?.run ?? null
-    if (
-      now === null ||
-      current === null ||
-      now.server.url !== bound.server ||
-      current.id !== bound.run ||
-      current.startsAt !== null ||
-      !canRunServerCaptures(now.server)
-    ) {
-      stopPlanning()
+    if (!plansFor(now) || now.server.url !== bound.server || now.run.id !== bound.run) {
+      syncPlanning()
       render()
       return
     }
-    void planPass(current, bound)
+    void planPass(now.run, bound)
   }
   pass()
   planTimer = setInterval(pass, PLAN_INTERVAL_MS)
@@ -672,15 +687,6 @@ const stopPlanning = (): void => {
   if (planTimer !== null) clearInterval(planTimer)
   planTimer = null
 }
-
-const sameLines = (a: readonly (readonly number[])[], b: readonly (readonly number[])[]) =>
-  a.length === b.length &&
-  a.every((line, index) => {
-    const other = b[index]
-    return (
-      other !== undefined && line.length === other.length && line.every((n, i) => n === other[i])
-    )
-  })
 
 /** Seconds before a slot that tick, after the cue that starts everyone's countdown. */
 const TICK_SECONDS = [5, 3, 2, 1] as const
@@ -714,7 +720,7 @@ const autoPaintOn = (): boolean => getState().simulatedInput['capture-paint'] ==
  * busy page fire late. At the deadline it checks again that the run, this painter's place in it and
  * the switch are all as they were, and skips a slot a suspended tab woke too late for.
  */
-const armSlot = (view: CaptureView, run: CaptureRun, index: number): void => {
+const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
   const key = `${view.server.url}:${run.id}:${index}:${run.startsAt}`
   if (armedSlot === key) return
   const slot = captureSlot(run, index)
@@ -757,24 +763,29 @@ const armSlot = (view: CaptureView, run: CaptureRun, index: number): void => {
   }
 }
 
-const phaseOf = (view: CaptureView | null): CaptureRunModel['phase'] => {
+const phaseOf = (view: Shown | null): CaptureRunModel['phase'] => {
   const run = view?.run ?? null
-  if (view === null || run === null) return 'none'
+  if (view === null || run === null) return 'list'
   if (run.startsAt === null) return 'gathering'
-  const last = captureSlot(run, Math.max(0, run.painters - 1)) ?? run.startsAt
+  const last = captureEndsAt(run) ?? run.startsAt
   const end = localTime(view, last + DONE_AFTER_MS)
   return end !== null && localClock() > end ? 'done' : 'countdown'
 }
 
-const model = (view: CaptureView | null): CaptureRunModel | null => {
+/**
+ * The card for the active server: this painter's lobby, or else the team's lobbies to join. A
+ * painter who is in none sees the card only while there is one to join; a runner always does.
+ */
+const model = (view: Shown | null): CaptureRunModel | null => {
   if (view === null) return null
   const run = view.run
   const admin = canRunServerCaptures(view.server)
-  if (run === null && !admin) return null
+  if (run === null && !admin && lobbiesOf(eventViews()).length === 0) return null
   const mine = memberIndex(view)
   const phase = phaseOf(view)
-  // A wall shorter than the group leaves a line empty: that member has nothing to paint.
-  const idle = run !== null && run.lines.length > 0 && (run.lines[mine]?.length ?? 0) === 0
+  const lines = run === null ? [] : captureLines(run)
+  // A wall shorter than the group leaves a leg empty: that member has nothing to paint.
+  const idle = run !== null && run.wall !== null && (lines[mine]?.length ?? 0) === 0
   const slot = run !== null && mine >= 0 && !idle ? captureSlot(run, mine) : null
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
@@ -791,62 +802,70 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
       run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
         ? anchor
         : null,
+    lobbies: run === null ? lobbiesOf(eventViews()) : [],
     members: (run?.members ?? []).map((member, index) => ({
       id: member.sessionId,
       name: member.painter.displayName,
       colour: presenceCss(member.painter.wplaceUserId),
       drafted: member.drafted,
-      length: (run?.lines[index]?.length ?? 0) / 2,
+      length: (lines[index]?.length ?? 0) / 2,
       me: index === mine,
       guard: run !== null && isCaptureGuard(run, index),
       closes: index === closer,
     })),
-    joined: mine >= 0,
     role: run === null || mine < 0 ? null : isCaptureGuard(run, mine) ? 'guard' : 'painter',
-    canJoin:
-      view.canWrite &&
-      run !== null &&
-      run.startsAt === null &&
-      mine < 0 &&
-      run.members.length < run.painters + run.guards,
-    proposals: (run !== null && proposalsRun === run.id ? proposals : []).map((proposal) => ({
-      id: proposal.id,
-      label: proposal.label,
-      gained: proposal.gained,
-      pixels: proposal.pixels,
-      published: run !== null && run.lines.length > 0 && sameLines(run.lines, proposal.lines),
-    })),
-    proposing: planningFor !== null,
-    canStart:
-      admin &&
-      run !== null &&
-      run.startsAt === null &&
-      run.lines.length > 0 &&
-      run.members.length >= run.lines.length &&
-      capturePaintersDrafted(run),
+    proposals:
+      run === null || run.wall !== null || proposalsRun !== run.id
+        ? []
+        : proposals.map(({ id, label, gained, pixels, wall }) => ({
+            id,
+            label,
+            gained,
+            pixels,
+            needs: captureShortfall(wall.length / 2, capturePainterCount(run)),
+          })),
+    locked: run?.wall != null,
+    needs: run?.wall == null ? 0 : captureShortfall(run.wall.length / 2, capturePainterCount(run)),
+    canStart: admin && run !== null && captureReady(run),
     mySlotAt: phase === 'countdown' && slotAt !== null ? slotAt - performance.timeOrigin : null,
     myTurn:
       run !== null && mine >= 0 && !idle && !isCaptureGuard(run, mine)
         ? captureStep(run, mine) + 1
         : null,
-    turns: run === null ? Math.ceil(painters / 2) : captureSteps(run),
+    turns: run === null ? 0 : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
     ...(message === undefined ? {} : { message }),
   }
 }
 
+/** The lobbies of every event server whose countdown has not started, for the list. */
+const lobbiesOf = (views: readonly Shown[]): CaptureRunModel['lobbies'] =>
+  views.flatMap((view) =>
+    view.runs
+      .filter((run) => run.startsAt === null)
+      .map((run) => {
+        const owner = run.members[captureCoordinatorIndex(run)] ?? run.members[0]
+        return {
+          id: run.id,
+          name: owner?.painter.displayName ?? 'Lobby',
+          members: run.members.length,
+          canJoin: view.canWrite,
+        }
+      }),
+  )
+
 const handleIntent = (intent: CaptureRunIntent): void => {
   const view = active()
   if (view === null) return
-  const { server } = view
+  const { server, run } = view
   switch (intent.type) {
     case 'set-painters':
       painters = Math.min(MAX_CAPTURE_PAINTERS, Math.max(1, Math.round(intent.painters)))
-      proposals = []
+      changeSettings(view, { painters })
       break
     case 'set-guards':
       guards = Math.min(MAX_CAPTURE_GUARDS, Math.max(0, Math.round(intent.guards)))
-      proposals = []
+      changeSettings(view, { guards })
       break
     case 'set-stagger': {
       const steps = Math.round(intent.staggerMs / CAPTURE_STAGGER_STEP_MS)
@@ -854,19 +873,20 @@ const handleIntent = (intent: CaptureRunIntent): void => {
         MAX_CAPTURE_STAGGER_MS,
         Math.max(MIN_CAPTURE_STAGGER_MS, steps * CAPTURE_STAGGER_STEP_MS),
       )
+      changeSettings(view, { staggerMs })
       break
     }
     case 'open': {
-      // The run is for this administrator's team.
+      // The lobby is for this runner's team.
       void refreshTeam()
         .then((team) => {
-          // The administrator chose this server; a change while Wplace answered drops it.
+          // The runner chose this server; a change while Wplace answered drops it.
           if (active()?.server.url !== server.url) return
           setPresenceTeam(team)
           if (team === null) message = 'Join a team in the event first.'
           else {
-            proposals = []
-            sendCapture(server, { type: 'capture-open', painters, guards, staggerMs })
+            primeCaptureAudio()
+            sendCapture(server, { type: 'capture-new', painters, guards, staggerMs })
           }
         })
         .catch(() => {
@@ -875,54 +895,61 @@ const handleIntent = (intent: CaptureRunIntent): void => {
         .finally(render)
       break
     }
-    case 'join':
-      if (view.run === null) break
+    case 'join': {
+      // The session's reported team picks the lobbies; the id stops a join to one since closed.
+      const chosen = eventViews().find((shown) => shown.runs.some(({ id }) => id === intent.id))
+      if (chosen === undefined) break
       primeCaptureAudio()
-      // The session's reported team picks the run; the id stops a join to one since replaced.
-      sendCapture(server, { type: 'capture-join', run: view.run.id })
-      syncCaptureClock(server)
+      sendCapture(chosen.server, { type: 'capture-join', run: intent.id })
+      syncCaptureClock(chosen.server)
       break
+    }
     case 'leave':
       sendCapture(server, { type: 'capture-leave' })
       break
-    case 'move': {
-      const order = view.run === null ? null : moveCaptureMember(view.run, intent.id, intent.by)
-      if (order !== null) sendCapture(server, { type: 'capture-order', order })
+    case 'move':
+      sendCapture(server, { type: 'capture-move', member: intent.id, by: intent.by })
       break
-    }
-    case 'propose':
-      if (planningFor !== null) stopPlanning()
-      else if (view.run !== null) startPlanning(view, view.run)
-      break
-    case 'publish': {
+    case 'lock': {
       const chosen = proposals.find(({ id }) => id === intent.id)
-      // Locking a plan in ends live planning; the other candidates stay on screen until Go.
-      if (chosen !== undefined) {
-        stopPlanning()
-        sendCapture(server, { type: 'capture-plan', lines: chosen.lines })
-      }
+      if (chosen !== undefined)
+        sendCapture(server, {
+          type: 'capture-lock',
+          wall: chosen.wall,
+          guardZones: chosen.guardZones,
+        })
       break
     }
+    case 'unlock':
+      sendCapture(server, { type: 'capture-unlock' })
+      break
     case 'show-line': {
       const mine = memberIndex(view)
-      const line = mine < 0 ? undefined : view.run?.lines[mine]
+      const line = run === null || mine < 0 ? undefined : captureLines(run)[mine]
       const box = line === undefined ? null : pixelMask(linePixels(line))?.rect
       if (box != null) flyTo(box)
       break
     }
     case 'go':
-      stopPlanning()
-      proposals = []
       primeCaptureAudio()
       sendCapture(server, { type: 'capture-go' })
       break
     case 'close':
-      stopPlanning()
-      proposals = []
       sendCapture(server, { type: 'capture-close' })
       break
   }
   render()
+}
+
+/**
+ * Send a runner's change to one of their lobby's settings, and only that one. A change to the
+ * planning size drops the proposals planned for the old one, which the lobby would refuse to lock
+ * in.
+ */
+const changeSettings = (view: Shown, change: Partial<CaptureSettings>): void => {
+  if (view.run === null) return
+  if (change.painters !== undefined || change.guards !== undefined) proposals = []
+  sendCapture(view.server, { type: 'capture-settings', ...change })
 }
 
 const ensureElement = (): CaelestisElement<'caelestis-capture-run'> => {
@@ -936,34 +963,33 @@ const ensureElement = (): CaelestisElement<'caelestis-capture-run'> => {
   return created
 }
 
-/** Keep the member's readiness, clock and slot current; runs while a run is shown. */
+/** Keep the member's readiness, clock and slot current; runs while the card is shown. */
 const tick = (): void => {
   const view = active()
   const run = view?.run ?? null
   if (view !== null && run !== null) {
     const mine = memberIndex(view)
-    if (mine >= 0) {
-      // A painter who joined from another tab, or whose socket reconnected, still needs a sync.
-      if (joinedRun !== run.id || view.clockOffset === null) {
-        joinedRun = run.id
-        syncCaptureClock(view.server)
-      }
-      const line = run.lines[mine]
-      // Report whatever the run does not already say, including after the server resets it for a
-      // new line; the report interval keeps a report still in flight from repeating often.
-      const drafted = line === undefined ? 0 : draftedOn(run.team, line)
-      const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
-      if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
-        draftedSentAt = localClock()
-        sendCapture(view.server, { type: 'capture-drafted', drafted })
-      }
-      // Only a member with pixels to place is armed; an empty line has nothing to submit.
-      if (run.startsAt !== null && (run.lines[mine]?.length ?? 0) > 0) armSlot(view, run, mine)
+    // A painter who joined from another tab, or whose socket reconnected, still needs a sync.
+    if (joinedRun !== run.id || view.clockOffset === null) {
+      joinedRun = run.id
+      syncCaptureClock(view.server)
     }
+    const line = captureLines(run)[mine]
+    // Report whatever the lobby does not already say, including after the server resets it for a
+    // re-cut leg; the report interval keeps a report still in flight from repeating often.
+    const drafted = line === undefined ? 0 : draftedOn(run.team, line)
+    const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
+    if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
+      draftedSentAt = localClock()
+      sendCapture(view.server, { type: 'capture-drafted', run: run.id, drafted, cut: run.cut })
+    }
+    // Only a member with pixels to place is armed; an empty leg has nothing to submit.
+    if (run.startsAt !== null && (line?.length ?? 0) > 0) armSlot(view, run, mine)
   }
+  syncPlanning()
   watchAnchor(view, run, view === null ? -1 : memberIndex(view))
   if (view !== null) {
-    if (run !== null && run.lines.length > 0) loadPlanView(run, memberIndex(view))
+    if (run?.wall != null) loadPlanView(run, memberIndex(view))
     if (demoPlaying(view) && !reducedMotion()) {
       demoStep++
       requestMapFrame()
@@ -1028,6 +1054,7 @@ export const installCaptureRuns = (): void => {
       syncCaptureClock(view.server)
     lastRun = key
     if (run === null) disarm()
+    syncPlanning()
     watchAnchor(view, run, view === null ? -1 : memberIndex(view))
     render()
   })

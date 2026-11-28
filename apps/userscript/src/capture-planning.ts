@@ -35,8 +35,10 @@ export interface PlannedProposal {
   readonly label: string
   readonly gained: number
   readonly pixels: number
-  /** The wall's lines in paint order, then each guard's zone, as flat world coordinates. */
-  readonly lines: readonly (readonly number[])[]
+  /** The wall's pixels to paint from anchor A to anchor B, as flat world coordinates. */
+  readonly wall: readonly number[]
+  /** Each guard's zone, likewise. */
+  readonly guardZones: readonly (readonly number[])[]
   readonly area: RegionShapePixels | null
 }
 
@@ -81,14 +83,15 @@ export const planProposals = async ({
   return plans.flatMap((plan) => {
     const outcome = simulateCapture(map, team, plan)
     if (outcome.refused > 0 || outcome.gained <= 0) return []
-    const wall = plan.lines.map(toWorld)
+    const wall = toWorld(plan.wall)
     return [
       {
-        label: proposalLabel(map, plan.lines.flat()),
+        label: proposalLabel(map, plan.wall),
         gained: outcome.gained,
         pixels: outcome.painted,
-        lines: [...wall, ...plan.guardZones.map(toWorld)],
-        area: enclosedArea(map, team, wall, outcome.map),
+        wall,
+        guardZones: plan.guardZones.map(toWorld),
+        area: enclosedArea(map, team, [wall], outcome.map),
       },
     ]
   })
