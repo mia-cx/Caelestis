@@ -39,10 +39,20 @@ const forwarded = new WeakSet<Event>()
 /** Whether Caelestis dispatched this event, rather than the painter or the browser. */
 export const isForwardedEvent = (event: Event): boolean => forwarded.has(event)
 
+const eraserPresses = new WeakSet<Event>()
+
+/** Whether this is Erase's forwarded key, which switches Wplace's tool and paints nothing. */
+export const isEraserPress = (event: Event): boolean => eraserPresses.has(event)
+
 /** Dispatch a key on `document`, where Wplace's paint panels listen for their keys. */
-const forwardKey = (type: 'keydown' | 'keyup', init: KeyboardEventInit): void => {
+const forwardKey = (
+  type: 'keydown' | 'keyup',
+  init: KeyboardEventInit,
+  marks?: WeakSet<Event>,
+): void => {
   const event = new KeyboardEvent(type, { ...init, bubbles: true })
   forwarded.add(event)
+  marks?.add(event)
   document.dispatchEvent(event)
 }
 
@@ -97,7 +107,7 @@ export const eraserKey = (): KeyboardEventInit | null => {
 /** Toggle Wplace's eraser with the painter's `paint.eraser` key. False when it has no key. */
 export const forwardEraserKey = (): boolean => {
   const key = eraserKey()
-  if (key !== null) forwardKey('keydown', key)
+  if (key !== null) forwardKey('keydown', key, eraserPresses)
   return key !== null
 }
 
