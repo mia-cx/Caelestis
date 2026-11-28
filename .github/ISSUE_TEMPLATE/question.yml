@@ -1,0 +1,38 @@
+name: Question
+description: Ask how to do something with Caelestis.
+labels:
+  - question
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected part
+      options:
+        - Userscript on Wplace
+        - Web dashboard
+        - Backend or self-hosting
+        - Installation or release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Describe what you are trying to do.
+      placeholder: How do I ...
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: Include the steps you followed and any documentation you read.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Existing questions
+      options:
+        - label: I searched open and closed issues for the same question.
+          required: true
