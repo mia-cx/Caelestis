@@ -63,7 +63,7 @@ import {
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt, nativeDraftPixelAt } from './draft-pixels.js'
 import { eventTeam, eventTeamUnjoined, readEventTeam } from './event-team.js'
-import { getMap, type MapLike, onMapAttached } from './map-handle.js'
+import { getMap, type MapLike, mapCaptureMissed, onMapAttached } from './map-handle.js'
 import { requestMapFrame, viewportCentre } from './map-view.js'
 import {
   type CaptureView,
@@ -1261,10 +1261,15 @@ const tick = (): void => {
   render()
 }
 
-/** Whether the event arena fills enough of the map's view to be what the painter is looking at. */
+/**
+ * Whether the event arena fills enough of the map's view to be what the painter is looking at, or,
+ * when Caelestis started too late to find the map, whether it can't tell.
+ */
 const arenaInView = (): boolean => {
   const map = getMap()
-  if (map === null) return false
+  // Started after Wplace built its map: the card can't tell where the painter looks, but joining,
+  // the countdown and the slot need no map, so it shows rather than hide for the whole session.
+  if (map === null) return mapCaptureMissed()
   const { clientWidth, clientHeight } = map.getCanvas()
   const a = latLngToCanvasPixel(map.unproject([0, 0]))
   const b = latLngToCanvasPixel(map.unproject([clientWidth, clientHeight]))
