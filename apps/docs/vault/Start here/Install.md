@@ -33,7 +33,7 @@ If both copies already have settings, open **Settings** on Wplace with both enab
 
 1. Install a userscript manager for your browser, such as [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/get-it/).
 2. On Chromium browsers, open the manager's extension details. Enable **Allow user scripts** if your browser offers it. See [Tampermonkey's browser instructions](https://www.tampermonkey.net/faq.php#Q209).
-3. Open the Chrome & Edge banner above. Confirm **Install** in your manager.
+3. Open the [Caelestis userscript installer](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js). Confirm **Install** in your manager.
 4. Open or reload Wplace and click the Caelestis moon.
 
 ![Allow user scripts in the browser's extension settings.](images/install/allow-user-scripts.png)
