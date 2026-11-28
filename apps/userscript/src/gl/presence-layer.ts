@@ -47,8 +47,9 @@ import {
  * - A viewport of someone browsing: dashed edge, 15% fill, dotted grid.
  * - A viewport of someone painting: solid edge, 30% fill, diagonal stripes.
  * - Their drafted pixels: the same colour, mostly solid, so the exact pixels show inside the
- *   viewport. The shape is outlined by a dark line and, inside it, a line in that colour, so a
- *   draft stays visible over artwork of the painter's own hue, such as an event's team territory.
+ *   viewport. The shape is outlined by a dark line and, inside it, a line in that colour, and its
+ *   fill carries dark stripes, so a draft stays visible over artwork of the painter's own hue,
+ *   such as an event's team territory.
  * - A region claim: solid edge, 30% fill, diagonal stripes. The claim is the union of its shapes,
  *   rasterised to whole pixels and sampled with nearest filtering, so the tint stops on a pixel
  *   edge. The outline is a stroke of fixed device-pixel width along that boundary, found in the
@@ -102,6 +103,8 @@ bool nearOutside(float width) {
 void main() {
   vec2 px = v_uv * u_size;
   float alpha = 0.0;
+  // How far a dark stripe pulls the colour toward black: a change of shade, not of alpha.
+  float shade = 0.0;
   bool inside = false;
   bool edge = false;
   bool contrast = false;
@@ -136,13 +139,17 @@ void main() {
     // A dotted grid: a 4px dot every 14px, coarse enough to tell from the stripes at a glance.
     vec2 cell = mod(px / u_scale, 14.0);
     if (cell.x < 4.0 && cell.y < 4.0) alpha = max(alpha, u_patternAlpha);
+  } else if (inside && u_pattern == 3) {
+    // Dark diagonal stripes on the same 24px rhythm: a fill the colour of the ground beneath it,
+    // such as a draft in a team's own hue on its territory, still shows a texture.
+    if (mod((px.x + px.y) / u_scale, 24.0) < 6.0) shade = u_patternAlpha;
   }
   if (edge) alpha = max(alpha, u_border);
   if (contrast) {
     fragColor = vec4(0.0, 0.0, 0.0, u_contrast);
     return;
   }
-  fragColor = vec4(u_colour * alpha, alpha);
+  fragColor = vec4(mix(u_colour, vec3(0.0), shade) * alpha, alpha);
 }
 `
 
@@ -157,8 +164,8 @@ interface Style {
    * every display and at every zoom.
    */
   readonly maskAlpha: number
-  /** 0 none, 1 diagonal stripes, 2 dotted grid. */
-  readonly pattern: 0 | 1 | 2
+  /** 0 none, 1 diagonal stripes, 2 dotted grid, 3 dark diagonal stripes (`patternAlpha` darkens). */
+  readonly pattern: 0 | 1 | 2 | 3
   readonly patternAlpha: number
   /** Alpha of a dark line along a mask's boundary, outside its border, for shapes that must show on any colour. */
   readonly contrast: number
@@ -191,8 +198,8 @@ const STYLES: Record<SceneKind, Style> = {
     borderWidth: 1.5,
     dash: 0,
     maskAlpha: 0.7,
-    pattern: 0,
-    patternAlpha: 0,
+    pattern: 3,
+    patternAlpha: 0.35,
     contrast: 0.7,
   },
   region: {
