@@ -1,3 +1,4 @@
+import { anySignal } from './any-signal.js'
 import { userscriptClientHeaders } from './client-metrics.js'
 import { discardResponseBody, readBoundedJsonResponse } from './response.js'
 
@@ -128,7 +129,7 @@ const sendOnce = async <Read extends ServerRead>(
   options: TransportOptions<Read>,
 ): Promise<ServerResponse<Read>> => {
   const { maxBytes, timeoutMs } = SERVER_LIMITS[options.limits]
-  const signal = AbortSignal.any([
+  const signal = anySignal([
     ...(init.signal == null ? [] : [init.signal]),
     AbortSignal.timeout(timeoutMs),
   ])

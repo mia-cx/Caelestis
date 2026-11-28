@@ -11,6 +11,7 @@ import {
   WORLD_PIXELS,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
+import { anySignal } from '../any-signal.js'
 import { Semaphore } from '../concurrency.js'
 import { count, warn } from '../debug.js'
 import { PerServerMap } from '../per-server-map.js'
@@ -294,7 +295,7 @@ const downloadAgain = async (copy: ServerCopy): Promise<Uint8Array | null> => {
   const entry = latest.get(copy.server.url, copy.id)
   if (entry === undefined || entry.template.version !== copy.version) return null
   const { server } = entry
-  const signal = AbortSignal.any([
+  const signal = anySignal([
     serverConnectionSignal(server),
     AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS),
   ])
@@ -434,7 +435,7 @@ const syncServerTemplatesOnce = async (
         count('server:template restored from disk')
         continue
       }
-      const attemptSignal = AbortSignal.any([signal, AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS)])
+      const attemptSignal = anySignal([signal, AbortSignal.timeout(MAX_TEMPLATE_ASSEMBLY_MS)])
       const outcome = await assemblySlots.run(
         attemptSignal,
         async (): Promise<'continue' | 'stop'> => {
