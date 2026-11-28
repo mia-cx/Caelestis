@@ -1,5 +1,12 @@
 # @caelestis/backend
 
+## 1.7.4
+
+### Patch Changes
+
+- 1374965: Capture lobby painters can press Ready, and a host can turn on Wait for Ready so Start countdown waits for everyone.
+- 1374965: Start countdown unlocks once every pixel of the capture wall is drafted, whoever drafted it.
+
 ## 1.7.3
 
 ### Patch Changes
