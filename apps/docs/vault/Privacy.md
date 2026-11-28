@@ -71,4 +71,4 @@ None of this leaves your browser unless you export it or a section above says it
 
 ## Contact
 
-Open a [GitHub issue](https://github.com/mia-cx/Caelestis/issues) or ask on [Discord](https://discord.gg/thequilt).
+Open a [GitHub issue](https://github.com/mia-cx/Caelestis/issues) or ask on [Discord](https://discord.gg/b7gQFHhQkk).

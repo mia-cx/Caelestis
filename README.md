@@ -2,7 +2,7 @@
 
 [![Install userscript](https://img.shields.io/badge/Install-userscript-6d28d9)](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js)
 [![Userscript downloads](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/mia-cx/Caelestis/main/badges/userscript-downloads.json)](https://github.com/mia-cx/Caelestis/releases)
-[![Discord server](https://img.shields.io/discord/1157300973618872411?label=Discord&logo=discord&logoColor=white)](https://discord.gg/thequilt)
+[![Discord server](https://img.shields.io/discord/1157300973618872411?label=Discord&logo=discord&logoColor=white)](https://discord.gg/b7gQFHhQkk)
 [![Latest release](https://img.shields.io/github/v/release/mia-cx/Caelestis?label=latest%20release)](https://github.com/mia-cx/Caelestis/releases/latest)
 [![Userscript CI](https://github.com/mia-cx/Caelestis/actions/workflows/userscript-ci.yml/badge.svg)](https://github.com/mia-cx/Caelestis/actions/workflows/userscript-ci.yml)
 
@@ -72,7 +72,7 @@ also cover PostgreSQL, MariaDB, CNPG, S3, and Kubernetes.
 - [Documentation](https://docs.caelest.is/)
 - [Dashboard](https://caelest.is)
 - [Releases](https://github.com/mia-cx/Caelestis/releases)
-- [The Quilt Discord](https://discord.gg/thequilt)
+- [The Quilt Discord](https://discord.gg/b7gQFHhQkk)
 - [Issue tracker](https://github.com/mia-cx/Caelestis/issues)
 
 ## Contribute
