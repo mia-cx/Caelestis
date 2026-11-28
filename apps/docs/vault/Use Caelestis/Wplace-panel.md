@@ -16,7 +16,7 @@ Click the moon on Wplace to open your template library. The extension and usersc
 | **Appearance** | Change [pixels, outlines and markers](Overlay-and-painting). |
 | **Settings** | Manage connections, sharing, notifications and [keyboard shortcuts](Settings-and-shortcuts). |
 
-![The panel header with Reload tiles, Pop out menu, Appearance, Settings and Close beside the template search.](images/panel/panel-header.png)
+![The panel header: the Caelestis moon and title, then Reload tiles and Pop out menu, then Appearance and the outlined Settings button, then Close, above the template search.](images/panel/panel-header.png)
 
 ![The popped-out library in preview grid view, with folder cards and template previews.](images/panel/popout-preview-grid.png)
 

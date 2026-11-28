@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte'
   import { cancelSurfaceClose, closeSurface, prefersReducedMotion, shift, surfaceCloseDurationMs, tokenized } from '../foundations/motion.js'
+  import Logo from '../brand/Logo.svelte'
   import Button from '../foundations/Button.svelte'
   import Icon from '../foundations/Icon.svelte'
   import ModalStyles from '../foundations/ModalStyles.svelte'
@@ -177,28 +178,37 @@
   ></div>
   {/if}
 
+  <!-- Three groups, left to right: where you are (back, mark, title), utilities that act on the
+       map or the window (reload, pop out), and the views you can go to (appearance, settings),
+       with Close set apart at the end. -->
   <header>
     {#if model.view !== 'tree'}
-      <Button label="Back to templates" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'navigate', view: 'tree' })}>
+      <Button label="Back to templates" kind="ghost" size="small" iconOnly onclick={() => emit({ type: 'navigate', view: 'tree' })}>
         <Icon name="arrowBack" />
       </Button>
+    {:else}
+      <Logo />
     {/if}
     <h2>{title}</h2>
-    <Button label="Reload tiles" kind="ghost" size="compact" iconOnly onclick={() => emit({ type: 'reload-tiles' })}>
-      <Icon name="reset" />
-    </Button>
-    <Button bind:element={popoutButton} label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
-      <Icon name={poppedOut ? 'dock' : 'popout'} />
-    </Button>
-    <Button label="Appearance" kind="ghost" size="compact" iconOnly pressed={model.view === 'appearance'} onclick={() => navigate('appearance')}>
-      <Icon name="tune" />
-    </Button>
-    {#if model.showSettings !== false}
-      <Button label="Settings" kind="ghost" size="compact" iconOnly pressed={model.view === 'settings'} onclick={() => navigate('settings')}>
-        <Icon name="settings" />
+    <div class="group">
+      <Button label="Reload tiles" kind="ghost" size="small" iconOnly onclick={() => emit({ type: 'reload-tiles' })}>
+        <Icon name="reset" />
       </Button>
-    {/if}
-    <Button label="Close" kind="ghost" size="compact" iconOnly onclick={() => { if (poppedOut) void dock(); else emit({ type: 'close' }) }}>
+      <Button bind:element={popoutButton} label={poppedOut ? 'Return to sidebar' : 'Pop out menu'} popup={poppedOut ? undefined : 'dialog'} kind="ghost" size="small" iconOnly onclick={() => { if (poppedOut) void dock(); else poppedOut = true }}>
+        <Icon name={poppedOut ? 'dock' : 'popout'} />
+      </Button>
+    </div>
+    <div class="group">
+      <Button label="Appearance" kind="ghost" size="small" iconOnly pressed={model.view === 'appearance'} onclick={() => navigate('appearance')}>
+        <Icon name="tune" />
+      </Button>
+      {#if model.showSettings !== false}
+        <Button label="Settings" kind="outline" size="small" iconOnly pressed={model.view === 'settings'} onclick={() => navigate('settings')}>
+          <Icon name="settings" />
+        </Button>
+      {/if}
+    </div>
+    <Button label="Close" kind="ghost" size="small" iconOnly onclick={() => { if (poppedOut) void dock(); else emit({ type: 'close' }) }}>
       <Icon name="close" />
     </Button>
   </header>
@@ -244,15 +254,21 @@
   dialog .panel { border-radius: var(--caelestis-radius); }
   .panel { container: panel / inline-size; }
   .panel { --caelestis-content-inset: 1rem; position: relative; display: flex; flex-direction: column; min-block-size: 0; block-size: 100%; overflow: hidden; border-radius: var(--caelestis-radius); background: var(--caelestis-surface); color: var(--caelestis-text); box-shadow: var(--caelestis-shadow); }
-  header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; padding: 1rem 1.5rem; border-block-end: 1px solid var(--caelestis-border); }
-  h2 { flex: 1; margin: 0; font: 600 0.875rem/1.25 var(--caelestis-font); }
-  .body { display: grid; flex: 1; min-block-size: 0; }
+  header { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem 0.75rem 1.25rem; border-block-end: 1px solid var(--caelestis-border); }
+  h2 { flex: 1; min-inline-size: 0; margin: 0; overflow: hidden; font: 700 1rem/1.25 var(--caelestis-font); text-overflow: ellipsis; white-space: nowrap; }
+  /* A group's buttons sit together; a hairline after each keeps them apart from the next. */
+  .group { display: flex; flex-shrink: 0; align-items: center; gap: 0.125rem; padding-inline-end: 0.5rem; border-inline-end: 1px solid var(--caelestis-border); }  .body { display: grid; flex: 1; min-block-size: 0; }
   /* Outgoing and incoming pages share one grid cell so the swap never shifts layout. */
   .page { grid-area: 1 / 1; display: flex; flex-direction: column; min-block-size: 0; min-inline-size: 0; }
   .resize { position: absolute; inset-block: 0; inset-inline-start: 0; z-index: 1; inline-size: 6px; cursor: ew-resize; }
   .resize:hover::after, .resize.resizing::after, .resize:focus-visible::after { content: ''; position: absolute; inset: 0 2px 0 1px; border-radius: var(--caelestis-pill-radius); background: var(--caelestis-primary); opacity: 0.5; }
   .resize:focus-visible { outline: none; }
+  /* Too narrow for the title and every control on one row: the title row keeps back or the mark,
+     the title and Close; the two groups move to a second row beneath it. */
   @container panel (max-width: 24rem) {
-    header { gap: 0.25rem; padding-inline: 0.75rem; }
+    header { flex-wrap: wrap; row-gap: 0.5rem; padding-inline: 0.75rem 0.5rem; }
+    h2 { flex-basis: calc(100% - 5rem); }
+    .group { order: 1; }
+    .group:last-of-type { border-inline-end: 0; }
   }
 </style>

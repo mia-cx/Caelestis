@@ -6,7 +6,8 @@
     label: string
     /** The tooltip; an icon-only button shows its label when this is absent. */
     title?: string
-    kind?: 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'danger-ghost' | 'ghost'
+    /** `outline` is ghost with a visible frame: a quiet control that is still easy to spot. */
+    kind?: 'default' | 'primary' | 'success' | 'warning' | 'danger' | 'danger-ghost' | 'ghost' | 'outline'
     size?: 'compact' | 'small' | 'normal'
     pressed?: boolean
     popup?: 'dialog' | 'menu' | undefined
@@ -49,6 +50,7 @@
   class:danger={kind === 'danger'}
   class:danger-ghost={kind === 'danger-ghost'}
   class:ghost={kind === 'ghost'}
+  class:outline={kind === 'outline'}
   title={title ?? (iconOnly ? label : undefined)}
   {disabled}
   aria-disabled={ariaDisabled}
@@ -100,10 +102,12 @@
   button.danger { --button-colour: var(--caelestis-danger); --button-foreground: var(--caelestis-danger-content); }
   button.ghost, button.danger-ghost { border-color: transparent; background: transparent; box-shadow: none; }
   button.danger-ghost { color: var(--caelestis-danger); }
+  button.outline { border: max(1px, var(--caelestis-border-width)) solid color-mix(in oklab, currentColor 45%, transparent); background: transparent; box-shadow: none; }
+  button.outline[aria-pressed='true'] { border-color: var(--caelestis-primary); background: color-mix(in oklab, var(--caelestis-primary) 14%, transparent); }
   button[aria-pressed='true'] { --button-colour: color-mix(in oklab, var(--caelestis-raised-surface) 95%, #000); box-shadow: none; }
   @media (hover: hover) {
     button:hover:not(:disabled, [aria-disabled='true']) { background: color-mix(in oklab, var(--button-colour), #000 7%); }
-    button:is(.ghost, .danger-ghost):hover:not(:disabled, [aria-disabled='true']) { background: color-mix(in oklab, currentColor 10%, transparent); }
+    button:is(.ghost, .danger-ghost, .outline):hover:not(:disabled, [aria-disabled='true']) { background: color-mix(in oklab, currentColor 10%, transparent); }
   }
   button:active:not(:disabled, [aria-disabled='true']) { translate: 0 0.5px; box-shadow: none; }
   button:is(:disabled, [aria-disabled='true']) { pointer-events: none; cursor: not-allowed; opacity: 0.3; }
@@ -146,8 +150,15 @@
     --bevel-bottom: transparent;
     background: var(--bevel-stack);
   }
+  /* The ink frame without the raised faces: flat, but framed like every other pixel control. */
+  :host([data-caelestis-style='pixel']) button.outline {
+    --bevel-fill: transparent;
+    --bevel-top: transparent;
+    --bevel-bottom: transparent;
+    background: var(--bevel-stack);
+  }
   @media (hover: hover) {
-    :host([data-caelestis-style='pixel']) button:is(.ghost, .danger-ghost):hover:not(:disabled, [aria-disabled='true']) {
+    :host([data-caelestis-style='pixel']) button:is(.ghost, .danger-ghost, .outline):hover:not(:disabled, [aria-disabled='true']) {
       --bevel-fill: color-mix(in oklab, currentColor 10%, transparent);
       background: var(--bevel-stack);
     }
