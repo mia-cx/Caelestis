@@ -75,7 +75,7 @@ import {
 import { presenceCss } from './presence-colour.js'
 import { hasServerAdminToken } from './server-connections.js'
 import { getState, onStateChange } from './settings.js'
-import { storedValue, storeValue } from './stored-values.js'
+import { LOCAL_KEY_PREFIX, storedValue, storeValue } from './stored-values.js'
 import { navigateTo } from './templates/navigate.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { accountIdentity } from './wplace-account.js'
@@ -940,6 +940,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   const saved = savedLobbySettings()
   return {
     phase,
+    collapsed: cardCollapsed(),
     canRun,
     canOpen: view.canWrite,
     painters: run?.painters ?? saved.painters,
@@ -1023,6 +1024,9 @@ const handleIntent = (intent: CaptureRunIntent): void => {
   if (view === null) return
   const { server, run } = view
   switch (intent.type) {
+    case 'set-collapsed':
+      collapseCard(intent.collapsed)
+      break
     case 'set-painters':
       changeSettings(view, { painters: intent.painters })
       break
@@ -1104,6 +1108,39 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       break
   }
   render()
+}
+
+/**
+ * Where this browser keeps the painter's choice to collapse or expand the card, so it outlasts the
+ * element; absent until they first choose.
+ */
+const COLLAPSED_KEY = `${LOCAL_KEY_PREFIX}capture-lobby.collapsed`
+
+/** The card's phone layout, where it starts collapsed so the map stays in view. */
+const PHONE_QUERY = '(max-width: 480px)'
+
+/** The choice made in this tab, for when storage refuses it. */
+let collapsedChoice: boolean | null = null
+
+/** Collapsed as the painter last chose, or by default on a phone. */
+const cardCollapsed = (): boolean => {
+  if (collapsedChoice !== null) return collapsedChoice
+  try {
+    const stored = storedValue(COLLAPSED_KEY)
+    if (stored !== null) return stored === '1'
+  } catch {
+    // Unreadable storage reads as no choice yet.
+  }
+  return matchMedia(PHONE_QUERY).matches
+}
+
+const collapseCard = (collapsed: boolean): void => {
+  collapsedChoice = collapsed
+  try {
+    storeValue(COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch (error) {
+    warn('could not save whether the capture lobby card is collapsed', String(error))
+  }
 }
 
 /**

@@ -19,6 +19,7 @@ const bea = { ...ada, id: 'b', name: 'Bea', colour: 'blue', drafted: 12, me: tru
 
 const counting = {
   phase: 'countdown',
+  collapsed: false,
   canRun: false,
   canOpen: true,
   lobbies: [],
@@ -64,6 +65,43 @@ const button = (card: HTMLElement, label: string) =>
   [...card.querySelectorAll<HTMLButtonElement>('button')].find(
     (element) => (element.getAttribute('aria-label') ?? element.textContent?.trim()) === label,
   ) ?? null
+
+describe('the card collapsing to its bar', () => {
+  const bar = (card: HTMLElement) =>
+    card.querySelector<HTMLButtonElement>('h2 button[aria-expanded]') ?? null
+
+  it('toggles from its header, and keeps only the summary while collapsed', () => {
+    const intents: CaptureRunIntent[] = []
+    const open = render({ ...gathering, locked: true }, intents)
+    expect(bar(open)?.getAttribute('aria-expanded')).toBe('true')
+    expect(bar(open)?.textContent).toContain('2 painters · 1 of 2 ready')
+    bar(open)?.click()
+    expect(intents).toEqual([{ type: 'set-collapsed', collapsed: true }])
+
+    const shut = render({ ...gathering, locked: true, collapsed: true }, intents)
+    expect(bar(shut)?.getAttribute('aria-expanded')).toBe('false')
+    const body = shut.querySelector<HTMLElement>(`#${bar(shut)?.getAttribute('aria-controls')}`)
+    expect(body?.hidden).toBe(true)
+    expect(body?.contains(button(shut, 'Start countdown'))).toBe(true)
+    bar(shut)?.click()
+    expect(intents.at(-1)).toEqual({ type: 'set-collapsed', collapsed: false })
+  })
+
+  it('still counts down to the slot while collapsed', () => {
+    const card = render({ ...counting, collapsed: true, mySlotAt: performance.now() + 4_200 })
+    const clock = card.querySelector('.clock')
+    expect(clock?.closest('[hidden]')).toBeNull()
+    expect(clock?.textContent).toContain('Paint in')
+    expect(clock?.textContent).toMatch(/00:0[34]\.\d{3}/)
+  })
+
+  it('counts the open lobbies in the list', () => {
+    const lobby = { id: 'one', name: 'Ada', members: 3, canJoin: true }
+    const list = { ...counting, phase: 'list', collapsed: true, members: [], role: null } as const
+    expect(bar(render({ ...list, lobbies: [lobby] }))?.textContent).toContain('1 open')
+    expect(bar(render({ ...list, lobbies: [] }))?.textContent).toContain('None open')
+  })
+})
 
 describe('capture lobby countdown', () => {
   it('announces only the marked seconds and clamps the clock at the slot', () => {
@@ -143,6 +181,20 @@ it('names the host and the closer under their names', () => {
 })
 
 describe('whoever runs a lobby', () => {
+  it('folds the settings behind their values', () => {
+    const card = render({ ...gathering, guards: 1, distribution: 'reserve' })
+    const settings = [...card.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].find(
+      (element) => element.textContent?.includes('Settings'),
+    )
+    expect(settings?.textContent).toContain('2 painters · 1 guard · Reserve · 500 ms · 10 s')
+    const grid = card.querySelector<HTMLElement>(`#${settings?.getAttribute('aria-controls')}`)
+    expect(grid?.hidden).toBe(true)
+    settings?.click()
+    flushSync()
+    expect(settings?.getAttribute('aria-expanded')).toBe('true')
+    expect(grid?.hidden).toBe(false)
+  })
+
   it('steps the stagger by 50 ms within its bounds until the countdown', () => {
     const intents: CaptureRunIntent[] = []
     const card = render({ ...gathering, staggerMs: 500 }, intents)

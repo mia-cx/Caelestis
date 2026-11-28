@@ -25,7 +25,7 @@
     z-index: 31;
     display: block;
     max-inline-size: calc(100vw - var(--caelestis-capture-run-left, 3.5rem) - 0.5rem);
-    max-block-size: calc(100vh - var(--caelestis-capture-run-top, 0.5rem) - 0.5rem);
+    max-block-size: calc(100dvh - var(--caelestis-capture-run-top, 0.5rem) - 0.5rem);
   }
   /*
    * Where the window is too narrow for the card beside Wplace's top-centre event scoreboard, it
@@ -34,7 +34,7 @@
   @media (max-width: 1080px) {
     :host {
       inset-block-start: var(--caelestis-capture-run-top-narrow, 10.5rem);
-      max-block-size: calc(100vh - var(--caelestis-capture-run-top-narrow, 10.5rem) - 6.5rem);
+      max-block-size: calc(100dvh - var(--caelestis-capture-run-top-narrow, 10.5rem) - 6.5rem);
     }
   }
   /* A short window has no room below the scoreboard: the card takes the top and the full height,
@@ -42,7 +42,7 @@
   @media (max-width: 1080px) and (max-height: 560px) {
     :host {
       inset-block-start: 0.5rem;
-      max-block-size: calc(100vh - 1rem);
+      max-block-size: calc(100dvh - 1rem);
       z-index: 1001;
     }
   }
