@@ -225,10 +225,10 @@ export class PresenceCoordinator<Client> {
     const previous = this.captureRuns(team)
     const next = previous.then(async (runs) => {
       // Only sessions still on this team count: one that switched team is gone from its lobbies.
-      const connected = new Set(
+      const connected = new Map(
         this.sessionsOpen()
           .filter(({ held }) => held.team === team)
-          .map(({ held }) => held.sessionId),
+          .map(({ held }) => [held.sessionId, held.painter.wplaceUserId] as const),
       )
       const updated = connectedCaptures(change(runs), connected)
       if (updated === runs) return runs
@@ -811,6 +811,8 @@ export class PresenceCoordinator<Client> {
       // A new team: leave the old team's lobby, see the new one's.
       const left = attachment.team
       if (left !== undefined) this.leaveCaptures(left, attachment.sessionId)
+      // A painter back on a new socket takes their place again, should their old one be gone.
+      this.updateCapture(team, (runs) => runs)
       void this.captureRuns(team).then((runs) => {
         // The read can finish after the session closed or switched again; then it is not theirs.
         if (socket.readyState !== 1) return

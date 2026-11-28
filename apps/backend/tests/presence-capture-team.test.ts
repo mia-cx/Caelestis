@@ -154,3 +154,42 @@ it('never sends a team’s changed lobbies to a session that left that team duri
     ])
   })
 })
+
+it('gives a painter back their place in a lobby when they reconnect on a new socket', async () => {
+  await withSession('get', async ({ storage, send, lobbies }) => {
+    storage.release()
+    // Painter 1 was in a started lobby on a socket that has since closed.
+    const green: CaptureRun = {
+      id: uuidV7(),
+      team: GREEN,
+      opener: 1,
+      coordinator: 1,
+      host: 'closed-socket',
+      painters: 1,
+      guards: 0,
+      distribution: 'even',
+      members: [
+        {
+          sessionId: 'closed-socket',
+          painter: { wplaceUserId: 1, displayName: 'Painter' },
+          drafted: 4,
+          joined: 0,
+        },
+      ],
+      wall: [0, 0, 1, 0, 2, 0, 3, 0],
+      guardZones: [],
+      startsAt: Date.now() + 60_000,
+      staggerMs: 500,
+      cut: 1,
+    }
+    await storage.put(`capture-runs:${GREEN}`, [green])
+    send({ type: 'presence-update', team: GREEN })
+    await vi.waitFor(() => {
+      const [last] = lobbies().slice(-1)
+      const run = last?.type === 'capture-runs' ? last.runs[0] : undefined
+      expect(run?.members.map(({ sessionId }) => sessionId)).not.toEqual(['closed-socket'])
+      expect(run?.members).toHaveLength(1)
+      expect(run?.host).toBe(run?.members[0]?.sessionId)
+    })
+  })
+})

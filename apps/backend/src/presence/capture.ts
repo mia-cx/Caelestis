@@ -23,6 +23,7 @@ import {
   type Scope,
   satisfiesScope,
   type TerritoryTeam,
+  type WplaceUserId,
 } from '@caelestis/shared'
 
 /** Who sent a capture event, as the room knows the socket. */
@@ -86,10 +87,15 @@ export const applyCaptureEvent = (
   }
   if (event.type === 'capture-join') {
     const target = runs.find(({ id }) => id === event.run)
-    if (target === undefined || target.startsAt !== null || memberOf(target, actor.sessionId))
-      return runs
+    if (target === undefined || memberOf(target, actor.sessionId)) return runs
+    // A painter is one member wherever they connect from: joining again from a new tab or socket
+    // takes back their place, leg and slot, also once the countdown has started.
+    const place = placeOf(target, actor.painter.wplaceUserId)
+    if (place === -1 && target.startsAt !== null) return runs
     const left = leaveCaptures(runs, actor.sessionId, now)
     if (left === null) return runs
+    if (place !== -1)
+      return left.map((run) => (run.id === target.id ? reseated(run, place, actor.sessionId) : run))
     const joined = Math.max(0, ...target.members.map((member) => (member.joined ?? 0) + 1))
     return left.map((run) =>
       run === target ? withMembers(run, [...run.members, me(joined)]) : run,
@@ -203,6 +209,19 @@ const applyOwnEvent = (
 const memberOf = (run: CaptureRun, sessionId: string): boolean =>
   run.members.some((entry) => entry.sessionId === sessionId && entry.left !== true)
 
+/** Where a painter sits in a lobby they have not left, or -1. */
+const placeOf = (run: CaptureRun, painter: WplaceUserId): number =>
+  run.members.findIndex((entry) => entry.left !== true && entry.painter.wplaceUserId === painter)
+
+/** The lobby with the member at `place` on a new session of theirs, hosting if the old one did. */
+const reseated = (run: CaptureRun, place: number, sessionId: string): CaptureRun => {
+  const member = run.members[place]
+  if (member === undefined) return run
+  const members = run.members.slice()
+  members[place] = { ...member, sessionId }
+  return { ...run, members, ...(run.host === member.sessionId ? { host: sessionId } : {}) }
+}
+
 const undrafted = (member: CaptureMember): CaptureMember =>
   member.drafted === 0 ? member : { ...member, drafted: 0 }
 
@@ -266,16 +285,39 @@ export const leaveCaptures = (
 
 /**
  * The lobbies that still have a connected member, a lobby nobody is in closing, each hosted by a
- * connected member. A gathering lobby also drops members whose sessions are gone: one who
- * disconnected during a countdown kept their place until it ended, and must not carry into the next
- * round. A started lobby keeps them, so its host passes to the longest-standing connected member.
+ * connected member. `connected` maps each connected session to its painter.
+ *
+ * A member whose session is gone first passes their place to a connected session of the same
+ * painter that is in no lobby: a painter whose socket reconnected, or whose old socket only timed
+ * out after they did, keeps their leg and slot. A gathering lobby then drops members whose sessions
+ * are gone: one who disconnected during a countdown kept their place until it ended, and must not
+ * carry into the next round. A started lobby keeps them, so its host passes to the longest-standing
+ * connected member.
  */
 export const connectedCaptures = (
   runs: readonly CaptureRun[],
-  connected: ReadonlySet<string>,
+  connected: ReadonlyMap<string, WplaceUserId>,
 ): readonly CaptureRun[] => {
   let changed = false
-  const kept = runs.flatMap((run) => {
+  const seated = new Set(
+    runs.flatMap(({ members }) =>
+      members.filter(({ left }) => left !== true).map(({ sessionId }) => sessionId),
+    ),
+  )
+  // Per painter, a connected session of theirs in no lobby yet: the latest, if several.
+  const spare = new Map<WplaceUserId, string>()
+  for (const [sessionId, painter] of connected)
+    if (!seated.has(sessionId)) spare.set(painter, sessionId)
+  const back = runs.map((before) =>
+    before.members.reduce((run, { sessionId, painter, left }, place) => {
+      const session = spare.get(painter.wplaceUserId)
+      if (left === true || connected.has(sessionId) || session === undefined) return run
+      spare.delete(painter.wplaceUserId)
+      changed = true
+      return reseated(run, place, session)
+    }, before),
+  )
+  const kept = back.flatMap((run) => {
     if (!run.members.some(({ sessionId, left }) => left !== true && connected.has(sessionId))) {
       changed = true
       return []
