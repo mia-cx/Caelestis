@@ -237,3 +237,30 @@ it('lists the team’s lobbies to a painter in none, and joins the one they choo
   intent({ type: 'join', id: 'run' })
   expect(sent(socket, 'capture-join')).toEqual([{ type: 'capture-join', run: 'run' }])
 })
+
+it("counts a leg's pixels the team already holds on Wplace's map as drafted", async () => {
+  const { socket } = await connect({ capture: 1 })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  const { encodeIndexedPng, TERRITORY_ARENA, TERRITORY_TEAMS, TILE_SIZE, TRANSPARENT_INDEX } =
+    await import('@caelestis/shared')
+  // Wplace's map: the team already holds the first two pixels of the wall, this painter's leg.
+  const size = TERRITORY_ARENA.size
+  const owner = new Uint8Array(size * size).fill(TRANSPARENT_INDEX)
+  owner.fill(TERRITORY_TEAMS[0].colour, 0, 2)
+  const snapshot = await encodeIndexedPng(size, size, owner)
+  vi.stubGlobal('fetch', async (url: unknown) =>
+    String(url).endsWith('/territory/snapshot')
+      ? new Response(snapshot.slice())
+      : new Response(null, { status: 404 }),
+  )
+  const { installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  const left = TERRITORY_ARENA.tileX * TILE_SIZE
+  const top = TERRITORY_ARENA.tileY * TILE_SIZE
+  const wall = [0, 1, 2, 3].flatMap((x) => [left + x, top])
+  socket.receive({ type: 'capture-runs', runs: [lobby(wall, 0)] })
+  await vi.waitFor(async () => {
+    await vi.advanceTimersByTimeAsync(500)
+    expect(sent(socket, 'capture-drafted').at(-1)).toMatchObject({ drafted: 2 })
+  })
+})

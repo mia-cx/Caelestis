@@ -201,17 +201,47 @@ const syncTeam = (): void => {
     .catch(() => undefined)
 }
 
-/** Whether this tab has drafted a pixel in a colour that claims for `team`. */
-const draftedPixel = (team: TerritoryTeam, { x, y }: { x: number; y: number }): boolean => {
+/**
+ * Wplace's territory map as a painter last read it, so a leg's pixels the team already holds count
+ * as done: they are painted in its colour already, and Wplace has nothing left to draft there.
+ */
+let heldMap: { readonly hash: number; readonly map: TerritoryMap } | null = null
+let heldLoading = false
+
+/** Read the map again once Wplace has refreshed it; called while a painter drafts their leg. */
+const refreshHeldMap = (): void => {
+  if (heldLoading) return
+  heldLoading = true
+  void plannedSnapshot()
+    .then(async (snapshot) => {
+      if (snapshot === null || heldMap?.hash === snapshot.hash) return
+      const image = await decodePng(snapshot.bytes.slice())
+      heldMap = { hash: snapshot.hash, map: territoryMapFromImage(image, PALETTE_RGB) }
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      heldLoading = false
+    })
+}
+
+/**
+ * Whether a leg pixel is done for `team`: this tab has drafted it in a colour that claims for the
+ * team, or the team already holds it on Wplace's map.
+ */
+const donePixel = (team: TerritoryTeam, pixel: { x: number; y: number }): boolean => {
   const { colour, dark } = TERRITORY_TEAMS[team]
+  const { x, y } = pixel
   const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
   const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
   const drafted = comparisonDraftPixelAt(tile, offset)
-  return drafted === colour || drafted === dark
+  if (drafted === colour || drafted === dark) return true
+  const map = heldMap?.map
+  const local = map === undefined ? null : worldToArena(pixel)
+  return map !== undefined && local !== null && map.owner[local.y * map.size + local.x] === team
 }
 
 const draftedOn = (team: TerritoryTeam, line: readonly number[]): number =>
-  linePixels(line).filter((pixel) => draftedPixel(team, pixel)).length
+  linePixels(line).filter((pixel) => donePixel(team, pixel)).length
 
 /** This painter's own line, split into what they have drafted and what is left to draft. */
 const mineCache = new Map<string, readonly CaptureItem[]>()
@@ -221,7 +251,7 @@ const mineItems = (
   colour: Rgb,
 ): readonly CaptureItem[] => {
   const pixels = linePixels(line)
-  const done = pixels.map((pixel) => draftedPixel(team, pixel))
+  const done = pixels.map((pixel) => donePixel(team, pixel))
   const key = `${team}|${line.join(',')}|${done.map(Number).join('')}`
   const cached = mineCache.get(key)
   if (cached !== undefined) return cached
@@ -1061,6 +1091,8 @@ const tick = (): void => {
     const line = captureLines(run)[mine]
     // Report whatever the lobby does not already say, including after the server resets it for a
     // re-cut leg; the report interval keeps a report still in flight from repeating often.
+    // Pixels the team already holds count too, so the map is kept fresh while drafting.
+    if (line !== undefined && run.startsAt === null) refreshHeldMap()
     const drafted = line === undefined ? 0 : draftedOn(run.team, line)
     const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
     if (drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
