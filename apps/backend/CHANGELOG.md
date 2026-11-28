@@ -1,5 +1,19 @@
 # @caelestis/backend
 
+## 1.6.0
+
+### Minor Changes
+
+- 697154e: Runners can give a capture lobby's closing leg, and the captured area it brings, to another member.
+- a1d57a0: Runners set how long a capture lobby counts down, and New lobby opens with the settings they last chose.
+- 0cd54c9: On an event server, admins see painters from every team, and Nearby painters shows each painter's team.
+
+### Patch Changes
+
+- cdbb70e: Leg pixels your team already holds count as drafted, so a leg over painted ground no longer holds up the countdown.
+- 6739895: Runners can plan the next shape in the same lobby once a capture has finished.
+- d5c32ce: Event servers log how each capture slot landed, including the painter's latency to Wplace.
+
 ## 1.5.0
 
 ### Minor Changes
