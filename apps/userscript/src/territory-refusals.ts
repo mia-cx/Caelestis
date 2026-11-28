@@ -24,9 +24,18 @@ export interface TerritoryPaintResult {
   readonly reason?: string
 }
 
-/** Wplace's territory store: the one object the event panel paints through. */
+/** One socket answer from the territory server; a paint's carries that batch's result. */
+export interface TerritoryAnswer {
+  readonly result?: { readonly reason?: string }
+}
+
+/**
+ * Wplace's territory store: the one object the event panel paints through. `paint` sends the draft
+ * in batches, each one a `request`, and sums them, keeping only the last batch's reason.
+ */
 export interface TerritoryStore {
   paint(pixels: unknown): Promise<TerritoryPaintResult>
+  request(message: { readonly t?: unknown }): Promise<TerritoryAnswer>
 }
 
 /** The reason Wplace leaves unreported: pixels the team already holds cost nothing. */
@@ -41,21 +50,39 @@ const REFUSAL_MESSAGES: Readonly<Record<string, WplaceLabel>> = {
 }
 
 /**
- * Make `store.paint` reject whenever Wplace would report a refusal, so its panel keeps the draft.
- * Shadows the prototype method on the instance, which is the object Wplace's panel calls.
+ * Make `store.paint` reject whenever any batch is refused for a reason other than own, so Wplace's
+ * panel keeps the draft. The summed result alone can't tell: a later batch of owned pixels hides an
+ * earlier refusal. Shadows the prototype methods on the instance, which is what Wplace calls.
  */
 export const keepRefusedDrafts = (store: TerritoryStore): void => {
   const paint = store.paint.bind(store)
+  const request = store.request.bind(store)
+  // The refusals seen by each paint still in flight. A batch counts for every one of them, since
+  // the answers can't be told apart: overlapping paints keep a draft rather than lose one.
+  const inFlight = new Set<string[]>()
+  store.request = async (message) => {
+    const answer = await request(message)
+    const reason = message.t === 'paint' ? answer.result?.reason : undefined
+    if (reason && reason !== OWN) for (const refusals of inFlight) refusals.push(reason)
+    return answer
+  }
   store.paint = async (pixels) => {
-    const result = await paint(pixels)
-    if (!result.reason || result.reason === OWN) return result
-    throw new Error(wplaceLabel(REFUSAL_MESSAGES[result.reason] ?? 'territory_not_adjacent'))
+    const refusals: string[] = []
+    inFlight.add(refusals)
+    try {
+      const result = await paint(pixels)
+      const [reason] = refusals
+      if (reason === undefined) return result
+      throw new Error(wplaceLabel(REFUSAL_MESSAGES[reason] ?? 'territory_not_adjacent'))
+    } finally {
+      inFlight.delete(refusals)
+    }
   }
 }
 
 const isTerritoryStore = (value: unknown): value is TerritoryStore =>
   isRecord(value) &&
-  ['paint', 'swap', 'sentByMe'].every((method) => typeof value[method] === 'function')
+  ['paint', 'request', 'swap', 'sentByMe'].every((method) => typeof value[method] === 'function')
 
 /** Find Wplace's territory store and keep its refused drafts. */
 export const installTerritoryRefusals = async (): Promise<void> => {

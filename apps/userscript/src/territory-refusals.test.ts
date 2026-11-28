@@ -8,18 +8,33 @@ import { useWplaceCatalog } from './wplace-messages.js'
 
 afterEach(() => useWplaceCatalog(null))
 
-/** A store shaped like Wplace's: `paint` lives on the prototype and answers what the server did. */
+type Batch = TerritoryPaintResult
+
+/**
+ * A store shaped like Wplace's: `paint` lives on the prototype and sends one `request` per batch,
+ * summing the results and keeping the last reason, as Wplace's does.
+ */
 class FakeStore implements TerritoryStore {
   sent: unknown[] = []
-  constructor(private readonly answer: () => Promise<TerritoryPaintResult>) {}
-  paint(pixels: unknown): Promise<TerritoryPaintResult> {
+  constructor(private readonly answers: () => Promise<Batch[]>) {}
+  async paint(pixels: unknown): Promise<TerritoryPaintResult> {
     this.sent.push(pixels)
-    return this.answer()
+    const total: { painted: number; refused: number; reason?: string } = { painted: 0, refused: 0 }
+    for (const batch of await this.answers()) {
+      const { result } = await this.request({ t: 'paint', batch })
+      total.painted += result.painted
+      total.refused += result.refused
+      total.reason = result.reason ?? total.reason
+    }
+    return total
+  }
+  async request(message: { t?: unknown; batch?: Batch }): Promise<{ result: Batch }> {
+    return { result: message.batch ?? { painted: 0, refused: 0 } }
   }
 }
 
-const storeAnswering = (result: TerritoryPaintResult): FakeStore => {
-  const store = new FakeStore(async () => result)
+const storeAnswering = (...batches: Batch[]): FakeStore => {
+  const store = new FakeStore(async () => batches)
   keepRefusedDrafts(store)
   return store
 }
@@ -27,9 +42,9 @@ const storeAnswering = (result: TerritoryPaintResult): FakeStore => {
 it.each([
   { painted: 3, refused: 0 },
   { painted: 1, refused: 2, reason: 'own' },
-])('resolves a paint Wplace would clear the draft after: %o', async (result) => {
-  const store = storeAnswering(result)
-  await expect(store.paint([{ x: 1, y: 2 }])).resolves.toEqual(result)
+])('resolves a paint whose every batch landed or was already owned: %o', async (result) => {
+  const store = storeAnswering(result, { painted: 0, refused: 2, reason: 'own' })
+  await expect(store.paint([{ x: 1, y: 2 }])).resolves.toMatchObject({ painted: result.painted })
   expect(store.sent).toEqual([[{ x: 1, y: 2 }]])
 })
 
@@ -53,4 +68,12 @@ it('passes a failed paint through unchanged', async () => {
   const store = new FakeStore(() => Promise.reject(failure))
   keepRefusedDrafts(store)
   await expect(store.paint([])).rejects.toBe(failure)
+})
+
+it('rejects a paint whose earlier batch was refused, though the last batch was already owned', async () => {
+  const store = storeAnswering(
+    { painted: 0, refused: 64, reason: 'not-adjacent' },
+    { painted: 0, refused: 1, reason: 'own' },
+  )
+  await expect(store.paint([])).rejects.toThrow("You can only paint next to your team's territory.")
 })
