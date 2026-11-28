@@ -120,11 +120,17 @@ export const eraserKey = (): KeyboardEventInit | null => {
   return null
 }
 
-/** Toggle Wplace's eraser with the painter's `paint.eraser` key. False when it has no key. */
+/**
+ * Tap the painter's `paint.eraser` key, pressed and released like a real tap. Should Wplace hear
+ * it as Paint Hold after all (its saved controls can lag what it uses), the hold ends at once.
+ * False when the eraser has no key.
+ */
 export const forwardEraserKey = (): boolean => {
   const key = eraserKey()
-  if (key !== null) forwardKey('keydown', key, eraserPresses)
-  return key !== null
+  if (key === null) return false
+  forwardKey('keydown', key, eraserPresses)
+  forwardKey('keyup', key, eraserPresses)
+  return true
 }
 
 type ClientPosition = { readonly clientX: number; readonly clientY: number }

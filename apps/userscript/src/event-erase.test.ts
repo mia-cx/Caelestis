@@ -97,16 +97,19 @@ it("presses the painter's own eraser key, never one on Paint Hold's, and hides w
   expect(eraseButton()).toBeNull()
 })
 
-it('presses an eraser on Space once Paint Hold is on another key', () => {
+it('taps an eraser on Space once Paint Hold is on another key, releasing it at once', () => {
   installEventErase()
   openEventPanel()
   const keys: string[] = []
-  document.addEventListener('keydown', (event) => keys.push(event.code))
+  for (const type of ['keydown', 'keyup'])
+    document.addEventListener(type, (event) =>
+      keys.push(`${type}:${(event as KeyboardEvent).code}`),
+    )
   localStorage.setItem(
     'wplace:controls:v1',
     JSON.stringify({ bindings: { 'paint-hold': ['J'], 'paint.eraser': ['Space'] } }),
   )
   setState({ simulatedInput: { 'event-erase': true } })
   eraseButton()?.click()
-  expect(keys).toEqual(['Space'])
+  expect(keys).toEqual(['keydown:Space', 'keyup:Space'])
 })
