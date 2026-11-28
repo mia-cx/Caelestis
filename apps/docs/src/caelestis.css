@@ -109,6 +109,20 @@ html:root.plain-font {
   clip-path: var(--pixel-corners-lg);
 }
 
+:root body .sv-prose p:has(> a > img[src*="/images/install/banner-"]) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  img {
+    clip-path: none;
+  }
+
+  .sv-link-external-icon {
+    display: none;
+  }
+}
+
 /*
  * Bordered boxes: the border moves to a ring that follows the stair, so the corner clip does not
  * slice it. Main page panels float on the paper in white, like the dashboard's cards over the map.

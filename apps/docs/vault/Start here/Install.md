@@ -7,9 +7,11 @@ aliases:
 
 Install Caelestis in the browser you use for Wplace. The extension and the userscript share the same interface at the same version.
 
+[![Get it for Firefox (add-on)](images/install/banner-firefox.png)](https://addons.mozilla.org/en-US/firefox/addon/caelestis/) [![Get it for Chrome & Edge (userscript)](images/install/banner-chrome-edge.png)](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js)
+
 ## Install the extension
 
-1. In Firefox, open [Caelestis on Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/caelestis/) and add the extension.
+1. Select the Firefox banner above and add the extension.
 2. Open or reload [Wplace](https://wplace.live). Click the Caelestis moon among the map controls.
 3. Follow [Getting started](Getting-started) to place your first template.
 
