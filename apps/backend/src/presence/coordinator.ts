@@ -2,6 +2,7 @@ import {
   type CaptureRun,
   captureEndsAt,
   decodePresenceDraftMask,
+  LATENCY_REPORT_GAP_MS,
   MAX_PRESENCE_MASK_BITS,
   MAX_PRESENCE_MESSAGE_CODE_UNITS,
   MAX_PRESENCE_MESSAGES_PER_SECOND,
@@ -104,6 +105,8 @@ interface SessionState {
   onlineSent?: number
   /** The region version and owned ids it was last sent. */
   claimsSent?: { readonly version: number; readonly owned: string }
+  /** When its last latency report was logged. */
+  latencyAt?: number
 }
 
 /** An open socket with the attachment read once for the operation at hand. */
@@ -779,6 +782,25 @@ export class PresenceCoordinator<Client> {
         const line = captureSlotLog(event, assigned, attachment.painter, closed)
         if (line !== null) console.info(JSON.stringify(line))
       })
+      return
+    }
+    if (event.type === 'latency-report') {
+      // Logged for reading how painters' latency to Wplace spreads; never stored.
+      if (now - (local.latencyAt ?? -Infinity) < LATENCY_REPORT_GAP_MS) return
+      local.latencyAt = now
+      const { team = null, painter } = attachment
+      const { wplaceRttMs, rttSamples, paints } = event
+      console.info(
+        JSON.stringify({
+          event: 'wplace-latency',
+          team,
+          name: painter.displayName,
+          userId: painter.wplaceUserId,
+          wplaceRttMs,
+          rttSamples,
+          paints,
+        }),
+      )
       return
     }
     if (event.type !== 'presence-update') {

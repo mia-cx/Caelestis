@@ -44,7 +44,12 @@ export interface CaptureSeatOwner {
   readonly client: string
 }
 
-type RunEvent = Exclude<CaptureClientEvent, { readonly type: 'clock' | 'capture-timing' }>
+type RunEvent = Exclude<
+  CaptureClientEvent,
+  {
+    readonly type: 'clock' | 'capture-timing' | 'latency-report'
+  }
+>
 type OwnEvent = Exclude<RunEvent, { readonly type: 'capture-new' | 'capture-join' }>
 
 /**

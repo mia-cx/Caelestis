@@ -32,3 +32,14 @@ Match lines by `lobby` and `step`:
 - `capture-slot` records one browser's automatic slot attempt, not every manual click. Compare `slotAt` with `firedLateMs` (how late the tab fired), `clickToSendMs` (click to Wplace request) and `sendToResponseMs` (request to response). `wplaceRttMs` measures the tab's recent round trip to Wplace; `clockRttMs` and `clockOffsetMs` describe its clock sync with your server.
 
 `status` is Wplace's HTTP status if it replied. Otherwise look for `missed` (the tab woke too late), `nothing-drafted`, `unsubmitted` (Paint wasn't ready), `no-request`, `no-response` or `failed`. A null request timing means that part wasn't observed.
+
+## Read painters' latency to Wplace
+
+Every painter's browser reports its latency to Wplace without a capture: once just after its first paint, then every five minutes while it has something new.
+
+```sh
+kubectl -n caelestis-event logs -l app.kubernetes.io/name=caelestis,app.kubernetes.io/component=server \
+  -c backend --since=6h --tail=-1 | grep '"event":"wplace-latency"' | jq -c .
+```
+
+`wplaceRttMs` is the median of the browser's `rttSamples` round trips to Wplace in the last five minutes, null when it made none. `paints` lists each Paint click since the previous report, with `clickToSendMs`, `sendToResponseMs` and `status` as in slot lines.

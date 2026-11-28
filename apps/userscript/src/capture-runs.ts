@@ -23,7 +23,6 @@ import {
   isEventServer,
   latLngToCanvasPixel,
   MAX_CAPTURE_PAINTERS,
-  MAX_CAPTURE_TIMING_MS,
   maxCaptureGuards,
   normaliseCaptureSettings,
   PALETTE_RGB,
@@ -54,7 +53,9 @@ import {
 import {
   observeWplaceTiming,
   type PaintTiming,
-  timeNextPaint,
+  reportMs,
+  timedPress,
+  wholeMs,
   wplaceRtt,
 } from './capture-timing.js'
 import { log, warn } from './debug.js'
@@ -805,11 +806,6 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
   return [...(opening < slot && !crowded ? [{ at: opening, tone: 'tick' as const }] : []), ...later]
 }
 
-/** A duration as a report carries it: whole milliseconds, within what the wire accepts. */
-const reportMs = (ms: number): number =>
-  Math.min(MAX_CAPTURE_TIMING_MS, Math.max(0, Math.round(ms)))
-const wholeMs = (ms: number | null): number | null => (ms === null ? null : reportMs(ms))
-
 /**
  * Once the paint request after a slot's click settles, log how the slot went and report it to the
  * lobby's server. `paint` is null when Paint was not ready; `view` holds the clock sync the slot
@@ -899,12 +895,10 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
       void reportSlot(view, run.id, slot, Promise.resolve(skipped), late, wplaceRttMs)
       return
     }
-    // Watch from before the click, so even a request the click sends at once is caught.
-    const paint = timeNextPaint(clickedAt)
-    const submitted = submitWorldPaintDraft()
-    if (!submitted) message = 'Paint was not ready at your slot.'
+    const paint = timedPress(submitWorldPaintDraft)
+    if (paint === null) message = 'Paint was not ready at your slot.'
     render()
-    void reportSlot(view, run.id, slot, submitted ? paint : null, late, wplaceRttMs)
+    void reportSlot(view, run.id, slot, paint, late, wplaceRttMs)
   }
   const timeout = setTimeout(fire, Math.max(0, at - localClock() - SPIN_MS))
   disarm = () => {

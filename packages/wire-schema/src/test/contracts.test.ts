@@ -94,6 +94,14 @@ describe('wire schema public contracts', () => {
       expect(decode(PresenceClientEvent, { ...settings, leadMs })).toEqual({ ...settings, leadMs })
     for (const leadMs of [2_000, 4_500, 31_000])
       invalid(PresenceClientEvent, { ...settings, leadMs })
+    // A latency report carries at most 20 paints, each one whose request Wplace sent.
+    const paint = { clickToSendMs: 30, sendToResponseMs: null, status: 'no-response' }
+    const latency = { type: 'latency-report', wplaceRttMs: 90, rttSamples: 16, paints: [paint] }
+    expect(decode(PresenceClientEvent, latency)).toEqual(latency)
+    invalid(PresenceClientEvent, { ...latency, paints: Array(21).fill(paint) })
+    invalid(PresenceClientEvent, { ...latency, rttSamples: 65 })
+    invalid(PresenceClientEvent, { ...latency, paints: [{ ...paint, status: 'no-request' }] })
+    invalid(PresenceClientEvent, { ...latency, paints: [{ ...paint, clickToSendMs: null }] })
     expect(
       decode(RegionDocument, {
         items: [{ id: 'brush', op: 'add', shape: { kind: 'rectangle', x: 1, y: 2, w: 3, h: 4 } }],

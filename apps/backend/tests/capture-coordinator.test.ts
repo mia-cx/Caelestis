@@ -20,7 +20,12 @@ import {
   sentCaptures,
 } from '../src/presence/capture.js'
 
-type Event = Exclude<CaptureClientEvent, { readonly type: 'clock' | 'capture-timing' }>
+type Event = Exclude<
+  CaptureClientEvent,
+  {
+    readonly type: 'clock' | 'capture-timing' | 'latency-report'
+  }
+>
 
 const COORDINATOR = 1
 const SETTINGS = { painters: 3, staggerMs: 500 }

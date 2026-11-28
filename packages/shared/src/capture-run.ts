@@ -232,6 +232,7 @@ export type CaptureClientEvent =
   | { readonly type: 'capture-close' }
   | { readonly type: 'clock'; readonly sent: number }
   | CaptureTimingReport
+  | LatencyReport
 
 /** How a member's slot went in lobby `run`, sent once for the server's log. */
 export interface CaptureTimingReport extends CaptureSlotTiming {
@@ -240,21 +241,50 @@ export interface CaptureTimingReport extends CaptureSlotTiming {
 }
 
 /**
- * What became of the paint request at a slot: Wplace's HTTP status, or `missed` (the tab woke too
- * late to click), `nothing-drafted` (the leg had nothing open to submit, so Paint was not pressed),
- * `unsubmitted` (Paint was not ready), `no-request` (Wplace sent none in time),
- * `no-response` (it never answered in time) or `failed` (the request errored).
+ * A tab's latency to Wplace, sent now and then for the server's log: the median of its recent
+ * round trips over `rttSamples` of them, and each paint request its Paint clicks sent since the
+ * last report.
+ */
+export interface LatencyReport {
+  readonly type: 'latency-report'
+  readonly wplaceRttMs: number | null
+  readonly rttSamples: number
+  readonly paints: readonly PaintLatency[]
+}
+
+/** A Paint click's request: sent `clickToSendMs` after the click, answered `sendToResponseMs` later. */
+export interface PaintLatency {
+  readonly clickToSendMs: number
+  readonly sendToResponseMs: number | null
+  readonly status: PaintRequestStatus
+}
+
+/** The most paints one latency report carries; a tab keeps its newest. */
+export const MAX_LATENCY_PAINTS = 20
+/** The most round trips a latency report's median may be taken over. */
+export const MAX_LATENCY_RTT_SAMPLES = 64
+/** The shortest gap between a session's latency reports; the server ignores one sooner. */
+export const LATENCY_REPORT_GAP_MS = 60_000
+
+/**
+ * What became of a paint request Wplace sent: its HTTP status, or `no-response` (it never
+ * answered in time) or `failed` (the request errored).
+ */
+export type PaintRequestStatus = number | 'no-response' | 'failed'
+
+/**
+ * What became of the paint request at a slot: a `PaintRequestStatus`, or `missed` (the tab woke
+ * too late to click), `nothing-drafted` (the leg had nothing open to submit, so Paint was not
+ * pressed), `unsubmitted` (Paint was not ready) or `no-request` (Wplace sent none in time).
  */
 export type CapturePaintStatus =
-  | number
+  | PaintRequestStatus
   | 'missed'
   | 'nothing-drafted'
   | 'unsubmitted'
   | 'no-request'
-  | 'no-response'
-  | 'failed'
 
-/** The longest duration a slot report carries; clients clamp longer ones to it. */
+/** The longest duration a slot or latency report carries; clients clamp longer ones to it. */
 export const MAX_CAPTURE_TIMING_MS = 60_000
 
 /**

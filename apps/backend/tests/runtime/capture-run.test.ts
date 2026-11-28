@@ -58,7 +58,7 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
   }
   cleanups.push(stop)
   const base = `http://127.0.0.1:${server.port}/backend/v1`
-  const mint = async (scope: 'report') => {
+  const mint = async (scope: 'read' | 'report') => {
     const minted = await fetch(`${base}/admin/tokens`, {
       method: 'POST',
       headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
@@ -166,6 +166,7 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     ) => connect(painterToken, team, { painterId: session.painterId, clientId }),
     /** A session holding an event-runner token kept from backend 1.6.0. */
     legacyRunner: (team?: TerritoryTeam) => connect(runnerToken, team),
+    reader: async (team?: TerritoryTeam) => connect(await mint('read'), team),
   }
 }
 
@@ -634,6 +635,48 @@ it('logs a countdown as it starts, and each slot report from a member of it', as
     closed: true,
     status: 'missed',
   })
+})
+
+it("logs a writable session's latency report, at most once a minute", async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const lines = () =>
+    info.mock.calls
+      .map(([line]) => JSON.parse(String(line)) as { event?: string })
+      .filter((line) => line.event === 'wplace-latency')
+  const paints = [
+    { clickToSendMs: 31, sendToResponseMs: 140, status: 200 },
+    { clickToSendMs: 45, sendToResponseMs: null, status: 'no-response' },
+  ] as const
+  const report = { type: 'latency-report', wplaceRttMs: 96, rttSamples: 16, paints } as const
+
+  // A server that is not an event server ignores it.
+  const plain = await start({ eventServer: false })
+  ;(await plain.painter(GREEN)).send(report)
+  await settle()
+  expect(lines()).toEqual([])
+
+  const server = await start()
+  const reader = await server.reader(GREEN)
+  const painter = await server.painter(GREEN)
+  reader.send(report)
+  // Malformed, then well formed: only the second is logged, and the socket survives the first.
+  painter.send({ ...report, paints: Array(21).fill(paints[0]) })
+  painter.send(report)
+  // A second report within the minute is dropped.
+  painter.send({ ...report, wplaceRttMs: 300 })
+  await vi.waitFor(() => expect(lines()).toHaveLength(1))
+  await settle()
+  expect(lines()).toEqual([
+    {
+      event: 'wplace-latency',
+      team: GREEN,
+      name: 'Painter 2',
+      userId: 2,
+      wplaceRttMs: 96,
+      rttSamples: 16,
+      paints,
+    },
+  ])
 })
 
 it('logs a slot report from a finished round, through a team switch, until it expires', async () => {
