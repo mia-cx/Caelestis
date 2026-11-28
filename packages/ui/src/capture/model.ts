@@ -120,7 +120,10 @@ export type CaptureRunIntent =
   | { readonly type: 'move'; readonly id: string; readonly by: -1 | 1 }
   /** Give a member the closing leg: they become the closer. */
   | { readonly type: 'closer'; readonly id: string }
-  /** Lock in a proposal's wall; `unlock` drops it and planning resumes. */
+  /**
+   * Lock in a proposal's wall; `unlock` drops it and planning resumes. Once the capture has
+   * finished, `unlock` starts the lobby's next round the same way.
+   */
   | { readonly type: 'lock'; readonly id: string }
   | { readonly type: 'unlock' }
   /** Fly the map to this painter's leg. */

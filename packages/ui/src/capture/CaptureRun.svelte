@@ -225,6 +225,7 @@
           <span class="end">
             <Button label="Close lobby" kind="danger-ghost" size="small" onclick={() => onIntent({ type: 'close' })} />
             {#if gathering && model.locked}<Button label="Start countdown" kind="primary" size="small" disabled={!model.canStart} onclick={() => onIntent({ type: 'go' })} />{/if}
+            {#if model.phase === 'done'}<Button label="Plan next shape" kind="primary" size="small" onclick={() => onIntent({ type: 'unlock' })} />{/if}
           </span>
         {/if}
       {/if}

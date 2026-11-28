@@ -117,6 +117,9 @@ const applyOwnEvent = (
     case 'capture-close':
       return runner ? null : run
   }
+  // Once the closing leg is painted, a runner's unlock starts the lobby's next round.
+  if (event.type === 'capture-unlock' && runner && run.startsAt !== null)
+    return now > (captureEndsAt(run) ?? 0) ? nextRound(run) : run
   // Everything else is a runner's, and only until the countdown starts.
   if (!runner || run.startsAt !== null) return run
   switch (event.type) {
@@ -190,6 +193,18 @@ const undrafted = (member: CaptureMember): CaptureMember =>
 const recut = (run: CaptureRun): CaptureRun => {
   const pinned = pinCoordinator(run)
   return { ...pinned, members: pinned.members.map(undrafted), cut: run.cut + 1 }
+}
+
+/**
+ * A finished lobby back to choosing its next wall: the same settings and members, without those
+ * who left after the last one, nothing drafted and no countdown.
+ */
+const nextRound = (run: CaptureRun): CaptureRun => {
+  const reset = unlocked({ ...run, startsAt: null })
+  return withMembers(
+    reset,
+    reset.members.filter(({ left }) => left !== true),
+  )
 }
 
 const unlocked = (run: CaptureRun): CaptureRun => recut({ ...run, wall: null, guardZones: [] })
