@@ -31,6 +31,10 @@ export interface SimulatedInputDefinition<Id extends string = SimulatedInput> {
   readonly label: string
   /** What the feature does, naming the keys it rides on. */
   readonly hint: readonly HintPart[]
+  /**
+   * Empty when Wplace receives the untrusted input but records no flag for it yet. The switch still
+   * starts off, since Wplace can start recording it at any time.
+   */
   readonly flags: readonly WplaceInputFlag[]
   /** The feature this one extends, which must be on for it to apply. */
   readonly extends?: Id
@@ -115,6 +119,15 @@ const SIMULATED_INPUT_TABLE = {
       "In a capture run, Caelestis clicks Wplace's Paint button at your slot, to the millisecond.",
     ],
     flags: ['UntrustedPaintSubmit'],
+  },
+  'event-erase': {
+    label: 'Erase button in the event',
+    hint: [
+      "Adds Erase to the territory event's Paint panel, so phones can remove drafted pixels. It presses your Wplace eraser key, ",
+      { fixed: 'E' },
+      ' unless you changed it.',
+    ],
+    flags: [],
   },
 } as const satisfies Record<string, SimulatedInputDefinition<string>>
 

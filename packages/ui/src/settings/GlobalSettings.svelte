@@ -67,7 +67,7 @@
     {@const feature = SIMULATED_INPUT[id]}
     <SettingRow label={feature.label}>
       {#snippet hint()}{#each feature.hint as part}{#if typeof part === 'string'}{part}{:else if 'fixed' in part}<kbd class="hint-key">{part.fixed}</kbd>{:else}<kbd class="hint-key">{shortcutLabel(model.shortcuts.bindings[part.key], model.shortcuts.platform) || 'not set'}</kbd>{/if}{/each}{/snippet}
-      {#snippet details()}<small class="flags">Trips: {#each feature.flags as flag}<code>{flag}</code>{/each}</small>{/snippet}
+      {#snippet details()}<small class="flags">{#if feature.flags.length > 0}Trips: {#each feature.flags as flag}<code>{flag}</code>{/each}{:else}Untrusted, but no flag records it yet{/if}</small>{/snippet}
       {#snippet children()}
         <Toggle
           label={feature.label}

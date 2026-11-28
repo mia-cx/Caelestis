@@ -227,6 +227,14 @@ export const arenaCommitButton = (
   return null
 }
 
+/** The open event Paint panel's Cancel and Paint row, or null while that panel is closed. */
+export const arenaPaintActions = (): HTMLElement | null =>
+  arenaCommitButton(document, 'paint')?.parentElement ?? null
+
+/** Whether Wplace's world eraser is the active tool. Wplace shows its tool as the map's cursor. */
+export const worldEraserActive = (): boolean =>
+  document.querySelector<HTMLElement>(MAP_CANVAS)?.style.cursor.includes('cursor-eraser') === true
+
 /**
  * Wplace's bottom-centre Paint button, found by its horizontally centred dock. Wplace translates
  * the label ("Peindre" in French) once its locale loads, so matching the text loses the button
