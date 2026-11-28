@@ -340,6 +340,9 @@ export const openInviteFromLocation = async (): Promise<void> => {
     case 'unreachable':
       showAmbientToast(`Could not reach ${outcome.server.url}.`, 'error')
       break
+    case 'superseded':
+      showAmbientToast('The invite was cancelled because the server was disconnected.', 'info')
+      break
   }
   refreshSettings()
 }

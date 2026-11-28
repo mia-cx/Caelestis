@@ -309,6 +309,8 @@ export const connectServer = async (
       token === null || canonical === null ? token : await redeemInvite(canonical, token)
     const probed = await probeServer(url, credential)
     if (probed.superseded === true) return { kind: 'superseded' }
+    // A disconnect wins as soon as it starts: its listeners may still be running, with the row present.
+    if (canonical !== null && removing.has(canonical)) return { kind: 'superseded' }
     // The panel stays usable during the probe; a server disconnected meanwhile must not come back.
     // A background re-probe may rewrite the row meanwhile, such as the page-load probe finding a
     // stale token rejected; the token verified here still replaces it.

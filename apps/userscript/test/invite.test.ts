@@ -279,3 +279,45 @@ it('tells the painter an opened invite connected even with action feedback off',
   ])
   expect(location.hash).toBe('')
 })
+
+it('lets a disconnect that starts mid-invite win, and says the invite was cancelled', async () => {
+  // An earlier test's toasts stay in the document; this one reads only its own.
+  document.getElementById('caelestis-notifications')?.remove()
+  const fetch = await installBackend()
+  vi.resetModules()
+  const { getState } = await import('../src/settings.js')
+  const connections = await import('../src/server-connections.js')
+  const { openInviteFromLocation } = await import('../src/ui/settings-controller.js')
+  const { consumeInvite, encodeInvite } = await import('../src/invite.js')
+  await consumeInvite(`#${encodeInvite(origin, readToken)}`, () => {})
+  const connected = vi.fn()
+  connections.onServerConnected(connected)
+  // The invite's first request waits; the disconnect's goodbye waits, with the row still present.
+  let sendInvite!: () => void
+  const inviteHeld = new Promise<void>((resolve) => (sendInvite = resolve))
+  const answer = fetch.getMockImplementation()
+  fetch.mockImplementation(async (input, init) => {
+    if (new URL(String(input)).pathname.endsWith('/auth/exchange')) await inviteHeld
+    return await answer!(input, init)
+  })
+  let finishGoodbye!: () => void
+  const goodbye = new Promise<void>((resolve) => (finishGoodbye = resolve))
+  connections.onServerRemoving(() => goodbye)
+
+  history.replaceState(null, '', `/#${encodeInvite(origin, adminToken)}`)
+  const opened = openInviteFromLocation()
+  const removed = connections.removeServer(origin)
+  sendInvite()
+  await opened
+  finishGoodbye()
+  await removed
+
+  expect(connected).not.toHaveBeenCalled()
+  expect(getState().servers).toEqual([])
+  const toasts = document.getElementById('caelestis-notifications') as
+    | (HTMLElement & { model?: { toasts: readonly { message: string }[] } })
+    | null
+  expect(toasts?.model?.toasts.map((toast) => toast.message)).toContain(
+    'The invite was cancelled because the server was disconnected.',
+  )
+})
