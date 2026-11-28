@@ -255,6 +255,14 @@ describe('locking in a wall', () => {
 
 describe('the closing leg', () => {
   const closer = (member: number): Event => ({ type: 'capture-closer', member: `s${member}` })
+  const roles = (runs: readonly CaptureRun[]) =>
+    only(runs).members.map((_, index) =>
+      isCaptureGuard(only(runs), index)
+        ? 'guard'
+        : isCaptureReserve(only(runs), index)
+          ? 'reserve'
+          : 'leg',
+    )
 
   it('goes to the member a runner gives it, re-cutting the same wall', () => {
     const before = draftAll(apply(opened([2, 3]), lock(120)))
@@ -287,19 +295,27 @@ describe('the closing leg', () => {
       opened([2, 3, 4], { distribution: 'reserve', guards: 1 }),
       lock(120, [[0, 1]]),
     )
-    const roles = (runs: readonly CaptureRun[]) =>
-      only(runs).members.map((_, index) =>
-        isCaptureGuard(only(runs), index)
-          ? 'guard'
-          : isCaptureReserve(only(runs), index)
-            ? 'reserve'
-            : 'leg',
-      )
     expect(roles(before)).toEqual(['leg', 'leg', 'reserve', 'guard'])
     const [, closing, reserve, guard] = order(before)
     const runs = apply(before, closer(guard as number))
     // Only the closer and the guard trade places; the reserve stays in reserve.
     expect(order(runs)).toEqual([order(before)[0], guard, reserve, closing])
+    expect(roles(runs)).toEqual(['leg', 'leg', 'reserve', 'guard'])
+  })
+
+  it('swaps with whoever holds the closing leg once the closer has left', () => {
+    // Two legs, two reserves and a guard; the opener, closing, leaves.
+    let runs = apply(
+      opened([2, 3, 4, 5], { distribution: 'reserve', guards: 1 }),
+      lock(120, [[0, 1]]),
+    )
+    runs = leaveCaptures(runs, 's1', 0) ?? []
+    expect(order(runs)).toEqual([2, 3, 4, 5])
+    expect(roles(runs)).toEqual(['leg', 'leg', 'reserve', 'guard'])
+    // The guard takes the closing leg from painter 3, who guards; reserve 4 stays in reserve.
+    // Painter 2, also a runner, hands it to the guard.
+    runs = apply(runs, closer(5), runner(2))
+    expect(order(runs)).toEqual([2, 5, 4, 3])
     expect(roles(runs)).toEqual(['leg', 'leg', 'reserve', 'guard'])
   })
 

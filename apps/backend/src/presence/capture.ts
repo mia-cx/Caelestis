@@ -144,12 +144,13 @@ const applyOwnEvent = (
       return withMembers(run, members)
     }
     case 'capture-closer': {
-      // Any member, guards and reserves too. They swap places with the closer, who takes their
-      // old role, guard zone or reserve place; nobody else moves.
+      // Any member, guards and reserves too. They swap places with whoever holds the closing leg,
+      // the closer or, once the closer has left, the member pinned there since; that member takes
+      // their old role, guard zone or reserve place, and nobody else moves.
       const to = run.members.findIndex(({ sessionId }) => sessionId === event.member)
       const incoming = run.members[to]
       if (incoming === undefined || incoming.painter.wplaceUserId === run.coordinator) return run
-      const from = captureCoordinatorIndex(run)
+      const from = captureLegCount(run) - 1
       const outgoing = run.members[from]
       const members = run.members.slice()
       if (outgoing !== undefined) {
