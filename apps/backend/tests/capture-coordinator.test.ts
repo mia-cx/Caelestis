@@ -940,6 +940,36 @@ describe('Ready', () => {
       expect(go(newer)).toBeNull()
       expect(go(apply(newer, readyEvent(newer), { ...again(2), readies: true }))).not.toBeNull()
     })
+
+    /** The lobby started, handed over mid-countdown, then the next wall locked in and covered. */
+    const nextWall = (runs: readonly CaptureRun[], readies: boolean) => {
+      const started = apply(runs, { type: 'capture-go' })
+      const startsAt = only(started).startsAt
+      if (startsAt === null) throw new Error('Expected the countdown to start')
+      const handedOver = handed(started, readies)
+      // The handoff keeps the running round's slot.
+      expect(only(handedOver)).toMatchObject({ startsAt, members: [{ sessionId: 's2b' }, {}] })
+      const after = startsAt + 60_000
+      const next = apply(handedOver, { type: 'capture-unlock' }, actor(COORDINATOR), after)
+      return hostDone(apply(next, lock(40)))
+    }
+    const painter2 = (runs: readonly CaptureRun[]) =>
+      only(runs).members.find(({ painter }) => painter.wplaceUserId === 2)
+
+    it('never waits on the next wall for a 1.8.2 tab that took over during the countdown', () => {
+      const next = nextWall(press(hostDone(declared()), 2), false)
+      expect(painter2(next)?.ready).toBeUndefined()
+      expect(go(next)).not.toBeNull()
+    })
+
+    it('waits on the next wall for a current tab that took over during the countdown', () => {
+      let runs = apply([], { type: 'capture-new', ...SETTINGS, waitForReady: true }, current(1))
+      runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(2))
+      const next = nextWall(hostDone(apply(runs, lock(40))), true)
+      expect(painter2(next)).toMatchObject({ sessionId: 's2b', ready: false })
+      expect(go(next)).toBeNull()
+      expect(go(apply(next, readyEvent(next), { ...again(2), readies: true }))).not.toBeNull()
+    })
   })
 })
 

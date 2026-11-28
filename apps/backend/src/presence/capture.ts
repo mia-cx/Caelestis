@@ -296,10 +296,11 @@ const placeOf = (run: CaptureRun, painter: WplaceUserId): number =>
  * The lobby with the member at `place` in `captureEveryone` on a new session of theirs, in it
  * again if they had left the place, and hosting if the old session did.
  *
- * Before the countdown, what the old session drafted and its Ready were that tab's, so the new one
- * starts with nothing drafted and Ready released, and reports its own. Whether Wait for Ready
- * waits for it is the new session's own `readies`, never the old one's: tabs of one browser can
- * run different versions. Once the countdown starts, the place keeps everything.
+ * Whether Wait for Ready waits for the place is the new session's own `readies`, never the old
+ * one's, with Ready released: tabs of one browser can run different versions. Before the
+ * countdown, what the old session drafted was that tab's too, so the new one starts with nothing
+ * drafted and reports its own. Once the countdown starts, the place keeps its draft, leg and slot,
+ * and the next round's Wait for Ready still goes by the tab now holding it.
  */
 const reseated = (
   run: CaptureRun,
@@ -309,19 +310,13 @@ const reseated = (
 ): CaptureRun => {
   const member = captureEveryone(run)[place]
   if (member === undefined) return run
-  const { left: _, ...back } = member
-  const seat = run.startsAt !== null ? { ...back, sessionId } : freshSeat(back, sessionId, readies)
+  const { left: _, ready: __, ...back } = run.startsAt === null ? undrafted(member) : member
+  const seat = { ...back, sessionId, ...(readies ? { ready: false } : {}) }
   const host = run.host === member.sessionId ? { host: sessionId } : {}
   const spot = place - run.members.length
   return spot < 0
     ? { ...run, members: run.members.with(place, seat), ...host }
     : { ...run, waiting: (run.waiting ?? []).with(spot, seat), ...host }
-}
-
-/** A place on a new session, before the countdown; see `reseated`. */
-const freshSeat = (member: CaptureMember, sessionId: string, readies: boolean): CaptureMember => {
-  const { ready: _, ...seat } = { ...undrafted(member), sessionId }
-  return readies ? { ...seat, ready: false } : seat
 }
 
 /** The lobby with `waiting` as those waiting for the next lock-in, the key dropped when none. */
