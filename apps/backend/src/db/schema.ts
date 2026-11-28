@@ -3,7 +3,6 @@ import type {
   Seconds,
   ServerAssetContentType,
   TemplateSurfaceKind,
-  TerritoryTeam,
 } from '@caelestis/shared'
 import {
   MAX_NODE_PATH_LENGTH,
@@ -439,11 +438,9 @@ export const accessTokens = sqliteTable(
      * live sessions are closed, so a retry by either hash still finds the credential to close.
      */
     revoked: integer('revoked', { mode: 'boolean' }).notNull().default(false),
-    /**
-     * Unused: tokens no longer belong to an event team. It stays until no deployed Worker reads it,
-     * because migrations apply before the new Worker goes live (#955).
-     */
-    team: integer('team').$type<TerritoryTeam>(),
+    // The database still has a nullable `team` column and its check, which no query names.
+    // Migrations apply before the new Worker goes live, so #955 drops them once no deployed
+    // Worker reads them.
   },
   (table) => [
     check(
@@ -456,10 +453,6 @@ export const accessTokens = sqliteTable(
       sql`${table.inviteHash} IS NULL OR ${table.scope} = 'event_runner'`,
     ),
     check('access_tokens_revoked_check', sql`${table.revoked} IN (0, 1)`),
-    check(
-      'access_tokens_team_check',
-      sql`${table.team} IS NULL OR (${table.team} IN (0, 1, 2, 3) AND ${table.scope} <> 'admin')`,
-    ),
   ],
 )
 
