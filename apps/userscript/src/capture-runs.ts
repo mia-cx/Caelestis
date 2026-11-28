@@ -374,11 +374,19 @@ const itemsOf = (proposal: Proposal, team: TerritoryTeam, colour: Rgb): readonly
  * held until the next time plans show.
  */
 const candidateItems = (run: CaptureRun, colour: Rgb): readonly CaptureItem[] => {
-  if (run.startsAt !== null || run.wall !== null || proposalsRun !== run.id)
-    return candidatesBuilt(NO_ITEMS, () => NO_ITEMS)
-  const shown = proposals.map((proposal) => itemsOf(proposal, run.team, colour))
+  if (run.startsAt !== null || run.wall !== null) return candidatesBuilt(NO_ITEMS, () => NO_ITEMS)
+  const shown = proposalsFor(run).map((proposal) => itemsOf(proposal, run.team, colour))
   return candidatesBuilt(shown, () => shown.flat())
 }
+
+/**
+ * The proposals this lobby can lock in: planned for it, with a zone for each guard it has now. A
+ * join or departure that changes that count hides them until the next planning pass.
+ */
+const proposalsFor = (run: CaptureRun): typeof proposals =>
+  proposalsRun === run.id
+    ? proposals.filter(({ guardZones }) => guardZones.length === captureGuardCount(run))
+    : []
 
 /**
  * What this painter's lobby, or the walls a runner is choosing between, puts on the map, all in
@@ -829,9 +837,9 @@ const model = (view: Shown | null): CaptureRunModel | null => {
             ? 'reserve'
             : 'painter',
     proposals:
-      run === null || run.wall !== null || proposalsRun !== run.id
+      run === null || run.wall !== null
         ? []
-        : proposals.map(({ id, label, gained, pixels, wall }) => ({
+        : proposalsFor(run).map(({ id, label, gained, pixels, wall }) => ({
             id,
             label,
             gained,
