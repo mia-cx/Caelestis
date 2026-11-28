@@ -34,8 +34,8 @@ type OwnEvent = Exclude<RunEvent, { readonly type: 'capture-new' | 'capture-join
 /**
  * A team's lobbies after one event, or the same array when the event changes nothing or is not
  * allowed. A session is a member of one lobby at most. Event runners and administrators open
- * lobbies, and in their own lobby edit the settings, order members, lock in a wall, start and
- * close; any painter who can write joins and leaves; members report how much of their leg they
+ * lobbies, and in their own lobby edit the settings, order members, give the closing leg, lock in
+ * a wall, start and close; any painter who can write joins and leaves; members report how much of their leg they
  * have drafted. Nobody joins a lobby whose countdown has started, and nobody leaves one before
  * its closing leg is painted.
  */
@@ -55,6 +55,7 @@ export const applyCaptureEvent = (
     const opened: CaptureRun = {
       id: newId(),
       team: actor.team,
+      opener: actor.painter.wplaceUserId,
       coordinator: actor.painter.wplaceUserId,
       painters,
       // At most half the lobby guards, and a lobby of one has none.
@@ -141,6 +142,14 @@ const applyOwnEvent = (
         (a, b) => (rank.get(a.sessionId) ?? order.length) - (rank.get(b.sessionId) ?? order.length),
       )
       return withMembers(run, members)
+    }
+    case 'capture-closer': {
+      // Any member: one who guards or stands by paints the closing leg instead, and the member it
+      // displaces takes their role, as when the opener is pinned.
+      const closer = run.members.find(({ sessionId }) => sessionId === event.member)
+      const coordinator = closer?.painter.wplaceUserId
+      if (coordinator === undefined || coordinator === run.coordinator) return run
+      return withMembers({ ...run, coordinator }, run.members)
     }
     case 'capture-lock':
       // Every leg must fit a painter's charges, and every guard the lobby has needs its zone.

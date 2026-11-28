@@ -273,6 +273,24 @@ it('runs a lobby from opening to the countdown, cutting the wall for whoever is 
   await vi.waitFor(() => expect(painters[1]?.runs()).toEqual([]))
 })
 
+it('lets a runner give the closing leg to another member', async () => {
+  const server = await start()
+  const runner = await server.runner(GREEN)
+  const painter = await server.painter(GREEN)
+  runner.send({ type: 'capture-new', ...SETTINGS })
+  await vi.waitFor(() => expect(runner.run()).toBeDefined())
+  painter.send({ type: 'capture-join', run: runner.run()?.id ?? '' })
+  await vi.waitFor(() => expect(runner.run()?.members).toHaveLength(2))
+  const closer = () => runner.run()?.members.at(-1)?.sessionId
+
+  // A painter can't take it.
+  painter.send({ type: 'capture-closer', member: painter.sessionId })
+  await settle()
+  expect(closer()).toBe(runner.sessionId)
+  runner.send({ type: 'capture-closer', member: painter.sessionId })
+  await vi.waitFor(() => expect(closer()).toBe(painter.sessionId))
+})
+
 it('answers clock requests with the server time', async () => {
   const server = await start()
   const painter = await server.painter()

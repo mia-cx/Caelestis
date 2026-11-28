@@ -89,6 +89,7 @@ const lobby = (
 ) => ({
   id: 'run',
   team: 0,
+  opener: 0,
   coordinator: null,
   painters: 2,
   guards: 0,
@@ -218,12 +219,20 @@ it('lists the team’s lobbies to a painter in none, and joins the one they choo
   vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
   const { installCaptureRuns } = await import('../src/capture-runs.js')
   installCaptureRuns()
-  const theirs = { ...lobby(null, 0), members: lobby(null, 0).members.slice(1) }
+  // The opener gave the closing leg to a teammate listed first; the lobby keeps the opener's name.
+  const closer = { sessionId: 'd'.repeat(16), painter: { wplaceUserId: 8, displayName: 'Closer' } }
+  const opened = lobby(null, 0)
+  const theirs = {
+    ...opened,
+    opener: other.wplaceUserId,
+    coordinator: closer.painter.wplaceUserId,
+    members: [{ ...closer, drafted: 0 }, ...opened.members.slice(1)],
+  }
   const started = { ...theirs, id: 'started', startsAt: TERRITORY_EVENT.startsAt }
   socket.receive({ type: 'capture-runs', runs: [theirs, started] })
   expect(card().model).toMatchObject({
     phase: 'list',
-    lobbies: [{ id: 'run', name: other.displayName, members: 1, canJoin: true }],
+    lobbies: [{ id: 'run', name: other.displayName, members: 2, canJoin: true }],
   })
   intent({ type: 'join', id: 'run' })
   expect(sent(socket, 'capture-join')).toEqual([{ type: 'capture-join', run: 'run' }])

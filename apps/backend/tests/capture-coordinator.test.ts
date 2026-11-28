@@ -251,6 +251,42 @@ describe('locking in a wall', () => {
   })
 })
 
+describe('the closing leg', () => {
+  const closer = (member: number): Event => ({ type: 'capture-closer', member: `s${member}` })
+
+  it('goes to the member a runner gives it, re-cutting the same wall', () => {
+    const before = draftAll(apply(opened([2, 3]), lock(120)))
+    expect(order(before)).toEqual([2, 3, 1])
+    const runs = apply(before, closer(2))
+    expect(only(runs)).toMatchObject({ opener: 1, coordinator: 2, cut: only(before).cut + 1 })
+    expect(order(runs)).toEqual([3, 1, 2])
+    expect(drafted(runs)).toEqual([0, 0, 0])
+    expect(captureLines(only(runs))[2]).toEqual(captureLines(only(before))[2])
+  })
+
+  it('stays with its new closer through reorders and joins', () => {
+    let runs = apply(opened([2, 3]), closer(2))
+    runs = apply(runs, { type: 'capture-move', member: 's3', by: 1 })
+    expect(order(runs)).toEqual([1, 3, 2])
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(4))
+    expect(order(runs)).toEqual([1, 3, 4, 2])
+  })
+
+  it('swaps roles with the closer when given to a guard', () => {
+    const runs = apply(opened([2, 3, 4], { guards: 1 }), closer(4))
+    // The opener takes the guard's place, last.
+    expect(order(runs)).toEqual([2, 3, 4, 1])
+  })
+
+  it('is a runner’s to give, to a member, before the countdown', () => {
+    const runs = opened([2, 3])
+    expect(apply(runs, closer(3), actor(2))).toBe(runs)
+    expect(apply(runs, closer(9))).toBe(runs)
+    const started = apply(draftAll(apply(runs, lock(40))), { type: 'capture-go' })
+    expect(apply(started, closer(2))).toBe(started)
+  })
+})
+
 describe('reserve', () => {
   it('cuts the fewest legs that fit for the first painters, the coordinator closing', () => {
     // Five members and a 120-pixel wall: two legs, and three reserves.

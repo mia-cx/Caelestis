@@ -114,6 +114,7 @@ it('sends the lobbies of the team a session switched to, never a late read of th
     const green: CaptureRun = {
       id: uuidV7(),
       team: GREEN,
+      opener: 1,
       coordinator: null,
       painters: 1,
       guards: 0,

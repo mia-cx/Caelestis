@@ -225,4 +225,19 @@ describe('a runner inside a lobby', () => {
     ])
     expect(button(card, 'Move Gil down')?.disabled).toBe(true)
   })
+
+  it('lets runners give the closing leg to any other member, and painters not at all', () => {
+    const members = [ada, { ...bea, closes: true }, { ...ada, id: 'g', name: 'Gil', guard: true }]
+    const intents: CaptureRunIntent[] = []
+    const card = render({ ...gathering, guards: 1, members }, intents)
+    expect(button(card, 'Give Bea the closing leg')).toBeNull()
+    button(card, 'Give Ada the closing leg')?.click()
+    button(card, 'Give Gil the closing leg')?.click()
+    expect(intents).toEqual([
+      { type: 'closer', id: 'a' },
+      { type: 'closer', id: 'g' },
+    ])
+    const painter = render({ ...gathering, admin: false, members })
+    expect(button(painter, 'Give Ada the closing leg')).toBeNull()
+  })
 })

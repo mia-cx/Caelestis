@@ -29,6 +29,7 @@ const xs = (line: readonly number[] | undefined) => (line ?? []).filter((_, at) 
 const lobby = (pixels: number, drafted: readonly number[], guards = 1): CaptureRun => ({
   id: 'run',
   team: 2,
+  opener: 1,
   coordinator: 1,
   painters: 3,
   guards,
