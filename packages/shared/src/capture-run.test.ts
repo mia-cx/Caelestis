@@ -6,8 +6,8 @@ import {
   captureEndsAt,
   captureGuardCount,
   captureLead,
-  captureLegsDrafted,
   captureLines,
+  captureLinesDrafted,
   captureReady,
   captureShortfall,
   captureSlot,
@@ -134,7 +134,7 @@ describe('the wall drafted', () => {
   it('counts a leg drafted by someone other than its painter', () => {
     // The first painter drafts the whole wall; the second has drafted nothing of their own leg.
     const run = reporting(lobby(40, [20, 0], 0), 0, covering(40, 0, 40))
-    expect(captureLegsDrafted(run)).toEqual([20, 20])
+    expect(captureLinesDrafted(run)).toEqual([20, 20])
     expect(captureReady(run)).toBe(true)
   })
 
@@ -145,8 +145,13 @@ describe('the wall drafted', () => {
       1,
       covering(40, 10, 30),
     )
-    expect(captureLegsDrafted(both)).toEqual([20, 10])
+    expect(captureLinesDrafted(both)).toEqual([20, 10])
     expect(captureReady(both)).toBe(false)
+  })
+
+  it('counts a guard zone as its guard drafted it, since nobody else paints it', () => {
+    // Two 20-pixel legs, and a guard who drafted both pixels of their zone.
+    expect(captureLinesDrafted(lobby(40, [20, 20, 2]))).toEqual([20, 20, 2])
   })
 
   it('credits a tab that only counts its own leg once it covers all of it', () => {

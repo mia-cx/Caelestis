@@ -138,6 +138,7 @@ it('opens every new lobby with the settings its host last chose, after a reload 
       leadMs: 4_000,
       distribution: 'even',
       waitForReady: true,
+      ready: false,
     },
   ])
 })

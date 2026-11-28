@@ -126,6 +126,27 @@ it('cuts the locked wall into legs from every lobby update and reuses them betwe
   expect(captureItems().map((item) => item.kind)).toEqual(['ready', 'todo'])
 })
 
+it('shows a guard zone its guard has drafted as drafted, on the map and in the card', async () => {
+  const { socket } = await connect({ capture: 1 })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  const { captureItems, installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  // Two painters and a guard, who reports both pixels of their zone drafted.
+  const wall = [10, 10, 11, 10, 12, 10, 13, 10]
+  const zone = { x: 20, y: 20, w: 2, h: 1 }
+  const three = lobby(wall, 0, ['e'.repeat(16)])
+  const members = three.members.map((member, index) =>
+    index === 2 ? { ...member, drafted: 2 } : member,
+  )
+  const guarded = { ...three, guards: 1, guardZones: [[20, 20, 21, 20]], members }
+  socket.receive({ type: 'capture-runs', runs: [guarded] })
+  expect(captureItems().find(({ rect }) => rect.x === zone.x && rect.y === zone.y)).toMatchObject({
+    kind: 'ready',
+    rect: zone,
+  })
+  expect(card().model?.members[2]).toMatchObject({ guard: true, drafted: 2, length: 2 })
+})
+
 /**
  * A lobby's host on an event server, with no wall locked in: planning starts on its
  * own, and the planner offers a wall along y 10 and one along y 50 with the area it would enclose.
@@ -237,7 +258,8 @@ it('lists the team’s lobbies to a painter in none, and joins the one they choo
     lobbies: [{ id: 'run', name: other.displayName, members: 2, canJoin: true }],
   })
   intent({ type: 'join', id: 'run' })
-  expect(sent(socket, 'capture-join')).toEqual([{ type: 'capture-join', run: 'run' }])
+  // `ready: false` says this tab has a Ready button, so Wait for Ready waits for it.
+  expect(sent(socket, 'capture-join')).toEqual([{ type: 'capture-join', run: 'run', ready: false }])
 })
 
 it("counts a leg's pixels the team already holds on Wplace's map as drafted", async () => {

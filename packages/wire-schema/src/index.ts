@@ -314,8 +314,14 @@ export const PresenceClientEvent = Schema.Union([
     leadMs: Schema.optionalKey(CaptureLead),
     distribution: Schema.optionalKey(CaptureSettings.distribution),
     waitForReady: Schema.optionalKey(Schema.Boolean),
+    ready: Schema.optionalKey(Schema.Literal(false)),
   }),
-  Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
+  Schema.Struct({
+    type: Schema.Literal('capture-join'),
+    run: Identifier,
+    // From a tab with a Ready button; a server that predates it drops the key.
+    ready: Schema.optionalKey(Schema.Literal(false)),
+  }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
   Schema.Struct({
     type: Schema.Literal('capture-settings'),

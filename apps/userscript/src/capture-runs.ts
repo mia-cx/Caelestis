@@ -10,8 +10,8 @@ import {
   captureGuardCount,
   captureHostIndex,
   captureLead,
-  captureLegsDrafted,
   captureLines,
+  captureLinesDrafted,
   capturePainterCount,
   capturePaints,
   captureReady,
@@ -371,14 +371,14 @@ const loadPlanView = (run: CaptureRun, mine: number): void => {
     })
 }
 
-/** Whether every pixel of member `index`'s leg is drafted, by anyone. */
-const legDrafted = (run: CaptureRun, index: number): boolean => {
+/** Whether every pixel of member `index`'s line is drafted; see `captureLinesDrafted`. */
+const lineDrafted = (run: CaptureRun, index: number): boolean => {
   const length = (captureLines(run)[index]?.length ?? 0) / 2
-  return length > 0 && (captureLegsDrafted(run)[index] ?? 0) >= length
+  return length > 0 && (captureLinesDrafted(run)[index] ?? 0) >= length
 }
 
 const kindOf = (run: CaptureRun, index: number, mine: number): CaptureItemKind =>
-  index === mine ? 'mine' : legDrafted(run, index) ? 'ready' : 'pending'
+  index === mine ? 'mine' : lineDrafted(run, index) ? 'ready' : 'pending'
 
 const reducedMotion = (): boolean =>
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -388,7 +388,7 @@ const demoPlaying = (view: Shown): boolean => {
   const run = view.run
   const mine = memberIndex(view)
   if (run === null || run.startsAt !== null || mine < 0 || planView === null) return false
-  return planView.demo.length > 0 && !legDrafted(run, mine)
+  return planView.demo.length > 0 && !lineDrafted(run, mine)
 }
 
 const itemsCache = new WeakMap<
@@ -495,7 +495,7 @@ export const captureItems = (): readonly CaptureItem[] => {
   if (run.wall === null) return candidates
   const mine = memberIndex(view)
   const lines = captureLines(run)
-  const key = `${planView?.key ?? ''}|${captureLegsDrafted(run).join(',')}`
+  const key = `${planView?.key ?? ''}|${captureLinesDrafted(run).join(',')}`
   let held = itemsCache.get(run)
   if (held?.key !== key) {
     const items: CaptureItem[] = []
@@ -974,7 +974,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   const host = run === null ? -1 : captureHostIndex(run)
   const saved = savedLobbySettings()
   const status = message ?? vacancyMessage(run, canRun)
-  const legsDrafted = run === null ? [] : captureLegsDrafted(run)
+  const linesDrafted = run === null ? [] : captureLinesDrafted(run)
   return {
     phase,
     collapsed: cardCollapsed(),
@@ -1002,8 +1002,8 @@ const model = (view: Shown | null): CaptureRunModel | null => {
         id: member.sessionId,
         name: member.painter.displayName,
         colour: presenceCss(member.painter.wplaceUserId),
-        // By anyone: the lobby counts each pixel of the wall once, whoever drafted it.
-        drafted: legsDrafted[index] ?? 0,
+        // A leg's by anyone: the lobby counts each pixel of the wall once, whoever drafted it.
+        drafted: placed ? (linesDrafted[index] ?? 0) : 0,
         ready: !readies
           ? null
           : member.ready === undefined
@@ -1130,7 +1130,8 @@ const handleIntent = (intent: CaptureRunIntent): void => {
               : "Caelestis hasn't read your event team yet. Paint one pixel in the arena, then try again."
           else {
             primeCaptureAudio()
-            sendCapture(server, { type: 'capture-new', ...savedLobbySettings() })
+            // `ready: false`: this tab has a Ready button, so Wait for Ready waits for it.
+            sendCapture(server, { type: 'capture-new', ...savedLobbySettings(), ready: false })
           }
         })
         .catch(() => {
@@ -1144,7 +1145,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       const chosen = eventViews().find((shown) => shown.runs.some(({ id }) => id === intent.id))
       if (chosen === undefined) break
       primeCaptureAudio()
-      sendCapture(chosen.server, { type: 'capture-join', run: intent.id })
+      sendCapture(chosen.server, { type: 'capture-join', run: intent.id, ready: false })
       syncCaptureClock(chosen.server)
       break
     }
@@ -1292,6 +1293,17 @@ const tick = (): void => {
       syncCaptureClock(view.server)
     }
     const line = captureLines(run)[mine]
+    // Joining says this tab has a Ready button. A place it holds without that, as one a lobby
+    // gave out before the server knew of Ready, says it once per place and cut until the lobby
+    // has it, and before any draft report, so a report can never complete the wall while the lobby
+    // still takes this tab for one without the button. A server that predates Ready ignores it,
+    // and the button stays hidden.
+    const placed = captureEveryone(run).find(({ sessionId }) => sessionId === view.sessionId)
+    const place = `${view.server.url}:${run.id}:${view.sessionId}:${run.cut}`
+    if (placed?.ready === undefined && run.startsAt === null && readySaid !== place) {
+      readySaid = place
+      sendCapture(view.server, { type: 'capture-ready', run: run.id, cut: run.cut, ready: false })
+    }
     // Report whatever the lobby does not already say, including after the server resets it for a
     // re-cut leg; the report interval keeps a report still in flight from repeating often.
     // Pixels the team already holds count too, so the map is kept fresh while drafting. The
@@ -1307,14 +1319,6 @@ const tick = (): void => {
         const { id, cut } = run
         sendCapture(view.server, { type: 'capture-drafted', run: id, drafted, covered, cut })
       }
-    }
-    // Once per place and cut, until the lobby has it, say this tab has a Ready button, so Wait for
-    // Ready waits for it. A server that predates Ready ignores it, and the button stays hidden.
-    const placed = captureEveryone(run).find(({ sessionId }) => sessionId === view.sessionId)
-    const place = `${view.server.url}:${run.id}:${view.sessionId}:${run.cut}`
-    if (placed?.ready === undefined && run.startsAt === null && readySaid !== place) {
-      readySaid = place
-      sendCapture(view.server, { type: 'capture-ready', run: run.id, cut: run.cut, ready: false })
     }
     // Only a member with pixels to place is armed; an empty leg has nothing to submit.
     if (run.startsAt !== null && (line?.length ?? 0) > 0) armSlot(view, run, mine)

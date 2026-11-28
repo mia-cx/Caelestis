@@ -856,6 +856,44 @@ describe('Ready', () => {
     const stale = { type: 'capture-ready', run, cut, ready: true } as const
     expect(apply(relocked, stale, actor(2))).toBe(relocked)
   })
+
+  /**
+   * Opened by 1 and joined by 2, both from tabs with a Ready button, with Wait for Ready on and a
+   * 40-pixel wall locked in.
+   */
+  const declared = () => {
+    let runs = apply([], { type: 'capture-new', ...SETTINGS, waitForReady: true, ready: false })
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id, ready: false }, actor(2))
+    return apply(runs, lock(40))
+  }
+
+  it('waits for a tab that joined with a Ready button, before it reports anything', () => {
+    // Painter 1 drafts the whole wall and is Ready; painter 2's tab has said nothing since joining.
+    const runs = press(report(declared(), 1, 20, covering(40, 0, 40)), 1)
+    expect(only(runs).members.map(({ ready }) => ready)).toEqual([false, true])
+    expect(go(runs)).toBeNull()
+    expect(go(press(runs, 2))).not.toBeNull()
+  })
+
+  it('keeps nothing a tab drafted or its Ready once another tab takes its place over', () => {
+    // Painter 2 drafts the whole wall and both are Ready: the countdown could start.
+    const runs = press(press(report(declared(), 2, 20, covering(40, 0, 40)), 1), 2)
+    expect(go(runs)).not.toBeNull()
+    const seat = (next: readonly CaptureRun[]) => only(next).members[0]
+    // A new tab of painter 2's browser joins, with a Ready button: it drafted nothing yet.
+    const joined = apply(runs, { type: 'capture-join', run: only(runs).id, ready: false }, again(2))
+    expect(seat(joined)).toMatchObject({ sessionId: 's2b', drafted: 0, ready: false })
+    expect(seat(joined)?.covered).toBeUndefined()
+    expect(go(joined)).toBeNull()
+    // A tab on 1.8.2 joining there has no Ready button to wait for.
+    const old = apply(runs, { type: 'capture-join', run: only(runs).id }, again(2))
+    expect(seat(old)?.ready).toBeUndefined()
+    expect(go(old)).toBeNull()
+    // A reconnect says nothing: the place keeps its browser's Ready button, released.
+    const back = connectedCaptures(runs, online([1], ['s2b', owner(2)]))
+    expect(seat(back)).toMatchObject({ sessionId: 's2b', drafted: 0, ready: false })
+    expect(go(back)).toBeNull()
+  })
 })
 
 describe('a tab on userscript 1.8.2', () => {

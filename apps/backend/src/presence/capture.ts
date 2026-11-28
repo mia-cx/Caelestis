@@ -70,12 +70,16 @@ export const applyCaptureEvent = (
   now: number,
   newId: () => string,
 ): readonly CaptureRun[] => {
+  // A tab with a Ready button says so as it joins, so Wait for Ready waits for it from the start.
+  const readies =
+    (event.type === 'capture-new' || event.type === 'capture-join') && event.ready === false
   const me = (joined: number): CaptureMember => ({
     sessionId: actor.sessionId,
     painter: actor.painter,
     drafted: 0,
     joined,
     client: actor.client,
+    ...(readies ? { ready: false } : {}),
   })
   if (event.type === 'capture-new') {
     const left = leaveCaptures(runs, actor.sessionId, now)
@@ -119,7 +123,9 @@ export const applyCaptureEvent = (
     const left = leaveCaptures(runs, actor.sessionId, now)
     if (left === null) return runs
     if (place !== -1)
-      return left.map((run) => (run.id === target.id ? reseated(run, place, actor.sessionId) : run))
+      return left.map((run) =>
+        run.id === target.id ? reseated(run, place, actor.sessionId, readies) : run,
+      )
     const joined = Math.max(0, ...everyone.map((member) => (member.joined ?? 0) + 1))
     return left.map((run) => (run === target ? joinedBy(run, me(joined)) : run))
   }
@@ -283,17 +289,38 @@ const placeOf = (run: CaptureRun, painter: WplaceUserId): number =>
 /**
  * The lobby with the member at `place` in `captureEveryone` on a new session of theirs, in it
  * again if they had left the place, and hosting if the old session did.
+ *
+ * Before the countdown, what the old session drafted and its Ready were that tab's, so the new one
+ * starts with nothing drafted and Ready released, and reports its own. Whether it has a Ready
+ * button is `readies` when it joined to say so; a reconnect sends nothing, so it keeps that of the
+ * browser the place belongs to. Once the countdown starts, the place keeps everything.
  */
-const reseated = (run: CaptureRun, place: number, sessionId: string): CaptureRun => {
+const reseated = (
+  run: CaptureRun,
+  place: number,
+  sessionId: string,
+  readies?: boolean,
+): CaptureRun => {
   const member = captureEveryone(run)[place]
   if (member === undefined) return run
   const { left: _, ...back } = member
-  const seat = { ...back, sessionId }
+  const seat = run.startsAt !== null ? { ...back, sessionId } : freshSeat(back, sessionId, readies)
   const host = run.host === member.sessionId ? { host: sessionId } : {}
   const spot = place - run.members.length
   return spot < 0
     ? { ...run, members: run.members.with(place, seat), ...host }
     : { ...run, waiting: (run.waiting ?? []).with(spot, seat), ...host }
+}
+
+/** A place on a new session, before the countdown; see `reseated`. */
+const freshSeat = (
+  member: CaptureMember,
+  sessionId: string,
+  readies: boolean | undefined,
+): CaptureMember => {
+  const { ready: _, ...seat } = { ...undrafted(member), sessionId }
+  const ready = readies ?? member.ready !== undefined
+  return ready ? { ...seat, ready: false } : seat
 }
 
 /** The lobby with `waiting` as those waiting for the next lock-in, the key dropped when none. */

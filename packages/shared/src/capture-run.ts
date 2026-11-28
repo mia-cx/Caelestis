@@ -235,8 +235,10 @@ export type CaptureClientEvent =
       readonly leadMs?: number
       readonly distribution?: CaptureDistribution
       readonly waitForReady?: boolean
+      /** Sent by a tab with a Ready button, which takes its place with Ready released. */
+      readonly ready?: false
     }
-  | { readonly type: 'capture-join'; readonly run: string }
+  | { readonly type: 'capture-join'; readonly run: string; readonly ready?: false }
   | { readonly type: 'capture-leave' }
   /** Only the settings the host changed, so edits to different settings never undo each other. */
   | {
@@ -516,13 +518,18 @@ export const captureCoverage = (run: CaptureRun): Uint8Array => {
   return coverage
 }
 
-/** How many pixels of each member's leg are drafted, by anyone, in member order; 0 past the legs. */
-export const captureLegsDrafted = (run: CaptureRun): readonly number[] => {
+/**
+ * How many pixels of each member's line are drafted, in member order: of a leg, by anyone; of a
+ * guard zone, which only its guard paints, by its guard as they report it.
+ */
+export const captureLinesDrafted = (run: CaptureRun): readonly number[] => {
   const coverage = captureCoverage(run)
   const legs = captureLegs(run)
-  return run.members.map((_, index) =>
-    (legs[index] ?? []).reduce((count, at) => count + (coverage[at] ?? 0), 0),
-  )
+  return run.members.map((member, index) => {
+    const leg = legs[index]
+    if (leg === undefined) return member.drafted
+    return leg.reduce((count, at) => count + (coverage[at] ?? 0), 0)
+  })
 }
 
 /** Whether every pixel of the locked wall is drafted, by whoever, or already the team's. */
