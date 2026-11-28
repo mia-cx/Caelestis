@@ -177,6 +177,22 @@ describe('locking in a wall', () => {
     expect(apply(runs, lock(20))).toBe(runs)
   })
 
+  it('goes back to choosing when a departure leaves fewer guards than the wall was planned for', () => {
+    // Four members and two guards; one leaves, so half the lobby is one guard.
+    let runs = apply(
+      opened([2, 3, 4], { guards: 2 }),
+      lock(40, [
+        [0, 1],
+        [1, 1],
+      ]),
+    )
+    expect(only(runs).wall).not.toBeNull()
+    runs = leaveCaptures(runs, 's4', 0) ?? []
+    expect(only(runs)).toMatchObject({ wall: null, guardZones: [], guards: 2 })
+    // A wall planned for the one guard the lobby has now locks in.
+    expect(only(apply(runs, lock(40, [[0, 1]]))).wall).toEqual(wall(40))
+  })
+
   it('is a runner’s to do', () => {
     const runs = opened([2])
     expect(apply(runs, lock(20), actor(2))).toBe(runs)

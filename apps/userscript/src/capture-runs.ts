@@ -610,14 +610,16 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     }
     const snapshot = await plannedSnapshot()
     if (snapshot === null || planningFor !== bound) return
-    const inputs = `${run.painters}|${run.guards}|${focus.x},${focus.y}|${snapshot.hash}`
+    // Plans hold a zone for each guard the lobby has now, which can be fewer than its setting.
+    const guards = captureGuardCount(run)
+    const inputs = `${run.painters}|${guards}|${focus.x},${focus.y}|${snapshot.hash}`
     if (inputs === planInputs) return
     const planned = await runPlanner({
       // The worker takes the bytes it is sent; later passes reuse the original.
       snapshot: snapshot.bytes.slice(),
       team: run.team,
       painters: run.painters,
-      guards: run.guards,
+      guards,
       focus,
     })
     if (planningFor !== bound) return

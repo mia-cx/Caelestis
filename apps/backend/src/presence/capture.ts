@@ -5,6 +5,7 @@ import {
   type CaptureRun,
   captureCoordinatorIndex,
   captureEndsAt,
+  captureGuardCount,
   captureLegCount,
   capturePainterCount,
   captureReady,
@@ -142,9 +143,9 @@ const applyOwnEvent = (
       return withMembers(run, members)
     }
     case 'capture-lock':
-      // Every leg must fit a painter's charges, and every guard setting needs its zone.
+      // Every leg must fit a painter's charges, and every guard the lobby has needs its zone.
       if (
-        event.guardZones.length !== run.guards ||
+        event.guardZones.length !== captureGuardCount(run) ||
         captureShortfall(event.wall.length / 2, capturePainterCount(run)) > 0
       )
         return run
@@ -232,7 +233,10 @@ const withMembers = (run: CaptureRun, members: readonly CaptureMember[]): Captur
   const same =
     next.members.length === run.members.length &&
     next.members.every((member, index) => member.sessionId === run.members[index]?.sessionId)
-  return same ? next : recut(next)
+  if (same) return next
+  // The locked guard zones were planned for as many guards as the lobby had: back to choosing.
+  if (run.wall !== null && captureGuardCount(next) !== captureGuardCount(run)) return unlocked(next)
+  return recut(next)
 }
 
 /**

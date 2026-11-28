@@ -775,32 +775,45 @@ export const borderBoxPlanner: CapturePlanner = ({
             const line = end + inward * k
             return cell(line, border[line] as number)
           })
-    // A guard's cells are never another's: anchor B's zones skip what anchor A's took.
-    const taken = new Set<number>()
-    // Where the wall's end crosses the team's cells, the painter starts past them: the zone starts
-    // on the owned cell beside that first pixel and runs back over them to the end. `held` guards
-    // share the anchor, nearest first, `GUARD_MARGIN` cells each.
-    const zones = (end: readonly ArenaPixel[], inward: number, held: number) => {
+    // Where the wall's end crosses the team's cells, the painter starts past them: the anchor's
+    // cells start on the owned cell beside that first pixel and run back over them to the end.
+    // `held` guards share the anchor, nearest first, `GUARD_MARGIN` cells each.
+    const anchor = (end: readonly ArenaPixel[], inward: number, held: number) => {
       const cells = GUARD_MARGIN * held
       const first = end.findIndex((pixel) => !owns(map, team, pixel))
       const crossed = end.slice(0, Math.max(0, first)).reverse()
-      const strip: ArenaPixel[] = []
-      for (const pixel of [...crossed, ...along(inward > 0 ? from : to, inward, cells)]) {
-        if (strip.length === cells) break
-        const key = pixel.y * map.size + pixel.x
-        if (taken.has(key)) continue
-        taken.add(key)
-        strip.push(pixel)
+      const near = [...crossed, ...along(inward > 0 ? from : to, inward, cells)]
+      return { held, cells, near, next: 0, strip: [] as ArenaPixel[] }
+    }
+    const anchors = [
+      anchor(wall, 1, Math.max(1, Math.ceil(guards / 2))),
+      anchor([...wall].reverse(), -1, Math.max(1, Math.floor(guards / 2))),
+    ] as const
+    // A guard's cells are never another's. The anchors claim their nearest cells in turn, so where
+    // their strips meet, neither takes every cell the other's guards need.
+    const taken = new Set<number>()
+    for (let claimed = true; claimed; ) {
+      claimed = false
+      for (const end of anchors) {
+        while (end.strip.length < end.cells && end.next < end.near.length) {
+          const pixel = end.near[end.next++] as ArenaPixel
+          const key = pixel.y * map.size + pixel.x
+          if (taken.has(key)) continue
+          taken.add(key)
+          end.strip.push(pixel)
+          claimed = true
+          break
+        }
       }
-      return Array.from({ length: held }, (_, k) =>
+    }
+    const [atA, atB] = anchors.map(({ strip, held }) =>
+      Array.from({ length: held }, (_, k) =>
         strip.slice(
           Math.floor((k * strip.length) / held),
           Math.floor(((k + 1) * strip.length) / held),
         ),
-      )
-    }
-    const atA = zones(wall, 1, Math.max(1, Math.ceil(guards / 2)))
-    const atB = zones([...wall].reverse(), -1, Math.max(1, Math.floor(guards / 2)))
+      ),
+    ) as [ArenaPixel[][], ArenaPixel[][]]
     // Guards alternate A, B, A, B; a lone guard holds both anchors.
     const guardZones =
       guards === 1

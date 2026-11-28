@@ -2,6 +2,7 @@ import {
   type ArenaPixel,
   arenaToWorld,
   type CaptureRun,
+  captureGuardCount,
   captureLines,
   capturePainterCount,
   type PresenceRect,
@@ -172,7 +173,7 @@ const heldEnds = (run: CaptureRun, index: number, depth: number): Pixel[][] => {
   const wall = linePixels(run.wall ?? [])
   const ends = [wall.slice(0, depth), wall.slice(-depth).reverse()].filter((end) => end.length > 0)
   const guard = index - capturePainterCount(run)
-  return run.guards === 1 ? ends : ends.slice(guard % 2, (guard % 2) + 1)
+  return captureGuardCount(run) === 1 ? ends : ends.slice(guard % 2, (guard % 2) + 1)
 }
 
 /** A dashed box around each anchor a guard holds, wide enough for their zone on either side. */

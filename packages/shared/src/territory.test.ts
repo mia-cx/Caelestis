@@ -111,6 +111,18 @@ describe('borderBoxPlanner', () => {
     })
   })
 
+  it('gives both anchors guard cells where their strips share a short flat front', () => {
+    const map = greenWhere(200, (_, y) => y >= 100)
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 16, charges: 30 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const anchorCells = (side: 0 | 1) =>
+      plan.guardZones.filter((_, k) => k % 2 === side).flat().length
+    expect(anchorCells(0)).toBeGreaterThan(0)
+    expect(anchorCells(1)).toBeGreaterThan(0)
+    const cells = plan.guardZones.flat().map(({ x, y }) => y * 200 + x)
+    expect(new Set(cells).size).toBe(cells.length)
+  })
+
   it('keeps the whole wall within the budget when a chamfer would cost more', () => {
     // A thin Green arm reaches up from the base and along row 37, so a chamfered corner would
     // trade the arm's cells for ones to paint.

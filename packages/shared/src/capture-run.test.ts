@@ -8,7 +8,12 @@ import {
   captureShortfall,
   captureSlot,
   isCaptureReserve,
+  MAX_CAPTURE_LINE_PIXELS,
+  MAX_CAPTURE_PAINTERS,
+  MAX_CAPTURE_WALL_PIXELS,
 } from './capture-run.js'
+import { MAX_PRESENCE_MESSAGE_CODE_UNITS } from './presence.js'
+import { WORLD_PIXELS } from './tiles.js'
 
 const member = (id: number, drafted = 0) => ({
   sessionId: `s${id}`,
@@ -117,4 +122,16 @@ it('lets at most half the lobby guard, rounded down', () => {
   const guarding = (members: number) =>
     captureGuardCount(lobby(40, Array(members).fill(0), MAX_GUARDS_ASKED))
   expect([1, 2, 3, 6, 7].map(guarding)).toEqual([0, 1, 1, 3, 3])
+})
+
+it('fits the largest lock-in in one presence message', () => {
+  // Every coordinate at its widest: a full wall and the most guards, each zone at a leg's size.
+  const far = WORLD_PIXELS - 1
+  const line = (pixels: number) => Array(pixels * 2).fill(far)
+  const lockIn = JSON.stringify({
+    type: 'capture-lock',
+    wall: line(MAX_CAPTURE_WALL_PIXELS),
+    guardZones: Array.from({ length: MAX_CAPTURE_PAINTERS }, () => line(MAX_CAPTURE_LINE_PIXELS)),
+  })
+  expect(lockIn.length).toBeLessThanOrEqual(MAX_PRESENCE_MESSAGE_CODE_UNITS)
 })
