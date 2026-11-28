@@ -89,6 +89,40 @@ describe('borderBoxPlanner', () => {
     })
   })
 
+  it('gives each of many guards their own zone, alternating between the anchors', () => {
+    const map = greenWhere(200, (x, y) => y >= (x < 100 ? 70 : 120))
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 5, charges: 60 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const anchors = plan.lines.map((line) => line[0] as ArenaPixel)
+    const near = (pixel: ArenaPixel, anchor: ArenaPixel | undefined) =>
+      anchor === undefined ? Infinity : Math.abs(pixel.x - anchor.x) + Math.abs(pixel.y - anchor.y)
+    expect(plan.guardZones).toHaveLength(5)
+    const cells = plan.guardZones.flat().map(({ x, y }) => y * 200 + x)
+    expect(new Set(cells).size).toBe(cells.length)
+    plan.guardZones.forEach((zone, k) => {
+      expect(zone.length).toBeGreaterThan(0)
+      expect(zone.length).toBeLessThanOrEqual(60)
+      // Guards 0, 2 and 4 hold anchor A; 1 and 3 hold B.
+      const [own, other] = k % 2 === 0 ? anchors : [...anchors].reverse()
+      for (const pixel of zone) {
+        expect(map.owner[pixel.y * 200 + pixel.x]).toBe(GREEN)
+        expect(near(pixel, own)).toBeLessThan(near(pixel, other))
+      }
+    })
+  })
+
+  it('gives both anchors guard cells where their strips share a short flat front', () => {
+    const map = greenWhere(200, (_, y) => y >= 100)
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 16, charges: 30 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const anchorCells = (side: 0 | 1) =>
+      plan.guardZones.filter((_, k) => k % 2 === side).flat().length
+    expect(anchorCells(0)).toBeGreaterThan(0)
+    expect(anchorCells(1)).toBeGreaterThan(0)
+    const cells = plan.guardZones.flat().map(({ x, y }) => y * 200 + x)
+    expect(new Set(cells).size).toBe(cells.length)
+  })
+
   it('keeps the whole wall within the budget when a chamfer would cost more', () => {
     // A thin Green arm reaches up from the base and along row 37, so a chamfered corner would
     // trade the arm's cells for ones to paint.

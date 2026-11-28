@@ -11,6 +11,7 @@ const ada = {
   length: 40,
   me: false,
   guard: false,
+  reserve: false,
   closes: false,
 } satisfies CaptureRunMember
 const bea = { ...ada, id: 'b', name: 'Bea', colour: 'blue', drafted: 12, me: true }
@@ -24,6 +25,7 @@ const counting = {
   guards: 0,
   maxGuards: 2,
   staggerMs: 500,
+  distribution: 'even',
   anchor: null,
   members: [ada, bea],
   role: 'painter',
@@ -73,6 +75,12 @@ describe('capture lobby countdown', () => {
     expect(slot.querySelector('[role="status"]')?.textContent).toContain('Paint now')
     expect(slot.querySelector('.big')?.textContent).toBe('00:00.000')
   })
+})
+
+it("gives a reserve no steps to reach a leg they don't have", () => {
+  const card = render({ ...gathering, admin: false, role: 'reserve', myTurn: null })
+  expect(card.querySelector('[aria-label="What to do"]')).toBeNull()
+  expect(render(gathering).querySelector('[aria-label="What to do"]')).not.toBeNull()
 })
 
 it('tells a guard whose anchor was cut to repaint, once their slot has passed', () => {
@@ -166,6 +174,33 @@ describe('a runner inside a lobby', () => {
     const ready = render({ ...gathering, canStart: true }, intents)
     button(ready, 'Start countdown')?.click()
     expect(intents).toEqual([{ type: 'unlock' }, { type: 'go' }])
+  })
+
+  it('adds guards up to half the lobby', () => {
+    const intents: CaptureRunIntent[] = []
+    const card = render({ ...gathering, guards: 2, maxGuards: 3 }, intents)
+    button(card, 'More guards')?.click()
+    expect(intents).toEqual([{ type: 'set-guards', guards: 3 }])
+    expect(button(render({ ...gathering, guards: 3, maxGuards: 3 }), 'More guards')?.disabled).toBe(
+      true,
+    )
+  })
+
+  it('switches the legs to reserve, and marks the painters left without one', () => {
+    const intents: CaptureRunIntent[] = []
+    const card = render(
+      {
+        ...gathering,
+        distribution: 'reserve',
+        members: [ada, { ...bea, closes: true }, { ...ada, id: 'c', name: 'Cy', reserve: true }],
+      },
+      intents,
+    )
+    expect(button(card, 'Reserve')?.getAttribute('aria-pressed')).toBe('true')
+    button(card, 'Even')?.click()
+    expect(intents).toEqual([{ type: 'set-distribution', distribution: 'even' }])
+    const rows = [...card.querySelectorAll('.members li')]
+    expect(rows.map((row) => row.textContent?.includes('Reserve'))).toEqual([false, false, true])
   })
 
   it('moves a painter and a guard past the coordinator, who stays on the closing leg', () => {

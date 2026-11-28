@@ -17,15 +17,17 @@ import { isWorkIdentity } from './work.js'
  * each client estimates with `clock` round trips. The runner who opened the lobby always paints in
  * the last step while a member, so the closing leg, and the captured area, is theirs.
  *
- * The last `guards` members are anchor guards, outside the stagger: each paints a strip that
- * thickens the wall where one end meets the team's territory, at `startsAt` with the first painter,
- * then watches that anchor and repaints it if an enemy cuts it. A lobby always keeps one painter.
+ * The `distribution` decides how many legs the wall is cut into: one per painting member, or the
+ * fewest that fit, with the painting members past them standing by as reserves.
+ *
+ * The last `guards` members, at most half the lobby, are anchor guards, outside the stagger: each
+ * paints a zone that thickens the wall where one end meets the team's territory, at `startsAt`
+ * with the first painter, then watches that anchor and repaints it if an enemy cuts it. Guards
+ * alternate between anchors A and B, each with their own zone; a lone guard holds both.
  */
 
-/** The most painters a lobby plans its wall for: `painters` is at most this. */
+/** The most painters a lobby plans its wall for, and the most anchor guards it sets. */
 export const MAX_CAPTURE_PAINTERS = 16
-/** One guard for each end of the wall. */
-export const MAX_CAPTURE_GUARDS = 2
 /** The widest and tallest box a line's pixels may span, and its largest area, in pixels. */
 export const MAX_CAPTURE_LINE_SPAN = 1_024
 export const MAX_CAPTURE_LINE_AREA = 1 << 18
@@ -47,6 +49,12 @@ export const MAX_CAPTURE_STAGGER_MS = 2_000
 export const CAPTURE_STAGGER_STEP_MS = 50
 /** Time from the start of the countdown to the first painter's slot: their ten-second countdown. */
 export const CAPTURE_LEAD_MS = 10_000
+
+/**
+ * How a locked wall is shared: `even` cuts one leg per painting member; `reserve` cuts the fewest
+ * legs that fit a painter's charges, for the first painting members, and the rest stand by.
+ */
+export type CaptureDistribution = 'even' | 'reserve'
 
 export interface CaptureMember {
   readonly sessionId: string
@@ -73,6 +81,7 @@ export interface CaptureRun {
   readonly painters: number
   /** Anchor guards live planning gives zones to, and the most members who guard. */
   readonly guards: number
+  readonly distribution: CaptureDistribution
   /** In paint order, guards last. */
   readonly members: readonly CaptureMember[]
   /**
@@ -96,6 +105,7 @@ export interface CaptureSettings {
   readonly painters: number
   readonly guards: number
   readonly staggerMs: number
+  readonly distribution: CaptureDistribution
 }
 
 /**
@@ -108,8 +118,8 @@ export type CaptureClientEvent =
   | {
       readonly type: 'capture-new'
       readonly painters: number
-      readonly guards: number
       readonly staggerMs: number
+      readonly distribution?: CaptureDistribution
     }
   | { readonly type: 'capture-join'; readonly run: string }
   | { readonly type: 'capture-leave' }
@@ -119,6 +129,7 @@ export type CaptureClientEvent =
       readonly painters?: number
       readonly guards?: number
       readonly staggerMs?: number
+      readonly distribution?: CaptureDistribution
     }
   /** Move a member one place earlier (-1) or later (1); see `moveCaptureMember`. */
   | { readonly type: 'capture-move'; readonly member: string; readonly by: -1 | 1 }
@@ -145,32 +156,56 @@ export type CaptureServerEvent =
   /** Answers a client's `clock`: `at` is the server's time when it answered. */
   | { readonly type: 'clock'; readonly sent: number; readonly at: number }
 
-/** Members who guard: up to `guards`, but never the last painter. */
-export const captureGuardCount = (run: CaptureRun): number =>
-  Math.min(run.guards, Math.max(0, run.members.length - 1))
+/** The most anchor guards a lobby of this size sets: half of it, rounded down. */
+export const maxCaptureGuards = (run: CaptureRun): number =>
+  Math.min(MAX_CAPTURE_PAINTERS, Math.floor(run.members.length / 2))
 
-/** Members who build the wall: everyone but the guards. */
+/** Members who guard: up to `guards`, and never more than half the lobby. */
+export const captureGuardCount = (run: CaptureRun): number =>
+  Math.min(run.guards, maxCaptureGuards(run))
+
+/** Members who paint the wall or stand by as reserves: everyone but the guards. */
 export const capturePainterCount = (run: CaptureRun): number =>
   run.members.length - captureGuardCount(run)
+
+/**
+ * Legs the wall is cut into, one for each of the first painting members: all of them, or with
+ * `reserve` and a wall locked in, the fewest that fit a painter's charges.
+ */
+export const captureLegCount = (run: CaptureRun): number => {
+  const painting = capturePainterCount(run)
+  if (run.distribution === 'even' || run.wall === null) return painting
+  const fewest = Math.ceil(run.wall.length / 2 / MAX_CAPTURE_LINE_PIXELS)
+  return Math.min(painting, Math.max(1, fewest))
+}
 
 /** Whether member `index` is an anchor guard rather than a wall painter. */
 export const isCaptureGuard = (run: CaptureRun, index: number): boolean =>
   index >= capturePainterCount(run)
 
+/** Whether member `index` is a reserve: a painting member past the legs, with nothing to paint. */
+export const isCaptureReserve = (run: CaptureRun, index: number): boolean =>
+  index >= captureLegCount(run) && !isCaptureGuard(run, index)
+
 /** The countdown step member `index` paints at: pairs share one, guards paint with the first. */
 export const captureStep = (run: CaptureRun, index: number): number =>
   isCaptureGuard(run, index) ? 0 : Math.floor(index / 2)
 
-/** Countdown steps the wall's painters take, the first pair's included. */
-export const captureSteps = (run: CaptureRun): number => Math.ceil(capturePainterCount(run) / 2)
+/** Countdown steps the wall's legs take, the first pair's included. */
+export const captureSteps = (run: CaptureRun): number => Math.ceil(captureLegCount(run) / 2)
 
-/** When member `index` paints, on the server's clock; null until the countdown starts. */
+/**
+ * When member `index` paints, on the server's clock; null until the countdown starts, and for a
+ * reserve.
+ */
 export const captureSlot = (run: CaptureRun, index: number): number | null =>
-  run.startsAt === null ? null : run.startsAt + captureStep(run, index) * run.staggerMs
+  run.startsAt === null || isCaptureReserve(run, index)
+    ? null
+    : run.startsAt + captureStep(run, index) * run.staggerMs
 
 /** When the closing leg is painted, on the server's clock; null until the countdown starts. */
 export const captureEndsAt = (run: CaptureRun): number | null =>
-  captureSlot(run, Math.max(0, capturePainterCount(run) - 1))
+  captureSlot(run, Math.max(0, captureLegCount(run) - 1))
 
 /** How many more painters a wall of `pixels` needs so no leg exceeds a painter's charges. */
 export const captureShortfall = (pixels: number, painters: number): number =>
@@ -179,9 +214,10 @@ export const captureShortfall = (pixels: number, painters: number): number =>
 const derivedLines = new WeakMap<CaptureRun, readonly (readonly number[])[]>()
 
 /**
- * Each member's line, in member order: the locked wall cut into one leg per painter with
- * `pairLines`, then each guard's zone. Empty until a wall is locked in. A wall too long for the
- * painters leaves its middle uncut; `captureShortfall` says how many more it needs.
+ * Each member's line, in member order: the locked wall cut into `captureLegCount` legs with
+ * `pairLines`, an empty line for each reserve, then each guard's zone. Empty until a wall is
+ * locked in. A wall too long for the painters leaves its middle uncut; `captureShortfall` says how
+ * many more it needs.
  */
 export const captureLines = (run: CaptureRun): readonly (readonly number[])[] => {
   const known = derivedLines.get(run)
@@ -190,14 +226,16 @@ export const captureLines = (run: CaptureRun): readonly (readonly number[])[] =>
   let lines: (readonly number[])[] = []
   if (wall !== null) {
     const pixels = Array.from({ length: wall.length / 2 }, (_, at) => at)
-    const legs = pairLines(pixels, capturePainterCount(run), MAX_CAPTURE_LINE_PIXELS).map((leg) =>
+    const legCount = captureLegCount(run)
+    const legs = pairLines(pixels, legCount, MAX_CAPTURE_LINE_PIXELS).map((leg) =>
       leg.flatMap((at) => [wall[2 * at] as number, wall[2 * at + 1] as number]),
     )
+    const reserves = Array.from({ length: capturePainterCount(run) - legCount }, () => [])
     const zones = Array.from(
       { length: captureGuardCount(run) },
       (_, guard) => run.guardZones[guard] ?? [],
     )
-    lines = [...legs, ...zones]
+    lines = [...legs, ...reserves, ...zones]
   }
   derivedLines.set(run, lines)
   return lines
@@ -218,17 +256,17 @@ export const moveCaptureMember = (run: CaptureRun, id: string, by: -1 | 1): stri
   return order
 }
 
-/** Whether every wall painter has drafted their whole leg; guards don't count. */
+/** Whether every member with a leg has drafted all of it; guards and reserves don't count. */
 export const capturePaintersDrafted = (run: CaptureRun): boolean => {
   const lines = captureLines(run)
   return run.members
-    .slice(0, capturePainterCount(run))
+    .slice(0, captureLegCount(run))
     .every((member, index) => member.drafted >= (lines[index]?.length ?? 0) / 2)
 }
 
 /**
- * Whether the countdown may start: a wall is locked in, its legs fit the painters, and every
- * painter has drafted theirs.
+ * Whether the countdown may start: a wall is locked in, its legs fit the painting members, and
+ * everyone with a leg has drafted it.
  */
 export const captureReady = (run: CaptureRun): boolean =>
   run.startsAt === null &&
@@ -290,6 +328,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     coordinator,
     painters,
     guards,
+    distribution,
     members,
     wall,
     guardZones,
@@ -303,12 +342,13 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !(coordinator === null || isSafeInteger(coordinator)) ||
     !isSafeInteger(painters) ||
     !isSafeInteger(guards) ||
+    !(distribution === 'even' || distribution === 'reserve') ||
     !Array.isArray(members) ||
     members.length > MAX_CAPTURE_MEMBERS ||
     !members.every(isMember) ||
     !(wall === null || isLine(wall, MAX_CAPTURE_WALL_PIXELS)) ||
     !Array.isArray(guardZones) ||
-    guardZones.length > MAX_CAPTURE_GUARDS ||
+    guardZones.length > MAX_CAPTURE_PAINTERS ||
     !guardZones.every((zone) => isLine(zone, MAX_CAPTURE_LINE_PIXELS)) ||
     !(startsAt === null || isSafeInteger(startsAt)) ||
     !isSafeInteger(staggerMs) ||
@@ -321,6 +361,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     coordinator,
     painters,
     guards,
+    distribution,
     members,
     wall,
     guardZones,

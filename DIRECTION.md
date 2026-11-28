@@ -25,6 +25,13 @@ Use the v1 map for settled decisions and the extension map for store-release req
 - [Extension map](https://github.com/mia-cx/Caelestis/issues/685)
 - [Milestones](https://github.com/mia-cx/Caelestis/milestones)
 
+## Event servers
+
+An event server (`EVENT_SERVER`) coordinates a Wplace event apart from caelest.is.
+Presence routes by the team each session reports, claims are off, and no token is bound to a team.
+Event runners hold one-use invites. They run capture lobbies, any number per team, with no size cap.
+A locked wall is cut into legs: evenly across every painter, or into full legs with the rest kept in reserve. Up to half a lobby guards the anchors.
+
 ## Boundaries
 
 Ditherette remains a separate project consumed through its published npm/WASM interface.

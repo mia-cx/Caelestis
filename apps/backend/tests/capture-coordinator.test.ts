@@ -2,6 +2,7 @@ import {
   CAPTURE_LEAD_MS,
   type CaptureClientEvent,
   type CaptureRun,
+  type CaptureSettings,
   captureLines,
 } from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
@@ -10,7 +11,7 @@ import { applyCaptureEvent, connectedCaptures, leaveCaptures } from '../src/pres
 type Event = Exclude<CaptureClientEvent, { readonly type: 'clock' }>
 
 const COORDINATOR = 1
-const SETTINGS = { painters: 3, guards: 0, staggerMs: 500 }
+const SETTINGS = { painters: 3, staggerMs: 500 }
 
 const actor = (id: number, scope: 'report' | 'event_runner' = 'report') => ({
   sessionId: `s${id}`,
@@ -24,12 +25,15 @@ let ids = 0
 const apply = (runs: readonly CaptureRun[], event: Event, by = runner(), now = 0) =>
   applyCaptureEvent(runs, event, by, now, () => `run${++ids}`)
 
-/** One lobby the coordinator opened, joined by `joiners` in that order. */
-const opened = (joiners: readonly number[], settings = SETTINGS): readonly CaptureRun[] => {
-  let runs = apply([], { type: 'capture-new', ...settings })
+/** One lobby the coordinator opened, joined by `joiners` in that order, then given its guards. */
+const opened = (
+  joiners: readonly number[],
+  { guards = 0, ...settings }: Partial<CaptureSettings> = {},
+): readonly CaptureRun[] => {
+  let runs = apply([], { type: 'capture-new', ...SETTINGS, ...settings })
   const id = runs[0]?.id ?? ''
   for (const joiner of joiners) runs = apply(runs, { type: 'capture-join', run: id }, actor(joiner))
-  return runs
+  return guards === 0 ? runs : apply(runs, { type: 'capture-settings', guards })
 }
 
 const only = (runs: readonly CaptureRun[]): CaptureRun => {
@@ -90,7 +94,7 @@ describe('lobbies', () => {
 
   it('takes any number of members, whatever the Painters setting', () => {
     const joiners = Array.from({ length: 40 }, (_, index) => index + 2)
-    const runs = opened(joiners, { ...SETTINGS, painters: 1 })
+    const runs = opened(joiners, { painters: 1 })
     expect(only(runs).members).toHaveLength(41)
   })
 
@@ -135,6 +139,15 @@ describe('settings', () => {
     expect(order(runs)).toEqual([2, 1, 3])
   })
 
+  it('let at most half the lobby guard, rounded down', () => {
+    // A lobby of one has no guards, whatever its opener last chose.
+    expect(only(opened([])).guards).toBe(0)
+    // Five members: two may guard.
+    const runs = apply(opened([2, 3, 4, 5]), { type: 'capture-settings', guards: 9 })
+    expect(only(runs).guards).toBe(2)
+    expect(order(runs)).toEqual([2, 3, 1, 4, 5])
+  })
+
   it('are a runner’s to change', () => {
     const runs = opened([2])
     const changed = { type: 'capture-settings', painters: 1, guards: 0, staggerMs: 100 } as const
@@ -145,7 +158,7 @@ describe('settings', () => {
 describe('locking in a wall', () => {
   it('cuts one leg per painting member, the coordinator on the closing leg', () => {
     // Four members, one of them a guard: three legs from a 150-pixel wall, and the guard's zone.
-    const runs = apply(opened([2, 3, 4], { ...SETTINGS, guards: 1 }), lock(150, [[0, 1]]))
+    const runs = apply(opened([2, 3, 4], { guards: 1 }), lock(150, [[0, 1]]))
     expect(order(runs)).toEqual([2, 3, 1, 4])
     expect(legs(runs)).toEqual([50, 50, 50, 1])
     // The coordinator's leg is the middle of the wall, painted last.
@@ -160,8 +173,24 @@ describe('locking in a wall', () => {
   })
 
   it('refuses a wall planned for a different number of guards', () => {
-    const runs = opened([2], { ...SETTINGS, guards: 1 })
+    const runs = opened([2], { guards: 1 })
     expect(apply(runs, lock(20))).toBe(runs)
+  })
+
+  it('goes back to choosing when a departure leaves fewer guards than the wall was planned for', () => {
+    // Four members and two guards; one leaves, so half the lobby is one guard.
+    let runs = apply(
+      opened([2, 3, 4], { guards: 2 }),
+      lock(40, [
+        [0, 1],
+        [1, 1],
+      ]),
+    )
+    expect(only(runs).wall).not.toBeNull()
+    runs = leaveCaptures(runs, 's4', 0) ?? []
+    expect(only(runs)).toMatchObject({ wall: null, guardZones: [], guards: 2 })
+    // A wall planned for the one guard the lobby has now locks in.
+    expect(only(apply(runs, lock(40, [[0, 1]]))).wall).toEqual(wall(40))
   })
 
   it('is a runner’s to do', () => {
@@ -222,9 +251,36 @@ describe('locking in a wall', () => {
   })
 })
 
+describe('reserve', () => {
+  it('cuts the fewest legs that fit for the first painters, the coordinator closing', () => {
+    // Five members and a 120-pixel wall: two legs, and three reserves.
+    let runs = apply(opened([2, 3, 4, 5], { distribution: 'reserve' }), lock(120))
+    expect(order(runs)).toEqual([2, 1, 3, 4, 5])
+    expect(legs(runs)).toEqual([60, 60, 0, 0, 0])
+    // Only the two legs are drafted, and the countdown starts without the reserves.
+    const { id: run, cut } = only(runs)
+    for (const painter of [2, 1])
+      runs = apply(runs, { type: 'capture-drafted', run, drafted: 60, cut }, actor(painter))
+    expect(only(apply(runs, { type: 'capture-go' })).startsAt).not.toBeNull()
+  })
+
+  it('re-cuts the same wall when the runner switches to or from it', () => {
+    let runs = draftAll(apply(opened([2, 3, 4]), lock(120)))
+    expect(order(runs)).toEqual([2, 3, 4, 1])
+    const { cut } = only(runs)
+    runs = apply(runs, { type: 'capture-settings', distribution: 'reserve' })
+    expect(only(runs)).toMatchObject({ distribution: 'reserve', wall: wall(120), cut: cut + 1 })
+    expect(order(runs)).toEqual([2, 1, 3, 4])
+    expect(drafted(runs)).toEqual([0, 0, 0, 0])
+    runs = apply(runs, { type: 'capture-settings', distribution: 'even' })
+    expect(order(runs)).toEqual([2, 3, 4, 1])
+    expect(legs(runs)).toEqual([30, 30, 30, 30])
+  })
+})
+
 describe('the countdown', () => {
   it('waits for a locked wall and every painter’s leg drafted, guards aside', () => {
-    let runs = opened([2, 3], { ...SETTINGS, guards: 1 })
+    let runs = opened([2, 3], { guards: 1 })
     expect(apply(runs, { type: 'capture-go' })).toBe(runs)
     runs = apply(runs, lock(40, [[0, 1]]))
     // Painter 2 has drafted 19 of 20; the guard has drafted nothing.
@@ -266,7 +322,7 @@ describe('the countdown', () => {
 
   it('keeps every remaining member’s leg and role when someone leaves a finished lobby', () => {
     // Two painters and a guard; the guard leaves once the wall is closed.
-    let runs = apply(opened([2, 3], { ...SETTINGS, guards: 1 }), lock(40, [[0, 1]]))
+    let runs = apply(opened([2, 3], { guards: 1 }), lock(40, [[0, 1]]))
     runs = apply(draftAll(runs), { type: 'capture-go' })
     const before = captureLines(only(runs))
     const finished = (only(runs).startsAt ?? 0) + 60_000

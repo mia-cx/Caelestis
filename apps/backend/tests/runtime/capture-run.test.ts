@@ -137,7 +137,7 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
 const GREEN = 2
 const ORANGE = 1
 
-const SETTINGS = { painters: 3, guards: 0, staggerMs: 500 }
+const SETTINGS = { painters: 3, staggerMs: 500 }
 /** A straight wall of `pixels` in the arena, from anchor A to anchor B. */
 const wall = (pixels: number) =>
   Array.from({ length: pixels }, (_, x) => [636_000 + x, 1_028_000]).flat()

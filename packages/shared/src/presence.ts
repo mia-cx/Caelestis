@@ -44,7 +44,11 @@ export const MAX_PRESENCE_PEERS = 64
 /** Padding around a subscriber's viewport, in canvas pixels, that still counts as nearby. */
 export const PRESENCE_INTEREST_PADDING = 1_000
 export const MAX_PRESENCE_MASK_BITS = 32_768
-export const MAX_PRESENCE_MESSAGE_CODE_UNITS = 16 * 1024
+/**
+ * The longest message a presence socket takes. The largest is a capture lock-in: a full wall and
+ * 16 guard zones as large as the wire allows, 1,920 world pixels of up to seven digits each.
+ */
+export const MAX_PRESENCE_MESSAGE_CODE_UNITS = 32 * 1024
 export const MAX_PRESENCE_SUBSCRIBERS = 2_048
 export const MAX_PRESENCE_SUBSCRIBERS_PER_CLIENT = 4
 /**

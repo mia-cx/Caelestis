@@ -3,10 +3,12 @@ import {
   CAPTURE_LEAD_MS,
   CAPTURE_STAGGER_MS,
   CAPTURE_STAGGER_STEP_MS,
+  type CaptureDistribution,
   type CaptureRun,
   type CaptureSettings,
   captureCoordinatorIndex,
   captureEndsAt,
+  captureGuardCount,
   captureLines,
   capturePainterCount,
   captureReady,
@@ -17,12 +19,13 @@ import {
   decodePng,
   GUARD_MARGIN,
   isCaptureGuard,
+  isCaptureReserve,
   isEventServer,
   latLngToCanvasPixel,
-  MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_STAGGER_MS,
   MIN_CAPTURE_STAGGER_MS,
+  maxCaptureGuards,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -115,8 +118,8 @@ interface Proposal extends PlannedProposal {
 
 /** The settings the next lobby this runner opens starts with: the last they chose. */
 let painters = 3
-let guards = MAX_CAPTURE_GUARDS
 let staggerMs = CAPTURE_STAGGER_MS
+let distribution: CaptureDistribution = 'even'
 let proposals: readonly Proposal[] = []
 let message: string | undefined
 let element: CaelestisElement<'caelestis-capture-run'> | null = null
@@ -371,11 +374,19 @@ const itemsOf = (proposal: Proposal, team: TerritoryTeam, colour: Rgb): readonly
  * held until the next time plans show.
  */
 const candidateItems = (run: CaptureRun, colour: Rgb): readonly CaptureItem[] => {
-  if (run.startsAt !== null || run.wall !== null || proposalsRun !== run.id)
-    return candidatesBuilt(NO_ITEMS, () => NO_ITEMS)
-  const shown = proposals.map((proposal) => itemsOf(proposal, run.team, colour))
+  if (run.startsAt !== null || run.wall !== null) return candidatesBuilt(NO_ITEMS, () => NO_ITEMS)
+  const shown = proposalsFor(run).map((proposal) => itemsOf(proposal, run.team, colour))
   return candidatesBuilt(shown, () => shown.flat())
 }
+
+/**
+ * The proposals this lobby can lock in: planned for it, with a zone for each guard it has now. A
+ * join or departure that changes that count hides them until the next planning pass.
+ */
+const proposalsFor = (run: CaptureRun): typeof proposals =>
+  proposalsRun === run.id
+    ? proposals.filter(({ guardZones }) => guardZones.length === captureGuardCount(run))
+    : []
 
 /**
  * What this painter's lobby, or the walls a runner is choosing between, puts on the map, all in
@@ -607,14 +618,16 @@ const planPass = async (run: CaptureRun, bound: Planning): Promise<void> => {
     }
     const snapshot = await plannedSnapshot()
     if (snapshot === null || planningFor !== bound) return
-    const inputs = `${run.painters}|${run.guards}|${focus.x},${focus.y}|${snapshot.hash}`
+    // Plans hold a zone for each guard the lobby has now, which can be fewer than its setting.
+    const guards = captureGuardCount(run)
+    const inputs = `${run.painters}|${guards}|${focus.x},${focus.y}|${snapshot.hash}`
     if (inputs === planInputs) return
     const planned = await runPlanner({
       // The worker takes the bytes it is sent; later passes reuse the original.
       snapshot: snapshot.bytes.slice(),
       team: run.team,
       painters: run.painters,
-      guards: run.guards,
+      guards,
       focus,
     })
     if (planningFor !== bound) return
@@ -795,9 +808,10 @@ const model = (view: Shown | null): CaptureRunModel | null => {
     admin,
     painters: run?.painters ?? painters,
     maxPainters: MAX_CAPTURE_PAINTERS,
-    guards: run?.guards ?? guards,
-    maxGuards: MAX_CAPTURE_GUARDS,
+    guards: run === null ? 0 : captureGuardCount(run),
+    maxGuards: run === null ? 0 : maxCaptureGuards(run),
     staggerMs: run?.staggerMs ?? staggerMs,
+    distribution: run?.distribution ?? distribution,
     anchor:
       run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
         ? anchor
@@ -811,13 +825,21 @@ const model = (view: Shown | null): CaptureRunModel | null => {
       length: (lines[index]?.length ?? 0) / 2,
       me: index === mine,
       guard: run !== null && isCaptureGuard(run, index),
+      reserve: run !== null && isCaptureReserve(run, index),
       closes: index === closer,
     })),
-    role: run === null || mine < 0 ? null : isCaptureGuard(run, mine) ? 'guard' : 'painter',
+    role:
+      run === null || mine < 0
+        ? null
+        : isCaptureGuard(run, mine)
+          ? 'guard'
+          : isCaptureReserve(run, mine)
+            ? 'reserve'
+            : 'painter',
     proposals:
-      run === null || run.wall !== null || proposalsRun !== run.id
+      run === null || run.wall !== null
         ? []
-        : proposals.map(({ id, label, gained, pixels, wall }) => ({
+        : proposalsFor(run).map(({ id, label, gained, pixels, wall }) => ({
             id,
             label,
             gained,
@@ -864,8 +886,11 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       changeSettings(view, { painters })
       break
     case 'set-guards':
-      guards = Math.min(MAX_CAPTURE_GUARDS, Math.max(0, Math.round(intent.guards)))
-      changeSettings(view, { guards })
+      changeSettings(view, { guards: Math.max(0, Math.round(intent.guards)) })
+      break
+    case 'set-distribution':
+      distribution = intent.distribution
+      changeSettings(view, { distribution })
       break
     case 'set-stagger': {
       const steps = Math.round(intent.staggerMs / CAPTURE_STAGGER_STEP_MS)
@@ -886,7 +911,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
           if (team === null) message = 'Join a team in the event first.'
           else {
             primeCaptureAudio()
-            sendCapture(server, { type: 'capture-new', painters, guards, staggerMs })
+            sendCapture(server, { type: 'capture-new', painters, staggerMs, distribution })
           }
         })
         .catch(() => {
