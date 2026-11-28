@@ -14,8 +14,6 @@ import {
   runLeaderboardContract,
   runNodeTemplateContract,
   runRegionRenewalContract,
-  runTeamBindingContract,
-  teamBindingContractExpected,
 } from '../support/sql-contract.js'
 
 const migrationRoot = process.cwd()
@@ -193,13 +191,6 @@ describe('external relational adapter contract', () => {
     await connection.migrate(migrations)
     expect(await runRegionRenewalContract(relationalSqlStore(connection))).toEqual(
       regionRenewalContractExpected,
-    )
-  })
-  it('binds each access token to one event team, once, in the selected real database', async () => {
-    if (connection === undefined) throw new Error('Integration fixture did not open a database')
-    await connection.migrate(migrations)
-    expect(await runTeamBindingContract(relationalSqlStore(connection))).toEqual(
-      teamBindingContractExpected,
     )
   })
   it('migrates and preserves shared persistence boundaries in the selected real database', async () => {

@@ -70,7 +70,6 @@ export const createTestBackend = async ({
     createdAt: millis(3),
   })
   return {
-    sql,
     app: createApp(makeBackendContext(blobs, sql, counters), {
       server: {
         id: '00000000-0000-7000-8000-000000000000',

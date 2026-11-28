@@ -1,4 +1,4 @@
-import type { Scope, TerritoryTeam } from '@caelestis/shared'
+import type { Scope } from '@caelestis/shared'
 import { isSha256Hex, millis, parseWholeNumber } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
@@ -49,10 +49,9 @@ export const mintAccessToken = (input: {
 /**
  * Trade the presented invite for a fresh token with the same label and scope, once. The invite
  * stops existing in the same write, so a second exchange finds nothing and is asked to
- * authenticate. A credential that is not an invite is refused and keeps working. A `team` binds
- * the fresh token to the redeemer's event team in the same write.
+ * authenticate. A credential that is not an invite is refused and keeps working.
  */
-export const exchangeInvite = (presented: string | null, team: TerritoryTeam | undefined) =>
+export const exchangeInvite = (presented: string | null) =>
   Effect.gen(function* () {
     if (presented === null) return yield* Effect.fail(new UnauthorizedError())
     const sql = yield* SqlStoreService
@@ -60,11 +59,7 @@ export const exchangeInvite = (presented: string | null, team: TerritoryTeam | u
     const token = mintToken()
     const tokenHash = yield* Effect.promise(() => hashToken(token))
     const redeemed = yield* storage('redeemInvite', () =>
-      sql.redeemInvite(inviteHash, {
-        tokenHash,
-        createdAt: millis(Date.now()),
-        ...(team === undefined ? {} : { team }),
-      }),
+      sql.redeemInvite(inviteHash, { tokenHash, createdAt: millis(Date.now()) }),
     )
     if (redeemed) return { token }
     const held = yield* storage('readAccessToken', () => sql.readAccessToken(inviteHash))

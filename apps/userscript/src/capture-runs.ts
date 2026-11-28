@@ -419,7 +419,6 @@ export const captureItems = (): readonly CaptureItem[] => {
   ])
 }
 
-/** This painter's team in the event, from Wplace's own leaderboard. */
 /** Fly the map to a box of world pixels, with room around a thin line. */
 const flyTo = (rect: { x: number; y: number; w: number; h: number }): void =>
   navigateTo({
@@ -767,22 +766,11 @@ const phaseOf = (view: CaptureView | null): CaptureRunModel['phase'] => {
   return end !== null && localClock() > end ? 'done' : 'countdown'
 }
 
-const TEAM_NAMES = ['Blue', 'Orange', 'Green', 'Purple'] as const satisfies Record<
-  TerritoryTeam,
-  string
->
-
-/** Why an event server shows this tab nothing: its token belongs to another team. */
-const refusedMessage = (team: TerritoryTeam): string =>
-  `This token is for team ${TEAM_NAMES[team]}. Ask your event's organiser for one for your team.`
-
 const model = (view: CaptureView | null): CaptureRunModel | null => {
   if (view === null) return null
   const run = view.run
   const admin = canRunServerCaptures(view.server)
-  const refused = view.refusedTeam === null ? undefined : refusedMessage(view.refusedTeam)
-  if (run === null && !admin && refused === undefined) return null
-  const status = refused ?? message
+  if (run === null && !admin) return null
   const mine = memberIndex(view)
   const phase = phaseOf(view)
   // A wall shorter than the group leaves a line empty: that member has nothing to paint.
@@ -843,7 +831,7 @@ const model = (view: CaptureView | null): CaptureRunModel | null => {
         : null,
     turns: run === null ? Math.ceil(painters / 2) : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
-    ...(status === undefined ? {} : { message: status }),
+    ...(message === undefined ? {} : { message }),
   }
 }
 

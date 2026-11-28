@@ -6,7 +6,7 @@ const TEAM_LOOKUP_MS = 5_000
 
 /**
  * This painter's Wplace event team, once read; null until then. Event servers share presence and
- * capture runs within a team, and an event-runner invite redeemed on one binds its token to it.
+ * capture runs within a team.
  */
 let team: TerritoryTeam | null = null
 

@@ -6,7 +6,7 @@ One small floating card for a capture run in a Wplace territory event: painters 
 
 The element positions itself: `position: fixed` at the top left, beside Wplace's column of map buttons, at `--caelestis-capture-run-top` (default `0.5rem`) and `--caelestis-capture-run-left` (default `3.5rem`). There it clears the bottom-centre Paint button and drawer and Caelestis's right-hand rail and panel. A host moves it with those properties, or by setting `inset` and `z-index` on the element. In a window 1080px wide or less, Wplace's event scoreboard reaches the card's corner, so the card drops below it to `--caelestis-capture-run-top-narrow` (default `10.5rem`) and stops 6.5rem above the bottom, clear of the Paint controls; on a phone it also moves to the left edge and leaves room for Wplace's right-hand buttons. It sits at z-index 31 like the claim editor: above the docked panel, below its popovers. The card is 17rem wide and scrolls within the viewport instead of growing past it.
 
-The host decides visibility: non-administrators only get the element while a run exists, or while the server refuses the team they reported, when `message` says which team their token is for. It enters with a short rise on its own and exits through `closeSurface`'s `data-state="closing"`.
+The host decides visibility: non-administrators only get the element while a run exists. It enters with a short rise on its own and exits through `closeSurface`'s `data-state="closing"`.
 
 ## States
 
