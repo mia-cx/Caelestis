@@ -28,6 +28,7 @@ import { installOfficialEvents } from './templates/official-overlays.js'
 import { installPersonalTemplates } from './templates/personal-sync.js'
 import { installServerSync } from './templates/server-sync.js'
 import { installStudioFrame } from './templates/studio-frame.js'
+import { installTerritoryRefusals } from './territory-refusals.js'
 import { installTilePixelCapture } from './tile-capture-scope.js'
 import { installChargeForecast } from './ui/charge-forecast.js'
 import { installOverlayControls, showAllianceOverlayControls } from './ui/overlay-menu.js'
@@ -122,6 +123,7 @@ export const installFeatures = (): void => {
   step('draft pixels', installDraftPixels)
   step('paint palette progress', installPaintPaletteProgress)
   step('paint target guard', installPaintTargetGuard)
+  step('territory refusals', () => void installTerritoryRefusals())
   // Middle-click picking, answered from the template when the template is what you can see.
   step('colour picker', installColourPicker)
   step('shift paint', installShiftPaint)

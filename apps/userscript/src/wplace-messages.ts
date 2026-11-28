@@ -1,5 +1,5 @@
 /**
- * Wplace's control labels in the reader's language.
+ * Wplace's control labels and messages in the reader's language.
  *
  * Wplace translates its UI with Paraglide into twelve locales, so a control found by its English
  * `aria-label` disappears for everyone reading another language (#624). Wplace's locale module
@@ -18,6 +18,10 @@ const ENGLISH = {
   territory_shade_swap: 'Swap shade',
   alliance_hq_canvas: 'Headquarters canvas',
   alliance_asset_canvas: 'Alliance asset canvas',
+  territory_not_adjacent: "You can only paint next to your team's territory.",
+  territory_enemy_home: "That's another team's home zone. Only they can paint there.",
+  territory_stay_in_arena: 'Event paint stays inside the arena.',
+  no_more_charges: 'No more charges',
 } as const
 
 export type WplaceLabel = keyof typeof ENGLISH
