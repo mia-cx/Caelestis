@@ -83,12 +83,12 @@ describe('wire schema public contracts', () => {
       type: 'presence-update',
       quickClaims: [{ x: 0, y: 0, w: 2_001, h: 2_000 }],
     })
-    // A stagger can't beat the event canvas's 200 ms updates, and steps in 50 ms.
+    // A stagger runs from 100 ms, as tight as painters clicking by hand can time it, in 50 ms steps.
     const open = { type: 'capture-open', painters: 3, guards: 0 }
     expect(decode(PresenceClientEvent, open)).toEqual(open)
-    for (const staggerMs of [200, 750, 2_000])
+    for (const staggerMs of [100, 750, 2_000])
       expect(decode(PresenceClientEvent, { ...open, staggerMs })).toEqual({ ...open, staggerMs })
-    for (const staggerMs of [150, 525, 2_050]) invalid(PresenceClientEvent, { ...open, staggerMs })
+    for (const staggerMs of [50, 525, 2_050]) invalid(PresenceClientEvent, { ...open, staggerMs })
     expect(
       decode(RegionDocument, {
         items: [{ id: 'brush', op: 'add', shape: { kind: 'rectangle', x: 1, y: 2, w: 3, h: 4 } }],

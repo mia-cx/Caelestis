@@ -91,7 +91,7 @@ it('steps the stagger by 50 ms within its bounds before a run opens', () => {
     { type: 'set-stagger', staggerMs: 450 },
     { type: 'set-stagger', staggerMs: 550 },
   ])
-  const shortest = render({ ...counting, phase: 'none', admin: true, staggerMs: 200 })
+  const shortest = render({ ...counting, phase: 'none', admin: true, staggerMs: 100 })
   expect(button(shortest, 'Shorter stagger')?.disabled).toBe(true)
 })
 
