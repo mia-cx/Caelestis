@@ -10,7 +10,11 @@ vi.mock('../src/wplace-account.js', () => ({
   loadAccount: async () => undefined,
 }))
 // Wplace's leaderboard puts this painter on team 0.
-vi.mock('../src/event-team.js', () => ({ eventTeam: () => 0, readEventTeam: async () => 0 }))
+vi.mock('../src/event-team.js', () => ({
+  eventTeam: () => 0,
+  readEventTeam: async () => 0,
+  installEventTeam: () => {},
+}))
 vi.mock('../src/capture-planning.js', () => ({ planProposals: async () => [] }))
 const audio = vi.hoisted(() => ({ cues: [] as { at: number; tone: string }[] }))
 vi.mock('../src/capture-cues.js', () => ({

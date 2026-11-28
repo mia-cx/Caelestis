@@ -59,7 +59,7 @@ import {
 } from './capture-timing.js'
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt, nativeDraftPixelAt } from './draft-pixels.js'
-import { eventTeam, readEventTeam } from './event-team.js'
+import { eventTeam, installEventTeam, readEventTeam } from './event-team.js'
 import { getMap, type MapLike, onMapAttached } from './map-handle.js'
 import { requestMapFrame, viewportCentre } from './map-view.js'
 import {
@@ -1254,6 +1254,7 @@ const render = (): void => {
 /** Install once, after presence. */
 export const installCaptureRuns = (): void => {
   observeWplaceTiming()
+  installEventTeam()
   let lastRun: string | null = null
   onPresenceChange(() => {
     syncTeam()
