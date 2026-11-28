@@ -39,6 +39,7 @@ export const observedProgressIntervals = (samples: readonly ObservedProgressSamp
 export const combineProgressSamples = (
   histories: readonly (readonly ProgressSample[])[],
 ): readonly ProgressSample[] => {
+  const scopeCount = histories.length
   const changes = new Map<number, Map<number, ProgressSample>>()
   for (const [scope, samples] of histories.entries()) {
     for (const sample of samples) {
@@ -47,33 +48,56 @@ export const combineProgressSamples = (
       changes.set(sample.at, entries)
     }
   }
-  const latest = new Map<number, ProgressSample>()
+  const latest = new Array<ProgressSample | undefined>(scopeCount)
+  const revisions = new Array<string | null>(scopeCount).fill(null)
+  let presentCount = 0
+  let knownCount = 0
+  let correctSum = 0
+  let mismatchedSum = 0
+  let totalSum = 0
+  let revisionCount = 0
+  let revisionKey: string | null = null
   return [...changes]
     .sort(([a], [b]) => a - b)
     .map(([at, entries]) => {
-      for (const [scope, sample] of entries) latest.set(scope, sample)
-      const held = [...latest.values()]
-      const complete =
-        held.length > 0 &&
-        held.length === histories.length &&
-        held.every((sample) => sample?.correct != null && sample.mismatched !== null)
+      let allBoundary = true
+      for (const [scope, sample] of entries) {
+        if (!sample.boundary) allBoundary = false
+        const prev = latest[scope]
+        if (prev === undefined) {
+          presentCount += 1
+        } else {
+          totalSum -= prev.total
+          if (prev.correct !== null && prev.mismatched !== null) {
+            knownCount -= 1
+            correctSum -= prev.correct
+            mismatchedSum -= prev.mismatched
+          }
+          if (prev.revision !== undefined) revisionCount -= 1
+        }
+        latest[scope] = sample
+        totalSum += sample.total
+        if (sample.correct !== null && sample.mismatched !== null) {
+          knownCount += 1
+          correctSum += sample.correct
+          mismatchedSum += sample.mismatched
+        }
+        if (sample.revision !== undefined) revisionCount += 1
+        const nextRevision = sample.revision ?? null
+        if (revisions[scope] !== nextRevision) {
+          revisions[scope] = nextRevision
+          revisionKey = null
+        }
+      }
+      const complete = scopeCount > 0 && presentCount === scopeCount && knownCount === scopeCount
+      if (revisionCount > 0 && revisionKey === null) revisionKey = JSON.stringify(revisions)
       return {
         at,
-        correct: complete ? held.reduce((sum, sample) => sum + (sample?.correct ?? 0), 0) : null,
-        mismatched: complete
-          ? held.reduce((sum, sample) => sum + (sample?.mismatched ?? 0), 0)
-          : null,
-        total: held.reduce((sum, sample) => sum + (sample?.total ?? 0), 0),
-        ...([...entries.values()].every((sample) => sample.boundary)
-          ? { boundary: true as const }
-          : {}),
-        ...(held.some((sample) => sample.revision !== undefined)
-          ? {
-              revision: JSON.stringify(
-                histories.map((_, scope) => latest.get(scope)?.revision ?? null),
-              ),
-            }
-          : {}),
+        correct: complete ? correctSum : null,
+        mismatched: complete ? mismatchedSum : null,
+        total: totalSum,
+        ...(allBoundary ? { boundary: true as const } : {}),
+        ...(revisionCount > 0 && revisionKey !== null ? { revision: revisionKey } : {}),
       }
     })
 }

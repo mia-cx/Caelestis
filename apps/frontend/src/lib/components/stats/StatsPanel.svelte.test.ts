@@ -107,3 +107,23 @@ it('asks only for the newest buckets on each chart tick', async () => {
   // On the full read's 60 s grid.
   expect(options).toEqual({ maxResolution: 60 })
 })
+
+it('loads folder archive and tiered progress histories concurrently across templates', async () => {
+  vi.setSystemTime((start + 10 * 86_400) * 1_000)
+  const pending = new Promise<never>(() => undefined)
+  client.getArchiveHistory.mockImplementation(() => pending)
+  client.getTemplateProgressHistory.mockImplementation(() => pending)
+
+  render([live('a'), live('b')])
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(client.getArchiveHistory.mock.calls.map(([id]) => id)).toEqual(['a', 'b'])
+  expect(client.getTemplateProgressHistory.mock.calls.map(([id]) => id)).toEqual([
+    'a',
+    'a',
+    'a',
+    'b',
+    'b',
+    'b',
+  ])
+})

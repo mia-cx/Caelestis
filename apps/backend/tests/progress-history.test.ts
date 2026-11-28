@@ -230,9 +230,9 @@ describe('template lifetime progress', () => {
     await backend.sql.writeTileMeasurements(updatedId, { x: 0, y: 0 }, [
       { hash, correct: 1, wrong: 9, blank: 0 },
     ])
-    const read = async () => {
+    const read = async (to = now) => {
       const response = await backend.app.fetch(
-        authorized(`/telemetry/progress/${templateId}?from=${day}&to=${now}`),
+        authorized(`/telemetry/progress/${templateId}?from=${day}&to=${to}`),
       )
       expect(response.status).toBe(200)
       return response.json() as Promise<TemplateProgressHistoryResponse>
@@ -257,9 +257,31 @@ describe('template lifetime progress', () => {
         },
       ])
     }
-    assertHistory(await read())
+    assertHistory(await read(now))
     await backend.sql.foldTileHistory(3, { x: 0, y: 0 }, seconds(now))
-    assertHistory(await read())
+    assertHistory(await read(now + 1))
+  })
+
+  it('caches repeated progress reads without bypassing publication visibility', async () => {
+    const backend = await fixture()
+    const readFrames = vi.spyOn(backend.sql, 'readTemplateProgressFrames')
+    const url = `/telemetry/progress/${templateId}?from=${start}&to=${start + 600}`
+
+    const first = await backend.app.fetch(authorized(url))
+    expect(first.status).toBe(200)
+    expect(first.headers.get('cache-control')).toBe('private, max-age=300')
+    expect(first.headers.get('vary')).toBe('Authorization')
+    const firstBody = await first.json()
+    const callsAfterFirst = readFrames.mock.calls.length
+    expect(callsAfterFirst).toBeGreaterThan(0)
+
+    const second = await backend.app.fetch(authorized(url))
+    expect(second.status).toBe(200)
+    expect(await second.json()).toEqual(firstBody)
+    expect(readFrames).toHaveBeenCalledTimes(callsAfterFirst)
+
+    const anonymous = await backend.app.fetch(new Request(`https://backend.test/v1${url}`))
+    expect(anonymous.status).toBe(404)
   })
 
   it('preserves the publication boundary for the complete history', async () => {

@@ -1,4 +1,4 @@
-import { isSha256Hex, isUuidV7, parseTileKey } from '@caelestis/shared'
+import { type ArchiveHistory, isSha256Hex, isUuidV7, parseTileKey } from '@caelestis/shared'
 import { Effect, Context as Services } from 'effect'
 import { type Context, Hono } from 'hono'
 import {
@@ -13,6 +13,7 @@ import {
   BackfillService,
   BlobStoreService,
 } from '../runtime/backend-runtime.js'
+import { BoundedCache, memoize } from '../runtime/bounded-cache.js'
 import { runBackendHttp } from '../runtime/hono.js'
 import { readVisibleVersion } from '../templates/use-cases.js'
 import { jsonObject } from './params.js'
@@ -88,6 +89,13 @@ export const createBackfillAdminRoutes = (runtime: BackendRuntime) => {
     .route('/', subjectRoutes(clientFor, SUBJECTS.template))
 }
 
+const ARCHIVE_HISTORY_CACHE_TTL_MS = 60_000
+const ARCHIVE_HISTORY_CACHE_MAX_ENTRIES = 512
+const ARCHIVE_HISTORY_CACHE_MAX_BYTES = 16 * 1024 * 1024
+
+const archiveReplyBytes = (reply: BackfillReply<ArchiveHistory>): number =>
+  reply.ok ? Math.max(128, (reply.value.samples.length + reply.value.frames.length) * 96) : 0
+
 /**
  * Backfilled canvas history, read through templates. Sparse reads share template visibility rules;
  * PNGs remain outside live tile GC.
@@ -96,6 +104,11 @@ export const createCanvasHistoryRoutes = (runtime: BackendRuntime) => {
   const routes = new Hono()
   const blobs = Services.get(runtime.context, BlobStoreService)
   const clients = Services.get(runtime.context, BackfillService)
+  const historyCache = new BoundedCache<Promise<BackfillReply<ArchiveHistory>>>({
+    maxEntries: ARCHIVE_HISTORY_CACHE_MAX_ENTRIES,
+    maxBytes: ARCHIVE_HISTORY_CACHE_MAX_BYTES,
+    ttlMs: ARCHIVE_HISTORY_CACHE_TTL_MS,
+  })
   routes.get('/templates/:templateId', async (c) => {
     const id = c.req.param('templateId')
     if (!isUuidV7(id)) return c.json({ error: 'Invalid template ID.' }, 400)
@@ -105,9 +118,29 @@ export const createCanvasHistoryRoutes = (runtime: BackendRuntime) => {
     if (tile === null) return c.json({ error: 'Invalid tile coordinates.' }, 400)
     const history = Effect.flatMap(
       readVisibleVersion(id, c.req.query('version'), c.get('caller').canSeeDrafts),
-      (version) => Effect.promise(() => clients(id).history(version, tile)),
+      (version) => {
+        const key = `${id}:${version}:${tile === undefined ? 'all' : `${tile.x}/${tile.y}`}`
+        return Effect.promise(() =>
+          memoize(
+            historyCache,
+            key,
+            async () => {
+              const reply = await clients(id).history(version, tile)
+              mergeD1Usage(reply.usage)
+              return reply
+            },
+            archiveReplyBytes,
+          ),
+        )
+      },
     )
-    return runBackendHttp(c, runtime, history, (reply) => respond(c, reply))
+    return runBackendHttp(c, runtime, history, (reply) =>
+      reply.ok
+        ? Response.json(reply.value, {
+            headers: { 'cache-control': 'private, max-age=60', vary: 'Authorization' },
+          })
+        : c.json({ error: reply.error }, reply.status),
+    )
   })
   routes.get('/tiles/:hash', async (c) => {
     const hash = c.req.param('hash')
