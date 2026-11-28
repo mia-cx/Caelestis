@@ -28,7 +28,7 @@
     "fake-indexeddb": "^6.2.8",
     "happy-dom": "^21.0.4",
     "typescript": "^7.0.2",
-    "undici": "8.12.4",
-    "vitest": "^5.1.0"
+    "undici": "8.13.1",
+    "vitest": "^5.1.1"
   }
 }
