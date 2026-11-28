@@ -28,8 +28,11 @@
   const listing = $derived(model.phase === 'list')
   const painters = (n: number): string => `${n} ${n === 1 ? 'painter' : 'painters'}`
   const needs = (n: number): string => `Needs ${n} more ${n === 1 ? 'painter' : 'painters'}`
-  /** What a member's row says under their name, e.g. "Host · Closes wall · Ready". */
-  const roles = (member: CaptureRunMember): string =>
+  /**
+   * What a member's row says under their name, e.g. "Host · Closes wall · Ready". Each part stays
+   * whole: a narrow row wraps between them rather than hiding Ready.
+   */
+  const roles = (member: CaptureRunMember): string[] =>
     [
       member.hosts ? 'Host' : '',
       member.vacant
@@ -46,9 +49,7 @@
         : member.ready === 'no-button' && model.waitForReady
           ? 'No Ready button'
           : '',
-    ]
-      .filter(Boolean)
-      .join(' · ')
+    ].filter(Boolean)
   /** This painter's Ready, while they paint at a slot and their tab's lobby has Ready; else null. */
   const myReady = $derived.by(() => {
     const ready = model.members.find((member) => member.me)?.ready
@@ -257,7 +258,7 @@
               <span class="swatch" style:background-color={member.colour} aria-hidden="true"></span>
               <span class="who">
                 <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
-                {#if roles(member)}<span class="role">{roles(member)}</span>{/if}
+                {#if roles(member).length > 0}<span class="role">{@render parts(roles(member))}</span>{/if}
               </span>
               {#if member.length > 0 && !member.vacant}
                 <span class="ready" class:done={ready} aria-label={`${member.drafted} of ${member.length} pixels drafted`}>{#if ready}<Icon name="check" size="0.875rem" />{/if}{member.drafted}/{member.length}</span>
@@ -458,7 +459,7 @@
   .place { inline-size: 1rem; color: var(--caelestis-muted-text); text-align: end; }
   .swatch { flex: none; inline-size: 0.75rem; block-size: 0.75rem; border: 1px solid color-mix(in oklab, var(--caelestis-text) 30%, transparent); border-radius: 2px; }
   .who { display: flex; flex: 1; flex-direction: column; min-inline-size: 0; }
-  .name, .role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .you { margin-inline-start: 0.25em; color: var(--caelestis-muted-text); }
   .role { color: var(--caelestis-muted-text); font-size: 0.75rem; line-height: 1.2; }
   .ready { display: inline-flex; align-items: center; gap: 0.125rem; color: var(--caelestis-muted-text); }
