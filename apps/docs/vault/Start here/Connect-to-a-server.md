@@ -3,7 +3,12 @@ title: Connect to a server
 order: 3
 ---
 
-Open your group's private invite link in a browser with Caelestis installed. The link opens Wplace and connects using the included token. Share it only with its intended recipient. If the owner gives you the address and token separately, enter them below.
+Open your group's private invite link in a browser with Caelestis installed. The link opens Wplace and connects using the included token. A message confirms **Connected to** the server's name. Share it only with its intended recipient. If the owner gives you the address and token separately, enter them below.
+
+If no message appears, Caelestis did not run on the page the link opened:
+
+- Apps such as Discord, especially on phones, can open links in their own built-in browser, which has no Caelestis. Copy the link and paste it into the address bar of the browser where you installed Caelestis.
+- A link opened before you installed Caelestis does nothing. [Install Caelestis](Install), then open the link again.
 
 ## 1. Open Settings
 

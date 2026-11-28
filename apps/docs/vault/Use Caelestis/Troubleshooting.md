@@ -15,6 +15,12 @@ On Chromium browsers, check whether your manager requires **Allow user scripts**
 
 Check your Caelestis version in **Settings**. For server actions, expand the connection to see the backend version and check your token scope. Store approval can put the extension and the GitHub userscript on different versions. **Export .png** and the **Dangerous settings** switches require version 1.1.0 or later.
 
+## An invite link does nothing
+
+Every invite link shows a message when Caelestis reads it. With no message, the page that opened has no Caelestis: open the link in the browser where Caelestis is installed, not an app's built-in browser. Check for the moon among the map controls first. See [Connect to a server](Connect-to-a-server).
+
+**Didn't accept the invite's token** means the server no longer knows that token. Ask its owner for a new invite.
+
 ## A server will not connect
 
 Check the address in **Settings → Servers**. A normal site address gets `/backend` added automatically. If the owner supplied a complete endpoint, use that.
