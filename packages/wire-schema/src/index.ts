@@ -309,7 +309,14 @@ export const PresenceClientEvent = Schema.Union([
     sendToResponseMs: Schema.NullOr(CaptureTimingMs),
     status: Schema.Union([
       integerBetween(100, 599),
-      Schema.Literals(['missed', 'unsubmitted', 'no-request', 'no-response', 'failed']),
+      Schema.Literals([
+        'missed',
+        'nothing-drafted',
+        'unsubmitted',
+        'no-request',
+        'no-response',
+        'failed',
+      ]),
     ]),
     wplaceRttMs: Schema.NullOr(CaptureTimingMs),
     clockOffsetMs: integerBetween(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),

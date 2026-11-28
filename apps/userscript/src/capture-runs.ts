@@ -881,8 +881,12 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
     const leg = captureLines(run)[index] ?? []
     const wplaceRttMs = wplaceRtt()
     if (!linePixels(leg).some((pixel) => draftedPixel(run.team, pixel, true))) {
-      // Logged as a slot whose Paint was never pressed.
-      void reportSlot(view, run.id, slot, null, late, wplaceRttMs)
+      const skipped = {
+        clickToSendMs: null,
+        sendToResponseMs: null,
+        status: 'nothing-drafted' as const,
+      }
+      void reportSlot(view, run.id, slot, Promise.resolve(skipped), late, wplaceRttMs)
       return
     }
     // Watch from before the click, so even a request the click sends at once is caught.

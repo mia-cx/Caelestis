@@ -1,4 +1,5 @@
 ---
+"@caelestis/backend": patch
 "@caelestis/userscript": patch
 ---
 

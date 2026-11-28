@@ -334,6 +334,8 @@ it("doesn't press Paint at a slot when nothing is drafted on the leg", async () 
     }
   }
   expect(clicks).toBe(0)
+  // The timing log tells a skipped slot apart from one whose Paint wasn't ready.
+  expect(sent(socket, 'capture-timing').map(({ status }) => status)).toEqual(['nothing-drafted'])
   document.body.replaceChildren()
   setState({ simulatedInput: {} })
 })
