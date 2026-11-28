@@ -88,7 +88,7 @@
               <span class="plan-label">{lobby.name}</span>
               <span class="plan-stats">{painters(lobby.members)}</span>
             </span>
-            <Button label="Join" size="compact" kind="primary" disabled={!lobby.canJoin} onclick={() => onIntent({ type: 'join', id: lobby.id })}>Join<span class="hidden"> {lobby.name}</span></Button>
+            <Button label="Join" size="compact" kind={model.admin ? 'default' : 'primary'} disabled={!lobby.canJoin} onclick={() => onIntent({ type: 'join', id: lobby.id })}>Join<span class="hidden"> {lobby.name}</span></Button>
           </li>
         {/each}
       </ul>
