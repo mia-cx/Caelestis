@@ -6,6 +6,7 @@ import {
   type CaptureDistribution,
   type CaptureRun,
   type CaptureSettings,
+  type CaptureTimingReport,
   captureCoordinatorIndex,
   captureEndsAt,
   captureGuardCount,
@@ -51,6 +52,12 @@ import {
   linePixels,
   pixelMask,
 } from './capture-scene.js'
+import {
+  observeWplaceTiming,
+  type PaintTiming,
+  timeNextPaint,
+  wplaceRtt,
+} from './capture-timing.js'
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt } from './draft-pixels.js'
 import { eventTeam, readEventTeam } from './event-team.js'
@@ -724,6 +731,42 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
   ]
 }
 
+const wholeMs = (ms: number | null): number | null => (ms === null ? null : Math.round(ms))
+
+/**
+ * Once the paint request after a slot's click settles, log how the slot went and report it to the
+ * lobby's server. `paint` is null when Paint was not ready; `view` holds the clock sync the slot
+ * was scheduled with.
+ */
+const reportSlot = async (
+  view: Shown,
+  run: string,
+  slotAt: number,
+  paint: Promise<PaintTiming> | null,
+  late: number,
+  wplaceRttMs: number | null,
+): Promise<void> => {
+  const timing = (await paint) ?? {
+    clickToSendMs: null,
+    sendToResponseMs: null,
+    status: 'unsubmitted' as const,
+  }
+  const report: CaptureTimingReport = {
+    type: 'capture-timing',
+    run,
+    slotAt,
+    firedLateMs: Math.round(late),
+    clickToSendMs: wholeMs(timing.clickToSendMs),
+    sendToResponseMs: wholeMs(timing.sendToResponseMs),
+    status: timing.status,
+    wplaceRttMs: wholeMs(wplaceRttMs),
+    clockOffsetMs: Math.round(view.clockOffset ?? 0),
+    clockRttMs: Math.round(view.clockRtt ?? 0),
+  }
+  log('capture slot', report)
+  sendCapture(view.server, report)
+}
+
 /** Whether this tab's painter switched on "Paint at my capture slot" in Dangerous settings. */
 const autoPaintOn = (): boolean => getState().simulatedInput['capture-paint'] === true
 
@@ -738,7 +781,7 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
   if (armedSlot === key) return
   const slot = captureSlot(run, index)
   const at = slot === null ? null : localTime(view, slot)
-  if (at === null) return
+  if (slot === null || at === null) return
   disarm()
   armedSlot = key
   const go = run.startsAt === null ? null : localTime(view, run.startsAt - CAPTURE_LEAD_MS)
@@ -756,16 +799,20 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
       now.run.startsAt === run.startsAt &&
       memberIndex(now) === index
     if (!still || !autoPaintOn()) return
-    const late = localClock() - at
+    const clickedAt = localClock()
+    const late = clickedAt - at
     if (late > MISSED_SLOT_MS) {
       message = 'Your slot passed while this tab was asleep.'
       render()
       return
     }
+    const wplaceRttMs = wplaceRtt()
+    // Watch from before the click, so even a request the click sends at once is caught.
+    const paint = timeNextPaint(clickedAt)
     const submitted = submitWorldPaintDraft()
-    log('capture slot', { index, late, submitted })
     if (!submitted) message = 'Paint was not ready at your slot.'
     render()
+    void reportSlot(view, run.id, slot, submitted ? paint : null, late, wplaceRttMs)
   }
   const timeout = setTimeout(fire, Math.max(0, at - localClock() - SPIN_MS))
   disarm = () => {
@@ -1074,6 +1121,7 @@ const render = (): void => {
 
 /** Install once, after presence. */
 export const installCaptureRuns = (): void => {
+  observeWplaceTiming()
   let lastRun: string | null = null
   onPresenceChange(() => {
     syncTeam()

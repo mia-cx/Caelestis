@@ -230,6 +230,9 @@ const CaptureStagger = integerBetween(MIN_CAPTURE_STAGGER_MS, MAX_CAPTURE_STAGGE
   ),
 )
 
+/** A span a slot report times; a minute covers every wait the client makes. */
+const CaptureTimingMs = integerBetween(0, 60_000)
+
 const CaptureSettings = {
   painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
   guards: integerBetween(0, MAX_CAPTURE_PAINTERS),
@@ -296,6 +299,21 @@ export const PresenceClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal('capture-go') }),
   Schema.Struct({ type: Schema.Literal('capture-close') }),
   Schema.Struct({ type: Schema.Literal('clock'), sent: Epoch }),
+  Schema.Struct({
+    type: Schema.Literal('capture-timing'),
+    run: Identifier,
+    slotAt: Epoch,
+    firedLateMs: CaptureTimingMs,
+    clickToSendMs: Schema.NullOr(CaptureTimingMs),
+    sendToResponseMs: Schema.NullOr(CaptureTimingMs),
+    status: Schema.Union([
+      integerBetween(100, 599),
+      Schema.Literals(['unsubmitted', 'no-request', 'no-response', 'failed']),
+    ]),
+    wplaceRttMs: Schema.NullOr(CaptureTimingMs),
+    clockOffsetMs: integerBetween(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+    clockRttMs: CaptureTimingMs,
+  }),
   Schema.Struct({
     type: Schema.Literal('presence-update'),
     viewport: Schema.optionalKey(Schema.NullOr(PresenceRect)),

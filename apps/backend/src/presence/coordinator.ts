@@ -31,7 +31,13 @@ import type { AccessTokenStore } from '../auth/store.js'
 import { createLiveSessionFence, type LiveHost, type LiveSocket } from '../live/session.js'
 import type { IngestTimingSnapshot, IngestTimings } from '../metrics/ingest-timing.js'
 import { ownedRegionIds, type RegionOwner, type RegionStore } from '../work/region-store.js'
-import { applyCaptureEvent, connectedCaptures, leaveCaptures } from './capture.js'
+import {
+  applyCaptureEvent,
+  captureSlotLog,
+  captureStartLogs,
+  connectedCaptures,
+  leaveCaptures,
+} from './capture.js'
 import { presenceRectWithinSurface } from './geometry.js'
 import { PeerGrid } from './peer-grid.js'
 import type { PresenceConnection, PresenceRoomId } from './port.js'
@@ -211,6 +217,7 @@ export class PresenceCoordinator<Client> {
       if (updated === runs) return runs
       if (updated.length === 0) await this.state.storage.delete(captureKey(team))
       else await this.state.storage.put(captureKey(team), updated)
+      for (const line of captureStartLogs(runs, updated)) console.info(JSON.stringify(line))
       const payload = JSON.stringify({
         type: 'capture-runs',
         runs: updated,
@@ -696,6 +703,16 @@ export class PresenceCoordinator<Client> {
       return
     }
     if (attachment.credentialScope === 'read') return
+    if (event.type === 'capture-timing') {
+      // Logged for reading slot timing afterwards; the lobby never holds it.
+      const { team } = attachment
+      if (team === undefined) return
+      void this.captureRuns(team).then((runs) => {
+        const line = captureSlotLog(runs, event, attachment.sessionId)
+        if (line !== null) console.info(JSON.stringify(line))
+      })
+      return
+    }
     if (event.type !== 'presence-update') {
       const { team } = attachment
       if (team === undefined) return

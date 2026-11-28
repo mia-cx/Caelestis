@@ -695,6 +695,8 @@ export interface CaptureView {
   readonly sessionId: string
   /** Server time minus `localClock()`, once a clock sync has answered. */
   readonly clockOffset: number | null
+  /** The round trip that offset was measured over. */
+  readonly clockRtt: number | null
   /** Whether this socket may join: its credential can write. */
   readonly canWrite: boolean
 }
@@ -709,6 +711,7 @@ export const captureViews = (): readonly CaptureView[] =>
             runs: connection.captures,
             sessionId: connection.sessionId,
             clockOffset: connection.clock?.offset ?? null,
+            clockRtt: connection.clock?.rtt ?? null,
             canWrite: connection.canWrite,
           },
         ]

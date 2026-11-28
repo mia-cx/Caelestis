@@ -3,6 +3,7 @@ import {
   type CaptureClientEvent,
   type CaptureMember,
   type CaptureRun,
+  type CaptureTimingReport,
   captureCoordinatorIndex,
   captureEndsAt,
   captureGuardCount,
@@ -10,6 +11,10 @@ import {
   capturePainterCount,
   captureReady,
   captureShortfall,
+  captureSlot,
+  captureStep,
+  isCaptureGuard,
+  isCaptureReserve,
   maxCaptureGuards,
   moveCaptureMember,
   type PainterIdentity,
@@ -28,7 +33,7 @@ export interface CaptureActor {
   readonly team: TerritoryTeam
 }
 
-type RunEvent = Exclude<CaptureClientEvent, { readonly type: 'clock' }>
+type RunEvent = Exclude<CaptureClientEvent, { readonly type: 'clock' | 'capture-timing' }>
 type OwnEvent = Exclude<RunEvent, { readonly type: 'capture-new' | 'capture-join' }>
 
 /**
@@ -297,4 +302,67 @@ const pinCoordinator = (run: CaptureRun): CaptureRun => {
   if (coordinator === undefined || at === last) return run
   const others = run.members.filter((_, index) => index !== at)
   return { ...run, members: [...others.slice(0, last), coordinator, ...others.slice(last)] }
+}
+
+/**
+ * The log line for each lobby that started its countdown between `before` and `after`: its
+ * members in paint order with their step, so slot reports can be read against it. Guards paint at
+ * the first step; reserves have none.
+ */
+export const captureStartLogs = (
+  before: readonly CaptureRun[],
+  after: readonly CaptureRun[],
+): object[] =>
+  after
+    .filter(
+      (run) => run.startsAt !== null && before.find(({ id }) => id === run.id)?.startsAt === null,
+    )
+    .map((run) => ({
+      event: 'capture-countdown',
+      lobby: run.id,
+      team: run.team,
+      startsAt: run.startsAt,
+      staggerMs: run.staggerMs,
+      members: run.members.map(({ painter }, index) => ({
+        name: painter.displayName,
+        userId: painter.wplaceUserId,
+        role: isCaptureGuard(run, index)
+          ? 'guard'
+          : isCaptureReserve(run, index)
+            ? 'reserve'
+            : 'painter',
+        step: isCaptureReserve(run, index) ? null : captureStep(run, index),
+      })),
+    }))
+
+/**
+ * The log line for a member's slot report, or null when it names no lobby the session is in or a
+ * slot that is not theirs, as a report from before a restart would.
+ */
+export const captureSlotLog = (
+  runs: readonly CaptureRun[],
+  report: CaptureTimingReport,
+  sessionId: string,
+): object | null => {
+  const run = runs.find(({ id }) => id === report.run)
+  const index = run?.members.findIndex((member) => member.sessionId === sessionId) ?? -1
+  const member = run?.members[index]
+  if (run === undefined || member === undefined || captureSlot(run, index) !== report.slotAt)
+    return null
+  return {
+    event: 'capture-slot',
+    lobby: run.id,
+    team: run.team,
+    name: member.painter.displayName,
+    userId: member.painter.wplaceUserId,
+    step: captureStep(run, index),
+    slotAt: report.slotAt,
+    firedLateMs: report.firedLateMs,
+    clickToSendMs: report.clickToSendMs,
+    sendToResponseMs: report.sendToResponseMs,
+    status: report.status,
+    wplaceRttMs: report.wplaceRttMs,
+    clockOffsetMs: report.clockOffsetMs,
+    clockRttMs: report.clockRttMs,
+  }
 }

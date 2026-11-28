@@ -434,3 +434,76 @@ it('keeps claims made before the switch to event mode out of it, and does not re
   const after = await start({ eventServer: false, directory: before.directory })
   expect((await regions(after)).regions).toEqual([claimed])
 })
+
+it('logs a countdown as it starts, and each slot report from a member of it', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const lines = (event: string) =>
+    info.mock.calls
+      .map(([line]) => {
+        try {
+          return JSON.parse(String(line)) as { event?: unknown }
+        } catch {
+          return null
+        }
+      })
+      .filter((line) => line?.event === event)
+  const server = await start()
+  const runner = await server.runner(GREEN)
+  runner.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
+  await vi.waitFor(() => expect(runner.run()).toBeDefined())
+  runner.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
+  await vi.waitFor(() => expect(runner.run()?.wall).toHaveLength(120))
+  const lobby = runner.run()
+  runner.send({ type: 'capture-drafted', run: lobby?.id ?? '', drafted: 60, cut: lobby?.cut ?? 0 })
+  await vi.waitFor(() => expect(runner.run()?.members[0]?.drafted).toBe(60))
+  runner.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(runner.run()?.startsAt).not.toBeNull())
+  const run = runner.run()
+  if (run === undefined || run.startsAt === null) throw new Error('Expected a started lobby')
+  await vi.waitFor(() =>
+    expect(lines('capture-countdown')).toEqual([
+      {
+        event: 'capture-countdown',
+        lobby: run.id,
+        team: GREEN,
+        startsAt: run.startsAt,
+        staggerMs: SETTINGS.staggerMs,
+        members: [{ name: 'Painter 1', userId: 1, role: 'painter', step: 0 }],
+      },
+    ]),
+  )
+
+  const report = {
+    type: 'capture-timing',
+    run: run.id,
+    slotAt: run.startsAt,
+    firedLateMs: 2,
+    clickToSendMs: 41,
+    sendToResponseMs: 180,
+    status: 200,
+    wplaceRttMs: 95,
+    clockOffsetMs: -12,
+    clockRttMs: 30,
+  } as const
+  // Malformed, then for a slot that is not this member's: neither is logged, nor closes the socket.
+  runner.send({ ...report, firedLateMs: -1 })
+  runner.send({ ...report, slotAt: run.startsAt + SETTINGS.staggerMs })
+  runner.send(report)
+  await vi.waitFor(() => expect(lines('capture-slot')).toHaveLength(1))
+  expect(lines('capture-slot')[0]).toEqual({
+    event: 'capture-slot',
+    lobby: run.id,
+    team: GREEN,
+    name: 'Painter 1',
+    userId: 1,
+    step: 0,
+    slotAt: run.startsAt,
+    firedLateMs: 2,
+    clickToSendMs: 41,
+    sendToResponseMs: 180,
+    status: 200,
+    wplaceRttMs: 95,
+    clockOffsetMs: -12,
+    clockRttMs: 30,
+  })
+})
