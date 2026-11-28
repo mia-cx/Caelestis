@@ -248,6 +248,8 @@ export class RelationalTemplateStore extends RelationalStore implements Template
         currentVersionId: templates.currentVersionId,
         publishedAt: templates.publishedAt,
         timelapseFrozenAt: templates.timelapseFrozenAt,
+        progressStart: templates.progressStart,
+        progressEnd: templates.progressEnd,
         finishedAt: templates.finishedAt,
         createdAt: templates.createdAtMs,
         updatedAt: templates.updatedAtMs,
@@ -267,6 +269,9 @@ export class RelationalTemplateStore extends RelationalStore implements Template
       published: row.publishedAt !== null,
       timelapseFrozen: row.timelapseFrozenAt !== null,
       timelapseFrozenAt: row.timelapseFrozenAt,
+      ...(row.progressStart === null && row.progressEnd === null
+        ? {}
+        : { progressWindow: { start: row.progressStart, end: row.progressEnd } }),
       finished: row.finishedAt !== null,
       finishedAt: row.finishedAt,
       createdAt: row.createdAt,
@@ -322,6 +327,9 @@ export class RelationalTemplateStore extends RelationalStore implements Template
             ? {}
             : { timelapseFrozenAt: patch.timelapseFrozenAt }),
           ...(patch.finishedAt === undefined ? {} : { finishedAt: patch.finishedAt }),
+          ...(patch.progressWindow === undefined
+            ? {}
+            : { progressStart: patch.progressWindow.start, progressEnd: patch.progressWindow.end }),
           updatedAtMs: updatedAt,
         })
         .where(predicate)
@@ -393,6 +401,8 @@ export class RelationalTemplateStore extends RelationalStore implements Template
         publishedAt: templates.publishedAt,
         finishedAt: templates.finishedAt,
         timelapseFrozenAt: templates.timelapseFrozenAt,
+        progressStart: templates.progressStart,
+        progressEnd: templates.progressEnd,
         createdAt: templates.createdAtMs,
         updatedAt: templates.updatedAtMs,
       })
@@ -411,6 +421,9 @@ export class RelationalTemplateStore extends RelationalStore implements Template
       finished: row.finishedAt !== null,
       finishedAt: row.finishedAt,
       timelapseFrozen: row.timelapseFrozenAt !== null,
+      ...(row.progressStart === null && row.progressEnd === null
+        ? {}
+        : { progressWindow: { start: row.progressStart, end: row.progressEnd } }),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     }))

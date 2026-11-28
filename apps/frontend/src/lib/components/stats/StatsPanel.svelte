@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { DAY_SECONDS, HOUR_SECONDS, type Progress, type Template } from '@caelestis/shared'
+  import { DAY_SECONDS, emptyProgress, type HistoryBucket, HOUR_SECONDS, type Progress, sumProgress, type Template } from '@caelestis/shared'
   import Select from '#lib/components/Select.svelte'
   import { STORAGE_KEYS } from '#lib/deployment.js'
   import { Persisted } from '#lib/persisted.svelte.js'
+  import { inProgressWindow } from '#lib/progress-window.js'
+  import { useApp } from '#lib/state/app.svelte.js'
   import { ActivityReads } from './activity-reads.svelte.js'
   import { archiveContributionDays } from './archive-history.js'
   import { Community } from './community.svelte.js'
@@ -15,18 +17,22 @@
   import { ProgressReads } from './progress-reads.svelte.js'
   import ProgressPaceChart, { CHART_HEIGHT } from './ProgressPaceChart.svelte'
   import { StatsScope } from './stats-scope.svelte.js'
+  import type { TimeWindow } from './time-window.svelte.js'
 
   let {
     templates,
     progress,
+    captureRange,
     playhead = null,
     onSeek,
     onScrubStart,
   }: {
     /** Every new list reads history again, so pass a new one only when the scope changes. */
     templates: readonly Template[]
-    /** The scope's current counts: the chart's right edge and the pixels still to paint. */
+    /** The scope's current counts and the pixels still to paint. */
     progress: Progress
+    /** The timelapse's first and last captures, or null if it has none. */
+    captureRange: TimeWindow | null | undefined
     /** The page's timelapse position, when it has one, for the chart to draw as a playhead. */
     playhead?: number | null
     /** Lets the chart seek that timelapse. Scopes without one leave it unset. */
@@ -38,33 +44,54 @@
   /** The grid an empty history's axis uses; it draws no buckets. */
   const EMPTY_HISTORY_RESOLUTION = 900
 
+  const app = useApp()
   const scope = new StatsScope(() => templates)
   const reads = new ProgressReads(scope)
   const selection = new PaceSelection(() => activity.painters)
   const activity = new ActivityReads(scope, selection)
   const community = new Community(scope)
+  const progressWindows = $derived(new Map(templates.map(({ id, progressWindow }) => [id, progressWindow])))
+  const inBucketWindow = (bucket: HistoryBucket): boolean => {
+    const window = progressWindows.get(bucket.templateId)
+    return bucket.bucketStart >= (window?.start ?? -Infinity) &&
+      bucket.bucketStart + bucket.resolution <= (window?.end ?? Infinity)
+  }
+  const progressBuckets = $derived(activity.buckets?.filter(inBucketWindow) ?? [])
+  const painterHistories = $derived(activity.painterHistories.map(({ window, history }) => ({
+    window,
+    history: { ...history, buckets: history.buckets.filter(inBucketWindow) },
+  })))
 
-  const progressRevision = $derived(JSON.stringify(templates.map((template) => template.version)))
+  const currentObservation = $derived.by(() => {
+    const at = scope.to
+    const active = templates.filter((template) => inProgressWindow(at, template.progressWindow))
+    if (active.length === 0) return undefined
+    const counts = active.length === templates.length
+      ? progress
+      : sumProgress(active.map((template) =>
+          app.tree?.templateById.get(template.id)?.progress ?? emptyProgress(template.totalPixels),
+        ))
+    return {
+      at,
+      correct: counts.completed,
+      mismatched: counts.mismatched,
+      total: counts.total,
+      revision: JSON.stringify(templates.map((template) =>
+        inProgressWindow(at, template.progressWindow) ? template.version : null,
+      )),
+    }
+  })
   const remainingPixels = $derived(progress.total - progress.completed)
-  const displayFrom = $derived(
-    Math.min(scope.from, ...reads.archiveSamples.map((sample) => sample.at)),
-  )
   const importedContributions = $derived(
     archiveContributionDays(
-      reads.archiveSamples,
+      reads.contributionArchiveSamples,
       Math.min(...(activity.buckets ?? []).map((bucket) => bucket.bucketStart)),
     ),
   )
-  /** Every observation once, ending with the current counts at the right edge. */
-  const observations = $derived(
+  const recordedObservations = $derived(
     reads.samples === null
       ? null
-      : mergeObservedProgress(reads.archiveSamples, reads.samples, {
-          at: scope.to,
-          correct: progress.completed,
-          mismatched: progress.mismatched,
-          revision: progressRevision,
-        }),
+      : mergeObservedProgress(reads.archiveSamples, reads.samples),
   )
 
   const estimatePeriods = [
@@ -81,9 +108,13 @@
       estimatePeriods[2],
   )
   const pace = $derived(
-    reads.archives === null || observations === null
+    reads.archives === null || reads.samples === null
       ? null
-      : completionPace(observations, scope.to, estimatePeriod.seconds),
+      : completionPace(
+          mergeObservedProgress(reads.archiveSamples, reads.samples, currentObservation),
+          scope.progressTo,
+          estimatePeriod.seconds,
+        ),
   )
   const eta = $derived(
     pace === null || pace.correct <= 0 || remainingPixels <= 0
@@ -127,19 +158,22 @@
       <div class="flex items-center justify-center text-sm text-base-content/50" style:height="{CHART_HEIGHT}px">
         Could not load pace history.
       </div>
-    {:else if activity.buckets === null || reads.archives === null || observations === null}
+    {:else if captureRange === undefined || activity.buckets === null || reads.archives === null || recordedObservations === null}
       <div class="skeleton w-full" style:height="{CHART_HEIGHT}px"></div>
+    {:else if captureRange === null}
+      <div class="flex items-center justify-center text-sm text-base-content/50" style:height="{CHART_HEIGHT}px">
+        No tile snapshots yet.
+      </div>
     {:else}
       <ProgressPaceChart
-        samples={observations}
-        buckets={activity.buckets}
+        samples={recordedObservations}
+        buckets={progressBuckets}
         resolution={activity.buckets[0]?.resolution ?? EMPTY_HISTORY_RESOLUTION}
-        from={displayFrom}
-        to={scope.to}
-        live={scope.live}
+        from={captureRange.from}
+        to={captureRange.to}
         paces={selection}
         painters={activity.painters}
-        painterHistories={activity.painterHistories}
+        {painterHistories}
         {playhead}
         {onSeek}
         {onScrubStart}

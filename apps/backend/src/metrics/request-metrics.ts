@@ -131,6 +131,8 @@ export const normalizeMetricRoute = (method: string, pathname: string): string =
   if (/^\/admin\/tokens\/[^/]+$/.test(pathname)) return route(verb, '/admin/tokens/:tokenHash')
   if (/^\/admin\/nodes\/[^/]+\/subtree$/.test(pathname))
     return route(verb, '/admin/nodes/:id/subtree')
+  if (/^\/admin\/nodes\/[^/]+\/progress$/.test(pathname))
+    return route(verb, '/admin/nodes/:id/progress')
   if (/^\/admin\/nodes\/[^/]+$/.test(pathname)) return route(verb, '/admin/nodes/:id')
   if (/^\/admin\/templates\/[^/]+\/versions$/.test(pathname))
     return route(verb, '/admin/templates/:id/versions')

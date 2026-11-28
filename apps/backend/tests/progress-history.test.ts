@@ -285,4 +285,55 @@ describe('template lifetime progress', () => {
       samples: expect.arrayContaining([expect.objectContaining({ at: start + 30, correct: 7 })]),
     })
   })
+
+  it('keeps the final daily capture in a one-day historical range', async () => {
+    const day = Math.floor(start / 86_400) * 86_400
+    const end = day + 86_400
+    const now = day + 40 * 86_400
+    vi.spyOn(Date, 'now').mockReturnValue(now * 1_000)
+    const backend = await createTestBackend()
+    await backend.sql.createTemplate(version(originalId, day, 10, [0]))
+    await observe(backend.sql, originalId, 0, day + 600, 5, 5)
+    await backend.sql.foldTileHistory(3, { x: 0, y: 0 }, seconds(now))
+    const response = await backend.app.fetch(
+      authorized(`/telemetry/progress/${templateId}?from=${day}&to=${end}&notBefore=${day}`),
+    )
+    expect(response.status).toBe(200)
+    const history = (await response.json()) as TemplateProgressHistoryResponse
+    expect(history.resolution).toBe(86_400)
+    expect(history.samples).toContainEqual(expect.objectContaining({ at: end - 1, correct: 5 }))
+    const playback = await backend.app.fetch(
+      authorized(`/telemetry/tiles/0/0/history?season=3&from=${day}&to=${end}`),
+    )
+    expect(playback.status).toBe(200)
+    expect(await playback.json()).toMatchObject({
+      frames: [{ bucketStart: day, at: end - 1 }],
+    })
+  })
+
+  it.each([
+    { resolution: 3_600, age: 3 * 86_400 },
+    { resolution: 86_400, age: 40 * 86_400 },
+  ])(
+    'aligns capped and uncapped captures on the $resolution-second grid',
+    async ({ resolution, age }) => {
+      const day = Math.floor(start / 86_400) * 86_400
+      const end = day + 86_400
+      const now = day + age
+      vi.spyOn(Date, 'now').mockReturnValue(now * 1_000)
+      const backend = await createTestBackend()
+      await backend.sql.createTemplate(version(originalId, day, 10, [0]))
+      await observe(backend.sql, originalId, 0, end - 1, 7, 3)
+      await backend.sql.foldTileHistory(3, { x: 0, y: 0 }, seconds(now))
+      for (const to of [end, end + resolution]) {
+        const response = await backend.app.fetch(
+          authorized(`/telemetry/progress/${templateId}?from=${day}&to=${to}&notBefore=${day}`),
+        )
+        expect(response.status).toBe(200)
+        const history = (await response.json()) as TemplateProgressHistoryResponse
+        expect(history.resolution).toBe(resolution)
+        expect(history.samples).toContainEqual(expect.objectContaining({ at: end - 1, correct: 7 }))
+      }
+    },
+  )
 })

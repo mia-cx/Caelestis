@@ -209,6 +209,25 @@ const seedArchive = async (backend: Awaited<ReturnType<typeof createTestBackend>
 }
 
 describe('frontend API client against the built backend', () => {
+  it('reads painter totals for a large folder sharing one progress window', async () => {
+    const ids = Array.from(
+      { length: 160 },
+      (_, index) => `01890f3e-7b2c-7abc-8def-${String(index).padStart(12, '0')}`,
+    )
+    const start = seconds(range.from)
+    const end = seconds(range.to)
+    const backend = await createTestBackend({ openAccess: true })
+    const read = frontendFetch(backend.app)
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) =>
+      new TextEncoder().encode(url).length >= 16_384
+        ? new Response(null, { status: 414 })
+        : read(url, init),
+    )
+    await expect(
+      getPainterTotals(ids, start, end, { windows: ids.map((id) => ({ id, start, end })) }),
+    ).resolves.toEqual({ painters: [] })
+  })
+
   it('reads current public branding and serves exact versioned image bytes without credentials', async () => {
     const backend = await createTestBackend({ openAccess: true })
     const updated = await backend.app.fetch(
@@ -303,6 +322,11 @@ describe('frontend API client against the built backend', () => {
       revision: template.versionId,
     })
     expect(new URL(requests[0]?.url ?? '').searchParams.has('version')).toBe(false)
+    const cut = fixtureNow - 500
+    const capped = await getTemplateProgressHistory(template.templateId, cut, fixtureNow + 600, cut)
+    expect(capped.samples).not.toContainEqual(expect.objectContaining({ correct: 1 }))
+    expect(capped.samples.every((sample) => sample.at >= cut)).toBe(true)
+    expect(new URL(requests.at(-1)?.url ?? '').searchParams.get('notBefore')).toBe(String(cut))
   })
 
   it('keeps retained-state revision boundaries when merging imported history without later reports', async () => {
@@ -408,6 +432,10 @@ describe('frontend API client against the built backend', () => {
     expect(totals.painters).toContainEqual(
       expect.objectContaining({ wplaceUserId: 42, displayName: 'Boundary Painter', correct: 1 }),
     )
+    const cappedTotals = await getPainterTotals(templateIds, range.from, range.to, {
+      windows: [{ id: template.templateId, start: null, end: seconds(range.from + 1) }],
+    })
+    expect(cappedTotals.painters).toEqual([])
     expect(painterHistory.buckets).toContainEqual(
       expect.objectContaining({ templateId: template.templateId, wplaceUserId: 42, correct: 1 }),
     )

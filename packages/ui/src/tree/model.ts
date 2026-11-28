@@ -173,6 +173,7 @@ export interface TreeOperationOptionModel {
 }
 
 export interface TreeOperationModel {
+  readonly progressDates?: { readonly start: string; readonly end: string }
   readonly id: string
   readonly label: string
   readonly options?: readonly TreeOperationOptionModel[]
@@ -218,6 +219,7 @@ export type TemplateTreeIntent =
       readonly type: 'tree-operation-confirm'
       readonly operationId: string
       readonly value: string
+      readonly progressDates?: { readonly start: string; readonly end: string }
     }
   | { readonly type: 'tree-operation-cancel'; readonly operationId: string }
   | {

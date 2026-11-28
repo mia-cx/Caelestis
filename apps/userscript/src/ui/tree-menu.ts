@@ -27,6 +27,7 @@ import { deleteTreeRow } from './tree-delete.js'
 import { createFolder } from './tree-folders.js'
 import { captureTemplate, createFromImage, download, importTemplate } from './tree-import.js'
 import { goToLocalTemplate, goToServerTemplate } from './tree-navigation.js'
+import { editProgressWindow } from './tree-progress-window.js'
 import {
   folderTemplatesFor,
   moveServerTemplate,
@@ -190,6 +191,13 @@ export const openContextMenu = (
     folderTemplates !== null && canBackfill(target)
       ? { icon: 'download', label: 'Backfill history', run: () => openBackfill(target) }
       : null
+  const progressDates: MenuEntry | null =
+    target.server !== null &&
+    hasServerAdminToken(target.server) &&
+    surface.kind === 'world' &&
+    (target.templateId !== undefined || target.nodeId !== null)
+      ? { icon: 'rename', label: 'Progress dates', run: () => editProgressWindow(target, rerender) }
+      : null
   const finished = lifecycle?.finished ?? false
   const frozen = lifecycle?.timelapseFrozen === true
   const markAs: MenuEntry = {
@@ -239,7 +247,7 @@ export const openContextMenu = (
                   },
               dismissGrief,
             ],
-            state: [markAs],
+            state: [markAs, progressDates],
             artwork: [
               {
                 icon: 'uploadFile',
@@ -295,6 +303,7 @@ export const openContextMenu = (
                 : null,
             ],
             publish: [folderPublication],
+            state: [progressDates],
             artwork: [folderBackfill],
             edit: [rename],
             danger: [remove],

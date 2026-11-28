@@ -1,5 +1,6 @@
 import {
   isRecord,
+  type ProgressWindow,
   parseTemplateTags,
   SCOPES,
   type Scope,
@@ -275,6 +276,16 @@ const uploadInit = (body: FormData): AdminInit => ({ method: 'POST', body, limit
 export const renameNode = (server: ServerConnection, nodeId: string, name: string): Promise<Done> =>
   adminWrite(server, `/admin/nodes/${nodeId}`, { method: 'PATCH', json: { name } })
 
+export const patchNodeProgressWindow = (
+  server: ServerConnection,
+  nodeId: string,
+  progressWindow: ProgressWindow,
+): Promise<Done> =>
+  adminWrite(server, `/admin/nodes/${nodeId}/progress`, {
+    method: 'PATCH',
+    json: { progressWindow },
+  })
+
 export const deleteNode = (
   server: ServerConnection,
   nodeId: string,
@@ -431,6 +442,7 @@ export const patchTemplate = (
   server: ServerConnection,
   templateId: string,
   patch: {
+    progressWindow?: ProgressWindow
     name?: string
     nodeId?: string | null
     published?: boolean

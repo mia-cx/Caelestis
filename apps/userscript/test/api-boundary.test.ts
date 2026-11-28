@@ -2,6 +2,7 @@ import {
   decodeWplaceIndexedPng,
   encodeIndexedPng,
   LIVE_PROTOCOL_V2,
+  seconds,
   sha256Hex,
   type TemplateRecipe,
   WORLD_TEMPLATE_SURFACE,
@@ -524,6 +525,50 @@ describe('userscript to backend API boundary', () => {
       isAdmin: false,
       error: 'admin access required',
     })
+  })
+
+  it('sets and clears independent progress dates without losing the artwork', async () => {
+    await installBackend()
+    const { state, server } = await connect()
+    const folder = await state.createNode(server, 'Progress dates', null)
+    if (!folder.ok) throw new Error(folder.message)
+    const artwork = await state.uploadTemplate(server, {
+      nodeId: folder.node.id,
+      name: 'History',
+      originX: 10,
+      originY: 20,
+      png: await png(),
+    })
+    if (!artwork.ok) throw new Error(artwork.message)
+
+    const start = seconds(1_760_000_000)
+    const end = seconds(1_770_000_000)
+    expect(
+      await state.patchNodeProgressWindow(server, folder.node.id, { start, end: null }),
+    ).toEqual({ ok: true })
+    expect(
+      await state.patchTemplate(server, artwork.id, { progressWindow: { start: null, end } }),
+    ).toEqual({ ok: true })
+    expect(
+      await state.patchTemplate(server, artwork.id, { progressWindow: { start: end, end: start } }),
+    ).toMatchObject({ ok: false })
+    const saved = await state.readManifest(server)
+    expect(saved?.nodes).toContainEqual(
+      expect.objectContaining({
+        id: folder.node.id,
+        progressWindow: { start, end: null },
+      }),
+    )
+    const template = saved?.templates.find(({ id }) => id === artwork.id)
+    expect(template?.progressWindow).toEqual({ start: null, end })
+    expect(
+      await state.patchTemplate(server, artwork.id, { progressWindow: { start: null, end: null } }),
+    ).toEqual({ ok: true })
+    const cleared = (await state.readManifest(server))?.templates.find(
+      ({ id }) => id === artwork.id,
+    )
+    expect(cleared?.progressWindow).toBeUndefined()
+    expect(cleared?.chunks).toEqual(template?.chunks)
   })
 
   it('retries an actual open server without a rejected saved credential', async () => {

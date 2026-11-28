@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 
-import type { Progress } from '@caelestis/shared'
-import { millis, seconds, type Template } from '@caelestis/shared'
+import type { Progress, ProgressSample } from '@caelestis/shared'
+import { millis, seconds, type Template, type TemplateStatus } from '@caelestis/shared'
 import { flushSync, mount, unmount } from 'svelte'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AppState } from '#lib/state/app.svelte.js'
-import { appState, template } from '../../../tests/fixtures'
+import { appState, manifest, template } from '../../../tests/fixtures'
+import type { PainterHistorySource } from './progress-pace'
 
 const client = vi.hoisted(() => ({
   getArchiveHistory: vi.fn(),
@@ -17,12 +18,25 @@ const client = vi.hoisted(() => ({
   getPainterTotals: vi.fn(),
 }))
 vi.mock('#lib/api/client.js', () => client)
-const fixture = vi.hoisted(() => ({ app: null as unknown as AppState }))
+const fixture = vi.hoisted(() => ({
+  app: null as unknown as AppState,
+  chart: null as null | {
+    samples: readonly ProgressSample[]
+    from: number
+    to: number
+    painterHistories: readonly PainterHistorySource[]
+  },
+}))
 vi.mock('#lib/state/app.svelte.js', async (original) => ({
   ...(await original<typeof import('#lib/state/app.svelte.js')>()),
   useApp: () => fixture.app,
 }))
-vi.mock('./ProgressPaceChart.svelte', () => ({ default: () => undefined, CHART_HEIGHT: 240 }))
+vi.mock('./ProgressPaceChart.svelte', () => ({
+  default: (_anchor: unknown, props: NonNullable<typeof fixture.chart>) => {
+    fixture.chart = props
+  },
+  CHART_HEIGHT: 240,
+}))
 
 import StatsPanel from './StatsPanel.svelte'
 
@@ -38,6 +52,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime((start + 7_200) * 1_000)
   localStorage.clear()
+  fixture.chart = null
   client.getArchiveHistory
     .mockReset()
     .mockResolvedValue({ source: 'eralyon', basis: null, samples: [], frames: [] })
@@ -55,6 +70,7 @@ beforeEach(() => {
     ],
   })
   client.getPainterTotals.mockReset().mockResolvedValue({ painters: [] })
+  client.getPainterHistory.mockReset().mockResolvedValue({ buckets: [] })
   fixture.app = appState()
   // Streamed dashboards are the path these tests pin; the subscription itself is AppState's.
   fixture.app.live = true
@@ -68,8 +84,11 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const render = (templates: readonly Template[]) => {
-  const props = $state({ templates, progress })
+const render = (
+  templates: readonly Template[],
+  captureRange = { from: start, to: start + 7_000 },
+) => {
+  const props = $state({ templates, progress, captureRange })
   mounted = mount(StatsPanel, { target: document.body, props })
   return props
 }
@@ -106,4 +125,97 @@ it('asks only for the newest buckets on each chart tick', async () => {
   expect(from).toBeLessThanOrEqual(start + 7_140)
   // On the full read's 60 s grid.
   expect(options).toEqual({ maxResolution: 60 })
+})
+
+it('caps imported and native observations while displaying the capture range', async () => {
+  const from = seconds(start + 1_000)
+  const to = seconds(start + 5_000)
+  const artwork = { ...live('a'), progressWindow: { start: from, end: to } }
+  const sample = (at: number) => ({ at: seconds(at), correct: 1, mismatched: 0, total: 4 })
+  client.getArchiveHistory.mockResolvedValue({
+    source: 'eralyon',
+    basis: { versionId: artwork.version, total: 4 },
+    samples: [start, from, to].map((at) => ({ ...sample(at), snapshotId: at })),
+    frames: [],
+  })
+  client.getTemplateProgressHistory.mockResolvedValue({ samples: [sample(start + 2_000)] })
+  const captureRange = { from: start + 1_500, to: start + 3_000 }
+  render([artwork], captureRange)
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+
+  expect(client.getTemplateProgressHistory).toHaveBeenCalledWith('a', from, to, from)
+  expect(fixture.chart).toMatchObject(captureRange)
+  expect(fixture.chart?.samples.map(({ at }) => at)).toEqual([from, start + 2_000])
+})
+
+it('excludes a capped sibling’s placements from painter pace', async () => {
+  const painter = { wplaceUserId: 123, displayName: 'Painter' }
+  client.getPainterTotals.mockResolvedValue({
+    painters: [{ ...painter, placed: 4, correct: 4, repairs: 0 }],
+  })
+  client.getPainterHistory.mockResolvedValue({
+    buckets: ['a', 'b'].map((templateId) => ({
+      ...painter,
+      templateId,
+      resolution: 60,
+      bucketStart: seconds(start + 7_140),
+      placed: 2,
+      correct: 2,
+      repairs: 0,
+    })),
+  })
+  render([
+    { ...live('a'), progressWindow: { start: null, end: seconds(start + 5_000) } },
+    live('b'),
+  ])
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+  const histories = fixture.chart?.painterHistories ?? []
+  expect(histories.length).toBeGreaterThan(0)
+  for (const { history } of histories)
+    expect(history.buckets.map(({ templateId }) => templateId)).toEqual(['b'])
+})
+
+it('does not append current counts to the recorded chart, even for active siblings', async () => {
+  const a = { ...live('a'), progressWindow: { start: null, end: seconds(start + 5_000) } }
+  const b = live('b')
+  fixture.app.manifest = manifest({ templates: [a, b] })
+  fixture.app.statuses = new Map([
+    ['a', { templateId: 'a', correct: 2, wrong: 0, blank: 2, total: 4 } as TemplateStatus],
+    ['b', { templateId: 'b', correct: 3, wrong: 1, blank: 0, total: 4 } as TemplateStatus],
+  ])
+  render([a, b])
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+  expect(fixture.chart?.samples).toEqual([])
+})
+
+it('chooses default painters from placements inside each template window', async () => {
+  const cutoff = seconds(start + 5_000)
+  const painter = (wplaceUserId: number, placed: number) => ({
+    wplaceUserId,
+    displayName: `Painter ${wplaceUserId}`,
+    placed,
+    correct: placed,
+    repairs: 0,
+  })
+  client.getPainterTotals.mockImplementation(async (_ids, _from, _to, options) => ({
+    painters: options?.windows?.some(
+      ({ id, end }: { id: string; end: number }) => id === 'a' && end === cutoff,
+    )
+      ? [painter(6, 7), painter(7, 2)]
+      : [...[1, 2, 3, 4, 5].map((id) => painter(id, 100)), painter(6, 7)],
+  }))
+  render([{ ...live('a'), progressWindow: { start: null, end: cutoff } }, live('b')])
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+  expect(client.getPainterTotals).toHaveBeenCalledOnce()
+  expect(client.getPainterTotals).toHaveBeenCalledWith(
+    ['a', 'b'],
+    expect.any(Number),
+    start + 7_201,
+    { limit: 500, windows: [{ id: 'a', start: null, end: cutoff }] },
+  )
+  expect(client.getPainterHistory.mock.lastCall?.[1]).toEqual([6, 7])
 })

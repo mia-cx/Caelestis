@@ -1,4 +1,4 @@
-import { isUuidV7, MAX_DESCRIPTION_LENGTH, nodeSlug } from '@caelestis/shared'
+import { isUuidV7, MAX_DESCRIPTION_LENGTH, nodeSlug, parseProgressWindow } from '@caelestis/shared'
 import { Hono } from 'hono'
 import {
   countNodeSubtree,
@@ -7,6 +7,7 @@ import {
   deleteNodeCascade,
   listNodes,
   patchNode,
+  setNodeProgressWindow,
 } from '../nodes/use-cases.js'
 import type { BackendRuntime } from '../runtime/backend-runtime.js'
 import { runBackendHttp } from '../runtime/hono.js'
@@ -101,6 +102,21 @@ export const createNodeRoutes = (runtime: BackendRuntime) => {
         ...(parentId === undefined ? {} : { parentId }),
       }),
       (node) => c.json(node),
+    )
+  })
+
+  routes.patch('/:id/progress', async (c) => {
+    const nodeId = c.req.param('id')
+    if (!isUuidV7(nodeId)) return c.json({ error: INVALID_ID }, 400)
+    const body = await jsonObject(c)
+    const progressWindow = parseProgressWindow(body?.progressWindow)
+    if (progressWindow === null)
+      return c.json(
+        { error: 'Progress start must precede the end, and both dates must be valid.' },
+        400,
+      )
+    return runBackendHttp(c, runtime, setNodeProgressWindow(nodeId, progressWindow), (node) =>
+      c.json(node),
     )
   })
 

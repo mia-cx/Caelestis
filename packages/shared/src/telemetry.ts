@@ -493,6 +493,8 @@ export interface CanvasTilesResponse {
  */
 export interface TileHistoryFrame {
   readonly bucketStart: Seconds
+  /** Recorded time for a folded frame in mixed-tier playback. Raw frames use bucketStart. */
+  readonly at?: Seconds
   readonly hash: string
   /** Distinct reporting accounts behind this hash — quorum, not repetition. */
   readonly reporters: number

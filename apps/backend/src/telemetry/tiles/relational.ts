@@ -188,6 +188,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
       .prepare(`
       WITH ${bucketWinners(`AND history.resolution_s <= ?4
         AND history.bucket_start_s >= ?2 AND history.bucket_start_s < ?3
+        AND history.bucket_start_s + history.resolution_s <= ?3
         AND history.bucket_start_s >= ?5 AND history.bucket_start_s < ?6
         AND history.bucket_start_s + history.resolution_s <= ?6`)}, frames AS (
         SELECT *, CASE WHEN ?4 = 0 THEN bucket_start_s
@@ -221,10 +222,12 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
   async readTemplateProgressAt(
     versionId: string,
     at: Seconds,
+    notBefore?: Seconds,
   ): Promise<readonly MeasuredTileFrame[]> {
     const result = await this.client
       .prepare(`
       WITH ${bucketWinners(`AND history.bucket_start_s < ?2
+        AND history.bucket_start_s >= ?3
         AND history.bucket_start_s + history.resolution_s <= ?2`)}, latest AS (
         SELECT *, ROW_NUMBER() OVER (
           PARTITION BY tile_x, tile_y ORDER BY bucket_start_s DESC, resolution_s ASC
@@ -237,7 +240,7 @@ export class RelationalTileStore extends RelationalStore implements TileStore {
         AND measurement.tile_y = frame.tile_y AND measurement.sha256 = frame.sha256
       WHERE frame.frame_rank = 1 ORDER BY frame.tile_x, frame.tile_y
     `)
-      .bind(versionId, at)
+      .bind(versionId, at, notBefore ?? 0)
       .all<MeasuredTileFrame>()
     return result.results
   }

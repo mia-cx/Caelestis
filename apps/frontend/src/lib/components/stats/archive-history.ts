@@ -1,11 +1,22 @@
-import { type ArchiveHistory, type ArchiveProgressSample, DAY_SECONDS } from '@caelestis/shared'
+import {
+  type ArchiveHistory,
+  type ArchiveProgressSample,
+  DAY_SECONDS,
+  type ProgressWindow,
+} from '@caelestis/shared'
+import { inProgressWindow } from '#lib/progress-window.js'
 import { observedProgressIntervals } from './progress-history.js'
 
 /** Sum only complete observations for the entire selected scope, preserving explicit gaps. */
 export const combineArchiveSamples = (
   histories: readonly ArchiveHistory[],
+  windows: readonly (ProgressWindow | undefined)[] = [],
 ): readonly ArchiveProgressSample[] => {
-  if (histories.length === 0 || histories.some((history) => history.basis === null)) return []
+  if (
+    histories.length === 0 ||
+    (windows.length === 0 && histories.some((history) => history.basis === null))
+  )
+    return []
   const times = new Map<number, number>()
   const byHistory = histories.map(
     (history) =>
@@ -16,18 +27,37 @@ export const combineArchiveSamples = (
         }),
       ),
   )
+  const lastCapture = Math.max(-Infinity, ...times.keys())
+  for (const window of windows) {
+    const end = window?.end
+    if (
+      end != null &&
+      end < lastCapture &&
+      !times.has(end) &&
+      !histories.some((_, index) => inProgressWindow(end, windows[index]))
+    ) {
+      times.set(end, 0)
+    }
+  }
   return [...times]
     .sort(([a], [b]) => a - b)
     .map(([at, snapshotId]) => {
-      const samples = byHistory.map((history) => history.get(at))
-      const complete = samples.every(
-        (sample) => sample?.correct != null && sample.mismatched !== null,
+      const active = byHistory.flatMap((_, index) =>
+        inProgressWindow(at, windows[index]) ? [index] : [],
       )
+      const samples = active.map((index) => byHistory[index]?.get(at))
+      const complete =
+        samples.length > 0 &&
+        samples.every((sample) => sample?.correct != null && sample.mismatched !== null)
       return {
         at,
         snapshotId,
-        total: histories.reduce((sum, history) => sum + (history.basis?.total ?? 0), 0),
-        revision: JSON.stringify(histories.map((history) => history.basis?.versionId)),
+        total: active.reduce((sum, index) => sum + (histories[index]?.basis?.total ?? 0), 0),
+        revision: JSON.stringify(
+          histories.map((history, index) =>
+            inProgressWindow(at, windows[index]) ? history.basis?.versionId : null,
+          ),
+        ),
         correct: complete ? samples.reduce((sum, sample) => sum + (sample?.correct ?? 0), 0) : null,
         mismatched: complete
           ? samples.reduce((sum, sample) => sum + (sample?.mismatched ?? 0), 0)

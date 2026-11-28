@@ -39,7 +39,7 @@ export type MenuGroups = Partial<Record<MenuGroup, ReadonlyArray<MenuEntry | nul
 
 type ContextAction = { readonly id: string; readonly run: () => void }
 type OperationHandlers = {
-  readonly onConfirm?: (value: string) => void
+  readonly onConfirm?: (value: string, progressDates?: TreeOperationModel['progressDates']) => void
   /** `reason` is set when the tree itself is going away, rather than the person cancelling. */
   readonly onCancel?: (reason?: Error) => void
 }
@@ -160,7 +160,7 @@ export const handleTreeActionPresentationIntent = (intent: TemplateTreeIntent): 
   }
   if (intent.type === 'tree-operation-confirm') {
     if (operation?.model.id !== intent.operationId || operation.model.pending === true) return true
-    operation.onConfirm?.(intent.value)
+    operation.onConfirm?.(intent.value, intent.progressDates)
     return true
   }
   return false

@@ -1,4 +1,9 @@
-import { parseTemplateTags, templateSurface, WORLD_TEMPLATE_SURFACE } from '@caelestis/shared'
+import {
+  parseProgressWindow,
+  parseTemplateTags,
+  templateSurface,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import { warn } from './debug.js'
 import {
   MAX_MANIFEST_CHUNKS,
@@ -50,6 +55,8 @@ const cachedTemplatesFrom = (value: unknown): readonly ServerTemplate[] | undefi
       (candidate.nodeId !== null && typeof candidate.nodeId !== 'string') ||
       typeof candidate.name !== 'string' ||
       (candidate.tags !== undefined && parseTemplateTags(candidate.tags) === null) ||
+      (candidate.progressWindow !== undefined &&
+        parseProgressWindow(candidate.progressWindow) === null) ||
       typeof candidate.version !== 'string' ||
       (candidate.totalPixels !== undefined &&
         (!Number.isSafeInteger(candidate.totalPixels) || Number(candidate.totalPixels) <= 0)) ||

@@ -186,7 +186,7 @@ export const painterLines = (
     })
   })
 
-/** Anything observed before the right edge, as opposed to only the current counts there. */
+/** Whether recorded progress reaches the plotted range before its right edge. */
 const observedBefore = (samples: readonly ObservedProgressSample[], to: number): boolean =>
   samples.some((sample) => sample.at < to)
 
@@ -200,10 +200,9 @@ export const hasActivity = (
   histories: readonly PainterHistorySource[],
   to: number,
 ): boolean => {
-  const anchor = samples.findLast((sample) => sample.at === to)
   return (
     observedBefore(samples, to) ||
-    (anchor?.correct ?? 0) + (anchor?.mismatched ?? 0) > 0 ||
+    samples.some((sample) => sample.at === to && sample.correct !== null) ||
     buckets.some((bucket) => bucket.placed > 0) ||
     histories.some((source) => source.history.buckets.length > 0)
   )

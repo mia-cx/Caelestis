@@ -60,4 +60,33 @@ export class StatsScope {
           Math.max(...this.templates.map((template) => template.finishedAt ?? 0)) / 1_000,
         ) + 1,
   )
+  readonly progressLive = $derived(
+    this.templates.some(
+      (template) =>
+        template.finishedAt === null && (template.progressWindow?.end ?? Infinity) > this.clock.now,
+    ),
+  )
+  readonly progressTo = $derived(
+    this.templates.reduce(
+      (end, template) =>
+        Math.max(
+          end,
+          Math.min(
+            template.progressWindow?.end ?? Infinity,
+            Math.floor((template.finishedAt ?? this.clock.now * 1_000) / 1_000) + 1,
+          ),
+        ),
+      0,
+    ),
+  )
+  readonly progressFrom = $derived(
+    Math.min(
+      this.progressTo - 1,
+      ...this.templates.map(
+        (template) =>
+          template.progressWindow?.start ??
+          Math.floor(template.createdAt / 1_000 / DAY_SECONDS) * DAY_SECONDS,
+      ),
+    ),
+  )
 }

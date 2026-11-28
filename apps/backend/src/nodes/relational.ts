@@ -1,5 +1,6 @@
 import {
   MAX_NODE_PATH_LENGTH,
+  type ProgressWindow,
   type TemplateSurface,
   WORLD_TEMPLATE_SURFACE,
 } from '@caelestis/shared'
@@ -76,6 +77,9 @@ const toNode = (row: typeof nodes.$inferSelect): NodeRecord => ({
   path: row.path,
   name: row.name,
   description: row.description,
+  ...(row.progressStart === null && row.progressEnd === null
+    ? {}
+    : { progressWindow: { start: row.progressStart, end: row.progressEnd } }),
   createdAt: row.createdAtMs,
 })
 
@@ -90,6 +94,17 @@ export const selectNode = async (
 }
 
 export class RelationalNodeStore extends RelationalStore implements NodeStore {
+  async updateNodeProgressWindow(
+    nodeId: string,
+    window: ProgressWindow,
+  ): Promise<NodeRecord | null> {
+    await this.database
+      .update(nodes)
+      .set({ progressStart: window.start, progressEnd: window.end })
+      .where(eq(nodes.id, nodeId))
+    return this.readNode(nodeId)
+  }
+
   async insertNode(node: NewNode): Promise<NodeRecord> {
     let parentPath = ''
     if (node.parentId !== null) {

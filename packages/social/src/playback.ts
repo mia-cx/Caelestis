@@ -15,7 +15,9 @@ export const mergeArchiveFrames = (
     (first, frame) => Math.min(first, frame.bucketStart),
     Infinity,
   )
-  const frames: PlaybackFrame[] = [...live.frames]
+  const frames: PlaybackFrame[] = live.frames.map((frame) =>
+    frame.at === undefined ? frame : { ...frame, bucketStart: frame.at },
+  )
   for (const frame of archive) {
     if (frame.at >= firstLive) continue
     frames.push({

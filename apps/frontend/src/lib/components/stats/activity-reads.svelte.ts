@@ -65,9 +65,8 @@ export class ActivityReads {
     let painterScope: string | undefined
     const paintersTick = $derived(Math.floor(scope.clock.now / PAINTERS_REFRESH_SECONDS))
     $effect(() => {
-      const ids = scope.templateIds
-      if (ids.length === 0) return
-      const { from, key } = scope
+      const { templates, from, key } = scope
+      if (templates.length === 0) return
       void paintersTick
       let cancelled = false
       if (painterScope !== key) {
@@ -76,8 +75,11 @@ export class ActivityReads {
         this.painterHistories = []
         selection.resetPainters()
       }
-      getPainterTotals(ids, from, untrack(() => scope.clock.now) + 1, {
+      getPainterTotals(scope.templateIds, from, untrack(() => scope.clock.now) + 1, {
         limit: MAX_PAINTER_OPTIONS,
+        windows: templates.flatMap(({ id, progressWindow }) =>
+          progressWindow === undefined ? [] : [{ id, ...progressWindow }],
+        ),
       })
         .then((response) => {
           if (!cancelled) this.painters = response.painters

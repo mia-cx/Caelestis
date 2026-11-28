@@ -13,6 +13,7 @@ import {
   type PainterHistoryResponse,
   type PainterTotalsResponse,
   type ProgressHistoryResponse,
+  type ProgressWindow,
   resolveServerUrl,
   type ServerAsset,
   type ServerAssetKind,
@@ -236,8 +237,11 @@ export const getTemplateProgressHistory = (
   templateId: string,
   from: number,
   to: number,
+  notBefore?: number,
 ): Promise<TemplateProgressHistoryResponse> =>
-  json(`/telemetry/progress/${encodeURIComponent(templateId)}?from=${from}&to=${to}`)
+  json(
+    `/telemetry/progress/${encodeURIComponent(templateId)}?from=${from}&to=${to}${notBefore === undefined ? '' : `&notBefore=${notBefore}`}`,
+  )
 
 export const getHistory = (
   templateIds: readonly string[],
@@ -256,13 +260,29 @@ export const getPainterTotals = (
   templateIds: readonly string[],
   from: number,
   to: number,
-  options: { readonly limit?: number } = {},
-): Promise<PainterTotalsResponse> =>
-  json(
+  options: {
+    readonly limit?: number
+    readonly windows?: readonly (ProgressWindow & { readonly id: string })[]
+  } = {},
+): Promise<PainterTotalsResponse> => {
+  const indices = new Map(templateIds.map((id, index) => [id, index]))
+  const groups = new Map<string, number[]>()
+  for (const { id, start, end } of options.windows ?? []) {
+    const index = indices.get(id)
+    if (index === undefined || (start === null && end === null)) continue
+    const key = `${start ?? ''}:${end ?? ''}`
+    const group = groups.get(key)
+    if (group === undefined) groups.set(key, [index])
+    else group.push(index)
+  }
+  const windows = [...groups].map(([key, group]) => `${key}:${group.join('.')}`)
+  return json(
     `/telemetry/painters?templateIds=${templateIds.map(encodeURIComponent).join(',')}` +
       `&from=${from}&to=${to}` +
-      (options.limit === undefined ? '' : `&limit=${options.limit}`),
+      (options.limit === undefined ? '' : `&limit=${options.limit}`) +
+      (windows.length === 0 ? '' : `&windows=${encodeURIComponent(windows.join(','))}`),
   )
+}
 
 /**
  * The named painters' buckets on the same ladder as `getHistory`, so painter lines share its

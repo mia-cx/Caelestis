@@ -2,6 +2,7 @@ import {
   isUuidV7,
   type Millis,
   millis,
+  type ProgressWindow,
   parseInteger,
   parseWholeNumber,
   type TemplateSurface,
@@ -214,6 +215,7 @@ export const replaceTemplateVersion = (input: {
   })
 
 export interface PatchTemplateInput {
+  readonly progressWindow?: ProgressWindow
   readonly templateId: string
   readonly name?: string
   readonly nodeId?: string | null
@@ -242,6 +244,7 @@ export const patchTemplate = (input: PatchTemplateInput) =>
 
     const now = millis(Date.now())
     const patch: TemplatePatch = {
+      ...(input.progressWindow === undefined ? {} : { progressWindow: input.progressWindow }),
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }),
       ...(input.published === undefined ? {} : { publishedAt: input.published ? now : null }),
@@ -259,6 +262,7 @@ export const patchTemplate = (input: PatchTemplateInput) =>
 
     return {
       id: input.templateId,
+      ...(input.progressWindow === undefined ? {} : { progressWindow: input.progressWindow }),
       ...(input.name === undefined ? {} : { name: input.name }),
       ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }),
       ...(input.published === undefined ? {} : { published: input.published }),

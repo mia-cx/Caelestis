@@ -1,4 +1,4 @@
-import { millis, type TemplateSurface, uuidV7 } from '@caelestis/shared'
+import { millis, type ProgressWindow, type TemplateSurface, uuidV7 } from '@caelestis/shared'
 import { Effect } from 'effect'
 import { SqlStoreService, StatusReadModelService } from '../runtime/backend-runtime.js'
 import {
@@ -103,6 +103,20 @@ export const patchNode = (input: {
       ),
     )
     return publicNode(updated)
+  })
+
+export const setNodeProgressWindow = (nodeId: string, progressWindow: ProgressWindow) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlStoreService
+    const statusReadModel = yield* StatusReadModelService
+    const node = yield* storage('updateNodeProgressWindow', () =>
+      sql.updateNodeProgressWindow(nodeId, progressWindow),
+    )
+    if (node === null) return yield* Effect.fail(new NotFoundError({ message: 'not found' }))
+    yield* Effect.promise(() =>
+      bestEffort(() => statusReadModel.notifyManifestChange(node.season, node.surface, false)),
+    )
+    return publicNode(node)
   })
 
 export const countNodeSubtree = (

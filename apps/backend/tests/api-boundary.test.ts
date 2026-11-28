@@ -1,4 +1,11 @@
-import { encodeIndexedPng, millis, seconds, sha256Hex, TRANSPARENT_INDEX } from '@caelestis/shared'
+import {
+  encodeIndexedPng,
+  millis,
+  seconds,
+  sha256Hex,
+  TRANSPARENT_INDEX,
+  WORLD_TEMPLATE_SURFACE,
+} from '@caelestis/shared'
 import { CredentialScope, InviteExchange } from '@caelestis/wire-schema'
 import { Schema } from 'effect'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -444,6 +451,62 @@ describe('backend API trust boundary', () => {
     expect(reads - fresh).toBeLessThan(stale)
   })
 
+  it('ranks painters across template windows before limiting the result', async () => {
+    const backend = await createTestBackend()
+    const other = '01890f3e-7b2c-7abc-8def-012345678902'
+    for (const templateId of [id, other]) {
+      await backend.sql.createTemplate({
+        templateId,
+        versionId: templateId,
+        surface: WORLD_TEMPLATE_SURFACE,
+        season: 3,
+        nodeId: null,
+        name: templateId,
+        createdWithToken: hash,
+        createdByUserId: null,
+        createdAt: millis(0),
+        bbox: { minX: 0, minY: 0, maxX: 1, maxY: 1 },
+        totalPixels: 1,
+        chunks: [{ tileX: 0, tileY: 0, hash }],
+      })
+    }
+    const paint = (wplaceUserId: number, counts: readonly [string, number, number][]) =>
+      backend.sql.applyPaintEvent(
+        String(wplaceUserId),
+        wplaceUserId,
+        String(wplaceUserId),
+        millis(0),
+        {
+          counters: [],
+          contributions: [],
+          painterBuckets: counts.map(([templateId, at, count]) => ({
+            templateId,
+            wplaceUserId,
+            bucketStart: seconds(at),
+            resolution: 60,
+            placed: count,
+            correct: count,
+            repairs: 0,
+          })),
+        },
+      )
+    await paint(1, [[id, 0, 10]])
+    await paint(2, [[other, 120, 10]])
+    await paint(3, [
+      [id, 0, 9],
+      [other, 120, 9],
+    ])
+    await paint(4, [[id, 120, 100]])
+    const response = await request(
+      backend,
+      `/telemetry/painters?templateIds=${id},${other}&from=0&to=180&limit=1&windows=:60:0`,
+      'GET',
+      adminToken,
+    )
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ painters: [{ wplaceUserId: 3, correct: 18 }] })
+  })
+
   it('rejects malformed read parameters instead of returning a successful empty result', async () => {
     const backend = await createTestBackend()
     const invalid = [
@@ -461,6 +524,7 @@ describe('backend API trust boundary', () => {
       `/telemetry/painter-history?templateIds=${id}&from=1&to=2&painters=bad`,
       `/telemetry/painters?templateIds=${id}&from=1&to=2&limit=0`,
       `/telemetry/painters?templateIds=${id}&from=1&to=2&limit=abc`,
+      `/telemetry/painters?templateIds=${id}&from=1&to=2&windows=3:2:0`,
       `/telemetry/contributions?templateIds=${id}&from=2&to=1`,
       '/telemetry/leaderboard?limit=0',
       '/telemetry/leaderboard?limit=1.5',

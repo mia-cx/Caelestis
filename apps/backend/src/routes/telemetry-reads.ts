@@ -1,5 +1,7 @@
 import {
   isUuidV7,
+  type ProgressWindow,
+  parseProgressWindow,
   parseTileKey,
   parseWholeNumber,
   type Seconds,
@@ -61,6 +63,33 @@ const parsePainterIds = (value: string | undefined): number[] | null => {
     ids.push(id)
   }
   return ids.length > MAX_PAINTER_HISTORY_IDS ? null : [...new Set(ids)]
+}
+
+const parsePainterWindows = (
+  value: string | undefined,
+  ids: readonly string[],
+): ReadonlyMap<string, ProgressWindow> | null => {
+  const windows = new Map<string, ProgressWindow>()
+  if (value === undefined) return windows
+  const entries = value.split(',')
+  if (entries.length > ids.length) return null
+  for (const entry of entries) {
+    const [start, end, positions, ...extra] = entry.split(':')
+    if (start === undefined || end === undefined || positions === undefined || extra.length > 0)
+      return null
+    const window = parseProgressWindow({
+      start: start === '' ? null : (parseWholeNumber(start) ?? undefined),
+      end: end === '' ? null : (parseWholeNumber(end) ?? undefined),
+    })
+    if (window === null) return null
+    for (const position of positions.split('.')) {
+      const index = parseWholeNumber(position)
+      const id = index === null ? undefined : ids[index]
+      if (id === undefined || windows.has(id)) return null
+      windows.set(id, window)
+    }
+  }
+  return windows
 }
 
 /**
@@ -177,12 +206,27 @@ export const createTelemetryReadRoutes = (
     const id = c.req.param('templateId')
     const versionId = c.req.query('version')
     const range = parseRange(c)
+    const notBefore = optionalWholeNumber(c.req.query('notBefore'))
     if (!isUuidV7(id) || (versionId !== undefined && !isUuidV7(versionId)) || range === null)
       return c.json({ error: 'Choose a template, optional version, and valid time range.' }, 400)
+    if (
+      notBefore === null ||
+      (notBefore !== undefined && (notBefore > range.fromSeconds || versionId !== undefined))
+    )
+      return c.json(
+        { error: 'notBefore must be Unix seconds on or before from, without version.' },
+        400,
+      )
     return runBackendHttp(
       c,
       runtime,
-      readVisibleProgressHistory(id, versionId, range, includeUnpublished(c)),
+      readVisibleProgressHistory(
+        id,
+        versionId,
+        range,
+        includeUnpublished(c),
+        notBefore === undefined ? undefined : seconds(notBefore),
+      ),
       (response) => c.json(response),
     )
   })
@@ -253,6 +297,9 @@ export const createTelemetryReadRoutes = (
     if (templateIds === null) return c.json({ error: TEMPLATE_IDS_ERROR }, 400)
     const range = parseRange(c)
     if (range === null) return c.json({ error: RANGE_ERROR }, 400)
+    const windows = parsePainterWindows(c.req.query('windows'), templateIds)
+    if (windows === null)
+      return c.json({ error: 'windows must contain valid date bounds and template positions' }, 400)
     const limit = parseLimit(c, MAX_PAINTER_TOTALS)
     if (limit === null || limit < 1) {
       return c.json({ error: 'limit must be a positive integer' }, 400)
@@ -263,6 +310,7 @@ export const createTelemetryReadRoutes = (
       readPainterTotals({
         templateIds,
         range,
+        windows,
         limit: Math.min(limit, MAX_PAINTER_TOTALS),
         includeUnpublished: includeUnpublished(c),
       }),

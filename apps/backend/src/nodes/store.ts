@@ -1,8 +1,14 @@
-import { type Millis, sameTemplateSurface, type TemplateSurface } from '@caelestis/shared'
+import {
+  type Millis,
+  type ProgressWindow,
+  sameTemplateSurface,
+  type TemplateSurface,
+} from '@caelestis/shared'
 import type { DrawingScope } from '../db/scope.js'
 import { PortError } from '../runtime/errors.js'
 
 export interface NodeRecord {
+  readonly progressWindow?: ProgressWindow
   readonly id: string
   readonly surface: TemplateSurface
   readonly season: number
@@ -95,6 +101,8 @@ export interface NodeStore {
   insertNode(node: NewNode): Promise<NodeRecord>
 
   readNode(nodeId: string): Promise<NodeRecord | null>
+
+  updateNodeProgressWindow(nodeId: string, window: ProgressWindow): Promise<NodeRecord | null>
 
   listNodes(season: number, surface?: TemplateSurface): Promise<readonly NodeRecord[]>
 

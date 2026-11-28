@@ -17,7 +17,11 @@ const fixture = vi.hoisted(() => ({
   app: null as unknown as AppState,
   history: vi.fn(),
   archive: vi.fn(),
-  stats: null as null | { onSeek?: (time: number) => void; templates?: readonly Template[] },
+  stats: null as null | {
+    onSeek?: (time: number) => void
+    templates?: readonly Template[]
+    captureRange?: { from: number; to: number } | null
+  },
 }))
 vi.mock('$app/state', () => ({ page: { params: { id: 'route' } } }))
 vi.mock('#lib/state/app.svelte.js', async (original) => ({
@@ -130,4 +134,56 @@ it('reads no history again when a live status rebuilds the folder', async () => 
   expect(fixture.history.mock.calls.length).toBe(reads)
   // The stats panel reads history again for every new list it gets.
   expect(fixture.stats?.templates).toBe(statsTemplates)
+})
+
+it('inherits folder dates and takes the outer dates of templates on a shared tile', async () => {
+  const folderWindow = { start: seconds(start + 100), end: seconds(start + 4_000) }
+  const otherWindow = { start: seconds(start + 300), end: seconds(start + 5_000) }
+  fixture.app.manifest = manifest({
+    nodes: [{ ...node('route', null), progressWindow: folderWindow }, node('child', 'route')],
+    templates: [
+      top,
+      { ...nested, bbox: top.bbox, progressWindow: otherWindow },
+      { ...at('elsewhere', 'child', 500_000, 500_000), progressWindow: otherWindow },
+    ],
+  })
+  fixture.archive.mockResolvedValue({
+    frames: [
+      { at: start + 99, hash: 'before-window', snapshotId: 1 },
+      { at: start + 120, hash: 'first-capture', snapshotId: 2 },
+    ],
+  })
+  mounted = mount(Page, { target: document.body })
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+  flushSync()
+
+  expect(fixture.history).toHaveBeenCalledWith(10, 10, 1, start + 100, start + 5_000)
+  expect(fixture.history).toHaveBeenCalledWith(500, 500, 1, start + 300, start + 5_000)
+  expect(fixture.stats?.templates?.find(({ id }) => id === top.id)?.progressWindow).toEqual(
+    folderWindow,
+  )
+  expect(fixture.stats?.captureRange).toEqual({ from: start + 120, to: start + 3_600 })
+  expect(position()).toBe(4_999)
+  expect(document.querySelector('.badge-success')).toBeNull()
+})
+
+it('does not read a shared tile after all of its capturing templates end', async () => {
+  fixture.app.manifest = manifest({
+    nodes: [node('route', null), node('child', 'route')],
+    templates: [
+      { ...top, progressWindow: { start: null, end: seconds(start + 1_000) } },
+      {
+        ...nested,
+        bbox: top.bbox,
+        finishedAt: millis((start + 2_000) * 1_000),
+        progressWindow: { start: null, end: seconds(start + 5_000) },
+      },
+      at('elsewhere', 'child', 500_000, 500_000),
+    ],
+  })
+  mounted = mount(Page, { target: document.body })
+  flushSync()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(fixture.history).toHaveBeenCalledWith(10, 10, 1, start, start + 2_001)
 })

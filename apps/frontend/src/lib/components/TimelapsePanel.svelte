@@ -162,7 +162,7 @@
         data-playhead={player.playhead}
       />
       <span class="w-32 shrink-0 text-end text-xs tabular-nums text-base-content/70">
-        {#if player.live}
+        {#if player.showsCurrent}
           <span class="badge badge-success badge-xs align-middle">{finished ? 'current' : 'live'}</span>
         {:else if player.scrubTime != null}
           {formatTime(player.playhead)}
