@@ -291,6 +291,38 @@ it('lets a runner give the closing leg to another member', async () => {
   await vi.waitFor(() => expect(closer()).toBe(painter.sessionId))
 })
 
+it('leaves a member who switched team during the countdown out of the next round', async () => {
+  const server = await start()
+  const runner = await server.runner(GREEN)
+  const painter = await server.painter(GREEN)
+  runner.send({ type: 'capture-new', painters: 2, staggerMs: 100 })
+  await vi.waitFor(() => expect(runner.run()).toBeDefined())
+  painter.send({ type: 'capture-join', run: runner.run()?.id ?? '' })
+  await vi.waitFor(() => expect(runner.run()?.members).toHaveLength(2))
+  runner.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
+  await vi.waitFor(() => expect(runner.run()?.wall).toHaveLength(120))
+  const { id = '', cut = 0 } = runner.run() ?? {}
+  for (const session of [runner, painter])
+    session.send({ type: 'capture-drafted', run: id, drafted: 30, cut })
+  await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([30, 30]))
+  runner.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(runner.run()?.startsAt).not.toBeNull())
+  // Mid-countdown the painter reports another team; their socket stays open.
+  painter.send({ type: 'presence-update', team: ORANGE })
+  await settle()
+  // Once the capture has finished, the runner plans the next shape.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(Date.now() + 60_000)
+    runner.send({ type: 'capture-unlock' })
+    await settle()
+  } finally {
+    vi.useRealTimers()
+  }
+  expect(runner.run()).toMatchObject({ startsAt: null, wall: null })
+  expect(runner.run()?.members.map((m) => m.sessionId)).toEqual([runner.sessionId])
+}, 20_000)
+
 it('answers clock requests with the server time', async () => {
   const server = await start()
   const painter = await server.painter()
