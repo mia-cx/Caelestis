@@ -5,3 +5,5 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+wpa-contracts.workspace = true
+chrono = { version = "0.4", default-features = false }
