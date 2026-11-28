@@ -98,37 +98,48 @@ it('rejects a paint whose earlier batch was refused, though the last batch was a
   await expect(store.paint(pixels(3))).rejects.toThrow(NOT_ADJACENT)
 })
 
-it("keeps a cancelled paint's late refusal off the draft submitted after it", async () => {
-  // The painter cancels the first paint while it waits, then submits a second draft.
-  // Both wait on the server; the first's refusal arrives while the second is still pending.
-  let refuseFirst = () => {}
-  let acceptSecond = () => {}
+it('sends a redraw only once the cancelled paint before it is answered, so neither takes the other refusal', async () => {
+  // The painter cancels a two-batch paint while its first batch waits, then redraws the cells of
+  // its second batch.
+  const sent: Cells[] = []
+  const answers: ((result: TerritoryPaintResult) => void)[] = []
   const store = wrapped(
     (cells) =>
       new Promise((resolve) => {
-        if (cells[0]?.[1] === 0)
-          refuseFirst = () => resolve({ painted: 0, refused: 1, reason: 'not-adjacent' })
-        else acceptSecond = () => resolve({ painted: 1, refused: 0 })
+        sent.push(cells)
+        answers.push(resolve)
       }),
   )
-  const first = store.paint(pixels(1, 0))
-  const second = store.paint(pixels(1, 1))
-  await Promise.resolve()
-  refuseFirst()
-  await expect(first).rejects.toThrow(NOT_ADJACENT)
-  acceptSecond()
-  await expect(second).resolves.toEqual({ painted: 1, refused: 0 })
-})
+  const settle = () => new Promise((resolve) => setTimeout(resolve))
+  const cancelled = store.paint(pixels(4))
+  const redraw = store.paint(pixels(4).slice(BATCH))
+  await settle()
+  expect(sent).toEqual([
+    [
+      [0, 0],
+      [1, 0],
+    ],
+  ])
 
-it('keeps a late refusal off a later draft over the same cells', async () => {
-  // The painter cancels the first paint while it waits, then redraws the same cell.
-  const answers: ((result: TerritoryPaintResult) => void)[] = []
-  const store = wrapped(() => new Promise((resolve) => answers.push(resolve)))
-  const first = store.paint(pixels(1))
-  const second = store.paint(pixels(1))
-  await Promise.resolve()
-  answers[0]?.({ painted: 0, refused: 1, reason: 'not-adjacent' })
-  await expect(first).rejects.toThrow(NOT_ADJACENT)
-  answers[1]?.({ painted: 1, refused: 0 })
-  await expect(second).resolves.toEqual({ painted: 1, refused: 0 })
+  answers[0]?.({ painted: 0, refused: 2, reason: 'not-adjacent' })
+  await settle()
+  answers[1]?.({ painted: 2, refused: 0 })
+  await expect(cancelled).rejects.toThrow(NOT_ADJACENT)
+  await settle()
+  expect(sent).toEqual([
+    [
+      [0, 0],
+      [1, 0],
+    ],
+    [
+      [2, 0],
+      [3, 0],
+    ],
+    [
+      [2, 0],
+      [3, 0],
+    ],
+  ])
+  answers[2]?.({ painted: 0, refused: 2, reason: 'own' })
+  await expect(redraw).resolves.toEqual({ painted: 0, refused: 2, reason: 'own' })
 })

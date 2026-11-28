@@ -55,62 +55,44 @@ const REFUSAL_MESSAGES: Readonly<Record<string, WplaceLabel>> = {
   outside: 'territory_stay_in_arena',
 }
 
-const cell = (x: unknown, y: unknown): string => `${x},${y}`
-
-/** The cells a paint batch carries, as `[x, y]` pairs; null for any other request. */
-const batchCells = (message: TerritoryRequest): string[] | null => {
-  if (message.t !== 'paint' || !Array.isArray(message.pixels)) return null
-  return (message.pixels as unknown[]).map((pair) =>
-    Array.isArray(pair) ? cell(pair[0], pair[1]) : '',
-  )
-}
-
-/** A pending paint: its cells in the order Wplace sends them, and how many it has sent. */
-interface Submission {
-  readonly cells: readonly string[]
-  sent: number
-  readonly refusals: string[]
-}
-
-/** Whether a batch is the next slice this submission has yet to send. */
-const sendsNext = (submission: Submission, batch: readonly string[]): boolean =>
-  batch.length > 0 && batch.every((at, index) => submission.cells[submission.sent + index] === at)
-
 /**
  * Make `store.paint` reject whenever any of its own batches is refused for a reason other than own,
  * so Wplace's panel keeps the draft. The summed result alone can't tell: a later batch of owned
- * pixels hides an earlier refusal. A painter can cancel a pending paint and submit another, even
- * over the same cells, so each batch goes to the oldest pending submission whose next unsent
- * slice it is. Shadows the prototype methods on the instance, which is what Wplace calls.
+ * pixels hides an earlier refusal, so each batch's answer is read as it arrives.
+ *
+ * A batch carries no mark of the submission it belongs to, and a painter can cancel a pending
+ * paint and submit another. So submissions go one at a time: a new one starts once the one before
+ * it is answered, and every paint batch in flight belongs to the one running. Shadows the
+ * prototype methods on the instance, which is what Wplace calls.
  */
 export const keepRefusedDrafts = (store: TerritoryStore): void => {
   const paint = store.paint.bind(store)
   const request = store.request.bind(store)
-  const pending = new Set<Submission>()
+  /** The refusals of the submission now sending, or null between submissions. */
+  let running: string[] | null = null
+  let previous: Promise<unknown> = Promise.resolve()
   store.request = async (message) => {
-    const batch = batchCells(message)
-    const owner =
-      batch === null ? undefined : [...pending].find((submission) => sendsNext(submission, batch))
-    if (owner !== undefined && batch !== null) owner.sent += batch.length
+    const refusals = message.t === 'paint' ? running : null
     const answer = await request(message)
     const reason = answer.result?.reason
-    if (reason && reason !== OWN) owner?.refusals.push(reason)
+    if (reason && reason !== OWN) refusals?.push(reason)
     return answer
   }
-  store.paint = async (pixels) => {
-    const cells = (Array.isArray(pixels) ? (pixels as { x?: unknown; y?: unknown }[]) : []).map(
-      (pixel) => cell(pixel?.x, pixel?.y),
-    )
-    const submission: Submission = { cells, sent: 0, refusals: [] }
-    pending.add(submission)
-    try {
-      const result = await paint(pixels)
-      const [reason] = submission.refusals
-      if (reason === undefined) return result
-      throw new Error(wplaceLabel(REFUSAL_MESSAGES[reason] ?? 'territory_not_adjacent'))
-    } finally {
-      pending.delete(submission)
-    }
+  store.paint = (pixels) => {
+    const submitted = previous.then(async () => {
+      const refusals: string[] = []
+      running = refusals
+      try {
+        const result = await paint(pixels)
+        const [reason] = refusals
+        if (reason === undefined) return result
+        throw new Error(wplaceLabel(REFUSAL_MESSAGES[reason] ?? 'territory_not_adjacent'))
+      } finally {
+        running = null
+      }
+    })
+    previous = submitted.catch(() => undefined)
+    return submitted
   }
 }
 
