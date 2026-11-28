@@ -1,13 +1,10 @@
 import {
-  type CaptureSettings,
   canonicalServerUrl,
-  DEFAULT_CAPTURE_SETTINGS,
   defaultTemplateSort,
   EMPTY_TEMPLATE_FILTERS,
   isRecord,
   isTemplateSortField,
   isWorkIdentity,
-  normaliseCaptureSettings,
   normaliseShortcutOverrides,
   normaliseSimulatedInput,
   PALETTE_SIZE,
@@ -170,8 +167,6 @@ export interface State {
   readonly shortcutOverrides: ShortcutOverrides
   /** Where the template studio's windows sit. */
   readonly studioLayout: StudioLayout
-  /** Each capture lobby setting as this runner last chose it; New lobby opens with them. */
-  readonly captureSettings: CaptureSettings
 }
 
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -511,7 +506,6 @@ const FIELDS = {
   notifyActivity: globalFlag(false),
   shortcutOverrides: { default: {}, decode: normaliseShortcutOverrides },
   studioLayout: { default: DEFAULT_STUDIO_LAYOUT, decode: parseStudioLayout },
-  captureSettings: { default: DEFAULT_CAPTURE_SETTINGS, decode: normaliseCaptureSettings },
 } satisfies { readonly [K in keyof State]: Field<State[K]> }
 
 const fieldNames = Object.keys(FIELDS) as (keyof State)[]

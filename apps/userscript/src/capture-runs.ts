@@ -14,6 +14,7 @@ import {
   captureSlot,
   captureStep,
   captureSteps,
+  DEFAULT_CAPTURE_SETTINGS,
   decodePng,
   GUARD_MARGIN,
   isCaptureGuard,
@@ -23,6 +24,7 @@ import {
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_TIMING_MS,
   maxCaptureGuards,
+  normaliseCaptureSettings,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -70,7 +72,8 @@ import {
 } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { canRunServerCaptures } from './server-connections.js'
-import { getState, onStateChange, setState } from './settings.js'
+import { getState, onStateChange } from './settings.js'
+import { storedValue, storeValue } from './stored-values.js'
 import { navigateTo } from './templates/navigate.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { accountIdentity } from './wplace-account.js'
@@ -771,8 +774,8 @@ const CUE_GAP_MS = 1_000
 
 /**
  * One painter's beeps: when Go starts the countdown, then 5, 3, 2 and 1 seconds before their own
- * slot, then the tone to paint. A tick within a second of the opening cue is left out: with a
- * three-second countdown, the first painter's opening cue is their 3.
+ * slot, then the tone to paint. A tick within a second of Go is left out: with a three-second
+ * countdown, the first painter's opening cue is their 3.
  */
 const slotCues = (slot: number, go: number): CaptureCue[] => {
   const now = localClock()
@@ -784,7 +787,8 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
     ...TICK_SECONDS.map((seconds) => ({
       at: slot - seconds * 1_000,
       tone: 'tick' as const,
-    })).filter(({ at }) => at >= opening + CUE_GAP_MS),
+      // Spaced from when Go was stamped, so a tab Go reached late still hears its later ticks.
+    })).filter(({ at }) => at > opening && at >= go + CUE_GAP_MS),
     ...(slot > now ? [{ at: slot, tone: 'go' as const }] : []),
   ]
 }
@@ -926,7 +930,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
   const closer = run === null ? -1 : captureCoordinatorIndex(run)
-  const saved = getState().captureSettings
+  const saved = savedLobbySettings()
   return {
     phase,
     admin,
@@ -1034,7 +1038,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
           if (team === null) message = 'Join a team in the event first.'
           else {
             primeCaptureAudio()
-            sendCapture(server, { type: 'capture-new', ...getState().captureSettings })
+            sendCapture(server, { type: 'capture-new', ...savedLobbySettings() })
           }
         })
         .catch(() => {
@@ -1098,10 +1102,34 @@ const handleIntent = (intent: CaptureRunIntent): void => {
  * change to the planning size drops the proposals planned for the old one, which the lobby would
  * refuse to lock in.
  */
+/**
+ * Where New lobby's settings are kept: under their own key, read fresh and merged on every write,
+ * so another tab saving its whole state never writes a stale copy of them back.
+ */
+const LOBBY_SETTINGS_KEY = 'caelestis.capture-lobby-settings'
+
+/** Each lobby setting as this runner last chose it, the defaults for the rest. */
+const savedLobbySettings = (): CaptureSettings => {
+  try {
+    return normaliseCaptureSettings(JSON.parse(storedValue(LOBBY_SETTINGS_KEY) ?? 'null'))
+  } catch {
+    return DEFAULT_CAPTURE_SETTINGS
+  }
+}
+
+/** Save the settings a runner just chose, on top of what is saved already. */
+const saveLobbySettings = (change: Partial<CaptureSettings>): void => {
+  try {
+    storeValue(LOBBY_SETTINGS_KEY, JSON.stringify({ ...savedLobbySettings(), ...change }))
+  } catch (error) {
+    warn('could not save capture lobby settings', String(error))
+  }
+}
+
 const changeSettings = (view: Shown, change: Partial<CaptureSettings>): void => {
   if (view.run === null) return
   if (change.painters !== undefined || change.guards !== undefined) proposals = []
-  setState({ captureSettings: { ...getState().captureSettings, ...change } })
+  saveLobbySettings(change)
   sendCapture(view.server, { type: 'capture-settings', ...change })
 }
 

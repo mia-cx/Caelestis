@@ -98,6 +98,11 @@ const lobby = {
 it('opens every new lobby with the settings a runner last chose, after a reload too', async () => {
   let socket = await load()
   socket.receive({ type: 'capture-runs', runs: [lobby] })
+  // Another tab's whole saved state, as it holds it before this runner changes anything.
+  const { storedValue, storeValue } = await import('../src/stored-values.js')
+  const { setState } = await import('../src/settings.js')
+  setState({ notifyUpdates: false })
+  const otherTab = storedValue('caelestis.state.v2') ?? '{}'
   // Two edits before the server answers either: both are kept.
   intent({ type: 'set-lead', leadMs: 4_000 })
   intent({ type: 'set-guards', guards: 2 })
@@ -105,6 +110,11 @@ it('opens every new lobby with the settings a runner last chose, after a reload 
     { type: 'capture-settings', leadMs: 4_000 },
     { type: 'capture-settings', guards: 2 },
   ])
+  // After this tab's last save, the other tab saves an unrelated setting, writing back its copy
+  // of the state.
+  dispose?.()
+  dispose = undefined
+  storeValue('caelestis.state.v2', otherTab)
 
   socket = await reload()
   socket.receive({ type: 'capture-runs', runs: [] })
@@ -129,7 +139,7 @@ it('opens every new lobby with the settings a runner last chose, after a reload 
  * and they paint at member `place`. Six pixels over three painters: places 0 and 1 paint first,
  * place 2 one stagger later.
  */
-const cuesAt = async (place: number) => {
+const cuesAt = async (place: number, goArrivesLate = false) => {
   const socket = await load()
   const now = Math.round(performance.timeOrigin + performance.now())
   socket.receive({ type: 'clock', sent: now, at: now })
@@ -145,8 +155,9 @@ const cuesAt = async (place: number) => {
     coordinator: null,
     members,
     wall: [10, 10, 11, 10, 12, 10, 13, 10, 14, 10, 15, 10],
-    // Go is stamped just after this tab's next tick arms the slot, so the opening beep is on time.
-    startsAt: now + 200 + 3_000,
+    // Go is stamped just after this tab's next tick arms the slot, so the opening beep is on time,
+    // or, arriving late, 100 ms before this tab hears of it.
+    startsAt: (goArrivesLate ? now - 100 : now + 200) + 3_000,
     staggerMs: 500,
     leadMs: 3_000,
   }
@@ -169,6 +180,16 @@ it('counts a three-second countdown down to each slot without doubling a beep', 
 it('leaves out a tick that would land half a second after the opening beep', async () => {
   expect(await cuesAt(2)).toEqual([
     ['tick', -3_500],
+    ['tick', -2_000],
+    ['tick', -1_000],
+    ['go', 0],
+  ])
+})
+
+it('keeps the two-second tick for a painter whom Go reached a moment late', async () => {
+  const cues = await cuesAt(0, true)
+  expect(cues.map(([, at]) => at)).toContain(-2_000)
+  expect(cues.slice(-3)).toEqual([
     ['tick', -2_000],
     ['tick', -1_000],
     ['go', 0],
