@@ -62,7 +62,7 @@ import {
 } from './capture-timing.js'
 import { log, warn } from './debug.js'
 import { comparisonDraftPixelAt, nativeDraftPixelAt } from './draft-pixels.js'
-import { eventTeam, installEventTeam, readEventTeam } from './event-team.js'
+import { eventTeam, eventTeamUnjoined, installEventTeam, readEventTeam } from './event-team.js'
 import { getMap, type MapLike, onMapAttached } from './map-handle.js'
 import { requestMapFrame, viewportCentre } from './map-view.js'
 import {
@@ -1068,7 +1068,10 @@ const handleIntent = (intent: CaptureRunIntent): void => {
           // The painter chose this server; a change while Wplace answered drops it.
           if (active()?.server.url !== server.url) return
           setPresenceTeam(team)
-          if (team === null) message = 'Join a team in the event first.'
+          if (team === null)
+            message = eventTeamUnjoined()
+              ? "Join the event in Wplace's event panel first."
+              : "Caelestis hasn't read your event team yet. Paint one pixel in the arena, then try again."
           else {
             primeCaptureAudio()
             sendCapture(server, { type: 'capture-new', ...savedLobbySettings() })

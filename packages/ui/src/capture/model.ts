@@ -118,7 +118,7 @@ export interface CaptureRunModel {
   readonly turns: number
   /** When the first painter paints, as a `performance.now()` time, while counting down. */
   readonly startsAt: number | null
-  /** A short status or error, e.g. "Join a team in the event first." */
+  /** A short status or error, e.g. "Join the event in Wplace's event panel first." */
   readonly message?: string
 }
 
