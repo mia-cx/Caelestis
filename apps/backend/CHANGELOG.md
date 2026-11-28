@@ -1,5 +1,12 @@
 # @caelestis/backend
 
+## 1.5.0
+
+### Minor Changes
+
+- 3aa72ce: Up to half a capture lobby can guard anchors, and runners can cut the wall into the fewest legs with the other painters in reserve.
+- ac6866a: Capture runs gather in lobbies that propose walls on their own and cut the locked-in wall into one leg per painter.
+
 ## 1.4.0
 
 ### Minor Changes
