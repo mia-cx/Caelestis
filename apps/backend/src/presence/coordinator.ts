@@ -248,13 +248,12 @@ export class PresenceCoordinator<Client> {
         console.info(JSON.stringify(captureStartLog(run)))
         this.assignSlots(run)
       }
-      // A place handed to a new session takes its slot along, so its timing report still counts.
+      // A place handed to a new session shares its slot with it: the new session's timing report
+      // counts, and so does one still on its way from the old tab, until the slot's grace ends.
       for (const [lobby, from, to] of handedPlaces(runs, updated))
-        for (const [key, held] of this.assignedSlots)
-          if (key.startsWith(`${lobby}:${from}:`)) {
-            this.assignedSlots.delete(key)
+        for (const [key, held] of [...this.assignedSlots])
+          if (key.startsWith(`${lobby}:${from}:`))
             this.assignedSlots.set(`${lobby}:${to}:${key.slice(`${lobby}:${from}:`.length)}`, held)
-          }
       const payload = JSON.stringify({
         type: 'capture-runs',
         runs: sentCaptures(updated),
