@@ -29,8 +29,11 @@ export const MAX_CAPTURE_LINE_AREA = 1 << 18
 export const MAX_CAPTURE_LINE_PIXELS = 60
 /** Default time between consecutive steps, long enough for the previous paint to land. */
 export const CAPTURE_STAGGER_MS = 500
-/** The shortest stagger: Wplace's event canvas pushes updates every 200 ms, so no step lands sooner. */
-export const MIN_CAPTURE_STAGGER_MS = 200
+/**
+ * The shortest stagger. It covers network jitter between painters, because Wplace's server validates
+ * each paint itself; 100 ms is the floor because painters clicking by hand can't time it tighter.
+ */
+export const MIN_CAPTURE_STAGGER_MS = 100
 export const MAX_CAPTURE_STAGGER_MS = 2_000
 /** A run's stagger is a whole number of these. */
 export const CAPTURE_STAGGER_STEP_MS = 50
