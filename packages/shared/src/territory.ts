@@ -108,13 +108,17 @@ export const territoryMapFromImage = (
 
 /**
  * The pixels a group paints, one line per painter in paint order, and each guard's zone. Painters
- * go in pairs from the wall's two anchors: lines 1 and 2 start against the territory at anchors A
- * and B, and every later line continues from the line two before it, so each pixel is placed next
- * to territory the team holds when its turn comes. The last one or two lines close the middle.
+ * go in pairs from the wall's two anchors: lines 1 and 2 start inside the territory at anchors A
+ * and B (see `CAPTURE_RECESS`), and every later line continues from the line two before it, so
+ * each pixel is placed next to territory the team holds when its turn comes. The last one or two
+ * lines close the middle.
  */
 export interface CapturePlan {
   readonly lines: readonly (readonly ArenaPixel[])[]
-  /** The wall's pixels still to paint, from anchor A to anchor B: what `pairLines` splits. */
+  /**
+   * What `pairLines` splits, from anchor A to anchor B: each end's `CAPTURE_RECESS` cells of the
+   * team's territory, and between them the wall's pixels still to paint.
+   */
   readonly wall: readonly ArenaPixel[]
   /**
    * Per guard, the team's own cells just past an anchor: free to draft, and what they repair.
@@ -308,6 +312,13 @@ const CHAMFER_CUT = (CHAMFER * (CHAMFER + 1)) / 2
  * guard at the same anchor takes the next cells along.
  */
 export const GUARD_MARGIN = 15
+/**
+ * Cells of the team's own territory each end of the wall reaches into. While the team holds them
+ * they cost nothing and count as drafted; when an enemy cuts the border at an anchor, or the map
+ * planned on was a few seconds old, they are the anchor painter's to repaint, from territory the
+ * cut left behind. The wall is planned that much shorter so they always fit the charges.
+ */
+export const CAPTURE_RECESS = 3
 /** Proposals returned: the best few distinct walls. */
 const PROPOSALS = 3
 
@@ -694,7 +705,8 @@ export const borderBoxPlanner: CapturePlanner = ({
   charges,
   focus,
 }) => {
-  const budget = painters * charges
+  // Both ends' recesses come out of what the wall itself may cost.
+  const budget = Math.max(0, painters * charges - 2 * CAPTURE_RECESS)
   const unpainted = (wall: readonly ArenaPixel[]) => wall.filter((cell) => !owns(map, team, cell))
   const walls: { candidate: Candidate; wall: ArenaPixel[]; bounds: Box; score: number }[] = []
   const filled: Candidate[] = []
@@ -789,6 +801,26 @@ export const borderBoxPlanner: CapturePlanner = ({
       anchor(wall, 1, Math.max(1, Math.ceil(guards / 2))),
       anchor([...wall].reverse(), -1, Math.max(1, Math.floor(guards / 2))),
     ] as const
+    // The `CAPTURE_RECESS` team cells nearest the first pixel painted from an end, deepest first:
+    // the cells the wall crosses before it, and the team's cells deeper along the end's own line,
+    // from the border, or past the far side where that leg is empty.
+    const recess = (end: readonly ArenaPixel[], line: number): ArenaPixel[] => {
+      const first = end.findIndex((pixel) => !owns(map, team, pixel))
+      const deeper: ArenaPixel[] = []
+      for (let depth = Math.max(border[line] as number, far + 1); depth < map.size; depth++) {
+        const pixel = cell(line, depth)
+        if (deeper.length === CAPTURE_RECESS || !owns(map, team, pixel)) break
+        deeper.push(pixel)
+      }
+      return [...deeper.reverse(), ...end.slice(0, Math.max(0, first))].slice(-CAPTURE_RECESS)
+    }
+    const key = ({ x, y }: ArenaPixel) => y * map.size + x
+    const recessA = recess(wall, from)
+    const inA = new Set(recessA.map(key))
+    const recessB = recess([...wall].reverse(), to)
+      .filter((pixel) => !inA.has(key(pixel)))
+      .reverse()
+    const open = [...recessA, ...unpainted(wall), ...recessB]
     // A guard's cells are never another's. The anchors claim their nearest cells in turn, so where
     // their strips meet, neither takes every cell the other's guards need.
     const taken = new Set<number>()
@@ -797,9 +829,8 @@ export const borderBoxPlanner: CapturePlanner = ({
       for (const end of anchors) {
         while (end.strip.length < end.cells && end.next < end.near.length) {
           const pixel = end.near[end.next++] as ArenaPixel
-          const key = pixel.y * map.size + pixel.x
-          if (taken.has(key)) continue
-          taken.add(key)
+          if (taken.has(key(pixel))) continue
+          taken.add(key(pixel))
           end.strip.push(pixel)
           claimed = true
           break
@@ -819,7 +850,6 @@ export const borderBoxPlanner: CapturePlanner = ({
       guards === 1
         ? [[...(atA[0] ?? []), ...(atB[0] ?? [])]]
         : Array.from({ length: guards }, (_, k) => (k % 2 === 0 ? atA : atB)[k >> 1] ?? [])
-    const open = unpainted(wall)
     return { lines: pairLines(open, painters, charges), wall: open, guardZones }
   })
 }

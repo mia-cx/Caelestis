@@ -1,6 +1,7 @@
 import {
   type ArenaPixel,
   arenaToWorld,
+  CAPTURE_RECESS,
   type CaptureRun,
   captureGuardCount,
   captureLines,
@@ -167,21 +168,37 @@ export const caterpillarFrames = (path: readonly Pixel[], line: readonly Pixel[]
 
 /**
  * The wall cells nearest each anchor a guard holds, anchor first: from either end of the locked
- * wall. One guard holds both anchors; with more, they alternate A, B, A, B.
+ * wall, its recess and then `depth` cells more. One guard holds both anchors; with more, they
+ * alternate A, B, A, B.
  */
 const heldEnds = (run: CaptureRun, index: number, depth: number): Pixel[][] => {
   const wall = linePixels(run.wall ?? [])
-  const ends = [wall.slice(0, depth), wall.slice(-depth).reverse()].filter((end) => end.length > 0)
+  const cells = CAPTURE_RECESS + depth
+  const ends = [wall.slice(0, cells), wall.slice(-cells).reverse()].filter((end) => end.length > 0)
   const guard = index - capturePainterCount(run)
   return captureGuardCount(run) === 1 ? ends : ends.slice(guard % 2, (guard % 2) + 1)
 }
 
-/** A dashed box around each anchor a guard holds, wide enough for their zone on either side. */
-export const anchorRects = (run: CaptureRun, index: number, margin: number): PresenceRect[] =>
-  heldEnds(run, index, 1).map(([anchor]) => {
-    const { x, y } = anchor as Pixel
-    return { x: x - margin, y: y - margin, w: 2 * margin + 1, h: 2 * margin + 1 }
+/**
+ * A dashed box around each anchor a guard holds: `margin` around the first pixel painted from it,
+ * past the recess, grown to hold every cell of their zone nearer that anchor, as on a stepped
+ * border where the zone follows the step.
+ */
+export const anchorRects = (run: CaptureRun, index: number, margin: number): PresenceRect[] => {
+  const anchors = heldEnds(run, index, 1).map((end) => end.at(-1) as Pixel)
+  const zone = linePixels(captureLines(run)[index] ?? [])
+  const gap = (a: Pixel, b: Pixel) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
+  return anchors.map((anchor) => {
+    const near = zone.filter((cell) =>
+      anchors.every((other) => gap(cell, anchor) <= gap(cell, other)),
+    )
+    const xs = [anchor.x - margin, anchor.x + margin, ...near.map(({ x }) => x)]
+    const ys = [anchor.y - margin, anchor.y + margin, ...near.map(({ y }) => y)]
+    const x = Math.min(...xs)
+    const y = Math.min(...ys)
+    return { x, y, w: Math.max(...xs) - x + 1, h: Math.max(...ys) - y + 1 }
   })
+}
 
 /** What a guard watches: their zone, and the wall's first cells from each anchor they hold. */
 export const anchorWatch = (run: CaptureRun, index: number, margin: number): Pixel[] => [

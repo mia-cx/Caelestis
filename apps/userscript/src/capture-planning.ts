@@ -48,14 +48,21 @@ const toWorld = (line: readonly ArenaPixel[]): number[] =>
     return [world.x, world.y]
   })
 
-/** The team a wall mostly cuts into, and whether it runs along the canvas edge. */
-const proposalLabel = (map: TerritoryMap, wall: readonly ArenaPixel[]): string => {
+/**
+ * The team a wall mostly cuts into, and whether it runs along the canvas edge. The team's own
+ * pixels on it, its anchors' recesses, cut into nobody.
+ */
+export const proposalLabel = (
+  map: TerritoryMap,
+  team: TerritoryTeam,
+  wall: readonly ArenaPixel[],
+): string => {
   const counts = new Map<number, number>()
   let edge = false
   const last = map.size - 1
   for (const { x, y } of wall) {
     const owner = map.owner[y * map.size + x] as number
-    counts.set(owner, (counts.get(owner) ?? 0) + 1)
+    if (owner !== team) counts.set(owner, (counts.get(owner) ?? 0) + 1)
     edge ||= x === 0 || y === 0 || x === last || y === last
   }
   const [enemy] =
@@ -86,7 +93,7 @@ export const planProposals = async ({
     const wall = toWorld(plan.wall)
     return [
       {
-        label: proposalLabel(map, plan.wall),
+        label: proposalLabel(map, team, plan.wall),
         gained: outcome.gained,
         pixels: outcome.painted,
         wall,

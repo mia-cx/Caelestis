@@ -3,6 +3,7 @@ import {
   type ArenaPixel,
   arenaToWorld,
   borderBoxPlanner,
+  CAPTURE_RECESS,
   type CapturePlan,
   chamferWall,
   NO_TEAM,
@@ -54,6 +55,19 @@ const greenWhere = (size: number, own: (x: number, y: number) => boolean): Terri
   return { size, owner }
 }
 
+/**
+ * Each guard's zone is the team's own cells, starting beside the first pixel its anchor's painter
+ * places: past the recess, in line 1 for anchor A and line 2 for anchor B.
+ */
+const expectZonesBesideAnchors = (map: TerritoryMap, plan: CapturePlan): void => {
+  plan.guardZones.forEach((zone, k) => {
+    const start = plan.lines[k % 2]?.[CAPTURE_RECESS] as ArenaPixel
+    const first = zone[0] as ArenaPixel
+    expect(Math.abs(first.x - start.x) + Math.abs(first.y - start.y)).toBe(1)
+    for (const { x, y } of zone) expect(map.owner[y * map.size + x]).toBe(GREEN)
+  })
+}
+
 describe('borderBoxPlanner', () => {
   it("starts each guard's zone on the team's cells beside the anchor, also at a stepped border", () => {
     // Green's top border steps between y 60 and y 50 every ten columns.
@@ -72,21 +86,36 @@ describe('borderBoxPlanner', () => {
     const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
     if (plan === undefined) throw new Error('Expected a plan')
     const outcome = simulateCapture(map, GREEN, plan)
-    expect(outcome).toMatchObject({ painted: 120, refused: 0 })
+    // The whole budget, both ends' recesses held already.
+    expect(plan.lines.flat()).toHaveLength(120)
+    expect(outcome).toMatchObject({ painted: 120 - 2 * CAPTURE_RECESS, refused: 0 })
     // Legs that end on one line put both anchors on one row or column; these share neither.
-    const [a, b] = plan.lines.map((line) => line[0] as ArenaPixel)
+    const [a, b] = plan.lines.map((line) => line[CAPTURE_RECESS] as ArenaPixel)
     if (a === undefined || b === undefined) throw new Error('Expected two lines')
     expect(a.x === b.x || a.y === b.y).toBe(false)
     // A box with equal legs L and far side W, 2L + W = budget, wins at most budget² / 8 plus its
-    // own pixels: 16 per pixel here.
-    expect(outcome.gained / outcome.painted).toBeGreaterThan(120 / 8 + 1)
-    // Each guard's zone starts on the team's cell beside its anchor.
-    plan.guardZones.forEach((zone, k) => {
-      const anchor = k === 0 ? a : b
-      const first = zone[0] as ArenaPixel
-      expect(Math.abs(first.x - anchor.x) + Math.abs(first.y - anchor.y)).toBe(1)
-      for (const { x, y } of zone) expect(map.owner[y * 200 + x]).toBe(GREEN)
-    })
+    // own pixels: 15 per pixel here.
+    expect(outcome.gained / outcome.painted).toBeGreaterThan(114 / 8 + 1)
+    expectZonesBesideAnchors(map, plan)
+  })
+
+  it('reaches into the territory at each anchor, so a cut there is the anchor painter’s to repaint', () => {
+    const map = greenWhere(200, (_, y) => y >= 100)
+    const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 60 })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const [lineA] = plan.lines
+    if (lineA === undefined) throw new Error('Expected a line')
+    for (const { x, y } of lineA.slice(0, CAPTURE_RECESS))
+      expect(map.owner[y * 200 + x]).toBe(GREEN)
+    // An enemy takes the border pixel the first pixel painted from anchor A was to touch.
+    const cut = lineA[CAPTURE_RECESS - 1] as ArenaPixel
+    const bitten = { size: 200, owner: map.owner.slice() }
+    bitten.owner[cut.y * 200 + cut.x] = NO_TEAM
+    // Without the recess, that pixel touches nothing; with it, the painter paints the cut back first.
+    const bare = { lines: [lineA.slice(CAPTURE_RECESS, CAPTURE_RECESS + 1)] }
+    expect(simulateCapture(bitten, GREEN, bare).refused).toBe(1)
+    expect(simulateCapture(bitten, GREEN, plan)).toMatchObject({ refused: 0 })
+    expect(simulateCapture(bitten, GREEN, plan).gained).toBeGreaterThan(0)
   })
 
   it('gives each of many guards their own zone, alternating between the anchors', () => {
@@ -170,9 +199,12 @@ describe('borderBoxPlanner', () => {
     for (const x of [15, 17]) map.owner[(SIZE - 1) * SIZE + x] = GREEN
     const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 0, charges: 15 })
     if (plan === undefined) throw new Error('Expected a plan')
-    const cells = plan.lines.flat()
-    expect(cells.some(({ y }) => y === SIZE - 1)).toBe(true)
-    for (const { x, y } of cells) expect(map.owner[y * SIZE + x]).not.toBe(GREEN)
+    expect(plan.lines.flat().some(({ y }) => y === SIZE - 1)).toBe(true)
+    // The specks are not painted again: past the anchors' recesses, every cell is still to paint.
+    plan.lines.forEach((line, k) => {
+      for (const { x, y } of line.slice(k < 2 ? CAPTURE_RECESS : 0))
+        expect(map.owner[y * SIZE + x]).not.toBe(GREEN)
+    })
     expect(simulateCapture(map, GREEN, plan).refused).toBe(0)
   })
 
@@ -292,8 +324,8 @@ describe('borderBoxPlanner', () => {
     ])
     const [plan] = borderBoxPlanner({ map, team: GREEN, painters: 4, guards: 0, charges: 60 })
     if (plan === undefined) throw new Error('Expected a plan')
-    // A wall facing another way encloses 8,781 here; one found first encloses less.
-    expect(simulateCapture(map, GREEN, plan).gained).toBeGreaterThanOrEqual(8781)
+    // A wall facing another way encloses 8,581 here; one found first encloses 5,683.
+    expect(simulateCapture(map, GREEN, plan).gained).toBeGreaterThanOrEqual(8581)
   })
 
   it('still proposes a wall whose overlapping rival loses to a wall on another facing', () => {
@@ -347,20 +379,14 @@ describe('borderBoxPlanner', () => {
     const outcome = simulateCapture(map, GREEN, plan)
     expect(outcome.refused).toBe(0)
     // Filled in round order, a weaker wall took the last fill and gained only 5,160.
-    expect(outcome.gained).toBeGreaterThanOrEqual(17263)
+    expect(outcome.gained).toBeGreaterThanOrEqual(17195)
   })
 
   it("starts each guard's zone beside the first pixel its painter places, on a slope", () => {
     const map = greenWhere(200, (x, y) => y >= 25 + x)
     const plans = borderBoxPlanner({ map, team: GREEN, painters: 2, guards: 2, charges: 60 })
     expect(plans.length).toBeGreaterThan(0)
-    for (const plan of plans)
-      plan.guardZones.forEach((zone, k) => {
-        const start = plan.lines[k]?.[0] as ArenaPixel
-        const first = zone[0] as ArenaPixel
-        expect(Math.abs(first.x - start.x) + Math.abs(first.y - start.y)).toBe(1)
-        for (const { x, y } of zone) expect(map.owner[y * 200 + x]).toBe(GREEN)
-      })
+    for (const plan of plans) expectZonesBesideAnchors(map, plan)
   })
 
   it('returns nothing when the budget cannot close any box', () => {

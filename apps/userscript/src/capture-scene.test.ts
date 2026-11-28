@@ -1,6 +1,20 @@
-import { arenaToWorld, NO_TEAM, type TerritoryMap } from '@caelestis/shared'
+import {
+  arenaToWorld,
+  borderBoxPlanner,
+  CAPTURE_RECESS,
+  type CaptureRun,
+  GUARD_MARGIN,
+  NO_TEAM,
+  type TerritoryMap,
+} from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
-import { approachPath, caterpillarFrames, enclosedArea } from './capture-scene.js'
+import {
+  anchorRects,
+  anchorWatch,
+  approachPath,
+  caterpillarFrames,
+  enclosedArea,
+} from './capture-scene.js'
 
 const GREEN = 2
 const SIZE = 40
@@ -66,5 +80,82 @@ describe('enclosedArea', () => {
     })
     const area = enclosedArea(quadrant(), GREEN, [hook])
     expect(area?.count).toBe(2)
+  })
+})
+
+describe('the guard’s anchor', () => {
+  // A painter and a guard, on a straight 40-pixel wall whose ends reach into the territory.
+  const wall = Array.from({ length: 40 }, (_, x) => [1000 + x, 2000]).flat()
+  const run: CaptureRun = {
+    id: 'run',
+    team: GREEN,
+    coordinator: 1,
+    painters: 1,
+    guards: 1,
+    distribution: 'even',
+    members: [1, 2].map((id) => ({
+      sessionId: `s${id}`,
+      painter: { wplaceUserId: id, displayName: `Painter ${id}` },
+      drafted: 0,
+    })),
+    wall,
+    guardZones: [[]],
+    startsAt: null,
+    staggerMs: 500,
+    cut: 0,
+  }
+  const guard = 1
+  const at = (index: number) => ({ x: wall[index * 2], y: wall[index * 2 + 1] })
+
+  it('watches the recess and the first pixels painted from each anchor', () => {
+    const watched = anchorWatch(run, guard, GUARD_MARGIN)
+    const deepest = CAPTURE_RECESS + GUARD_MARGIN - 1
+    expect(watched).toContainEqual(at(0))
+    expect(watched).toContainEqual(at(deepest))
+    expect(watched).toContainEqual(at(39 - deepest))
+    expect(watched).not.toContainEqual(at(deepest + 1))
+  })
+
+  it('boxes the first pixel painted from each anchor, past the recess', () => {
+    const centres = anchorRects(run, guard, GUARD_MARGIN).map(({ x, y }) => ({
+      x: x + GUARD_MARGIN,
+      y: y + GUARD_MARGIN,
+    }))
+    expect(centres).toEqual([at(CAPTURE_RECESS), at(39 - CAPTURE_RECESS)])
+  })
+
+  it("holds every cell of each guard's zone, also where the border steps", () => {
+    // Green's top border steps 15 rows every two columns.
+    const size = 120
+    const owner = new Uint8Array(size * size).fill(NO_TEAM)
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++)
+        if (y >= 35 + 15 * (Math.floor(x / 2) % 2)) owner[y * size + x] = GREEN
+    const [plan] = borderBoxPlanner({
+      map: { size, owner },
+      team: GREEN,
+      painters: 2,
+      guards: 2,
+      charges: 60,
+    })
+    if (plan === undefined) throw new Error('Expected a plan')
+    const flat = (cells: readonly { x: number; y: number }[]) => cells.flatMap(({ x, y }) => [x, y])
+    const stepped: CaptureRun = {
+      ...run,
+      painters: 2,
+      guards: 2,
+      members: [1, 2, 3, 4].map((id) => ({
+        sessionId: `s${id}`,
+        painter: { wplaceUserId: id, displayName: `Painter ${id}` },
+        drafted: 0,
+      })),
+      wall: flat(plan.wall),
+      guardZones: plan.guardZones.map(flat),
+    }
+    for (const [k, zone] of plan.guardZones.entries()) {
+      const rects = anchorRects(stepped, 2 + k, GUARD_MARGIN)
+      for (const { x, y } of zone)
+        expect(rects.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)).toBe(true)
+    }
   })
 })
