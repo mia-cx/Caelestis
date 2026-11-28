@@ -1,24 +1,51 @@
-import type { CapturePaintStatus } from '@caelestis/shared'
+import {
+  type CapturePaintStatus,
+  isEventServer,
+  LATENCY_REPORT_GAP_MS,
+  type LatencyReport,
+  MAX_CAPTURE_TIMING_MS,
+  MAX_LATENCY_PAINTS,
+  type PaintLatency,
+  type PaintRequestStatus,
+} from '@caelestis/shared'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
-import { localClock } from './presence-client.js'
+import { captureViews, localClock, sendCapture } from './presence-client.js'
+import { worldPaintCommitButton } from './wplace-paint.js'
 import { BACKEND_ORIGIN, tileFromUrl } from './wplace-raster.js'
 
 /**
- * Timing of Wplace's own requests, for reading how capture slots land. Every request Wplace sends
- * to its backend is a round-trip sample, from when it leaves the page to when its response
- * headers arrive; tiles are left out, because the browser often answers them from its cache.
+ * Timing of Wplace's own requests, for reading how capture slots land and how painters' latency to
+ * Wplace spreads. Every request Wplace sends to its backend is a round-trip sample, from when it
+ * leaves the page to when its response headers arrive; tiles are left out, because the browser
+ * often answers them from its cache. Each Paint click on the world draft is timed to its paint
+ * request, and every writable event-server session hears both now and then as a `latency-report`.
  */
 
 /** Round trips kept for the estimate, newest last. */
 const RTT_SAMPLES = 16
 /** How long after a Paint click its request may take to be sent and answered. */
 const PAINT_WAIT_MS = 10_000
+/** How often latency goes to event servers, while there is something new to say. */
+const REPORT_MS = 5 * 60_000
 
 const rtts: number[] = []
+/** Round trips measured so far, and how many of them the last report had seen. */
+let measured = 0
+let reported = 0
+/** Paints timed since the last report, newest last. */
+let paints: PaintLatency[] = []
+let lastReportAt = Number.NEGATIVE_INFINITY
+let reportedPaint = false
+let reportTimer: ReturnType<typeof setTimeout> | undefined
 
 /** The median of Wplace's recent round trips, in milliseconds; null before the first. */
 export const wplaceRtt = (): number | null =>
   [...rtts].sort((a, b) => a - b)[Math.floor(rtts.length / 2)] ?? null
+
+/** A duration as a report carries it: whole milliseconds, within what the wire accepts. */
+export const reportMs = (ms: number): number =>
+  Math.min(MAX_CAPTURE_TIMING_MS, Math.max(0, Math.round(ms)))
+export const wholeMs = (ms: number | null): number | null => (ms === null ? null : reportMs(ms))
 
 /** How the paint request after a Paint click went. */
 export interface PaintTiming {
@@ -27,21 +54,25 @@ export interface PaintTiming {
   readonly status: CapturePaintStatus
 }
 
-/** Takes the first paint request after a click and returns what settles it, once; else nothing. */
-type PaintWatch = (sentAt: number) => ((status: CapturePaintStatus, at?: number) => void) | null
-let watch: PaintWatch | null = null
+/** A click's timing as `timeNextPaint` gives it: only what can become of a request it waits on. */
+type ClickTiming = PaintTiming & { readonly status: PaintRequestStatus | 'no-request' }
+type Settle = (status: ClickTiming['status'], at?: number) => void
+/** Clicks waiting for a paint request: each takes the first one sent after it. */
+const watches = new Set<(sentAt: number) => Settle>()
 
 /**
  * Time the paint request Wplace sends after a Paint click at `clickedAt` (a `localClock()` time):
- * the first `/paint` POST from then on, or none within ten seconds. A later click's watch replaces
- * this one, which then never settles.
+ * the first `/paint` POST from then on, or none within ten seconds. Every click still waiting
+ * takes the same request, so a slot and the click hook can both time the slot's click.
  */
-export const timeNextPaint = (clickedAt: number): Promise<PaintTiming> =>
+export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> =>
   new Promise((resolve) => {
     let sentAt: number | null = null
-    const settle = (status: CapturePaintStatus, at?: number): void => {
-      if (watch !== watcher) return
-      watch = null
+    let settled = false
+    const settle: Settle = (status, at) => {
+      if (settled) return
+      settled = true
+      watches.delete(take)
       clearTimeout(timer)
       resolve({
         clickToSendMs: sentAt === null ? null : sentAt - clickedAt,
@@ -49,12 +80,12 @@ export const timeNextPaint = (clickedAt: number): Promise<PaintTiming> =>
         status,
       })
     }
-    const watcher: PaintWatch = (at) => {
-      if (sentAt !== null) return null
+    const take = (at: number): Settle => {
+      watches.delete(take)
       sentAt = at
       return settle
     }
-    watch = watcher
+    watches.add(take)
     const timer = setTimeout(
       () => settle(sentAt === null ? 'no-request' : 'no-response'),
       PAINT_WAIT_MS,
@@ -64,20 +95,76 @@ export const timeNextPaint = (clickedAt: number): Promise<PaintTiming> =>
 const timingRoute: RequestRoute = (request) => {
   if (request.url.origin !== BACKEND_ORIGIN || tileFromUrl(request.raw) !== null) return undefined
   const sentAt = localClock()
-  const paint = request.url.pathname === '/paint' && !request.isGet() ? watch?.(sentAt) : null
+  const painted =
+    request.url.pathname === '/paint' && !request.isGet()
+      ? [...watches].map((take) => take(sentAt))
+      : []
   return {
     response: (response) => {
       const at = localClock()
       rtts.push(at - sentAt)
       if (rtts.length > RTT_SAMPLES) rtts.shift()
-      paint?.(response.status, at)
+      measured++
+      for (const settle of painted) settle(response.status, at)
       return response
     },
-    failed: () => paint?.('failed'),
+    failed: () => {
+      for (const settle of painted) settle('failed')
+    },
   }
 }
 
-/** Time Wplace's backend requests. */
+const scheduleReport = (delay: number): void => {
+  clearTimeout(reportTimer)
+  reportTimer = setTimeout(report, delay)
+}
+
+/**
+ * Tell every writable event-server session this tab's latency, when anything is new since the
+ * last report. With no such session, the samples wait for the next report.
+ */
+const report = (): void => {
+  scheduleReport(REPORT_MS)
+  const servers = captureViews().filter(
+    ({ server, canWrite }) => canWrite && isEventServer(server.info),
+  )
+  if (servers.length === 0 || (measured === reported && paints.length === 0)) return
+  const event: LatencyReport = {
+    type: 'latency-report',
+    wplaceRttMs: wholeMs(wplaceRtt()),
+    rttSamples: rtts.length,
+    paints,
+  }
+  paints = []
+  reported = measured
+  lastReportAt = localClock()
+  for (const { server } of servers) sendCapture(server, event)
+}
+
+/** Keep a Paint click's timing for the next report, which the first one brings forward. */
+const recordPaint = ({ clickToSendMs, sendToResponseMs, status }: ClickTiming): void => {
+  // A click Wplace sent nothing for says nothing about latency.
+  if (clickToSendMs === null || status === 'no-request') return
+  paints = [
+    ...paints,
+    { clickToSendMs: reportMs(clickToSendMs), sendToResponseMs: wholeMs(sendToResponseMs), status },
+  ].slice(-MAX_LATENCY_PAINTS)
+  if (reportedPaint) return
+  reportedPaint = true
+  scheduleReport(Math.max(0, lastReportAt + LATENCY_REPORT_GAP_MS - localClock()))
+}
+
+/** Time a click on the world draft's Paint button, however it was pressed. */
+const onClick = (event: Event): void => {
+  const button = event.target instanceof Element ? event.target.closest('button') : null
+  if (button === null || button !== worldPaintCommitButton()) return
+  void timeNextPaint(localClock()).then(recordPaint)
+}
+
+/** Time Wplace's backend requests and Paint clicks, and report them to event servers. */
 export const observeWplaceTiming = (): void => {
   observePageRequests(timingRoute)
+  // Capture phase, so the click is timed before Wplace's own handler sends anything.
+  window.addEventListener('click', onClick, true)
+  scheduleReport(REPORT_MS)
 }

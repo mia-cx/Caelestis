@@ -16,6 +16,8 @@ import {
   MAX_CAPTURE_WALL_PIXELS,
   MAX_DESCRIPTION_LENGTH,
   MAX_HOME_COPY_LENGTH,
+  MAX_LATENCY_PAINTS,
+  MAX_LATENCY_RTT_SAMPLES,
   MAX_LIVE_MESSAGE_BYTES,
   MAX_LIVE_PAINT_BYTES,
   MAX_LIVE_PAINT_PARTS,
@@ -234,8 +236,10 @@ const CaptureStagger = integerBetween(MIN_CAPTURE_STAGGER_MS, MAX_CAPTURE_STAGGE
   ),
 )
 
-/** A span a slot report times; a minute covers every wait the client makes. */
+/** A span a slot or latency report times; a minute covers every wait the client makes. */
 const CaptureTimingMs = integerBetween(0, MAX_CAPTURE_TIMING_MS)
+const HttpStatus = integerBetween(100, 599)
+const PaintRequestStatus = Schema.Union([HttpStatus, Schema.Literals(['no-response', 'failed'])])
 
 const CaptureSettings = {
   painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
@@ -328,19 +332,25 @@ export const PresenceClientEvent = Schema.Union([
     clickToSendMs: Schema.NullOr(CaptureTimingMs),
     sendToResponseMs: Schema.NullOr(CaptureTimingMs),
     status: Schema.Union([
-      integerBetween(100, 599),
-      Schema.Literals([
-        'missed',
-        'nothing-drafted',
-        'unsubmitted',
-        'no-request',
-        'no-response',
-        'failed',
-      ]),
+      PaintRequestStatus,
+      Schema.Literals(['missed', 'nothing-drafted', 'unsubmitted', 'no-request']),
     ]),
     wplaceRttMs: Schema.NullOr(CaptureTimingMs),
     clockOffsetMs: integerBetween(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
     clockRttMs: CaptureTimingMs,
+  }),
+  Schema.Struct({
+    type: Schema.Literal('latency-report'),
+    wplaceRttMs: Schema.NullOr(CaptureTimingMs),
+    rttSamples: integerBetween(0, MAX_LATENCY_RTT_SAMPLES),
+    paints: boundedArray(
+      Schema.Struct({
+        clickToSendMs: CaptureTimingMs,
+        sendToResponseMs: Schema.NullOr(CaptureTimingMs),
+        status: PaintRequestStatus,
+      }),
+      MAX_LATENCY_PAINTS,
+    ),
   }),
   Schema.Struct({
     type: Schema.Literal('presence-update'),

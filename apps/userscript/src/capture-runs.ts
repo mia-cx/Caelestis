@@ -23,7 +23,6 @@ import {
   isEventServer,
   latLngToCanvasPixel,
   MAX_CAPTURE_PAINTERS,
-  MAX_CAPTURE_TIMING_MS,
   maxCaptureGuards,
   normaliseCaptureSettings,
   PALETTE_RGB,
@@ -54,7 +53,9 @@ import {
 import {
   observeWplaceTiming,
   type PaintTiming,
+  reportMs,
   timeNextPaint,
+  wholeMs,
   wplaceRtt,
 } from './capture-timing.js'
 import { log, warn } from './debug.js'
@@ -804,11 +805,6 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
   const crowded = later.some(({ at }) => at - opening < CUE_CROWDED_MS)
   return [...(opening < slot && !crowded ? [{ at: opening, tone: 'tick' as const }] : []), ...later]
 }
-
-/** A duration as a report carries it: whole milliseconds, within what the wire accepts. */
-const reportMs = (ms: number): number =>
-  Math.min(MAX_CAPTURE_TIMING_MS, Math.max(0, Math.round(ms)))
-const wholeMs = (ms: number | null): number | null => (ms === null ? null : reportMs(ms))
 
 /**
  * Once the paint request after a slot's click settles, log how the slot went and report it to the
