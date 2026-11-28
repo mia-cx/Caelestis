@@ -317,6 +317,9 @@ const wrongColour = ([x, y]: [number, number]) => [x, y, 1 + ((wantedAt(x, y) + 
 const erased = ([x, y]: [number, number]) => [x, y, UNPAINTED] as const
 
 it('keeps patched marker lists identical to a full rescan through paint, erase and accepted paint', async () => {
+  // This checks list contents, not scheduling. Keep the scan budget available even if the test
+  // process is descheduled mid-frame; a real elapsed budget correctly defers the first answer.
+  vi.spyOn(performance, 'now').mockReturnValue(0)
   const { addTemplate, read, lists, rescan, drafts, submit, MarkerRenderer } = await setup()
   const id = await addTemplate()
   const patched = read(id)
