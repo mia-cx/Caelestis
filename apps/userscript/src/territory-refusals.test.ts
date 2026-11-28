@@ -19,7 +19,7 @@ class FakeStore implements TerritoryStore {
   constructor(private readonly answers: () => Promise<Batch[]>) {}
   async paint(pixels: unknown): Promise<TerritoryPaintResult> {
     this.sent.push(pixels)
-    const total: { painted: number; refused: number; reason?: string } = { painted: 0, refused: 0 }
+    const total: { painted: number; refused: number; reason?: string | undefined } = { painted: 0, refused: 0 }
     for (const batch of await this.answers()) {
       const { result } = await this.request({ t: 'paint', batch })
       total.painted += result.painted
