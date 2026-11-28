@@ -494,14 +494,15 @@ describe('locking in a wall', () => {
 
   it('re-cuts the same wall for everyone in the lobby when the host reorders it', () => {
     // Painter 4 joins after the lock-in and waits; painter 3 leaves their leg empty.
-    let runs = draftAll(apply(opened([2, 3]), lock(120)))
+    let runs = draftAll(apply(opened([2, 3, 5]), lock(120)))
     runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(4))
     runs = leaveCaptures(runs, 's3', 0) ?? []
+    // Painter 2 trades places with painter 5, past the empty place, and the wall is cut again.
     runs = apply(runs, { type: 'capture-move', member: 's2', by: 1 })
-    expect(order(runs)).toEqual([2, 4, 1])
+    expect(order(runs)).toEqual([5, 2, 4, 1])
     expect(waiting(runs)).toEqual([])
-    expect(legs(runs)).toEqual([40, 40, 40])
-    expect(drafted(runs)).toEqual([0, 0, 0])
+    expect(legs(runs)).toEqual([30, 30, 30, 30])
+    expect(drafted(runs)).toEqual([0, 0, 0, 0])
     expect(captureVacant(only(runs))).toBe(false)
   })
 
@@ -793,5 +794,33 @@ describe('a tab on userscript 1.8.2', () => {
     // The next lock-in gives painter 5 a place, which the old tab then sees too.
     runs = apply(apply(runs, { type: 'capture-unlock' }), lock(90, [[0, 1]]))
     expect(agreed(runs)).toContain('s5')
+  })
+})
+
+describe('after a lock-in, with places left empty', () => {
+  it('goes back to choosing when every place empties before the countdown, seating those waiting', () => {
+    let runs = apply(opened([2]), lock(60))
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(3))
+    expect(waiting(runs)).toEqual([3])
+    runs = leaveCaptures(runs, 's2', 0) ?? []
+    runs = leaveCaptures(runs, 's1', 0) ?? []
+    // The waiting painter is now a member every client version sees, and hosts.
+    expect(only(runs)).toMatchObject({ wall: null, host: 's3' })
+    expect(order(runs)).toEqual([3])
+    expect(waiting(runs)).toEqual([])
+  })
+
+  it('moves a painter past an empty place to the next painter, and nowhere past the last', () => {
+    let runs = apply(draftAll(apply(opened([2, 3, 4]), lock(120))), { type: 'capture-settings' })
+    runs = leaveCaptures(runs, `s${order(runs)[1]}`, 0) ?? []
+    const [first, empty, third] = only(runs).members
+    expect(empty?.left).toBe(true)
+    // Moving the first painter down trades places with the third, past the empty place.
+    const moved = apply(runs, { type: 'capture-move', member: first?.sessionId ?? '', by: 1 })
+    expect(order(moved).indexOf(first?.painter.wplaceUserId ?? 0)).toBeGreaterThan(
+      order(moved).indexOf(third?.painter.wplaceUserId ?? 0),
+    )
+    // With no painter below the third but the pinned closer, its move changes nothing at all.
+    expect(apply(runs, { type: 'capture-move', member: third?.sessionId ?? '', by: 1 })).toBe(runs)
   })
 })

@@ -414,17 +414,23 @@ export const captureLines = (run: CaptureRun): readonly (readonly number[])[] =>
 }
 
 /**
- * The member order after moving member `id` one place earlier (-1) or later (1), as session ids.
- * The coordinator keeps the last painter's place, so they don't move and a move steps over them.
- * Null when the move has nowhere to go.
+ * The member order after member `id` trades places with the next painter earlier (-1) or later (1),
+ * as session ids. The coordinator keeps the last painter's place and a place left empty keeps its
+ * own, so a move steps over both. Null when the move has nowhere to go, or `id` left their place.
  */
 export const moveCaptureMember = (run: CaptureRun, id: string, by: -1 | 1): string[] | null => {
   const pinned = captureCoordinatorIndex(run)
-  const order = run.members.filter((_, index) => index !== pinned).map(({ sessionId }) => sessionId)
+  const rest = run.members.filter((_, index) => index !== pinned)
+  const order = rest.map(({ sessionId }) => sessionId)
   const from = order.indexOf(id)
-  const to = from + by
-  if (from < 0 || to < 0 || to >= order.length) return null
-  order.splice(to, 0, ...order.splice(from, 1))
+  if (from < 0 || rest[from]?.left === true) return null
+  // A place left empty has nobody to trade with: the move passes it, to the next painter still in one.
+  let to = from + by
+  while (rest[to]?.left === true) to += by
+  const neighbour = order[to]
+  if (neighbour === undefined) return null
+  order[to] = id
+  order[from] = neighbour
   return order
 }
 

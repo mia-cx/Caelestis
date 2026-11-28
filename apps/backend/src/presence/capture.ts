@@ -304,6 +304,10 @@ const withoutMembers = (run: CaptureRun, gone: (member: CaptureMember) => boolea
     gone(member) ? { ...member, drafted: 0, left: true as const } : member,
   )
   const waiting = (run.waiting ?? []).filter((member) => !gone(member))
+  // With every place empty the lock-in holds nobody: back to choosing, with those waiting seated,
+  // so a host is someone every client version sees in the lobby.
+  if (members.every(({ left }) => left === true))
+    return unlocked(withWaiting({ ...run, members }, waiting))
   return hosted(withWaiting({ ...run, members }, waiting))
 }
 
