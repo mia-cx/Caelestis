@@ -119,3 +119,16 @@ it("keeps a cancelled paint's late refusal off the draft submitted after it", as
   acceptSecond()
   await expect(second).resolves.toEqual({ painted: 1, refused: 0 })
 })
+
+it('keeps a late refusal off a later draft over the same cells', async () => {
+  // The painter cancels the first paint while it waits, then redraws the same cell.
+  const answers: ((result: TerritoryPaintResult) => void)[] = []
+  const store = wrapped(() => new Promise((resolve) => answers.push(resolve)))
+  const first = store.paint(pixels(1))
+  const second = store.paint(pixels(1))
+  await Promise.resolve()
+  answers[0]?.({ painted: 0, refused: 1, reason: 'not-adjacent' })
+  await expect(first).rejects.toThrow(NOT_ADJACENT)
+  answers[1]?.({ painted: 1, refused: 0 })
+  await expect(second).resolves.toEqual({ painted: 1, refused: 0 })
+})

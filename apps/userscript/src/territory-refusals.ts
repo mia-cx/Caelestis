@@ -57,48 +57,51 @@ const REFUSAL_MESSAGES: Readonly<Record<string, WplaceLabel>> = {
 
 const cell = (x: unknown, y: unknown): string => `${x},${y}`
 
-/** The cell a paint batch starts at: each batch is a slice of exactly one submission's pixels. */
-const batchCell = (message: TerritoryRequest): string | null => {
+/** The cells a paint batch carries, as `[x, y]` pairs; null for any other request. */
+const batchCells = (message: TerritoryRequest): string[] | null => {
   if (message.t !== 'paint' || !Array.isArray(message.pixels)) return null
-  const [first] = message.pixels as unknown[]
-  return Array.isArray(first) ? cell(first[0], first[1]) : null
+  return (message.pixels as unknown[]).map((pair) =>
+    Array.isArray(pair) ? cell(pair[0], pair[1]) : '',
+  )
 }
 
-/** The cells a submission paints, from the `{ x, y }` pixels Wplace's panel hands `paint`. */
-const submittedCells = (pixels: unknown): Set<string> =>
-  new Set(
-    (Array.isArray(pixels) ? (pixels as { x?: unknown; y?: unknown }[]) : []).map((pixel) =>
-      cell(pixel?.x, pixel?.y),
-    ),
-  )
-
+/** A pending paint: its cells in the order Wplace sends them, and how many it has sent. */
 interface Submission {
-  readonly cells: ReadonlySet<string>
+  readonly cells: readonly string[]
+  sent: number
   readonly refusals: string[]
 }
+
+/** Whether a batch is the next slice this submission has yet to send. */
+const sendsNext = (submission: Submission, batch: readonly string[]): boolean =>
+  batch.length > 0 && batch.every((at, index) => submission.cells[submission.sent + index] === at)
 
 /**
  * Make `store.paint` reject whenever any of its own batches is refused for a reason other than own,
  * so Wplace's panel keeps the draft. The summed result alone can't tell: a later batch of owned
- * pixels hides an earlier refusal. A painter can cancel a pending paint and submit another, so
- * each batch's answer goes to the submission holding its pixels. Shadows the prototype methods on
- * the instance, which is what Wplace calls.
+ * pixels hides an earlier refusal. A painter can cancel a pending paint and submit another, even
+ * over the same cells, so each batch goes to the oldest pending submission whose next unsent
+ * slice it is. Shadows the prototype methods on the instance, which is what Wplace calls.
  */
 export const keepRefusedDrafts = (store: TerritoryStore): void => {
   const paint = store.paint.bind(store)
   const request = store.request.bind(store)
   const pending = new Set<Submission>()
   store.request = async (message) => {
+    const batch = batchCells(message)
+    const owner =
+      batch === null ? undefined : [...pending].find((submission) => sendsNext(submission, batch))
+    if (owner !== undefined && batch !== null) owner.sent += batch.length
     const answer = await request(message)
     const reason = answer.result?.reason
-    const at = batchCell(message)
-    if (reason && reason !== OWN && at !== null)
-      for (const submission of pending)
-        if (submission.cells.has(at)) submission.refusals.push(reason)
+    if (reason && reason !== OWN) owner?.refusals.push(reason)
     return answer
   }
   store.paint = async (pixels) => {
-    const submission: Submission = { cells: submittedCells(pixels), refusals: [] }
+    const cells = (Array.isArray(pixels) ? (pixels as { x?: unknown; y?: unknown }[]) : []).map(
+      (pixel) => cell(pixel?.x, pixel?.y),
+    )
+    const submission: Submission = { cells, sent: 0, refusals: [] }
     pending.add(submission)
     try {
       const result = await paint(pixels)
