@@ -1,5 +1,15 @@
 # @caelestis/backend
 
+## 1.4.0
+
+### Minor Changes
+
+- 838ba63: A capture run's stagger now goes down to 100 ms, as tight as painters clicking by hand can time it.
+
+### Patch Changes
+
+- 990bd25: Event servers let any token connect from any team again, routing each session by the team it reports, so one shared token works for painters on every team.
+
 ## 1.3.0
 
 ### Minor Changes
