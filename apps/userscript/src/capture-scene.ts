@@ -1,6 +1,7 @@
 import {
   type ArenaPixel,
   arenaToWorld,
+  CAPTURE_RECESS,
   type CaptureRun,
   captureGuardCount,
   captureLines,
@@ -167,19 +168,24 @@ export const caterpillarFrames = (path: readonly Pixel[], line: readonly Pixel[]
 
 /**
  * The wall cells nearest each anchor a guard holds, anchor first: from either end of the locked
- * wall. One guard holds both anchors; with more, they alternate A, B, A, B.
+ * wall, its recess and then `depth` cells more. One guard holds both anchors; with more, they
+ * alternate A, B, A, B.
  */
 const heldEnds = (run: CaptureRun, index: number, depth: number): Pixel[][] => {
   const wall = linePixels(run.wall ?? [])
-  const ends = [wall.slice(0, depth), wall.slice(-depth).reverse()].filter((end) => end.length > 0)
+  const cells = CAPTURE_RECESS + depth
+  const ends = [wall.slice(0, cells), wall.slice(-cells).reverse()].filter((end) => end.length > 0)
   const guard = index - capturePainterCount(run)
   return captureGuardCount(run) === 1 ? ends : ends.slice(guard % 2, (guard % 2) + 1)
 }
 
-/** A dashed box around each anchor a guard holds, wide enough for their zone on either side. */
+/**
+ * A dashed box around each anchor a guard holds, wide enough for their zone on either side: around
+ * the first pixel painted from it, past the recess.
+ */
 export const anchorRects = (run: CaptureRun, index: number, margin: number): PresenceRect[] =>
-  heldEnds(run, index, 1).map(([anchor]) => {
-    const { x, y } = anchor as Pixel
+  heldEnds(run, index, 1).map((end) => {
+    const { x, y } = end.at(-1) as Pixel
     return { x: x - margin, y: y - margin, w: 2 * margin + 1, h: 2 * margin + 1 }
   })
 

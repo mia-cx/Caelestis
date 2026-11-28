@@ -1,6 +1,19 @@
-import { arenaToWorld, NO_TEAM, type TerritoryMap } from '@caelestis/shared'
+import {
+  arenaToWorld,
+  CAPTURE_RECESS,
+  type CaptureRun,
+  GUARD_MARGIN,
+  NO_TEAM,
+  type TerritoryMap,
+} from '@caelestis/shared'
 import { describe, expect, it } from 'vitest'
-import { approachPath, caterpillarFrames, enclosedArea } from './capture-scene.js'
+import {
+  anchorRects,
+  anchorWatch,
+  approachPath,
+  caterpillarFrames,
+  enclosedArea,
+} from './capture-scene.js'
 
 const GREEN = 2
 const SIZE = 40
@@ -66,5 +79,47 @@ describe('enclosedArea', () => {
     })
     const area = enclosedArea(quadrant(), GREEN, [hook])
     expect(area?.count).toBe(2)
+  })
+})
+
+describe('the guard’s anchor', () => {
+  // A painter and a guard, on a straight 40-pixel wall whose ends reach into the territory.
+  const wall = Array.from({ length: 40 }, (_, x) => [1000 + x, 2000]).flat()
+  const run: CaptureRun = {
+    id: 'run',
+    team: GREEN,
+    coordinator: 1,
+    painters: 1,
+    guards: 1,
+    distribution: 'even',
+    members: [1, 2].map((id) => ({
+      sessionId: `s${id}`,
+      painter: { wplaceUserId: id, displayName: `Painter ${id}` },
+      drafted: 0,
+    })),
+    wall,
+    guardZones: [[]],
+    startsAt: null,
+    staggerMs: 500,
+    cut: 0,
+  }
+  const guard = 1
+  const at = (index: number) => ({ x: wall[index * 2], y: wall[index * 2 + 1] })
+
+  it('watches the recess and the first pixels painted from each anchor', () => {
+    const watched = anchorWatch(run, guard, GUARD_MARGIN)
+    const deepest = CAPTURE_RECESS + GUARD_MARGIN - 1
+    expect(watched).toContainEqual(at(0))
+    expect(watched).toContainEqual(at(deepest))
+    expect(watched).toContainEqual(at(39 - deepest))
+    expect(watched).not.toContainEqual(at(deepest + 1))
+  })
+
+  it('boxes the first pixel painted from each anchor, past the recess', () => {
+    const centres = anchorRects(run, guard, GUARD_MARGIN).map(({ x, y }) => ({
+      x: x + GUARD_MARGIN,
+      y: y + GUARD_MARGIN,
+    }))
+    expect(centres).toEqual([at(CAPTURE_RECESS), at(39 - CAPTURE_RECESS)])
   })
 })
