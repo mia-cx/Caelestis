@@ -262,7 +262,7 @@
   .count, .place, .ready, .plan-stats, .turn, .big { font-variant-numeric: tabular-nums; }
   .count { color: var(--caelestis-muted-text); font-weight: 600; }
 
-  .settings { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--caelestis-border); }
+  .settings { display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: 0.5rem; padding-block-end: 0.5rem; border-block-end: 1px solid var(--caelestis-border); }
   .settings :is(label, .label) { font-weight: 600; }
   .settings .stepper output {
     display: grid;
@@ -273,8 +273,7 @@
     font-variant-numeric: tabular-nums;
   }
   .settings .stepper output.wide { inline-size: 4.5rem; }
-  .stepper { display: flex; flex: 1; align-items: center; gap: 0.125rem; }
-  .choices { display: flex; flex: 1; gap: 0.125rem; }
+  .stepper, .choices { display: flex; align-items: center; gap: 0.125rem; }
   .stepper input {
     inline-size: 3rem;
     block-size: 2rem;
