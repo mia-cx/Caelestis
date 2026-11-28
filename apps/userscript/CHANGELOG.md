@@ -1,5 +1,14 @@
 # @caelestis/userscript
 
+## 1.4.0
+
+### Minor Changes
+
+- 9859888: The administrator who opens a capture run paints its closing line when they join, so the captured area is theirs.
+- 9859888: Go waits until every painter in a capture run has drafted their whole line.
+- 9859888: Administrators set the stagger between capture steps when they open a run, from 200 ms to 2 s.
+- 70050d6: Event servers bind each token to the first event team it is used with, so a session that claims another team sees nothing, and the capture card says which team the token is for.
+
 ## 1.3.0
 
 ### Minor Changes
