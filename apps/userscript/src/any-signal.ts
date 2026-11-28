@@ -1,13 +1,17 @@
 /** Takes the fallback's listeners off its inputs once the combined signal is collected. */
 const detach = new FinalizationRegistry<() => void>((remove) => remove())
 
+/** Each fallback signal's controller, alive exactly as long as someone holds the signal. */
+const controllers = new WeakMap<AbortSignal, AbortController>()
+
 /**
  * `AbortSignal.any`: a signal that aborts with the first of `signals` to abort. Safari only has it
  * from 17.4, and without it every server request would throw before it is sent.
  *
- * Like the native one, the fallback holds its result weakly: a long-lived input, such as a server
- * connection's signal, keeps no request's signal alive, and its listener leaves once that signal is
- * collected or an input aborts.
+ * Like the native one, the fallback is held only by its result: while a request holds the signal,
+ * an input's abort reaches it, and a long-lived input, such as a server connection's signal, keeps
+ * no finished request's signal alive. Its listener leaves once that signal is collected or an input
+ * aborts.
  */
 export const anySignal = (signals: readonly AbortSignal[]): AbortSignal => {
   if (typeof AbortSignal.any === 'function') return AbortSignal.any([...signals])
@@ -28,6 +32,7 @@ export const anySignal = (signals: readonly AbortSignal[]): AbortSignal => {
     }
     signal.addEventListener('abort', abort)
   }
+  controllers.set(controller.signal, controller)
   detach.register(controller.signal, remove)
   return controller.signal
 }

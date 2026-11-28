@@ -63,3 +63,18 @@ it('leaves no listener on a long-lived signal once its requests are done with', 
     expect(listening).toBe(0)
   })
 })
+
+it('still aborts a signal a request holds after garbage collection runs', async () => {
+  withoutAny()
+  setFlagsFromString('--expose-gc')
+  const gc = runInNewContext('gc') as () => void
+  const connection = new AbortController()
+  const held = anySignal([connection.signal, new AbortController().signal])
+  for (let pass = 0; pass < 5; pass++) {
+    gc()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  connection.abort('disconnected')
+  expect(held.aborted).toBe(true)
+  expect(held.reason).toBe('disconnected')
+})
