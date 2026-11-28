@@ -109,39 +109,51 @@ describe('external relational adapter contract', () => {
       // A second session holds row 1, and outweighs the transaction under test with many changed
       // rows, so InnoDB picks the transaction under test as the deadlock victim.
       const rival = await createConnection(connection.config)
-      await rival.beginTransaction()
-      await rival.query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 1')
-      await rival.query('UPDATE deadlock_weight SET v = v + 1')
-      let rivalDone: Promise<void> | undefined
-      let attempts = 0
-      await connection.transaction(async (sql) => {
-        attempts += 1
-        await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 2').run()
-        if (attempts === 1) {
-          // The rival waits on this transaction for row 2, and commits once it gets it.
-          rivalDone = rival
-            .query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 2')
-            .then(() => rival.commit())
-          const rivalWaiting = sql.prepare(
-            "SELECT COUNT(*) AS waiting FROM information_schema.innodb_trx WHERE trx_state = 'LOCK WAIT'",
-          )
-          for (;;) if ((await rivalWaiting.first<{ waiting: number }>())?.waiting === 1) break
-        }
-        // Closes the cycle on the first attempt: this waits on the rival for row 1.
-        await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 1').run()
-      })
-      await rivalDone
-      await rival.end()
-      // A retry that starts before the rival commits also loses a snapshot conflict and runs again.
-      expect(attempts).toBeGreaterThanOrEqual(2)
-      expect(
-        await connection.prepare('SELECT id, v FROM deadlock_probe ORDER BY id').all(),
-      ).toMatchObject({
-        results: [
-          { id: 1, v: 11 },
-          { id: 2, v: 11 },
-        ],
-      })
+      try {
+        await rival.beginTransaction()
+        await rival.query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 1')
+        await rival.query('UPDATE deadlock_weight SET v = v + 1')
+        let rivalDone: Promise<void> | undefined
+        let attempts = 0
+        await connection.transaction(async (sql) => {
+          attempts += 1
+          await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 2').run()
+          if (attempts === 1) {
+            // The rival waits on this transaction for row 2, and commits once it gets it.
+            rivalDone = rival
+              .query('UPDATE deadlock_probe SET v = v + 1 WHERE id = 2')
+              .then(() => rival.commit())
+            // innodb_trx is server-wide: unrelated lock waits must not strand this callback.
+            const rivalWaiting = sql
+              .prepare(
+                "SELECT COUNT(*) AS waiting FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = ? AND trx_state = 'LOCK WAIT'",
+              )
+              .bind(rival.threadId)
+            await Promise.race([
+              expect.poll(() => rivalWaiting.first()).toMatchObject({ waiting: 1 }),
+              rivalDone.then(() => {
+                throw new Error('Rival completed before the deadlock was formed')
+              }),
+            ])
+          }
+          // Closes the cycle on the first attempt: this waits on the rival for row 1.
+          await sql.prepare('UPDATE deadlock_probe SET v = v + 10 WHERE id = 1').run()
+        })
+        await rivalDone
+        // A retry that starts before the rival commits also loses a snapshot conflict and runs again.
+        expect(attempts).toBeGreaterThanOrEqual(2)
+        expect(
+          await connection.prepare('SELECT id, v FROM deadlock_probe ORDER BY id').all(),
+        ).toMatchObject({
+          results: [
+            { id: 1, v: 11 },
+            { id: 2, v: 11 },
+          ],
+        })
+      } finally {
+        // Also releases row 1 when setup, synchronization, or the callback fails.
+        rival.destroy()
+      }
     },
   )
   it.runIf(maria !== undefined)(
