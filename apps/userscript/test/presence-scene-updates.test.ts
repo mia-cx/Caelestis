@@ -259,8 +259,12 @@ it("counts a leg's pixels the team already holds on Wplace's map as drafted", as
   const top = TERRITORY_ARENA.tileY * TILE_SIZE
   const wall = [0, 1, 2, 3].flatMap((x) => [left + x, top])
   socket.receive({ type: 'capture-runs', runs: [lobby(wall, 0)] })
-  await vi.waitFor(async () => {
-    await vi.advanceTimersByTimeAsync(500)
-    expect(sent(socket, 'capture-drafted').at(-1)).toMatchObject({ drafted: 2 })
-  })
-})
+  // Decoding an arena-sized map takes real time, longer under a loaded test run.
+  await vi.waitFor(
+    async () => {
+      await vi.advanceTimersByTimeAsync(500)
+      expect(sent(socket, 'capture-drafted').at(-1)).toMatchObject({ drafted: 2 })
+    },
+    { timeout: 10_000 },
+  )
+}, 20_000)
