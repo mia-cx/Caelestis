@@ -121,3 +121,19 @@ it('credits no click with a paint request that more than one click could have se
   await expect(manual).resolves.toEqual(shared)
   await expect(slot).resolves.toEqual(shared)
 })
+
+it('keeps a slow request ambiguous between the clicks still waiting for one', async () => {
+  const wplace = await page()
+  // Wplace still prepares the first click's request when a slot presses Paint over a second later.
+  const manual = wplace.timeNextPaint(now())
+  await wplace.wait(1_100)
+  const slot = wplace.timeNextPaint(now())
+  await wplace.wait(200)
+  const paint = wplace.request('/paint', { method: 'POST' })
+  await wplace.wait(80)
+  await wplace.answer(200)
+  await paint
+  const shared = { clickToSendMs: null, sendToResponseMs: 80, status: 200 }
+  await expect(manual).resolves.toEqual(shared)
+  await expect(slot).resolves.toEqual(shared)
+})

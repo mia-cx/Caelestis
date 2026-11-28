@@ -25,11 +25,6 @@ import { BACKEND_ORIGIN, tileFromUrl } from './wplace-raster.js'
 const RTT_SAMPLES = 16
 /** How long after a Paint click its request may take to be sent and answered. */
 const PAINT_WAIT_MS = 10_000
-/**
- * How long Wplace may still be preparing a click's paint request. It keeps Paint disabled
- * meanwhile, so an older click that has sent nothing by the next click sent nothing at all.
- */
-const PAINT_PREPARE_MS = 1_000
 /** How often latency goes to event servers, while there is something new to say. */
 const REPORT_MS = 5 * 60_000
 /** How long a round trip counts toward the estimate; an older one may predate a network change. */
@@ -82,9 +77,7 @@ type Settle = (status: ClickTiming['status'], at?: number) => void
  * that request may be another click's.
  */
 interface Waiting {
-  readonly clickedAt: number
   readonly take: (sentAt: number, shared: boolean) => Settle
-  readonly settle: Settle
 }
 /** The clicks still waiting for a paint request, oldest first. */
 let waiting: Waiting[] = []
@@ -93,15 +86,13 @@ let lastClick: Promise<ClickTiming> | null = null
 
 /**
  * Time the paint request Wplace sends after a Paint click at `clickedAt` (a `localClock()` time):
- * the first `/paint` POST from then on, or none within ten seconds. An earlier click still waiting
- * past `PAINT_PREPARE_MS` sent nothing, and settles as `no-request`. One within it may still have
- * its request coming, so the clicks waiting share the next one; with more than one, no click can
- * claim it, and each reports it without a click-to-send time.
+ * the first `/paint` POST from then on, or none within ten seconds. Wplace prepares a request for
+ * as long as it takes, closing the panel or not, so an earlier click still waiting may yet send
+ * one: the clicks waiting share the next request. With more than one, no click can claim it, and
+ * each reports it without a click-to-send time.
  */
-export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> => {
-  for (const older of waiting)
-    if (clickedAt - older.clickedAt > PAINT_PREPARE_MS) older.settle('no-request')
-  return new Promise((resolve) => {
+export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> =>
+  new Promise((resolve) => {
     let sentAt: number | null = null
     let shared = false
     let settled = false
@@ -117,13 +108,11 @@ export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> => {
       })
     }
     const mine: Waiting = {
-      clickedAt,
       take: (at, others) => {
         sentAt = at
         shared = others
         return settle
       },
-      settle,
     }
     waiting = [...waiting, mine]
     const timer = setTimeout(
@@ -131,7 +120,6 @@ export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> => {
       PAINT_WAIT_MS,
     )
   })
-}
 
 /** Hand a paint request sent at `sentAt` to every click waiting, and how to settle them all. */
 const takeRequest = (sentAt: number): Settle | null => {

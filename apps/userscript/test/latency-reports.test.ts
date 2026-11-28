@@ -63,10 +63,10 @@ it("reports this tab's latency to Wplace to an event server, with each Paint cli
   document.querySelector('.btn-primary')?.addEventListener('click', () => {
     if (sends) setTimeout(() => void window.fetch(`${BACKEND}/paint`, { method: 'POST' }), 30)
   })
-  // A click Wplace has sent nothing for by the next one, past the time it takes to prepare a
-  // request, doesn't take that click's request.
+  // A click Wplace sent nothing for in the ten seconds it waits doesn't take the next click's
+  // request.
   document.querySelector<HTMLButtonElement>('.btn-primary')?.click()
-  await vi.advanceTimersByTimeAsync(1_500)
+  await vi.advanceTimersByTimeAsync(10_500)
   sends = true
   // A capture slot presses Paint the same way, and shares the click's timing.
   const { submitWorldPaintDraft } = await import('../src/wplace-paint.js')
