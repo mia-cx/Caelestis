@@ -37,6 +37,33 @@ const DOCK = `
     <button class="btn btn-primary btn-lg">Paint</button>
   </div>`
 
+// The territory event's bottom-centre actions, labelled only by their tooltips, as Wplace renders
+// them in its main menu.
+const EVENT_DOCK = `
+  <div class="bottom-safe-min-3 absolute left-1/2 z-30 -translate-x-1/2">
+    <div class="z-30 flex gap-2">
+      <button class="btn btn-lg bg-base-100 relative" data-tooltip="Paint"><svg></svg>
+        <span class="truncate max-sm:sr-only">Paint</span> <span class="tabular-nums">51/60</span>
+        <span class="arena-cooldown"></span></button>
+      <button class="btn btn-lg bg-base-100 relative" data-tooltip="Swap shade"><svg></svg>
+        <span class="truncate max-sm:sr-only">Swap shade</span> <span class="tabular-nums">60/60</span></button>
+    </div>
+  </div>`
+
+/** The event's open paint panel: a team swatch, Cancel, and the mode's commit button. */
+const eventPanel = (action: string): string => `
+  <div class="paint-panel relative px-3">
+    <div class="pixel-instruction"><span style="background-color: rgb(14, 185, 104);"></span></div>
+    <div class="paint-arena flex flex-wrap">
+      <div class="flex min-w-0 flex-1"><span class="truncate">Green</span><canvas></canvas></div>
+      <div class="grid shrink-0 grid-cols-2 gap-2">
+        <button class="btn btn-lg sm:btn-xl">Cancel</button>
+        <button class="btn btn-lg sm:btn-xl relative btn-primary"><div class="paint-button-content">
+          <svg></svg> <div class="flex"><span>${action}</span> </div></div></button>
+      </div>
+    </div>
+  </div>`
+
 let uninstall: (() => void) | undefined
 
 afterEach(() => {
@@ -53,7 +80,10 @@ const recordClicks = (html: string): string[] => {
   for (const button of document.querySelectorAll('button'))
     button.addEventListener('click', () =>
       clicked.push(
-        button.id || button.getAttribute('aria-label') || `${button.textContent?.trim()}`,
+        button.id ||
+          button.getAttribute('aria-label') ||
+          button.dataset.tooltip ||
+          `${button.textContent?.trim()}`,
       ),
     )
   uninstall?.()
@@ -66,6 +96,19 @@ const pressPaint = (): void => {
   document.body.dispatchEvent(
     new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', bubbles: true }),
   )
+}
+
+/** Shift+B, the shade swap key's default. Returns whether a shortcut claimed it. */
+const pressShadeSwap = (): boolean => {
+  const event = new KeyboardEvent('keydown', {
+    key: 'B',
+    code: 'KeyB',
+    shiftKey: true,
+    bubbles: true,
+    cancelable: true,
+  })
+  document.body.dispatchEvent(event)
+  return event.defaultPrevented
 }
 
 describe('shortcuts that click Wplace controls', () => {
@@ -98,6 +141,38 @@ describe('shortcuts that click Wplace controls', () => {
     const clicked = recordClicks(HQ_DRAWER)
     pressPaint()
     expect(clicked).toEqual(['Paint'])
+  })
+
+  it("open the territory event's Paint and Swap shade from its own buttons", () => {
+    const paint = recordClicks(EVENT_DOCK)
+    pressPaint()
+    expect(paint).toEqual(['Paint'])
+
+    const swap = recordClicks(EVENT_DOCK)
+    pressShadeSwap()
+    expect(swap).toEqual(['Swap shade'])
+  })
+
+  it('commit an open event panel through its own action, only while the switch is on', () => {
+    const paint = recordClicks(eventPanel('Paint'))
+    pressPaint()
+    pressShadeSwap()
+    expect(paint).toEqual([])
+    setState({ simulatedInput: { 'paint-commit': true } })
+    pressShadeSwap()
+    pressPaint()
+    expect(paint).toEqual(['Paint'])
+
+    const swap = recordClicks(eventPanel('Swap shade'))
+    pressPaint()
+    pressShadeSwap()
+    expect(swap).toEqual(['Swap shade'])
+  })
+
+  it('leave Shift+B to Wplace off the event canvas', () => {
+    const clicked = recordClicks(DOCK)
+    expect(pressShadeSwap()).toBe(false)
+    expect(clicked).toEqual([])
   })
 
   it('keep each switch across a reload, and start with none', async () => {

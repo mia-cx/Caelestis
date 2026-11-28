@@ -93,6 +93,11 @@ const SHORTCUT_TABLE = {
     label: 'Open or commit paint draft',
     defaults: [chord('b')],
   },
+  'shade-swap': {
+    category: 'Painting',
+    label: 'Open or commit shade swap',
+    defaults: [chord('b', { shift: true })],
+  },
   'cancel-paint': {
     category: 'Painting',
     label: 'Cancel paint draft',

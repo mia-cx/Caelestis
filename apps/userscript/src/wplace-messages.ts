@@ -10,10 +10,12 @@ const ENGLISH = {
   undo: 'Undo',
   redo: 'Redo',
   close: 'Close',
+  cancel: 'Cancel',
   eraser: 'Eraser',
   color_picker: 'Color Picker',
   paint: 'Paint',
   paint_pixel: 'Paint pixel',
+  territory_shade_swap: 'Swap shade',
   alliance_hq_canvas: 'Headquarters canvas',
   alliance_asset_canvas: 'Alliance asset canvas',
 } as const

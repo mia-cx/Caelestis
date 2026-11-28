@@ -3,7 +3,12 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { setState } from './settings.js'
 import { paintPaletteIndexOf, paintPaletteSwatches } from './wplace-dom.js'
 import { useWplaceCatalog } from './wplace-messages.js'
-import { cancelPaintDraft, performPaintAction, undoPaintDraft } from './wplace-paint.js'
+import {
+  cancelPaintDraft,
+  performPaintAction,
+  performShadeSwapAction,
+  undoPaintDraft,
+} from './wplace-paint.js'
 
 vi.mock('./alliance-editor-dom.js', () => ({
   activeAllianceEditorStage: () => null,
@@ -64,4 +69,29 @@ it('reads alliance swatches by their colour, whatever their translated name', ()
     0,
     darkGray?.index,
   ])
+})
+
+it("finds the territory event's controls by their translated labels", () => {
+  // `cancel` and `territory_shade_swap` stand in for Wplace's own translations.
+  useWplaceCatalog(() => ({ ...FRENCH, cancel: 'Abandonner', territory_shade_swap: 'Teinte' }))
+  setState({ simulatedInput: { 'paint-commit': true } })
+  document.body.innerHTML = `
+    <div class="z-30 flex gap-2">
+      <button data-tooltip="Peindre"><span>Peindre</span> <span>51/60</span></button>
+      <button data-tooltip="Teinte"><span>Teinte</span> <span>60/60</span></button>
+    </div>`
+  const opened = clicks()
+  expect(performShadeSwapAction()).toBe(true)
+  expect(performPaintAction()).toBe(true)
+  expect(opened).toEqual(['Teinte 60/60', 'Peindre 51/60'])
+
+  document.body.innerHTML = `
+    <div class="grid grid-cols-2">
+      <button>Abandonner</button>
+      <button class="btn btn-primary"><span>Teinte</span> (0:04)</button>
+    </div>`
+  const committed = clicks()
+  expect(performPaintAction()).toBe(false)
+  expect(performShadeSwapAction()).toBe(true)
+  expect(committed).toEqual(['Teinte (0:04)'])
 })

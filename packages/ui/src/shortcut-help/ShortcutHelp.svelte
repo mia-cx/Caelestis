@@ -165,6 +165,14 @@
               : `${key} opens Wplace’s paint drawer, then commits its draft.`,
       },
       {
+        id: 'shade-swap', category: 'Painting', title: 'Swap shades in the territory event',
+        shortcuts: ['shade-swap'],
+        sentence: (key, id) =>
+          switchedOff(id)
+            ? `${key} opens Wplace’s Swap shade. Committing the swap with ${key} is off under ${DANGEROUS_SETTINGS}.`
+            : `${key} opens Wplace’s Swap shade, then commits the swap.`,
+      },
+      {
         id: 'fly', category: 'Painting', title: 'Jump to the selected colour',
         shortcuts: ['fly-to-colour'],
         sentence: (key) => `${key} flies to the nearest unfinished pixel of the currently selected colour.`,

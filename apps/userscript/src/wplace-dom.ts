@@ -164,24 +164,67 @@ export const paintDrawerCloseButton = (drawer: HTMLElement): HTMLButtonElement |
 /** A countdown Wplace appends to its Paint label, as in "Paint (0:25)". */
 const PAINT_COUNTDOWN = /^\s*\([^)]*\)$/
 
+/** A button's label or text, compared case-insensitively. */
+const buttonText = (button: Element): string =>
+  (button.getAttribute('aria-label') ?? button.getAttribute('title') ?? button.textContent ?? '')
+    .trim()
+    .toLowerCase()
+
+/** Whether a button reads Wplace's `key` label, alone or followed by its countdown. */
+const readsAction = (button: Element, key: WplaceLabel): boolean => {
+  const action = wplaceLabel(key).toLowerCase()
+  const label = buttonText(button)
+  return (
+    label.startsWith(action) &&
+    (label === action || PAINT_COUNTDOWN.test(label.slice(action.length)))
+  )
+}
+
 /** Match only the drawer's Paint action, including its optional countdown, without layout classes. */
 export const paintDrawerCommitButton = (drawer: HTMLElement): HTMLButtonElement | null => {
-  const paint = wplaceLabel('paint').toLowerCase()
-  const candidates = [...drawer.querySelectorAll<HTMLButtonElement>('button')].filter((button) => {
-    const label = (
-      button.getAttribute('aria-label') ??
-      button.getAttribute('title') ??
-      button.textContent ??
-      ''
-    )
-      .trim()
-      .toLowerCase()
-    return (
-      label.startsWith(paint) &&
-      (label === paint || PAINT_COUNTDOWN.test(label.slice(paint.length)))
-    )
-  })
+  const candidates = [...drawer.querySelectorAll<HTMLButtonElement>('button')].filter((button) =>
+    readsAction(button, 'paint'),
+  )
   return candidates.length === 1 ? (candidates[0] ?? null) : null
+}
+
+/** The territory event's two bottom-centre actions, by their Wplace labels. */
+export type ArenaAction = Extract<WplaceLabel, 'paint' | 'territory_shade_swap'>
+
+/**
+ * The territory event's bottom-centre Paint or Swap shade button. Wplace labels it only by its
+ * tooltip; its text adds the charge count, as in "Paint 51/60".
+ */
+export const arenaOpenButton = (
+  root: ParentNode,
+  action: ArenaAction,
+): HTMLButtonElement | null => {
+  const label = wplaceLabel(action)
+  return (
+    [...root.querySelectorAll<HTMLButtonElement>('button[data-tooltip]')].find(
+      (button) => button.dataset.tooltip === label,
+    ) ?? null
+  )
+}
+
+/**
+ * The open event panel's Paint or Swap shade button. The panel has no palette and no history, so
+ * its commit button is the one reading that action beside Wplace's Cancel.
+ */
+export const arenaCommitButton = (
+  root: ParentNode,
+  action: ArenaAction,
+): HTMLButtonElement | null => {
+  const cancel = wplaceLabel('cancel').toLowerCase()
+  for (const button of root.querySelectorAll('button')) {
+    if (buttonText(button) !== cancel) continue
+    const commit = [...(button.parentElement?.children ?? [])].find(
+      (sibling): sibling is HTMLButtonElement =>
+        sibling instanceof HTMLButtonElement && sibling !== button && readsAction(sibling, action),
+    )
+    if (commit !== undefined) return commit
+  }
+  return null
 }
 
 /**
@@ -202,7 +245,10 @@ export const paintDockButton = (root: ParentNode = document): HTMLButtonElement 
   return null
 }
 
-/** The control that opens paint mode: an exact Paint label first, then the dock button. */
+/**
+ * The control that opens paint mode: an exact Paint label first, then the dock button, then the
+ * territory event's Paint.
+ */
 export const paintOpenButton = (root: ParentNode): HTMLButtonElement | null => {
   const labels = new Set(
     [wplaceLabel('paint'), wplaceLabel('paint_pixel')].map((label) => label.toLowerCase()),
@@ -213,7 +259,7 @@ export const paintOpenButton = (root: ParentNode): HTMLButtonElement | null => {
       .toLowerCase()
     if (labels.has(label)) return button
   }
-  return paintDockButton(root)
+  return paintDockButton(root) ?? arenaOpenButton(root, 'paint')
 }
 
 export type NativeTool = Extract<WplaceLabel, 'color_picker' | 'eraser'>
