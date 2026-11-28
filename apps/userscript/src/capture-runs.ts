@@ -60,7 +60,7 @@ import {
   wplaceRtt,
 } from './capture-timing.js'
 import { log, warn } from './debug.js'
-import { comparisonDraftPixelAt } from './draft-pixels.js'
+import { comparisonDraftPixelAt, nativeDraftPixelAt } from './draft-pixels.js'
 import { eventTeam, readEventTeam } from './event-team.js'
 import { getMap, type MapLike, onMapAttached } from './map-handle.js'
 import { requestMapFrame, viewportCentre } from './map-view.js'
@@ -232,12 +232,19 @@ const refreshHeldMap = (): void => {
     })
 }
 
-/** Whether this tab has drafted a pixel in a colour that claims for `team`. */
-const draftedPixel = (team: TerritoryTeam, { x, y }: { x: number; y: number }): boolean => {
+/**
+ * Whether this tab has drafted a pixel in a colour that claims for `team`. `open` reads only the
+ * draft Wplace still has open, without paint it already accepted.
+ */
+const draftedPixel = (
+  team: TerritoryTeam,
+  { x, y }: { x: number; y: number },
+  open = false,
+): boolean => {
   const { colour, dark } = TERRITORY_TEAMS[team]
   const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
   const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
-  const drafted = comparisonDraftPixelAt(tile, offset)
+  const drafted = open ? nativeDraftPixelAt(tile, offset) : comparisonDraftPixelAt(tile, offset)
   return drafted === colour || drafted === dark
 }
 
@@ -648,10 +655,11 @@ const plannedSnapshot = async (): Promise<typeof snapshotRead> => {
     const bytes = new Uint8Array(await response.arrayBuffer())
     snapshotRead = { bytes, hash: hashBytes(bytes), at: now }
     return snapshotRead
-  } catch {
-    // A refused request and an unreachable one wait the same before the next try.
+  } catch (error) {
+    // A refused request and an unreachable one wait the same before the next try; planning
+    // still says it failed.
     snapshotFailedAt = now
-    return null
+    throw error
   }
 }
 
@@ -862,7 +870,7 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
     // whatever else is in the draft.
     const leg = captureLines(run)[index] ?? []
     const wplaceRttMs = wplaceRtt()
-    if (!linePixels(leg).some((pixel) => draftedPixel(run.team, pixel))) {
+    if (!linePixels(leg).some((pixel) => draftedPixel(run.team, pixel, true))) {
       // Logged as a slot whose Paint was never pressed.
       void reportSlot(view, run.id, slot, null, late, wplaceRttMs)
       return

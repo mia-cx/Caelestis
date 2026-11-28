@@ -303,6 +303,17 @@ it("doesn't press Paint at a slot when nothing is drafted on the leg", async () 
   )
   let clicks = 0
   document.querySelector('.btn-primary')?.addEventListener('click', () => clicks++)
+  // One leg pixel is paint Wplace already accepted, not yet in a tile read: still nothing open.
+  const { beginSubmission, retainAcceptedPaint } = await import('../src/tile-pixels.js')
+  const { TERRITORY_TEAMS } = await import('@caelestis/shared')
+  const submission = {}
+  beginSubmission(submission)
+  retainAcceptedPaint(
+    submission,
+    [{ x: 0, y: 0, pixels: { x: [10], y: [10], colors: [TERRITORY_TEAMS[0].colour] } }],
+    1,
+    1,
+  )
   const { installCaptureRuns } = await import('../src/capture-runs.js')
   installCaptureRuns()
   const now = performance.timeOrigin + performance.now()
@@ -325,4 +336,17 @@ it("doesn't press Paint at a slot when nothing is drafted on the leg", async () 
   expect(clicks).toBe(0)
   document.body.replaceChildren()
   setState({ simulatedInput: {} })
+})
+
+it("says planning failed when Wplace's map cannot be fetched", async () => {
+  const { socket } = await connect({ capture: 1, scope: 'event_runner' })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  vi.stubGlobal('fetch', async () => {
+    throw new TypeError('Failed to fetch')
+  })
+  const { installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  socket.receive({ type: 'capture-runs', runs: [lobby(null, 0)] })
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(card().model?.message).toBe('Planning failed. It tries again shortly.')
 })
