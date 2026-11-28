@@ -14,6 +14,8 @@ const ada = {
   reserve: false,
   closes: false,
   hosts: false,
+  vacant: false,
+  waiting: false,
 } satisfies CaptureRunMember
 const bea = { ...ada, id: 'b', name: 'Bea', colour: 'blue', drafted: 12, me: true }
 
@@ -333,5 +335,22 @@ describe('whoever runs a lobby', () => {
     ])
     const painter = render({ ...gathering, canRun: false, members })
     expect(button(painter, 'Give Ada the closing leg')).toBeNull()
+  })
+
+  it('shows an empty place as left and a late joiner as waiting, with nothing to change on either', () => {
+    const members = [
+      { ...ada, drafted: 0, vacant: true },
+      { ...bea, closes: true },
+      { ...ada, id: 'w', name: 'Wren', drafted: 0, length: 0, waiting: true },
+    ]
+    const card = render({ ...gathering, members })
+    const rows = [...card.querySelectorAll('.members li')]
+    expect(rows[0]?.textContent).toContain('Left')
+    expect(rows[0]?.textContent).not.toContain('0/40')
+    expect(rows[2]?.textContent).toContain('Waiting')
+    for (const name of ['Ada', 'Wren']) {
+      expect(button(card, `Give ${name} the closing leg`)).toBeNull()
+      expect(button(card, `Move ${name} up`)).toBeNull()
+    }
   })
 })

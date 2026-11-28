@@ -14,6 +14,7 @@ import {
   decodeCaptureRun,
   isCaptureReserve,
   MAX_CAPTURE_LINE_PIXELS,
+  MAX_CAPTURE_MEMBERS,
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_WALL_PIXELS,
   normaliseCaptureSettings,
@@ -123,16 +124,6 @@ it("doesn't hold the start for reserves", () => {
   expect(capturePaintersDrafted(run)).toBe(true)
 })
 
-it('cuts the wall for the members the lock-in assigned, and gives later joiners nothing', () => {
-  // Locked for two painters and a guard; painter 4 joined after.
-  const run: CaptureRun = { ...lobby(40, [20, 20, 2, 0]), assigned: 3 }
-  expect(captureLines(run).map((line) => line.length / 2)).toEqual([20, 20, 2])
-  expect(captureGuardCount(run)).toBe(1)
-  expect(isCaptureReserve(run, 3)).toBe(true)
-  expect(captureSlot({ ...run, startsAt: 10_000 }, 3)).toBeNull()
-  expect(captureReady(run)).toBe(true)
-})
-
 it('holds the start for a leg or guard zone left empty, but not for a reserve’s place', () => {
   const left = (run: CaptureRun, index: number): CaptureRun => ({
     ...run,
@@ -175,6 +166,13 @@ it('decodes a lobby stored before its opener or lead was recorded', () => {
   expect(decoded === null ? null : captureLead(decoded)).toBe(CAPTURE_LEAD_MS)
   const withLead = { ...stored, leadMs: 4_000 }
   expect(decodeCaptureRun(withLead)).toEqual(withLead)
+})
+
+it('decodes who waits for the next lock-in, up to the most members a lobby holds', () => {
+  const run: CaptureRun = { ...lobby(40, [0, 0]), waiting: [member(3)] }
+  expect(decodeCaptureRun(JSON.parse(JSON.stringify(run)))).toEqual(run)
+  const crowd = Array.from({ length: MAX_CAPTURE_MEMBERS - 1 }, (_, index) => member(index + 3))
+  expect(decodeCaptureRun({ ...run, waiting: crowd })).toBeNull()
 })
 
 describe('normaliseCaptureSettings', () => {

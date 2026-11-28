@@ -13,9 +13,10 @@ import { isWorkIdentity } from './work.js'
  * and joins it as its host; painters join from the team's lobby list. The host, or an administrator
  * in the lobby, locks in a wall, and the wall is cut into one leg per painting member, so every
  * member, server and client, derives the same legs from the lobby with `captureLines`. Only Lock in
- * hands out legs: a painter who joins afterwards waits without one until the next lock-in, and one
- * who leaves before the countdown leaves their place empty. Painters go in pairs from the wall's two anchors: painter `i`
- * (from 0) paints leg `i` at `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which
+ * hands out legs: a painter who joins afterwards waits in `waiting`, without one, until the next
+ * lock-in, and one who leaves before the countdown leaves their place empty. `members` holds exactly
+ * the places the lock-in gave out, so a client that predates `waiting` derives the same legs.
+ * Painters go in pairs from the wall's two anchors: painter `i` (from 0) paints leg `i` at `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which
  * each client estimates with `clock` round trips. The lobby's coordinator always paints in the last
  * step while a member, so the closing leg, and the captured area, is theirs: the painter who opened
  * it, until whoever runs the lobby hands the closing leg to another member. The host and the closer
@@ -112,14 +113,16 @@ export interface CaptureRun {
   /** Anchor guards live planning gives zones to, and the most members who guard. */
   readonly guards: number
   readonly distribution: CaptureDistribution
-  /** In paint order, guards last, then any who joined after the lock-in. */
+  /**
+   * In paint order, guards last: everyone while the host is still choosing, and once a wall is
+   * locked in, the places the lock-in gave out, including any left empty since.
+   */
   readonly members: readonly CaptureMember[]
   /**
-   * How many members, from the first, the lock-in gave a leg, a reserve place or a guard zone;
-   * `captureAssigned` reads it. Set while a wall is locked in; missing while choosing, and on a
-   * lobby locked before the server recorded it, where it is every member.
+   * Who joined after the lock-in, in the order they joined: they have no leg, role or slot until
+   * the next lock-in seats them. Missing while nobody waits.
    */
-  readonly assigned?: number
+  readonly waiting?: readonly CaptureMember[]
   /**
    * The locked-in wall: its pixels to paint from anchor A to anchor B, as flat world coordinates
    * `[x0, y0, x1, y1, …]`. Null while the host is still choosing.
@@ -321,23 +324,21 @@ export type CaptureServerEvent =
   /** Answers a client's `clock`: `at` is the server's time when it answered. */
   | { readonly type: 'clock'; readonly sent: number; readonly at: number }
 
-/**
- * The members the wall is cut for, from the first: those the lock-in assigned, including any who
- * have left since, or every member while the host is still choosing.
- */
-export const captureAssigned = (run: CaptureRun): number => run.assigned ?? run.members.length
+/** Everyone in the lobby: its places in paint order, then those waiting for the next lock-in. */
+export const captureEveryone = (run: CaptureRun): readonly CaptureMember[] =>
+  run.waiting === undefined ? run.members : [...run.members, ...run.waiting]
 
 /** The most anchor guards a lobby of this size sets: half of it, rounded down. */
 export const maxCaptureGuards = (run: CaptureRun): number =>
-  Math.min(MAX_CAPTURE_PAINTERS, Math.floor(captureAssigned(run) / 2))
+  Math.min(MAX_CAPTURE_PAINTERS, Math.floor(run.members.length / 2))
 
 /** Members who guard: up to `guards`, and never more than half the lobby. */
 export const captureGuardCount = (run: CaptureRun): number =>
   Math.min(run.guards, maxCaptureGuards(run))
 
-/** Members who paint the wall or stand by as reserves: everyone assigned but the guards. */
+/** Members who paint the wall or stand by as reserves: everyone but the guards. */
 export const capturePainterCount = (run: CaptureRun): number =>
-  captureAssigned(run) - captureGuardCount(run)
+  run.members.length - captureGuardCount(run)
 
 /**
  * Legs the wall is cut into, one for each of the first painting members: all of them, or with
@@ -352,12 +353,9 @@ export const captureLegCount = (run: CaptureRun): number => {
 
 /** Whether member `index` is an anchor guard rather than a wall painter. */
 export const isCaptureGuard = (run: CaptureRun, index: number): boolean =>
-  index >= capturePainterCount(run) && index < captureAssigned(run)
+  index >= capturePainterCount(run)
 
-/**
- * Whether member `index` is a reserve, with nothing to paint: a painting member past the legs, or
- * one who joined after the lock-in.
- */
+/** Whether member `index` is a reserve: a painting member past the legs, with nothing to paint. */
 export const isCaptureReserve = (run: CaptureRun, index: number): boolean =>
   index >= captureLegCount(run) && !isCaptureGuard(run, index)
 
@@ -388,7 +386,7 @@ export const captureShortfall = (pixels: number, painters: number): number =>
 const derivedLines = new WeakMap<CaptureRun, readonly (readonly number[])[]>()
 
 /**
- * Each assigned member's line, in member order: the locked wall cut into `captureLegCount` legs with
+ * Each member's line, in member order: the locked wall cut into `captureLegCount` legs with
  * `pairLines`, an empty line for each reserve, then each guard's zone. Empty until a wall is
  * locked in. A wall too long for the painters leaves its middle uncut; `captureShortfall` says how
  * many more it needs.
@@ -459,15 +457,16 @@ export const captureReady = (run: CaptureRun): boolean =>
   capturePaintersDrafted(run)
 
 /**
- * The member index of the lobby's host, or -1 when nobody eligible is in it: the recorded host while
- * they are in it, else the member who joined first, ties in member order. A lobby stored by backend 1.6.0 records no host, so its
- * opener hosts while in it. `eligible` narrows who may host, as to the connected sessions.
+ * The host's index in `captureEveryone`, or -1 when nobody eligible is in the lobby: the recorded
+ * host while they are in it, else the member who joined first, ties in member order. A lobby stored
+ * by backend 1.6.0 records no host, so its opener hosts while in it. `eligible` narrows who may
+ * host, as to the connected sessions.
  */
 export const captureHostIndex = (
   run: CaptureRun,
   eligible: (member: CaptureMember) => boolean = () => true,
 ): number => {
-  const { members } = run
+  const members = captureEveryone(run)
   const present = members.flatMap((member, index) =>
     member.left !== true && eligible(member) ? [index] : [],
   )
@@ -549,7 +548,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     staggerMs,
     leadMs,
     cut,
-    assigned,
+    waiting,
   } = value
   if (
     typeof id !== 'string' ||
@@ -572,8 +571,10 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !(leadMs === undefined || isSafeInteger(leadMs)) ||
     !isSafeInteger(cut) ||
     !(
-      assigned === undefined ||
-      (isSafeInteger(assigned) && assigned >= 0 && assigned <= members.length)
+      waiting === undefined ||
+      (Array.isArray(waiting) &&
+        members.length + waiting.length <= MAX_CAPTURE_MEMBERS &&
+        waiting.every(isMember))
     )
   )
     return null
@@ -593,6 +594,6 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     staggerMs,
     ...(leadMs === undefined ? {} : { leadMs }),
     cut,
-    ...(assigned === undefined ? {} : { assigned }),
+    ...(waiting === undefined ? {} : { waiting }),
   }
 }
