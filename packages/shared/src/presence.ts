@@ -153,11 +153,6 @@ export type PresenceServerEvent =
       readonly regions: readonly RegionClaim[]
       readonly ownedRegionIds?: readonly string[]
     }
-  /**
-   * On an event server, the session reported a team other than the one its token is bound to,
-   * `team`. It shares and sees nothing until it reports that team.
-   */
-  | { readonly type: 'team-refused'; readonly team: TerritoryTeam }
   | CaptureServerEvent
 
 export interface RegionClaimRequest {

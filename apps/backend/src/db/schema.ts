@@ -3,7 +3,6 @@ import type {
   Seconds,
   ServerAssetContentType,
   TemplateSurfaceKind,
-  TerritoryTeam,
 } from '@caelestis/shared'
 import {
   MAX_NODE_PATH_LENGTH,
@@ -439,12 +438,6 @@ export const accessTokens = sqliteTable(
      * live sessions are closed, so a retry by either hash still finds the credential to close.
      */
     revoked: integer('revoked', { mode: 'boolean' }).notNull().default(false),
-    /**
-     * On an event server, the event team this token belongs to, set once on first use and never
-     * changed: when its invite is redeemed, or by its first presence session that reports a team.
-     * Null until then, and always for admin tokens, which act for every team.
-     */
-    team: integer('team').$type<TerritoryTeam>(),
   },
   (table) => [
     check(
@@ -457,10 +450,6 @@ export const accessTokens = sqliteTable(
       sql`${table.inviteHash} IS NULL OR ${table.scope} = 'event_runner'`,
     ),
     check('access_tokens_revoked_check', sql`${table.revoked} IN (0, 1)`),
-    check(
-      'access_tokens_team_check',
-      sql`${table.team} IS NULL OR (${table.team} IN (0, 1, 2, 3) AND ${table.scope} <> 'admin')`,
-    ),
   ],
 )
 

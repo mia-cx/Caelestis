@@ -1,5 +1,4 @@
-import type { TerritoryTeam } from '@caelestis/shared'
-import { and, asc, desc, eq, gt, isNull, lt, ne, or } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, lt, or } from 'drizzle-orm'
 import { changedRows } from '../adapters/relational-database.js'
 import { RelationalStore } from '../adapters/relational-store.js'
 import { accessTokens } from '../db/schema.js'
@@ -12,7 +11,6 @@ const toAccessToken = (row: typeof accessTokens.$inferSelect): AccessToken => ({
   createdWithToken: row.createdWithToken,
   createdAt: row.createdAtMs,
   ...(row.inviteHash === row.tokenHash ? { invite: true } : {}),
-  ...(row.team === null ? {} : { team: row.team }),
 })
 
 export class RelationalAccessTokenStore extends RelationalStore implements AccessTokenStore {
@@ -24,7 +22,6 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
       createdWithToken: token.createdWithToken,
       createdAtMs: token.createdAt,
       inviteHash: token.invite === true ? token.tokenHash : null,
-      team: token.team ?? null,
     })
   }
 
@@ -40,15 +37,11 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
 
   async redeemInvite(
     inviteHash: string,
-    replacement: Pick<AccessToken, 'tokenHash' | 'createdAt' | 'team'>,
+    replacement: Pick<AccessToken, 'tokenHash' | 'createdAt'>,
   ): Promise<boolean> {
     const result = await this.database
       .update(accessTokens)
-      .set({
-        tokenHash: replacement.tokenHash,
-        createdAtMs: replacement.createdAt,
-        ...(replacement.team === undefined ? {} : { team: replacement.team }),
-      })
+      .set({ tokenHash: replacement.tokenHash, createdAtMs: replacement.createdAt })
       .where(
         and(
           eq(accessTokens.tokenHash, inviteHash),
@@ -58,21 +51,6 @@ export class RelationalAccessTokenStore extends RelationalStore implements Acces
       )
       .run()
     return changedRows(result) === 1
-  }
-
-  async bindTeam(tokenHash: string, team: TerritoryTeam): Promise<TerritoryTeam | null> {
-    const live = and(eq(accessTokens.tokenHash, tokenHash), eq(accessTokens.revoked, false))
-    await this.database
-      .update(accessTokens)
-      .set({ team })
-      .where(and(live, isNull(accessTokens.team), ne(accessTokens.scope, 'admin')))
-      .run()
-    const [row] = await this.database
-      .select({ team: accessTokens.team })
-      .from(accessTokens)
-      .where(live)
-      .limit(1)
-    return row?.team ?? null
   }
 
   async listAccessTokens(query: AccessTokenQuery = {}): Promise<readonly AccessToken[]> {

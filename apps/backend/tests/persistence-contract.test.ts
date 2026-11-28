@@ -8,8 +8,6 @@ import {
   runLeaderboardContract,
   runNodeTemplateContract,
   runRegionRenewalContract,
-  runTeamBindingContract,
-  teamBindingContractExpected,
 } from './support/sql-contract.js'
 
 const ids = {
@@ -58,10 +56,6 @@ describe('SqlStore contract', () => {
 
   it('renews many owners in one call, matching credential and painter together', async () => {
     expect(await runRegionRenewalContract(await store())).toEqual(regionRenewalContractExpected)
-  })
-
-  it('binds each access token to one event team, once', async () => {
-    expect(await runTeamBindingContract(await store())).toEqual(teamBindingContractExpected)
   })
 
   it('keeps tag assignment within existing template ownership and paginates equal-time tokens stably', async () => {
