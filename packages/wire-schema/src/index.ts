@@ -239,10 +239,7 @@ const CaptureStagger = integerBetween(MIN_CAPTURE_STAGGER_MS, MAX_CAPTURE_STAGGE
 /** A span a slot or latency report times; a minute covers every wait the client makes. */
 const CaptureTimingMs = integerBetween(0, MAX_CAPTURE_TIMING_MS)
 const HttpStatus = integerBetween(100, 599)
-const PaintRequestStatus = Schema.Union([
-  HttpStatus,
-  Schema.Literals(['no-response', 'failed', 'refused']),
-])
+const PaintRequestStatus = Schema.Union([HttpStatus, Schema.Literals(['no-response', 'failed'])])
 
 const CaptureSettings = {
   painters: integerBetween(1, MAX_CAPTURE_PAINTERS),

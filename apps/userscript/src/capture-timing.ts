@@ -171,25 +171,33 @@ const timingRoute: RequestRoute = (request) => {
   }
 }
 
-/** How a territory paint's ack reads as a request status: accepted as HTTP would say it. */
+/**
+ * How a territory paint's ack reads as a request status, as `/paint` would answer it: accepted is
+ * 200, rate-limited 429, and any other refusal 403. Existing event servers decode only these.
+ */
 const TERRITORY_ACCEPTED = 200
+const TERRITORY_RATE_LIMITED = 429
+const TERRITORY_REFUSED = 403
 /** Territory requests kept waiting for their ack; Wplace gives up on one after ten seconds. */
 const TERRITORY_UNANSWERED = 16
 
-/** Territory socket requests sent, by their id, until their ack arrives. */
-const territoryRequests = new Map<
-  unknown,
-  { readonly sentAt: number; readonly paint: Settle | null }
->()
+type TerritoryRequest = { readonly sentAt: number; readonly paint: Settle | null }
+
+/**
+ * Territory socket requests sent, by socket and then id, until their ack arrives. A replaced
+ * socket can close after its successor sent a paint, so each socket settles only its own.
+ */
+const territoryRequests = new Map<WebSocket, Map<unknown, TerritoryRequest>>()
 
 /**
  * What became of a territory paint, from its ack: refused when the server answered with an error,
  * or with a refusal Wplace reports (any reason but `own`, pixels the team already holds).
  */
 const territoryStatus = (ack: TerritoryMessage): PaintRequestStatus => {
-  if (ack.error) return 'refused'
+  if (ack.error === 'rate-limited') return TERRITORY_RATE_LIMITED
+  if (ack.error) return TERRITORY_REFUSED
   const reason = isRecord(ack.result) ? ack.result.reason : undefined
-  return !reason || reason === 'own' ? TERRITORY_ACCEPTED : 'refused'
+  return !reason || reason === 'own' ? TERRITORY_ACCEPTED : TERRITORY_REFUSED
 }
 
 /**
@@ -198,29 +206,32 @@ const territoryStatus = (ack: TerritoryMessage): PaintRequestStatus => {
  * the socket is a round trip; a paint is also timed for the Paint click waiting for it.
  */
 const territoryTiming: TerritorySocketObserver = {
-  sent: (message) => {
+  sent: (message, socket) => {
     if (message.id === undefined) return
     const sentAt = localClock()
-    territoryRequests.set(message.id, {
+    const requests = territoryRequests.get(socket) ?? new Map<unknown, TerritoryRequest>()
+    territoryRequests.set(socket, requests)
+    requests.set(message.id, {
       sentAt,
       paint: message.t === 'paint' ? takeRequest(sentAt) : null,
     })
-    for (const id of territoryRequests.keys()) {
-      if (territoryRequests.size <= TERRITORY_UNANSWERED) break
-      territoryRequests.delete(id)
+    for (const id of requests.keys()) {
+      if (requests.size <= TERRITORY_UNANSWERED) break
+      requests.delete(id)
     }
   },
-  received: (message) => {
-    const request = message.t === 'ack' ? territoryRequests.get(message.id) : undefined
+  received: (message, socket) => {
+    const requests = territoryRequests.get(socket)
+    const request = message.t === 'ack' ? requests?.get(message.id) : undefined
     if (request === undefined) return
-    territoryRequests.delete(message.id)
+    requests?.delete(message.id)
     const at = localClock()
     measure(request.sentAt, at)
     request.paint?.(territoryStatus(message), at)
   },
-  closed: () => {
-    for (const { paint } of territoryRequests.values()) paint?.('failed')
-    territoryRequests.clear()
+  closed: (socket) => {
+    for (const { paint } of territoryRequests.get(socket)?.values() ?? []) paint?.('failed')
+    territoryRequests.delete(socket)
   },
 }
 

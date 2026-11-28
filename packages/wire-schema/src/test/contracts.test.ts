@@ -98,9 +98,6 @@ describe('wire schema public contracts', () => {
     const paint = { clickToSendMs: 30, sendToResponseMs: null, status: 'no-response' }
     const latency = { type: 'latency-report', wplaceRttMs: 90, rttSamples: 16, paints: [paint] }
     expect(decode(PresenceClientEvent, latency)).toEqual(latency)
-    // The territory event's server can refuse a paint it answered over its socket.
-    const refused = { ...latency, paints: [{ ...paint, sendToResponseMs: 80, status: 'refused' }] }
-    expect(decode(PresenceClientEvent, refused)).toEqual(refused)
     invalid(PresenceClientEvent, { ...latency, paints: Array(21).fill(paint) })
     invalid(PresenceClientEvent, { ...latency, rttSamples: 65 })
     invalid(PresenceClientEvent, { ...latency, paints: [{ ...paint, status: 'no-request' }] })

@@ -134,13 +134,48 @@ it("times an arena Paint click by its paint on Wplace's territory socket and the
   const refusedSlot = timing.timedPress(submitWorldPaintDraft)
   await vi.advanceTimersByTimeAsync(30 + 90)
   ack({ painted: 0, refused: 1, reason: 'not-adjacent', seq: 9 })
-  const refused = { clickToSendMs: 30, sendToResponseMs: 90, status: 'refused' }
+  const refused = { clickToSendMs: 30, sendToResponseMs: 90, status: 403 }
   await expect(refusedSlot).resolves.toEqual(refused)
 
   await vi.advanceTimersByTimeAsync(0)
   expect(reports(socket)).toEqual([
     { type: 'latency-report', wplaceRttMs: 150, rttSamples: 1, paints: [painted] },
   ])
+})
+
+it("settles a paint on its own socket's reply when the socket it replaced closes late", async () => {
+  const { dispose } = await connectPresence({ capture: 1, scope: 'report', canWrite: true })
+  teardown.push(dispose)
+  const page = window as unknown as { WebSocket: typeof WebSocket }
+  const nativeSocket = page.WebSocket
+  teardown.push(() => {
+    page.WebSocket = nativeSocket
+  })
+  const timing = await import('../src/capture-timing.js')
+  timing.observeWplaceTiming()
+  const open = () =>
+    new page.WebSocket('wss://backend.wplace.live/territory/ws') as unknown as FakeWebSocket
+  const old = open()
+  const territory = open()
+  territory.readyState = FakeWebSocket.OPEN
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    '<div><button>Cancel</button><button class="btn btn-primary">Paint (0:04)</button></div>',
+  )
+  document.querySelector('.btn-primary')?.addEventListener('click', () => {
+    territory.send(JSON.stringify({ t: 'paint', pixels: [[1, 2]], id: 1 }))
+  })
+  const { submitWorldPaintDraft } = await import('../src/wplace-paint.js')
+
+  const slot = timing.timedPress(submitWorldPaintDraft)
+  old.dispatchEvent(new Event('close'))
+  await vi.advanceTimersByTimeAsync(120)
+  territory.dispatchEvent(
+    new MessageEvent('message', {
+      data: JSON.stringify({ t: 'ack', id: 1, result: { painted: 1, refused: 0 } }),
+    }),
+  )
+  await expect(slot).resolves.toMatchObject({ sendToResponseMs: 120, status: 200 })
 })
 
 it('sends nothing once the round trips it held went stale while no session could hear them', async () => {

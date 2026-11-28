@@ -280,10 +280,9 @@ export const LATENCY_REPORT_GAP_MS = 60_000
 
 /**
  * What became of a paint request Wplace sent: its HTTP status, or `no-response` (it never
- * answered in time), `failed` (the request errored) or `refused` (the territory event's server
- * answered its socket paint with a refusal; an accepted one reads as 200).
+ * answered in time) or `failed` (the request errored).
  */
-export type PaintRequestStatus = number | 'no-response' | 'failed' | 'refused'
+export type PaintRequestStatus = number | 'no-response' | 'failed'
 
 /**
  * What became of the paint request at a slot: a `PaintRequestStatus`, or `missed` (the tab woke

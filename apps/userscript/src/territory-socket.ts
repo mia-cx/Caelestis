@@ -20,12 +20,12 @@ export type TerritoryMessage = Readonly<Record<string, unknown>>
 
 /** What a reader hears from the territory socket. Each call runs after Wplace's own handling. */
 export interface TerritorySocketObserver {
-  /** A text frame Wplace sent, once the native `send` took it. */
-  readonly sent?: (message: TerritoryMessage) => void
-  /** A text frame the server sent. */
-  readonly received?: (message: TerritoryMessage) => void
-  /** The socket closed; Wplace fails every request still waiting for its reply. */
-  readonly closed?: () => void
+  /** A text frame Wplace sent on `socket`, once the native `send` took it. */
+  readonly sent?: (message: TerritoryMessage, socket: WebSocket) => void
+  /** A text frame the server sent on `socket`. */
+  readonly received?: (message: TerritoryMessage, socket: WebSocket) => void
+  /** `socket` closed; Wplace fails every request still waiting for its reply on it. */
+  readonly closed?: (socket: WebSocket) => void
 }
 
 const TERRITORY_SOCKET_PATH = '/territory/ws'
@@ -63,9 +63,9 @@ const isTerritorySocket = (url: unknown, realm: Window & typeof globalThis): boo
 const observeSocket = (socket: WebSocket): void => {
   socket.addEventListener('message', (event) => {
     const message = parse(event.data)
-    if (message !== null) notify((observer) => observer.received?.(message))
+    if (message !== null) notify((observer) => observer.received?.(message, socket))
   })
-  socket.addEventListener('close', () => notify((observer) => observer.closed?.()))
+  socket.addEventListener('close', () => notify((observer) => observer.closed?.(socket)))
   const send = socket.send
   if (typeof send !== 'function') return
   // A `function`, so Wplace's `socket.send(…)` still runs the native send on the socket.
@@ -74,7 +74,7 @@ const observeSocket = (socket: WebSocket): void => {
       () => Reflect.apply(send, this, args),
       () => {
         const message = parse(args[0])
-        if (message !== null) notify((observer) => observer.sent?.(message))
+        if (message !== null) notify((observer) => observer.sent?.(message, socket))
       },
     )
   })
