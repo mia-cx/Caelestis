@@ -310,7 +310,9 @@ export const connectServer = async (
     const probed = await probeServer(url, credential)
     if (probed.superseded === true) return { kind: 'superseded' }
     // The panel stays usable during the probe; a server disconnected meanwhile must not come back.
-    if (existing !== undefined && !isCurrentServerConnection(existing))
+    // A background re-probe may rewrite the row meanwhile, such as the page-load probe finding a
+    // stale token rejected; the token verified here still replaces it.
+    if (existing !== undefined && serverByUrl(existing.url) === undefined)
       return { kind: 'superseded' }
     if (probed.status === 'unreachable') return { kind: 'unreachable', server: probed }
     const appeared = existing === undefined ? serverByUrl(probed.url) : undefined
