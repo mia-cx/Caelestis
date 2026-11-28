@@ -10,6 +10,7 @@ import {
   MAX_CAPTURE_MEMBERS,
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_STAGGER_MS,
+  MAX_CAPTURE_TIMING_MS,
   MAX_CAPTURE_WALL_PIXELS,
   MAX_DESCRIPTION_LENGTH,
   MAX_HOME_COPY_LENGTH,
@@ -231,7 +232,7 @@ const CaptureStagger = integerBetween(MIN_CAPTURE_STAGGER_MS, MAX_CAPTURE_STAGGE
 )
 
 /** A span a slot report times; a minute covers every wait the client makes. */
-const CaptureTimingMs = integerBetween(0, 60_000)
+const CaptureTimingMs = integerBetween(0, MAX_CAPTURE_TIMING_MS)
 
 const CaptureSettings = {
   painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
@@ -308,7 +309,7 @@ export const PresenceClientEvent = Schema.Union([
     sendToResponseMs: Schema.NullOr(CaptureTimingMs),
     status: Schema.Union([
       integerBetween(100, 599),
-      Schema.Literals(['unsubmitted', 'no-request', 'no-response', 'failed']),
+      Schema.Literals(['missed', 'unsubmitted', 'no-request', 'no-response', 'failed']),
     ]),
     wplaceRttMs: Schema.NullOr(CaptureTimingMs),
     clockOffsetMs: integerBetween(Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),

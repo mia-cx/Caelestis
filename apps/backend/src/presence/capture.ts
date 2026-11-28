@@ -336,26 +336,26 @@ export const captureStartLogs = (
     }))
 
 /**
- * The log line for a member's slot report, or null when it names no lobby the session is in or a
- * slot that is not theirs, as a report from before a restart would.
+ * The log line for a member's slot report, or null when its lobby is open but the session is not
+ * in it or the slot is not theirs. A report for a lobby that has since closed, as when a runner
+ * closes it while a painter still waits on Wplace, is logged with `closed` and no step.
  */
 export const captureSlotLog = (
   runs: readonly CaptureRun[],
   report: CaptureTimingReport,
-  sessionId: string,
+  actor: Pick<CaptureActor, 'sessionId' | 'painter' | 'team'>,
 ): object | null => {
   const run = runs.find(({ id }) => id === report.run)
-  const index = run?.members.findIndex((member) => member.sessionId === sessionId) ?? -1
-  const member = run?.members[index]
-  if (run === undefined || member === undefined || captureSlot(run, index) !== report.slotAt)
-    return null
+  const index = run?.members.findIndex((member) => member.sessionId === actor.sessionId) ?? -1
+  if (run !== undefined && (index < 0 || captureSlot(run, index) !== report.slotAt)) return null
   return {
     event: 'capture-slot',
-    lobby: run.id,
-    team: run.team,
-    name: member.painter.displayName,
-    userId: member.painter.wplaceUserId,
-    step: captureStep(run, index),
+    lobby: report.run,
+    team: actor.team,
+    name: actor.painter.displayName,
+    userId: actor.painter.wplaceUserId,
+    step: run === undefined ? null : captureStep(run, index),
+    ...(run === undefined ? { closed: true } : {}),
     slotAt: report.slotAt,
     firedLateMs: report.firedLateMs,
     clickToSendMs: report.clickToSendMs,

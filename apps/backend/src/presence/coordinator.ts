@@ -708,7 +708,7 @@ export class PresenceCoordinator<Client> {
       const { team } = attachment
       if (team === undefined) return
       void this.captureRuns(team).then((runs) => {
-        const line = captureSlotLog(runs, event, attachment.sessionId)
+        const line = captureSlotLog(runs, event, { ...attachment, team })
         if (line !== null) console.info(JSON.stringify(line))
       })
       return

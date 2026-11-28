@@ -25,6 +25,7 @@ import {
   latLngToCanvasPixel,
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_STAGGER_MS,
+  MAX_CAPTURE_TIMING_MS,
   MIN_CAPTURE_STAGGER_MS,
   maxCaptureGuards,
   PALETTE_RGB,
@@ -731,7 +732,10 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
   ]
 }
 
-const wholeMs = (ms: number | null): number | null => (ms === null ? null : Math.round(ms))
+/** A duration as a report carries it: whole milliseconds, within what the wire accepts. */
+const reportMs = (ms: number): number =>
+  Math.min(MAX_CAPTURE_TIMING_MS, Math.max(0, Math.round(ms)))
+const wholeMs = (ms: number | null): number | null => (ms === null ? null : reportMs(ms))
 
 /**
  * Once the paint request after a slot's click settles, log how the slot went and report it to the
@@ -755,13 +759,13 @@ const reportSlot = async (
     type: 'capture-timing',
     run,
     slotAt,
-    firedLateMs: Math.round(late),
+    firedLateMs: reportMs(late),
     clickToSendMs: wholeMs(timing.clickToSendMs),
     sendToResponseMs: wholeMs(timing.sendToResponseMs),
     status: timing.status,
     wplaceRttMs: wholeMs(wplaceRttMs),
     clockOffsetMs: Math.round(view.clockOffset ?? 0),
-    clockRttMs: Math.round(view.clockRtt ?? 0),
+    clockRttMs: reportMs(view.clockRtt ?? 0),
   }
   log('capture slot', report)
   sendCapture(view.server, report)
@@ -804,6 +808,8 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
     if (late > MISSED_SLOT_MS) {
       message = 'Your slot passed while this tab was asleep.'
       render()
+      const missed = { clickToSendMs: null, sendToResponseMs: null, status: 'missed' as const }
+      void reportSlot(view, run.id, slot, Promise.resolve(missed), late, wplaceRtt())
       return
     }
     const wplaceRttMs = wplaceRtt()

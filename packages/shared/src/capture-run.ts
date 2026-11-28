@@ -166,11 +166,20 @@ export interface CaptureTimingReport extends CaptureSlotTiming {
 }
 
 /**
- * What became of the paint request at a slot: Wplace's HTTP status, or `unsubmitted` (Paint was not
- * ready), `no-request` (Wplace sent none in time), `no-response` (it never answered in time) or
- * `failed` (the request errored).
+ * What became of the paint request at a slot: Wplace's HTTP status, or `missed` (the tab woke too
+ * late to click), `unsubmitted` (Paint was not ready), `no-request` (Wplace sent none in time),
+ * `no-response` (it never answered in time) or `failed` (the request errored).
  */
-export type CapturePaintStatus = number | 'unsubmitted' | 'no-request' | 'no-response' | 'failed'
+export type CapturePaintStatus =
+  | number
+  | 'missed'
+  | 'unsubmitted'
+  | 'no-request'
+  | 'no-response'
+  | 'failed'
+
+/** The longest duration a slot report carries; clients clamp longer ones to it. */
+export const MAX_CAPTURE_TIMING_MS = 60_000
 
 /**
  * One member's slot, timed by their client in whole milliseconds. The click lands `firedLateMs`

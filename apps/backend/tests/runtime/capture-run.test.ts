@@ -506,4 +506,18 @@ it('logs a countdown as it starts, and each slot report from a member of it', as
     clockOffsetMs: -12,
     clockRttMs: 30,
   })
+
+  // A runner closes the lobby while a report is still on its way; it is logged, marked closed.
+  // First wait out the presence rate limit's one-second window.
+  await new Promise((resolve) => setTimeout(resolve, 1_100))
+  runner.send({ type: 'capture-close' })
+  await vi.waitFor(() => expect(runner.runs()).toEqual([]))
+  runner.send({ ...report, status: 'missed', clickToSendMs: null, sendToResponseMs: null })
+  await vi.waitFor(() => expect(lines('capture-slot')).toHaveLength(2))
+  expect(lines('capture-slot')[1]).toMatchObject({
+    lobby: run.id,
+    step: null,
+    closed: true,
+    status: 'missed',
+  })
 })
