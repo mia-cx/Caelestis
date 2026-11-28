@@ -66,7 +66,7 @@ import {
   surfaceAppearanceStore,
 } from './appearance.js'
 import { positionChargeForecast } from './charge-forecast.js'
-import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
+import { CLEAR_OF_RAIL, EDGE, GAP, PANEL_LAYER } from './metrics.js'
 import { mountNotificationsIn, showToast, syncToastPlacement } from './notification-host.js'
 import { glideOverlayControls, invalidateOverlayControlsEdge } from './overlay-menu.js'
 import {
@@ -393,15 +393,12 @@ const handlePanelIntent = (panel: PanelHost, intent: PanelIntent): void => {
       break
     case 'resize-preview':
       insetAllianceDrawer(intent.width)
-      // A wider panel can reach under the scoreboard, a narrower one out from under it.
-      clearWplaceTopOverlays(panel, intent.width)
       invalidateOverlayControlsEdge()
       redraw()
       break
     case 'resize-commit':
       setState({ panelWidth: intent.width })
       insetAllianceDrawer(intent.width)
-      clearWplaceTopOverlays(panel, intent.width)
       break
     case 'appearance':
       handleAppearanceIntent(
@@ -430,7 +427,7 @@ const buildPanel = (): PanelHost => {
     right: alliance ? '0' : `${CLEAR_OF_RAIL}px`,
     top: alliance ? `${allianceStage?.offsetTop ?? 0}px` : `${EDGE}px`,
     bottom: alliance ? '0' : `${EDGE}px`,
-    zIndex: '30',
+    zIndex: PANEL_LAYER,
     display: 'block',
     minHeight: '0',
     overflow: 'hidden',
@@ -445,32 +442,6 @@ const buildPanel = (): PanelHost => {
     handlePanelIntent(panel, event.detail),
   )
   return panel
-}
-
-/** Wplace's top-of-screen overlays, such as the Territory Weekend scoreboard, stack at z-index 1000. */
-const WPLACE_TOP_OVERLAYS = '[class*="z-[1000]"]'
-
-/**
- * Start the world panel below any of Wplace's top overlays it would otherwise sit under, so its
- * header stays reachable: on a phone the event scoreboard covers the panel's top. Without an
- * overlapping overlay the panel keeps its usual edge.
- */
-const clearWplaceTopOverlays = (
-  panel: HTMLElement,
-  width = panelWidthForViewport(getState().panelWidth),
-): void => {
-  if (panelSessions.scope() === 'alliance') return
-  // From the panel's placement rather than its box, which is still empty just after mounting.
-  const right = window.innerWidth - CLEAR_OF_RAIL
-  const left = right - width
-  let top = EDGE
-  for (const overlay of document.querySelectorAll(WPLACE_TOP_OVERLAYS)) {
-    const box = overlay.getBoundingClientRect()
-    // Only an overlay along the top edge that shares the panel's columns covers its header.
-    if (box.height === 0 || box.top > EDGE * 4 || box.right <= left || box.left >= right) continue
-    top = Math.max(top, Math.ceil(box.bottom) + EDGE)
-  }
-  panel.style.top = `${top}px`
 }
 
 const setOpen = (next: boolean): void => {
@@ -503,7 +474,6 @@ const setOpen = (next: boolean): void => {
     host.appendChild(panel)
     openSurface(panel)
   }
-  clearWplaceTopOverlays(panel)
   // The panel's measured left edge is now the map controls' right edge; they glide over to it.
   // Armed before showView, which already repositions the controls. Read from the theme token
   // Panel.element's --pane-open-dur points at: a fresh host's shadow styles attach a microtask
@@ -651,7 +621,6 @@ export const installPanel = (): void => {
     if (panel !== null) {
       const width = panelWidthForViewport(getState().panelWidth)
       panel.model = panelModel(width)
-      clearWplaceTopOverlays(panel)
       if (allianceStage !== null) allianceDrawerInset.apply(allianceStage, width, GAP)
     }
     const active = activeAllianceSurface()

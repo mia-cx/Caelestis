@@ -38,6 +38,7 @@ import { notifyListeners } from './listeners.js'
 import { getMap } from './map-handle.js'
 import { isMapPress, mapPointAt, swallowNextClick } from './map-pointer.js'
 import { isMapInteractionTarget, screenProjection } from './map-view.js'
+import { EDITOR_LAYER } from './ui/metrics.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { MAP_CANVAS, OPEN_DIALOG, typingInTextField } from './wplace-dom.js'
 import { dismissWplacePixelCard } from './wplace-pixel-card.js'
@@ -498,8 +499,8 @@ const ensureMode = (): ClaimModeElement => {
   Object.assign(element.style, {
     position: 'fixed',
     inset: '0',
-    // Editor actions must stay above the docked panel (30), below its popovers (40).
-    zIndex: '31',
+    // Editor actions must stay just above the open panel; its popovers use the top layer.
+    zIndex: EDITOR_LAYER,
     pointerEvents: 'none',
   } satisfies Partial<CSSStyleDeclaration>)
   applyWplaceTheme(element)

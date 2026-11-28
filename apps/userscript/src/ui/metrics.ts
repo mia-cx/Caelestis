@@ -20,5 +20,14 @@ export const RAIL_BUTTON = 40
 /** The right edge of anything that has to clear the rail, since the rail is always on top of it. */
 export const CLEAR_OF_RAIL = EDGE + RAIL_BUTTON + GAP
 
+/**
+ * The open panel stacks above everything else on the page: Wplace's top overlays such as the
+ * Territory Weekend scoreboard (z-index 1000) and the capture lobby card (up to 1001).
+ */
+export const PANEL_LAYER = '1002'
+
+/** The template studio and claim editor, which open from the panel, stack just above it. */
+export const EDITOR_LAYER = '1003'
+
 /** The context menu's corner radius, shared by every rectangular Caelestis control and surface. */
 export const SURFACE_RADIUS = 'calc(0.7rem + 1px)'
