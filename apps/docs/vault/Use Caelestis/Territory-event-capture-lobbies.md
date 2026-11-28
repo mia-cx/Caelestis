@@ -36,7 +36,7 @@ The host starts with the closing leg. Before the countdown, use **Give closing l
 ## Draft your line and paint at zero
 
 1. Choose **Show my line** on your row. Open the event's **Paint** panel. If your leg doesn't touch your territory, follow the caterpillar guide: draft a short chain from your territory, adding at the front and removing at the back until you reach your line.
-2. Draft the highlighted pixels, but don't submit yet. Your row counts pixels you've drafted **and** pixels your team already holds. When every wall leg is ready, the host can choose **Start countdown**. Guards and reserves don't hold up the start.
+2. Draft the highlighted pixels, but don't submit yet. Your row counts pixels you've drafted **and** pixels your team already holds. Each end of the wall starts 3 pixels inside your territory, so if an enemy cuts the border there, the painter at that end drafts those pixels back first. When every wall leg is ready, the host can choose **Start countdown**. Guards and reserves don't hold up the start.
 3. Listen for the opening beep, then the ticks at 5, 3, 2 and 1 seconds before **your** slot when time allows. Click **Paint** at the final tone, when your timer reaches zero. By default you submit by hand. **Paint at my capture slot** in [Dangerous settings](Settings-and-shortcuts#dangerous-settings) can click Paint for you; Wplace flags that click as `UntrustedPaintSubmit`.
 
 If you're an anchor guard, draft your marked zone and paint at the first step. After the wall's last slot, watch for **Anchor cut** and the three-tone alarm. Repaint your line to restore the connection.
