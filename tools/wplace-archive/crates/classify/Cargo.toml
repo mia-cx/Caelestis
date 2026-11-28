@@ -5,3 +5,4 @@ version.workspace = true
 license.workspace = true
 
 [dependencies]
+wpa-contracts.workspace = true
