@@ -29,13 +29,19 @@ export interface TerritoryAnswer {
   readonly result?: { readonly reason?: string }
 }
 
+/** A socket request Wplace's store sends; a paint batch carries its pixels as `[x, y]` pairs. */
+export interface TerritoryRequest {
+  readonly t?: unknown
+  readonly pixels?: unknown
+}
+
 /**
  * Wplace's territory store: the one object the event panel paints through. `paint` sends the draft
  * in batches, each one a `request`, and sums them, keeping only the last batch's reason.
  */
 export interface TerritoryStore {
   paint(pixels: unknown): Promise<TerritoryPaintResult>
-  request(message: { readonly t?: unknown }): Promise<TerritoryAnswer>
+  request(message: TerritoryRequest): Promise<TerritoryAnswer>
 }
 
 /** The reason Wplace leaves unreported: pixels the team already holds cost nothing. */
@@ -49,33 +55,58 @@ const REFUSAL_MESSAGES: Readonly<Record<string, WplaceLabel>> = {
   outside: 'territory_stay_in_arena',
 }
 
+const cell = (x: unknown, y: unknown): string => `${x},${y}`
+
+/** The cell a paint batch starts at: each batch is a slice of exactly one submission's pixels. */
+const batchCell = (message: TerritoryRequest): string | null => {
+  if (message.t !== 'paint' || !Array.isArray(message.pixels)) return null
+  const [first] = message.pixels as unknown[]
+  return Array.isArray(first) ? cell(first[0], first[1]) : null
+}
+
+/** The cells a submission paints, from the `{ x, y }` pixels Wplace's panel hands `paint`. */
+const submittedCells = (pixels: unknown): Set<string> =>
+  new Set(
+    (Array.isArray(pixels) ? (pixels as { x?: unknown; y?: unknown }[]) : []).map((pixel) =>
+      cell(pixel?.x, pixel?.y),
+    ),
+  )
+
+interface Submission {
+  readonly cells: ReadonlySet<string>
+  readonly refusals: string[]
+}
+
 /**
- * Make `store.paint` reject whenever any batch is refused for a reason other than own, so Wplace's
- * panel keeps the draft. The summed result alone can't tell: a later batch of owned pixels hides an
- * earlier refusal. Shadows the prototype methods on the instance, which is what Wplace calls.
+ * Make `store.paint` reject whenever any of its own batches is refused for a reason other than own,
+ * so Wplace's panel keeps the draft. The summed result alone can't tell: a later batch of owned
+ * pixels hides an earlier refusal. A painter can cancel a pending paint and submit another, so
+ * each batch's answer goes to the submission holding its pixels. Shadows the prototype methods on
+ * the instance, which is what Wplace calls.
  */
 export const keepRefusedDrafts = (store: TerritoryStore): void => {
   const paint = store.paint.bind(store)
   const request = store.request.bind(store)
-  // The refusals seen by each paint still in flight. A batch counts for every one of them, since
-  // the answers can't be told apart: overlapping paints keep a draft rather than lose one.
-  const inFlight = new Set<string[]>()
+  const pending = new Set<Submission>()
   store.request = async (message) => {
     const answer = await request(message)
-    const reason = message.t === 'paint' ? answer.result?.reason : undefined
-    if (reason && reason !== OWN) for (const refusals of inFlight) refusals.push(reason)
+    const reason = answer.result?.reason
+    const at = batchCell(message)
+    if (reason && reason !== OWN && at !== null)
+      for (const submission of pending)
+        if (submission.cells.has(at)) submission.refusals.push(reason)
     return answer
   }
   store.paint = async (pixels) => {
-    const refusals: string[] = []
-    inFlight.add(refusals)
+    const submission: Submission = { cells: submittedCells(pixels), refusals: [] }
+    pending.add(submission)
     try {
       const result = await paint(pixels)
-      const [reason] = refusals
+      const [reason] = submission.refusals
       if (reason === undefined) return result
       throw new Error(wplaceLabel(REFUSAL_MESSAGES[reason] ?? 'territory_not_adjacent'))
     } finally {
-      inFlight.delete(refusals)
+      pending.delete(submission)
     }
   }
 }
