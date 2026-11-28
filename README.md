@@ -16,7 +16,9 @@ Its web dashboard shows templates, contributions, and timelapses outside Wplace.
 
 ## Install
 
-In Firefox, add [Caelestis from Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/caelestis/). In Chrome or Edge, use a userscript manager and the [Caelestis userscript installer](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js).
+[![Get it for Firefox (add-on)](apps/docs/vault/images/install/banner-firefox.png)](https://addons.mozilla.org/en-US/firefox/addon/caelestis/) [![Get it for Chrome & Edge (userscript)](apps/docs/vault/images/install/banner-chrome-edge.png)](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js)
+
+In Chrome or Edge, install a userscript manager before opening the installer.
 
 Open Wplace and click the Caelestis moon. If you already use the userscript, leave it enabled when you install the extension so your settings transfer. Follow the [installation guide](https://docs.caelest.is/start-here/install/) or [place your first template](https://docs.caelest.is/start-here/getting-started/).
 

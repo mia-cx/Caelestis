@@ -7,9 +7,11 @@ aliases:
 
 Install Caelestis in the browser you use for Wplace. The extension and the userscript share the same interface at the same version.
 
+[![Get it for Firefox (add-on)](images/install/banner-firefox.png)](https://addons.mozilla.org/en-US/firefox/addon/caelestis/) [![Get it for Chrome & Edge (userscript)](images/install/banner-chrome-edge.png)](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js)
+
 ## Install the extension
 
-1. In Firefox, open [Caelestis on Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/caelestis/) and add the extension.
+1. Select the Firefox banner above and add the extension.
 2. Open or reload [Wplace](https://wplace.live). Click the Caelestis moon among the map controls.
 3. Follow [Getting started](Getting-started) to place your first template.
 
@@ -31,7 +33,7 @@ If both copies already have settings, open **Settings** on Wplace with both enab
 
 1. Install a userscript manager for your browser, such as [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/get-it/).
 2. On Chromium browsers, open the manager's extension details. Enable **Allow user scripts** if your browser offers it. See [Tampermonkey's browser instructions](https://www.tampermonkey.net/faq.php#Q209).
-3. Open the [Caelestis userscript installer](https://github.com/mia-cx/Caelestis/releases/latest/download/caelestis.user.js). Confirm **Install** in your manager.
+3. Open the Chrome & Edge banner above. Confirm **Install** in your manager.
 4. Open or reload Wplace and click the Caelestis moon.
 
 ![Allow user scripts in the browser's extension settings.](images/install/allow-user-scripts.png)
