@@ -5,7 +5,7 @@
  *
  * The userscript owns the lobbies and builds this model; the card renders it and emits intents.
  * One card serves both roles: an event runner also opens lobbies, edits their settings, orders
- * members, locks in a wall, starts and closes.
+ * members, gives the closing leg, locks in a wall, starts and closes.
  */
 
 export interface CaptureRunMember {
@@ -23,7 +23,7 @@ export interface CaptureRunMember {
   readonly guard: boolean
   /** A reserve: the wall was cut into fewer legs than painters, so they have none. */
   readonly reserve: boolean
-  /** The runner who opened the lobby: they keep the last painter's place and close the wall. */
+  /** The lobby's closer: they keep the last painter's place and close the wall. */
   readonly closes: boolean
 }
 
@@ -118,6 +118,8 @@ export type CaptureRunIntent =
   | { readonly type: 'leave' }
   /** Move a member one place earlier (-1) or later (1) in the order. */
   | { readonly type: 'move'; readonly id: string; readonly by: -1 | 1 }
+  /** Give a member the closing leg: they become the closer. */
+  | { readonly type: 'closer'; readonly id: string }
   /** Lock in a proposal's wall; `unlock` drops it and planning resumes. */
   | { readonly type: 'lock'; readonly id: string }
   | { readonly type: 'unlock' }

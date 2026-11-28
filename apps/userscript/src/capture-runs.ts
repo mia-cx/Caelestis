@@ -866,7 +866,10 @@ const lobbiesOf = (views: readonly Shown[]): CaptureRunModel['lobbies'] =>
     view.runs
       .filter((run) => run.startsAt === null)
       .map((run) => {
-        const owner = run.members[captureCoordinatorIndex(run)] ?? run.members[0]
+        const owner =
+          run.members.find(
+            ({ painter }) => painter.wplaceUserId === (run.opener ?? run.coordinator),
+          ) ?? run.members[0]
         return {
           id: run.id,
           name: owner?.painter.displayName ?? 'Lobby',
@@ -934,6 +937,9 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       break
     case 'move':
       sendCapture(server, { type: 'capture-move', member: intent.id, by: intent.by })
+      break
+    case 'closer':
+      sendCapture(server, { type: 'capture-closer', member: intent.id })
       break
     case 'lock': {
       const chosen = proposals.find(({ id }) => id === intent.id)

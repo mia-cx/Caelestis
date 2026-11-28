@@ -171,6 +171,7 @@
             {#if model.admin && gathering && !member.closes}
               {@const place = movable.indexOf(member)}
               <span class="order">
+                <Button label={`Give ${member.name} the closing leg`} title="Give closing leg" kind="ghost" size="compact" iconOnly onclick={() => onIntent({ type: 'closer', id: member.id })}><Icon name="flag" size="0.875rem" /></Button>
                 <Button label={`Move ${member.name} up`} kind="ghost" size="compact" iconOnly disabled={place === 0} onclick={() => onIntent({ type: 'move', id: member.id, by: -1 })}><Icon name="expandLess" size="0.875rem" /></Button>
                 <Button label={`Move ${member.name} down`} kind="ghost" size="compact" iconOnly disabled={place === movable.length - 1} onclick={() => onIntent({ type: 'move', id: member.id, by: 1 })}><Icon name="expandMore" size="0.875rem" /></Button>
               </span>

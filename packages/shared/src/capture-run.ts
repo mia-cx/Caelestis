@@ -14,8 +14,9 @@ import { isWorkIdentity } from './work.js'
  * cut into one leg per painting member, so every member, server and client, derives the same legs
  * from the lobby with `captureLines`. Painters go in pairs from the wall's two anchors: painter `i`
  * (from 0) paints leg `i` at `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which
- * each client estimates with `clock` round trips. The runner who opened the lobby always paints in
- * the last step while a member, so the closing leg, and the captured area, is theirs.
+ * each client estimates with `clock` round trips. The lobby's coordinator always paints in the last
+ * step while a member, so the closing leg, and the captured area, is theirs: the runner who opened
+ * it, until a runner in the lobby hands the closing leg to another member.
  *
  * The `distribution` decides how many legs the wall is cut into: one per painting member, or the
  * fewest that fit, with the painting members past them standing by as reserves.
@@ -73,8 +74,13 @@ export interface CaptureRun {
   /** The event team the lobby is for: its opener's. Only that team's sessions hear of it. */
   readonly team: TerritoryTeam
   /**
-   * The Wplace user who opened the lobby. While they are a member they paint the closing leg, so
-   * the captured area is attributed to them.
+   * The Wplace user who opened the lobby; the lobby list names it after them. Missing on a lobby
+   * opened before the server recorded it, which the list names after its closer instead.
+   */
+  readonly opener?: number
+  /**
+   * The Wplace user who closes the wall: while they are a member they paint the closing leg, so the
+   * captured area is attributed to them. The opener, until a runner gives the leg to someone else.
    */
   readonly coordinator: number | null
   /** The painters live planning sizes walls for, at `MAX_CAPTURE_LINE_PIXELS` each. */
@@ -133,6 +139,8 @@ export type CaptureClientEvent =
     }
   /** Move a member one place earlier (-1) or later (1); see `moveCaptureMember`. */
   | { readonly type: 'capture-move'; readonly member: string; readonly by: -1 | 1 }
+  /** Give a member the closing leg: they become the coordinator. */
+  | { readonly type: 'capture-closer'; readonly member: string }
   /** Lock in a planned wall, from anchor A to anchor B, and its guard zones. */
   | {
       readonly type: 'capture-lock'
@@ -325,6 +333,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
   const {
     id,
     team,
+    opener,
     coordinator,
     painters,
     guards,
@@ -339,6 +348,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
   if (
     typeof id !== 'string' ||
     !(team === 0 || team === 1 || team === 2 || team === 3) ||
+    !(opener === undefined || isSafeInteger(opener)) ||
     !(coordinator === null || isSafeInteger(coordinator)) ||
     !isSafeInteger(painters) ||
     !isSafeInteger(guards) ||
@@ -358,6 +368,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
   return {
     id,
     team,
+    ...(opener === undefined ? {} : { opener }),
     coordinator,
     painters,
     guards,

@@ -240,6 +240,7 @@ const CaptureSettings = {
 export const CaptureRun = Schema.Struct({
   id: Identifier,
   team: TerritoryTeam,
+  opener: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   coordinator: Schema.NullOr(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   ...CaptureSettings,
   members: boundedArray(
@@ -279,6 +280,7 @@ export const PresenceClientEvent = Schema.Union([
     member: PresenceSessionId,
     by: Schema.Literals([-1, 1]),
   }),
+  Schema.Struct({ type: Schema.Literal('capture-closer'), member: PresenceSessionId }),
   Schema.Struct({
     type: Schema.Literal('capture-lock'),
     wall: CaptureWall,
