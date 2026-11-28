@@ -1,5 +1,12 @@
 # @caelestis/userscript
 
+## 1.8.1
+
+### Patch Changes
+
+- 316b6ab: Opening a capture lobby recognises your Wplace team in every userscript manager.
+- f7bd875: Capture walls start 3 pixels inside your territory at each end, so a cut at the border is part of that painter's leg.
+
 ## 1.8.0
 
 ### Minor Changes

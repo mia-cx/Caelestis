@@ -1,5 +1,11 @@
 # @caelestis/backend
 
+## 1.7.1
+
+### Patch Changes
+
+- 4068793: A painter who reconnects keeps their place in a capture lobby, and joining again from a new tab never lists them twice.
+
 ## 1.7.0
 
 ### Minor Changes
