@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installKeyboardShortcuts } from '../src/keyboard-shortcuts.js'
+import { isOverlayPeekActive } from '../src/overlay-peek.js'
 import { setState } from '../src/settings.js'
+import { forwardEraserKey } from '../src/simulated-input.js'
 
 // Wplace's paint drawer: history controls, two world swatches, and its Paint button.
 const DRAWER = `
@@ -204,4 +206,19 @@ describe('shortcuts beside form controls', () => {
   it('stay out of the way while typing in a text field', () => {
     expect(pressPaintIn('<input type="text">')).toEqual([])
   })
+})
+
+it("keeps a held peek on while Erase taps Wplace's eraser on the same key", () => {
+  uninstall = installKeyboardShortcuts()
+  localStorage.setItem(
+    'wplace:controls:v1',
+    JSON.stringify({ bindings: { 'paint.eraser': ['Shift+G'] } }),
+  )
+  window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyG', key: 'g', bubbles: true }))
+  expect(isOverlayPeekActive()).toBe(true)
+  forwardEraserKey()
+  localStorage.clear()
+  expect(isOverlayPeekActive()).toBe(true)
+  window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyG', key: 'g', bubbles: true }))
+  expect(isOverlayPeekActive()).toBe(false)
 })

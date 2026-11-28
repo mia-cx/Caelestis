@@ -236,7 +236,8 @@ export const installKeyboardShortcuts = (
   }
 
   const onKeyup = (event: KeyboardEvent): void => {
-    if (!peeking) return
+    // A key Caelestis taps for Wplace, such as Erase's, never ends the painter's own hold.
+    if (!peeking || isForwardedEvent(event)) return
     if (!peekBindings.some((binding) => keyBindingReleasedBy(binding, event))) return
     claimShortcut(event)
     endPeek()
