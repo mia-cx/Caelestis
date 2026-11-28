@@ -1,5 +1,19 @@
 # @caelestis/userscript
 
+## 1.8.3
+
+### Patch Changes
+
+- db1828d: Only Lock in hands out capture legs, so a painter joining or leaving afterwards no longer re-cuts everyone's legs and wipes their drafts.
+- 96aebea: The Caelestis button on the map is now the moon logo, and the panel header groups its controls, with an outlined Settings button.
+- c3e2b67: The capture lobby card collapses to a bar that keeps the countdown, folds the host's settings, and fits a phone's touch targets.
+- 54d6ee3: Capture lobbies open for every painter on an event team, including painters in Wplace's top 10.
+- ad96fb5: Opening an invite link always shows whether it connected, even with action feedback off.
+- ad96fb5: An invite link replaces a saved server's rejected token instead of doing nothing.
+- 2daa15e: A territory event draft that Wplace refuses stays drafted, so clicking Paint again submits it.
+- ad60b6c: Caelestis connects to servers in Safari before 17.4.
+- 677e7b1: Capture slots and latency reports time territory event paints by their socket message and reply, instead of recording `no-request`.
+
 ## 1.8.2
 
 ### Patch Changes
