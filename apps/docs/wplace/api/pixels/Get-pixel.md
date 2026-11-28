@@ -60,6 +60,6 @@ Without `x` and `y`, the server answers for pixel (0, 0) of the tile. A season o
 
 The client always sends cookies, but the lookup works without them. [[Coordinates]] converts a latitude and longitude to the tile and pixel.
 
-Counts toward the API [[Rate-limits|rate limit]].
+Counts toward the API [[Rate-limits|rate limit]]. Over IPv6 it also has [its own limit](Rate-limits#ipv6) of 1 per second, shared by the whole `/64`.
 
 Related: [[Get-tile]], [[Pixel-info]], [[Update-privacy]], [[Error]].
