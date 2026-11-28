@@ -122,3 +122,27 @@ it('finds a top-10 painter in the leaderboard rows when Wplace leaves `me` empty
   const { readEventTeam } = await import('./event-team.js')
   expect(await readEventTeam()).toBe(3)
 })
+
+it('answers with a team the socket carried while a leaderboard lookup failed', async () => {
+  let fail = () => {}
+  const page = {
+    WebSocket: FakeSocket,
+    location: { href: 'https://wplace.live/' },
+    fetch: () =>
+      new Promise<Response>((resolve) => {
+        fail = () => resolve(new Response(null, { status: 503 }))
+      }),
+    AbortSignal,
+  }
+  vi.stubGlobal('unsafeWindow', page)
+  const { installEventTeam, readEventTeam } = await import('./event-team.js')
+  installEventTeam()
+  const lookup = readEventTeam()
+  new page.WebSocket('wss://backend.wplace.live/territory/ws').receive({
+    t: 'hello',
+    authed: true,
+    me: { team: 2 },
+  })
+  fail()
+  expect(await lookup).toBe(2)
+})

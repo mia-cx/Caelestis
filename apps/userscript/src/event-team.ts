@@ -65,6 +65,16 @@ const teamIn = (body: unknown): TerritoryTeam | null => {
  */
 export const readEventTeam = async (): Promise<TerritoryTeam | null> => {
   if (team !== null) return team
+  try {
+    return await askLeaderboard()
+  } catch (error) {
+    // The socket or Wplace's own reads may have carried the team while this lookup failed.
+    if (team !== null) return team
+    throw error
+  }
+}
+
+const askLeaderboard = async (): Promise<TerritoryTeam | null> => {
   // The signal comes from the page too: a page fetch can refuse one from another realm.
   const page = pageWindow()
   const response = await page.fetch(`${BACKEND_ORIGIN}${LEADERBOARD_PATH}`, {
@@ -146,7 +156,10 @@ const tapTerritorySocket = (realm: Window & typeof globalThis): void => {
   installValueHook(realm, 'WebSocket', tapped)
 }
 
-/** Follow Wplace's own territory socket and leaderboard reads for the team. Install once. */
+/**
+ * Follow Wplace's own territory socket and leaderboard reads for the team. Install once, with the
+ * page hooks, before Wplace opens its socket: one opened earlier is never observed.
+ */
 export const installEventTeam = (): void => {
   tapTerritorySocket(pageWindow())
   observePageRequests(leaderboardRoute)
