@@ -48,8 +48,12 @@ export const MIN_CAPTURE_STAGGER_MS = 100
 export const MAX_CAPTURE_STAGGER_MS = 2_000
 /** A run's stagger is a whole number of these. */
 export const CAPTURE_STAGGER_STEP_MS = 50
-/** Time from the start of the countdown to the first painter's slot: their ten-second countdown. */
+/** Default time from the start of the countdown to the first painter's slot. */
 export const CAPTURE_LEAD_MS = 10_000
+/** The shortest and longest lead a runner can set; a lead is a whole number of seconds. */
+export const MIN_CAPTURE_LEAD_MS = 3_000
+export const MAX_CAPTURE_LEAD_MS = 30_000
+export const CAPTURE_LEAD_STEP_MS = 1_000
 
 /**
  * How a locked wall is shared: `even` cuts one leg per painting member; `reserve` cuts the fewest
@@ -100,6 +104,11 @@ export interface CaptureRun {
   readonly startsAt: number | null
   readonly staggerMs: number
   /**
+   * Time from the start of the countdown to the first painter's slot. Missing on a lobby stored
+   * before runners could set it; `captureLead` reads it with the default.
+   */
+  readonly leadMs?: number
+  /**
    * Counts every re-cut of the members' legs. A draft report names the lobby and cut it measured,
    * so one sent before a re-cut, or from a lobby the painter has since left, never counts.
    */
@@ -109,10 +118,55 @@ export interface CaptureRun {
 /** A lobby's settings, as runners edit them until the countdown starts. */
 export interface CaptureSettings {
   readonly painters: number
+  /** The guards chosen; a lobby only uses as many as half its members. */
   readonly guards: number
   readonly staggerMs: number
+  readonly leadMs: number
   readonly distribution: CaptureDistribution
 }
+
+/** The settings a runner's first lobby opens with. */
+export const DEFAULT_CAPTURE_SETTINGS: CaptureSettings = {
+  painters: 3,
+  guards: 0,
+  staggerMs: CAPTURE_STAGGER_MS,
+  leadMs: CAPTURE_LEAD_MS,
+  distribution: 'even',
+}
+
+/** A whole number of `step`s from `min` to `max`, or `fallback` when `value` is not a number. */
+const stepped = (value: unknown, min: number, max: number, step: number, fallback: number) =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(max, Math.max(min, Math.round(value / step) * step))
+    : fallback
+
+/** Lobby settings read back from storage, each within its bounds; the default fills the rest. */
+export const normaliseCaptureSettings = (stored: unknown): CaptureSettings => {
+  const value = isRecord(stored) ? stored : {}
+  const fallback = DEFAULT_CAPTURE_SETTINGS
+  return {
+    painters: stepped(value.painters, 1, MAX_CAPTURE_PAINTERS, 1, fallback.painters),
+    guards: stepped(value.guards, 0, MAX_CAPTURE_PAINTERS, 1, fallback.guards),
+    staggerMs: stepped(
+      value.staggerMs,
+      MIN_CAPTURE_STAGGER_MS,
+      MAX_CAPTURE_STAGGER_MS,
+      CAPTURE_STAGGER_STEP_MS,
+      fallback.staggerMs,
+    ),
+    leadMs: stepped(
+      value.leadMs,
+      MIN_CAPTURE_LEAD_MS,
+      MAX_CAPTURE_LEAD_MS,
+      CAPTURE_LEAD_STEP_MS,
+      fallback.leadMs,
+    ),
+    distribution: value.distribution === 'reserve' ? 'reserve' : 'even',
+  }
+}
+
+/** A lobby's time from the start of the countdown to the first painter's slot. */
+export const captureLead = (run: CaptureRun): number => run.leadMs ?? CAPTURE_LEAD_MS
 
 /**
  * Capture events act on the lobbies of the team the session last reported in `presence-update`.
@@ -125,6 +179,8 @@ export type CaptureClientEvent =
       readonly type: 'capture-new'
       readonly painters: number
       readonly staggerMs: number
+      readonly guards?: number
+      readonly leadMs?: number
       readonly distribution?: CaptureDistribution
     }
   | { readonly type: 'capture-join'; readonly run: string }
@@ -135,6 +191,7 @@ export type CaptureClientEvent =
       readonly painters?: number
       readonly guards?: number
       readonly staggerMs?: number
+      readonly leadMs?: number
       readonly distribution?: CaptureDistribution
     }
   /** Move a member one place earlier (-1) or later (1); see `moveCaptureMember`. */
@@ -387,6 +444,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     guardZones,
     startsAt,
     staggerMs,
+    leadMs,
     cut,
   } = value
   if (
@@ -406,6 +464,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !guardZones.every((zone) => isLine(zone, MAX_CAPTURE_LINE_PIXELS)) ||
     !(startsAt === null || isSafeInteger(startsAt)) ||
     !isSafeInteger(staggerMs) ||
+    !(leadMs === undefined || isSafeInteger(leadMs)) ||
     !isSafeInteger(cut)
   )
     return null
@@ -422,6 +481,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     guardZones,
     startsAt,
     staggerMs,
+    ...(leadMs === undefined ? {} : { leadMs }),
     cut,
   }
 }

@@ -74,6 +74,8 @@ export interface CaptureRunModel {
   readonly distribution: 'even' | 'reserve'
   /** Time between countdown steps, within the shared capture stagger bounds. */
   readonly staggerMs: number
+  /** Time from Start countdown to the first painter's slot, within the shared lead bounds. */
+  readonly leadMs: number
   /**
    * For a guard once the countdown has started: whether their anchor still belongs to the team.
    * `cut` also plays an alarm; the guard repaints it from their zone.
@@ -111,6 +113,7 @@ export type CaptureRunIntent =
   | { readonly type: 'set-painters'; readonly painters: number }
   | { readonly type: 'set-guards'; readonly guards: number }
   | { readonly type: 'set-stagger'; readonly staggerMs: number }
+  | { readonly type: 'set-lead'; readonly leadMs: number }
   | { readonly type: 'set-distribution'; readonly distribution: 'even' | 'reserve' }
   /** Open a lobby and join it. */
   | { readonly type: 'open' }

@@ -1,15 +1,12 @@
 import plannerSource from 'worker:capture-planner'
 import {
-  CAPTURE_LEAD_MS,
-  CAPTURE_STAGGER_MS,
-  CAPTURE_STAGGER_STEP_MS,
-  type CaptureDistribution,
   type CaptureRun,
   type CaptureSettings,
   type CaptureTimingReport,
   captureCoordinatorIndex,
   captureEndsAt,
   captureGuardCount,
+  captureLead,
   captureLines,
   capturePainterCount,
   captureReady,
@@ -24,9 +21,7 @@ import {
   isEventServer,
   latLngToCanvasPixel,
   MAX_CAPTURE_PAINTERS,
-  MAX_CAPTURE_STAGGER_MS,
   MAX_CAPTURE_TIMING_MS,
-  MIN_CAPTURE_STAGGER_MS,
   maxCaptureGuards,
   PALETTE_RGB,
   type RegionShapePixels,
@@ -75,7 +70,7 @@ import {
 } from './presence-client.js'
 import { presenceCss } from './presence-colour.js'
 import { canRunServerCaptures } from './server-connections.js'
-import { getState, onStateChange } from './settings.js'
+import { getState, onStateChange, setState } from './settings.js'
 import { navigateTo } from './templates/navigate.js'
 import { applyWplaceTheme } from './ui/theme.js'
 import { accountIdentity } from './wplace-account.js'
@@ -126,10 +121,6 @@ interface Proposal extends PlannedProposal {
   readonly id: string
 }
 
-/** The settings the next lobby this runner opens starts with: the last they chose. */
-let painters = 3
-let staggerMs = CAPTURE_STAGGER_MS
-let distribution: CaptureDistribution = 'even'
 let proposals: readonly Proposal[] = []
 let message: string | undefined
 let element: CaelestisElement<'caelestis-capture-run'> | null = null
@@ -775,11 +766,13 @@ const stopPlanning = (): void => {
 
 /** Seconds before a slot that tick, after the cue that starts everyone's countdown. */
 const TICK_SECONDS = [5, 3, 2, 1] as const
+/** The least time between the opening cue and the first tick, so a short countdown never doubles a beep. */
+const CUE_GAP_MS = 1_000
 
 /**
- * One painter's beeps: when Go starts the first painter's ten-second countdown, then 5, 3, 2 and 1
- * seconds before their own slot, then the tone to paint. For the first painter the opening cue is
- * their 10.
+ * One painter's beeps: when Go starts the countdown, then 5, 3, 2 and 1 seconds before their own
+ * slot, then the tone to paint. A tick within a second of the opening cue is left out: with a
+ * three-second countdown, the first painter's opening cue is their 3.
  */
 const slotCues = (slot: number, go: number): CaptureCue[] => {
   const now = localClock()
@@ -791,7 +784,7 @@ const slotCues = (slot: number, go: number): CaptureCue[] => {
     ...TICK_SECONDS.map((seconds) => ({
       at: slot - seconds * 1_000,
       tone: 'tick' as const,
-    })).filter(({ at }) => at > go && at > now),
+    })).filter(({ at }) => at >= opening + CUE_GAP_MS),
     ...(slot > now ? [{ at: slot, tone: 'go' as const }] : []),
   ]
 }
@@ -852,8 +845,9 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
   if (slot === null || at === null) return
   disarm()
   armedSlot = key
-  const go = run.startsAt === null ? null : localTime(view, run.startsAt - CAPTURE_LEAD_MS)
-  const silenceCues = scheduleCaptureCues(slotCues(at, go ?? at - CAPTURE_LEAD_MS))
+  const lead = captureLead(run)
+  const go = run.startsAt === null ? null : localTime(view, run.startsAt - lead)
+  const silenceCues = scheduleCaptureCues(slotCues(at, go ?? at - lead))
   const fire = () => {
     while (localClock() < at) {
       // Spin out the last few milliseconds; the page is about to paint anyway.
@@ -932,15 +926,17 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   const slotAt = slot === null ? null : localTime(view, slot)
   const startAt = run?.startsAt == null ? null : localTime(view, run.startsAt)
   const closer = run === null ? -1 : captureCoordinatorIndex(run)
+  const saved = getState().captureSettings
   return {
     phase,
     admin,
-    painters: run?.painters ?? painters,
+    painters: run?.painters ?? saved.painters,
     maxPainters: MAX_CAPTURE_PAINTERS,
     guards: run === null ? 0 : captureGuardCount(run),
     maxGuards: run === null ? 0 : maxCaptureGuards(run),
-    staggerMs: run?.staggerMs ?? staggerMs,
-    distribution: run?.distribution ?? distribution,
+    staggerMs: run?.staggerMs ?? saved.staggerMs,
+    leadMs: run === null ? saved.leadMs : captureLead(run),
+    distribution: run?.distribution ?? saved.distribution,
     anchor:
       run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
         ? anchor
@@ -1014,25 +1010,20 @@ const handleIntent = (intent: CaptureRunIntent): void => {
   const { server, run } = view
   switch (intent.type) {
     case 'set-painters':
-      painters = Math.min(MAX_CAPTURE_PAINTERS, Math.max(1, Math.round(intent.painters)))
-      changeSettings(view, { painters })
+      changeSettings(view, { painters: intent.painters })
       break
     case 'set-guards':
-      changeSettings(view, { guards: Math.max(0, Math.round(intent.guards)) })
+      changeSettings(view, { guards: intent.guards })
       break
     case 'set-distribution':
-      distribution = intent.distribution
-      changeSettings(view, { distribution })
+      changeSettings(view, { distribution: intent.distribution })
       break
-    case 'set-stagger': {
-      const steps = Math.round(intent.staggerMs / CAPTURE_STAGGER_STEP_MS)
-      staggerMs = Math.min(
-        MAX_CAPTURE_STAGGER_MS,
-        Math.max(MIN_CAPTURE_STAGGER_MS, steps * CAPTURE_STAGGER_STEP_MS),
-      )
-      changeSettings(view, { staggerMs })
+    case 'set-stagger':
+      changeSettings(view, { staggerMs: intent.staggerMs })
       break
-    }
+    case 'set-lead':
+      changeSettings(view, { leadMs: intent.leadMs })
+      break
     case 'open': {
       // The lobby is for this runner's team.
       void refreshTeam()
@@ -1043,7 +1034,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
           if (team === null) message = 'Join a team in the event first.'
           else {
             primeCaptureAudio()
-            sendCapture(server, { type: 'capture-new', painters, staggerMs, distribution })
+            sendCapture(server, { type: 'capture-new', ...getState().captureSettings })
           }
         })
         .catch(() => {
@@ -1102,13 +1093,15 @@ const handleIntent = (intent: CaptureRunIntent): void => {
 }
 
 /**
- * Send a runner's change to one of their lobby's settings, and only that one. A change to the
- * planning size drops the proposals planned for the old one, which the lobby would refuse to lock
- * in.
+ * Send a runner's change to one of their lobby's settings, and only that one, and save it for the
+ * next lobby they open. Guards are saved as chosen; a lobby uses at most half its members. A
+ * change to the planning size drops the proposals planned for the old one, which the lobby would
+ * refuse to lock in.
  */
 const changeSettings = (view: Shown, change: Partial<CaptureSettings>): void => {
   if (view.run === null) return
   if (change.painters !== undefined || change.guards !== undefined) proposals = []
+  setState({ captureSettings: { ...getState().captureSettings, ...change } })
   sendCapture(view.server, { type: 'capture-settings', ...change })
 }
 
