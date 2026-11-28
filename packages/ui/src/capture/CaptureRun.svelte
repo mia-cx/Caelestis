@@ -95,7 +95,8 @@
   /** The bar's line under the title: open lobbies, or the lobby's size and, once locked, readiness. */
   const summary = $derived.by(() => {
     if (listing) return [model.lobbies.length === 0 ? 'None open' : `${model.lobbies.length} open`]
-    const size = painters(model.members.length)
+    // A place left empty is nobody in the lobby.
+    const size = painters(model.members.filter((member) => !member.vacant).length)
     // The legs Start countdown waits on: guards and reserves don't hold it.
     const legs = model.members.filter((member) => member.length > 0 && !member.guard)
     if (!gathering || legs.length === 0) return [size]

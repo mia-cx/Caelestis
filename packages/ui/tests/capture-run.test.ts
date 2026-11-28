@@ -348,6 +348,8 @@ describe('whoever runs a lobby', () => {
     expect(rows[0]?.textContent).toContain('Left')
     expect(rows[0]?.textContent).not.toContain('0/40')
     expect(rows[2]?.textContent).toContain('Waiting')
+    // The bar counts who is in the lobby: the empty place is nobody.
+    expect(card.querySelector('h2 button')?.textContent).toContain('2 painters')
     for (const name of ['Ada', 'Wren']) {
       expect(button(card, `Give ${name} the closing leg`)).toBeNull()
       expect(button(card, `Move ${name} up`)).toBeNull()
