@@ -73,8 +73,11 @@ export interface CaptureRun {
   readonly id: string
   /** The event team the lobby is for: its opener's. Only that team's sessions hear of it. */
   readonly team: TerritoryTeam
-  /** The Wplace user who opened the lobby; the lobby list names it after them. */
-  readonly opener: number
+  /**
+   * The Wplace user who opened the lobby; the lobby list names it after them. Missing on a lobby
+   * opened before the server recorded it, which the list names after its closer instead.
+   */
+  readonly opener?: number
   /**
    * The Wplace user who closes the wall: while they are a member they paint the closing leg, so the
    * captured area is attributed to them. The opener, until a runner gives the leg to someone else.
@@ -345,7 +348,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
   if (
     typeof id !== 'string' ||
     !(team === 0 || team === 1 || team === 2 || team === 3) ||
-    !isSafeInteger(opener) ||
+    !(opener === undefined || isSafeInteger(opener)) ||
     !(coordinator === null || isSafeInteger(coordinator)) ||
     !isSafeInteger(painters) ||
     !isSafeInteger(guards) ||
@@ -365,7 +368,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
   return {
     id,
     team,
-    opener,
+    ...(opener === undefined ? {} : { opener }),
     coordinator,
     painters,
     guards,

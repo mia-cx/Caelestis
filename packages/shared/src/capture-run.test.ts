@@ -7,6 +7,7 @@ import {
   capturePaintersDrafted,
   captureShortfall,
   captureSlot,
+  decodeCaptureRun,
   isCaptureReserve,
   MAX_CAPTURE_LINE_PIXELS,
   MAX_CAPTURE_PAINTERS,
@@ -135,4 +136,10 @@ it('fits the largest lock-in in one presence message', () => {
     guardZones: Array.from({ length: MAX_CAPTURE_PAINTERS }, () => line(MAX_CAPTURE_LINE_PIXELS)),
   })
   expect(lockIn.length).toBeLessThanOrEqual(MAX_PRESENCE_MESSAGE_CODE_UNITS)
+})
+
+it('decodes a lobby stored before its opener was recorded', () => {
+  // Backend 1.5.0 stored lobbies without `opener`; one still open after an upgrade must decode.
+  const { opener: _, ...stored } = lobby(40, [0, 0])
+  expect(decodeCaptureRun(JSON.parse(JSON.stringify(stored)))).toEqual(stored)
 })

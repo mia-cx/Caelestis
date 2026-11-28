@@ -867,7 +867,9 @@ const lobbiesOf = (views: readonly Shown[]): CaptureRunModel['lobbies'] =>
       .filter((run) => run.startsAt === null)
       .map((run) => {
         const owner =
-          run.members.find(({ painter }) => painter.wplaceUserId === run.opener) ?? run.members[0]
+          run.members.find(
+            ({ painter }) => painter.wplaceUserId === (run.opener ?? run.coordinator),
+          ) ?? run.members[0]
         return {
           id: run.id,
           name: owner?.painter.displayName ?? 'Lobby',

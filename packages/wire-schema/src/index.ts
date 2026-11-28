@@ -240,7 +240,7 @@ const CaptureSettings = {
 export const CaptureRun = Schema.Struct({
   id: Identifier,
   team: TerritoryTeam,
-  opener: integerBetween(0, Number.MAX_SAFE_INTEGER),
+  opener: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   coordinator: Schema.NullOr(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   ...CaptureSettings,
   members: boundedArray(
