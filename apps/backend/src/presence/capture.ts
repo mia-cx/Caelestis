@@ -304,58 +304,77 @@ const pinCoordinator = (run: CaptureRun): CaptureRun => {
   return { ...run, members: [...others.slice(0, last), coordinator, ...others.slice(last)] }
 }
 
-/**
- * The log line for each lobby that started its countdown between `before` and `after`: its
- * members in paint order with their step, so slot reports can be read against it. Guards paint at
- * the first step; reserves have none.
- */
-export const captureStartLogs = (
+/** The lobbies that started their countdown between `before` and `after`. */
+export const newlyStarted = (
   before: readonly CaptureRun[],
   after: readonly CaptureRun[],
-): object[] =>
-  after
-    .filter(
-      (run) => run.startsAt !== null && before.find(({ id }) => id === run.id)?.startsAt === null,
-    )
-    .map((run) => ({
-      event: 'capture-countdown',
-      lobby: run.id,
-      team: run.team,
-      startsAt: run.startsAt,
-      staggerMs: run.staggerMs,
-      members: run.members.map(({ painter }, index) => ({
-        name: painter.displayName,
-        userId: painter.wplaceUserId,
-        role: isCaptureGuard(run, index)
-          ? 'guard'
-          : isCaptureReserve(run, index)
-            ? 'reserve'
-            : 'painter',
-        step: isCaptureReserve(run, index) ? null : captureStep(run, index),
-      })),
-    }))
+): readonly CaptureRun[] =>
+  after.filter(
+    (run) => run.startsAt !== null && before.find(({ id }) => id === run.id)?.startsAt === null,
+  )
 
 /**
- * The log line for a member's slot report, or null when its lobby is open but the session is not
- * in it or the slot is not theirs. A report for a lobby that has since closed, as when a runner
- * closes it while a painter still waits on Wplace, is logged with `closed` and no step.
+ * The log line for a lobby starting its countdown: its members in paint order with their step, so
+ * slot reports can be read against it. Guards paint at the first step; reserves have none.
+ */
+export const captureStartLog = (run: CaptureRun): object => ({
+  event: 'capture-countdown',
+  lobby: run.id,
+  team: run.team,
+  startsAt: run.startsAt,
+  staggerMs: run.staggerMs,
+  members: run.members.map(({ painter }, index) => ({
+    name: painter.displayName,
+    userId: painter.wplaceUserId,
+    role: isCaptureGuard(run, index)
+      ? 'guard'
+      : isCaptureReserve(run, index)
+        ? 'reserve'
+        : 'painter',
+    step: isCaptureReserve(run, index) ? null : captureStep(run, index),
+  })),
+})
+
+/** A member's slot in a started lobby, fixed when its countdown started. */
+export interface CaptureAssignment {
+  readonly lobby: string
+  readonly team: TerritoryTeam
+  readonly slotAt: number
+  readonly step: number
+}
+
+/** Each member's slot in a started lobby, by session; reserves have none. */
+export const captureAssignments = (run: CaptureRun): ReadonlyMap<string, CaptureAssignment> =>
+  new Map(
+    run.members.flatMap(({ sessionId }, index) => {
+      const slotAt = captureSlot(run, index)
+      return slotAt === null
+        ? []
+        : [[sessionId, { lobby: run.id, team: run.team, slotAt, step: captureStep(run, index) }]]
+    }),
+  )
+
+/**
+ * The log line for a member's slot report, or null unless it matches the slot the server assigned
+ * that session when the countdown started. A report that lands after its lobby closed, as when a
+ * runner closes it while a painter still waits on Wplace, is logged with `closed`.
  */
 export const captureSlotLog = (
-  runs: readonly CaptureRun[],
   report: CaptureTimingReport,
-  actor: Pick<CaptureActor, 'sessionId' | 'painter' | 'team'>,
+  assigned: CaptureAssignment | undefined,
+  painter: PainterIdentity,
+  closed: boolean,
 ): object | null => {
-  const run = runs.find(({ id }) => id === report.run)
-  const index = run?.members.findIndex((member) => member.sessionId === actor.sessionId) ?? -1
-  if (run !== undefined && (index < 0 || captureSlot(run, index) !== report.slotAt)) return null
+  if (assigned === undefined || assigned.lobby !== report.run || assigned.slotAt !== report.slotAt)
+    return null
   return {
     event: 'capture-slot',
-    lobby: report.run,
-    team: actor.team,
-    name: actor.painter.displayName,
-    userId: actor.painter.wplaceUserId,
-    step: run === undefined ? null : captureStep(run, index),
-    ...(run === undefined ? { closed: true } : {}),
+    lobby: assigned.lobby,
+    team: assigned.team,
+    name: painter.displayName,
+    userId: painter.wplaceUserId,
+    step: assigned.step,
+    ...(closed ? { closed: true } : {}),
     slotAt: report.slotAt,
     firedLateMs: report.firedLateMs,
     clickToSendMs: report.clickToSendMs,

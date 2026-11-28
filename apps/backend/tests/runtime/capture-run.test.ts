@@ -512,11 +512,14 @@ it('logs a countdown as it starts, and each slot report from a member of it', as
   await new Promise((resolve) => setTimeout(resolve, 1_100))
   runner.send({ type: 'capture-close' })
   await vi.waitFor(() => expect(runner.runs()).toEqual([]))
+  // Reports for a slot it was never given, in that lobby or one that never existed, are not.
+  runner.send({ ...report, slotAt: run.startsAt + SETTINGS.staggerMs })
+  runner.send({ ...report, run: uuidV7() })
   runner.send({ ...report, status: 'missed', clickToSendMs: null, sendToResponseMs: null })
   await vi.waitFor(() => expect(lines('capture-slot')).toHaveLength(2))
   expect(lines('capture-slot')[1]).toMatchObject({
     lobby: run.id,
-    step: null,
+    step: 0,
     closed: true,
     status: 'missed',
   })
