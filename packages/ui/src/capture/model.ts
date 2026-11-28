@@ -21,6 +21,8 @@ export interface CaptureRunMember {
   readonly me: boolean
   /** An anchor guard: thickens one end of the wall at the start, then holds it. */
   readonly guard: boolean
+  /** A reserve: the wall was cut into fewer legs than painters, so they have none. */
+  readonly reserve: boolean
   /** The runner who opened the lobby: they keep the last painter's place and close the wall. */
   readonly closes: boolean
 }
@@ -65,9 +67,11 @@ export interface CaptureRunModel {
   /** The painters the lobby plans for, within 1 to `maxPainters`. */
   readonly painters: number
   readonly maxPainters: number
-  /** Anchor guards on top of the painters, likewise. */
+  /** Anchor guards, from 0 to `maxGuards`: half the lobby, rounded down. */
   readonly guards: number
   readonly maxGuards: number
+  /** How the wall is shared: a leg per painter, or the fewest legs with the rest in reserve. */
+  readonly distribution: 'even' | 'reserve'
   /** Time between countdown steps, within the shared capture stagger bounds. */
   readonly staggerMs: number
   /**
@@ -77,8 +81,8 @@ export interface CaptureRunModel {
   readonly anchor: 'intact' | 'cut' | null
   /** In paint order. */
   readonly members: readonly CaptureRunMember[]
-  /** This painter's part in the lobby: building the wall in turn, or guarding an anchor. */
-  readonly role: 'painter' | 'guard' | null
+  /** This painter's part in the lobby: building the wall in turn, guarding an anchor, or neither. */
+  readonly role: 'painter' | 'guard' | 'reserve' | null
   /** Runners only: walls planned live from the map, best first, until one is locked in. */
   readonly proposals: readonly CaptureProposal[]
   /** A wall is locked in and cut into legs. */
@@ -107,6 +111,7 @@ export type CaptureRunIntent =
   | { readonly type: 'set-painters'; readonly painters: number }
   | { readonly type: 'set-guards'; readonly guards: number }
   | { readonly type: 'set-stagger'; readonly staggerMs: number }
+  | { readonly type: 'set-distribution'; readonly distribution: 'even' | 'reserve' }
   /** Open a lobby and join it. */
   | { readonly type: 'open' }
   | { readonly type: 'join'; readonly id: string }

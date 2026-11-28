@@ -3,10 +3,12 @@ import {
   CAPTURE_LEAD_MS,
   CAPTURE_STAGGER_MS,
   CAPTURE_STAGGER_STEP_MS,
+  type CaptureDistribution,
   type CaptureRun,
   type CaptureSettings,
   captureCoordinatorIndex,
   captureEndsAt,
+  captureGuardCount,
   captureLines,
   capturePainterCount,
   captureReady,
@@ -17,12 +19,13 @@ import {
   decodePng,
   GUARD_MARGIN,
   isCaptureGuard,
+  isCaptureReserve,
   isEventServer,
   latLngToCanvasPixel,
-  MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_PAINTERS,
   MAX_CAPTURE_STAGGER_MS,
   MIN_CAPTURE_STAGGER_MS,
+  maxCaptureGuards,
   PALETTE_RGB,
   type RegionShapePixels,
   TERRITORY_ARENA,
@@ -115,8 +118,8 @@ interface Proposal extends PlannedProposal {
 
 /** The settings the next lobby this runner opens starts with: the last they chose. */
 let painters = 3
-let guards = MAX_CAPTURE_GUARDS
 let staggerMs = CAPTURE_STAGGER_MS
+let distribution: CaptureDistribution = 'even'
 let proposals: readonly Proposal[] = []
 let message: string | undefined
 let element: CaelestisElement<'caelestis-capture-run'> | null = null
@@ -795,9 +798,10 @@ const model = (view: Shown | null): CaptureRunModel | null => {
     admin,
     painters: run?.painters ?? painters,
     maxPainters: MAX_CAPTURE_PAINTERS,
-    guards: run?.guards ?? guards,
-    maxGuards: MAX_CAPTURE_GUARDS,
+    guards: run === null ? 0 : captureGuardCount(run),
+    maxGuards: run === null ? 0 : maxCaptureGuards(run),
     staggerMs: run?.staggerMs ?? staggerMs,
+    distribution: run?.distribution ?? distribution,
     anchor:
       run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
         ? anchor
@@ -811,9 +815,17 @@ const model = (view: Shown | null): CaptureRunModel | null => {
       length: (lines[index]?.length ?? 0) / 2,
       me: index === mine,
       guard: run !== null && isCaptureGuard(run, index),
+      reserve: run !== null && isCaptureReserve(run, index),
       closes: index === closer,
     })),
-    role: run === null || mine < 0 ? null : isCaptureGuard(run, mine) ? 'guard' : 'painter',
+    role:
+      run === null || mine < 0
+        ? null
+        : isCaptureGuard(run, mine)
+          ? 'guard'
+          : isCaptureReserve(run, mine)
+            ? 'reserve'
+            : 'painter',
     proposals:
       run === null || run.wall !== null || proposalsRun !== run.id
         ? []
@@ -864,8 +876,11 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       changeSettings(view, { painters })
       break
     case 'set-guards':
-      guards = Math.min(MAX_CAPTURE_GUARDS, Math.max(0, Math.round(intent.guards)))
-      changeSettings(view, { guards })
+      changeSettings(view, { guards: Math.max(0, Math.round(intent.guards)) })
+      break
+    case 'set-distribution':
+      distribution = intent.distribution
+      changeSettings(view, { distribution })
       break
     case 'set-stagger': {
       const steps = Math.round(intent.staggerMs / CAPTURE_STAGGER_STEP_MS)
@@ -886,7 +901,7 @@ const handleIntent = (intent: CaptureRunIntent): void => {
           if (team === null) message = 'Join a team in the event first.'
           else {
             primeCaptureAudio()
-            sendCapture(server, { type: 'capture-new', painters, guards, staggerMs })
+            sendCapture(server, { type: 'capture-new', painters, staggerMs, distribution })
           }
         })
         .catch(() => {

@@ -115,7 +115,7 @@ replay.peers = tick => raid.peers === 10 && !raid.drafts
  : Array.from({length:raid.peers},(_,i) => ({sessionId:'raid-peer-'+i,publisherId:'01950000-0000-7000-8000-'+String(i).padStart(12,'0'),painter:{wplaceUserId:910000+i,displayName:'Peer '+i},viewport:{x:325340+(i%8)*12+tick%8,y:1781995+Math.floor(i/8)*10,w:90,h:70},draft:raid.drafts?replay.draft(i,tick):null}));
 // A gathering capture lobby of 16 painters and 2 guards with a 960-pixel wall locked in; this tab
 // paints leg 0, and every member's drafted count moves once a second, as the server reports it.
-replay.capture = tick => ({type:'capture-runs',runs:[{id:'raid-run',team:0,coordinator:null,painters:16,guards:2,startsAt:null,staggerMs:500,
+replay.capture = tick => ({type:'capture-runs',runs:[{id:'raid-run',team:0,coordinator:null,painters:16,guards:2,distribution:'even',startsAt:null,staggerMs:500,cut:0,
  members:Array.from({length:18},(_,j)=>({sessionId:j===0?'raid-self':'raid-member-'+j,painter:{wplaceUserId:920000+j,displayName:'Member '+j},drafted:j===0?0:Math.min(60,(replay.revision(tick)+j)%61)})),
  wall:Array.from({length:960},(_,k)=>[325360+k,1782000]).flat(),
  guardZones:[0,1].map(g=>Array.from({length:15},(_,k)=>[325360+g*959,1782001+k]).flat())}]});

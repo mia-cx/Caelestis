@@ -117,6 +117,7 @@ it('sends the lobbies of the team a session switched to, never a late read of th
       coordinator: null,
       painters: 1,
       guards: 0,
+      distribution: 'even',
       members: [],
       wall: null,
       guardZones: [],
@@ -142,7 +143,7 @@ it('never sends a team’s changed lobbies to a session that left that team duri
     send({ type: 'presence-update', team: GREEN })
     await vi.waitFor(() => expect(lobbies()).toHaveLength(1))
     // Opening a Green lobby stalls in its write; the session then reports Orange.
-    send({ type: 'capture-new', painters: 1, guards: 0, staggerMs: 500 })
+    send({ type: 'capture-new', painters: 1, staggerMs: 500 })
     await vi.waitFor(() => expect(storage.held).toBe(true))
     send({ type: 'presence-update', team: ORANGE })
     await vi.waitFor(() => expect(lobbies()).toHaveLength(2))

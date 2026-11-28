@@ -84,7 +84,7 @@ describe('wire schema public contracts', () => {
       quickClaims: [{ x: 0, y: 0, w: 2_001, h: 2_000 }],
     })
     // A stagger runs from 100 ms, as tight as painters clicking by hand can time it, in 50 ms steps.
-    const open = { type: 'capture-new', painters: 3, guards: 0 }
+    const open = { type: 'capture-new', painters: 3 }
     for (const staggerMs of [100, 750, 2_000])
       expect(decode(PresenceClientEvent, { ...open, staggerMs })).toEqual({ ...open, staggerMs })
     for (const staggerMs of [50, 525, 2_050]) invalid(PresenceClientEvent, { ...open, staggerMs })

@@ -116,7 +116,10 @@ export interface CapturePlan {
   readonly lines: readonly (readonly ArenaPixel[])[]
   /** The wall's pixels still to paint, from anchor A to anchor B: what `pairLines` splits. */
   readonly wall: readonly ArenaPixel[]
-  /** Per guard, the team's own cells just past an anchor: free to draft, and what they repair. */
+  /**
+   * Per guard, the team's own cells just past an anchor: free to draft, and what they repair.
+   * Guards alternate between anchors A and B, and no two zones share a cell.
+   */
   readonly guardZones: readonly (readonly ArenaPixel[])[]
 }
 
@@ -126,7 +129,7 @@ export interface CaptureRequest {
   readonly team: TerritoryTeam
   /** Painters who build the wall; guards are counted separately. */
   readonly painters: number
-  /** Anchor guards, 0 to 2. */
+  /** Anchor guards, alternating between the wall's two anchors; one holds both. */
   readonly guards: number
   /** Pixels each painter places, at most `TERRITORY_CHARGES`. */
   readonly charges: number
@@ -301,7 +304,8 @@ const CHAMFER = 24
 const CHAMFER_CUT = (CHAMFER * (CHAMFER + 1)) / 2
 /**
  * Cells in a guard's zone: from the team's cell beside the first pixel its painter places, along
- * the team's own border, or along the territory that an empty leg's far side meets.
+ * the team's own border, or along the territory that an empty leg's far side meets. Each further
+ * guard at the same anchor takes the next cells along.
  */
 export const GUARD_MARGIN = 15
 /** Proposals returned: the best few distinct walls. */
@@ -762,28 +766,46 @@ export const borderBoxPlanner: CapturePlanner = ({
     const { border, cell } = front
     // The border along the first lines from the anchor; past an empty leg, the territory the far
     // side meets, deeper along that line.
-    const along = (end: number, inward: number) =>
+    const along = (end: number, inward: number, cells: number) =>
       far >= (border[end] as number)
-        ? Array.from({ length: Math.min(GUARD_MARGIN, map.size - far) }, (_, k) =>
+        ? Array.from({ length: Math.min(cells, map.size - far) }, (_, k) =>
             cell(end, far + k),
           ).filter((pixel) => owns(map, team, pixel))
-        : Array.from({ length: Math.min(GUARD_MARGIN, to - from + 1) }, (_, k) => {
+        : Array.from({ length: Math.min(cells, to - from + 1) }, (_, k) => {
             const line = end + inward * k
             return cell(line, border[line] as number)
           })
+    // A guard's cells are never another's: anchor B's zones skip what anchor A's took.
+    const taken = new Set<number>()
     // Where the wall's end crosses the team's cells, the painter starts past them: the zone starts
-    // on the owned cell beside that first pixel and runs back over them to the end.
-    const zone = (end: readonly ArenaPixel[], inward: number) => {
+    // on the owned cell beside that first pixel and runs back over them to the end. `held` guards
+    // share the anchor, nearest first, `GUARD_MARGIN` cells each.
+    const zones = (end: readonly ArenaPixel[], inward: number, held: number) => {
+      const cells = GUARD_MARGIN * held
       const first = end.findIndex((pixel) => !owns(map, team, pixel))
       const crossed = end.slice(0, Math.max(0, first)).reverse()
-      const seen = new Set(crossed.map(({ x, y }) => y * map.size + x))
-      const rest = along(inward > 0 ? from : to, inward).filter(
-        ({ x, y }) => !seen.has(y * map.size + x),
+      const strip: ArenaPixel[] = []
+      for (const pixel of [...crossed, ...along(inward > 0 ? from : to, inward, cells)]) {
+        if (strip.length === cells) break
+        const key = pixel.y * map.size + pixel.x
+        if (taken.has(key)) continue
+        taken.add(key)
+        strip.push(pixel)
+      }
+      return Array.from({ length: held }, (_, k) =>
+        strip.slice(
+          Math.floor((k * strip.length) / held),
+          Math.floor(((k + 1) * strip.length) / held),
+        ),
       )
-      return [...crossed, ...rest].slice(0, GUARD_MARGIN)
     }
-    const zones = [zone(wall, 1), zone([...wall].reverse(), -1)]
-    const guardZones = guards === 0 ? [] : guards === 1 ? [zones.flat()] : zones
+    const atA = zones(wall, 1, Math.max(1, Math.ceil(guards / 2)))
+    const atB = zones([...wall].reverse(), -1, Math.max(1, Math.floor(guards / 2)))
+    // Guards alternate A, B, A, B; a lone guard holds both anchors.
+    const guardZones =
+      guards === 1
+        ? [[...(atA[0] ?? []), ...(atB[0] ?? [])]]
+        : Array.from({ length: guards }, (_, k) => (k % 2 === 0 ? atA : atB)[k >> 1] ?? [])
     const open = unpainted(wall)
     return { lines: pairLines(open, painters, charges), wall: open, guardZones }
   })

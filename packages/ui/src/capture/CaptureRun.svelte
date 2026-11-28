@@ -7,6 +7,12 @@
   let { model, onIntent }: { model: CaptureRunModel; onIntent: (intent: CaptureRunIntent) => void } =
     $props()
 
+  /** A leg for every painter, or the fewest legs with the other painters in reserve. */
+  const DISTRIBUTIONS = [
+    { id: 'even', label: 'Even' },
+    { id: 'reserve', label: 'Reserve' },
+  ] as const
+
   /** Whole seconds left at which the countdown is announced; it stays silent in between. */
   const ANNOUNCED_SECONDS = [1, 2, 3, 5, 10] as const
 
@@ -110,6 +116,12 @@
           <output class="caelestis-field">{model.guards}</output>
           <Button label="More guards" kind="ghost" size="small" iconOnly disabled={model.guards >= model.maxGuards} onclick={() => onIntent({ type: 'set-guards', guards: model.guards + 1 })}><Icon name="add" /></Button>
         </div>
+        <span class="label" id="capture-run-distribution">Legs</span>
+        <div class="choices" role="group" aria-labelledby="capture-run-distribution">
+          {#each DISTRIBUTIONS as option (option.id)}
+            <Button label={option.label} size="small" pressed={model.distribution === option.id} onclick={() => onIntent({ type: 'set-distribution', distribution: option.id })} />
+          {/each}
+        </div>
         <span class="label" id="capture-run-stagger">Stagger</span>
         <div class="stepper" role="group" aria-labelledby="capture-run-stagger">
           <Button label="Shorter stagger" kind="ghost" size="small" iconOnly disabled={model.staggerMs <= MIN_CAPTURE_STAGGER_MS} onclick={() => onIntent({ type: 'set-stagger', staggerMs: model.staggerMs - CAPTURE_STAGGER_STEP_MS })}><Icon name="remove" /></Button>
@@ -147,7 +159,7 @@
             <span class="swatch" style:background-color={member.colour} aria-hidden="true"></span>
             <span class="who">
               <span class="name" title={member.name}>{member.name}{#if member.me}<span class="you">· You</span>{/if}</span>
-              {#if member.closes}<span class="closes">Closes wall</span>{/if}
+              {#if member.closes}<span class="closes">Closes wall</span>{:else if member.reserve}<span class="closes">Reserve</span>{/if}
             </span>
             {#if member.length > 0}
               <span class="ready" class:done={ready} aria-label={`${member.drafted} of ${member.length} pixels drafted`}>{#if ready}<Icon name="check" size="0.875rem" />{/if}{member.drafted}/{member.length}</span>
@@ -168,7 +180,7 @@
       </ol>
     {/if}
 
-    {#if model.role !== null && gathering && model.locked}
+    {#if (model.role === 'painter' || model.role === 'guard') && gathering && model.locked}
       <ol class="steps" aria-label="What to do">
         <li>Make your way over to your leg by drawing like a caterpillar</li>
         <li>Wait for the countdown</li>
@@ -262,6 +274,7 @@
   }
   .settings .stepper output.wide { inline-size: 4.5rem; }
   .stepper { display: flex; flex: 1; align-items: center; gap: 0.125rem; }
+  .choices { display: flex; flex: 1; gap: 0.125rem; }
   .stepper input {
     inline-size: 3rem;
     block-size: 2rem;

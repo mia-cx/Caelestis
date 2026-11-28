@@ -166,13 +166,13 @@ export const caterpillarFrames = (path: readonly Pixel[], line: readonly Pixel[]
 
 /**
  * The wall cells nearest each anchor a guard holds, anchor first: from either end of the locked
- * wall. One guard holds both anchors; with two, the first holds A and the second B.
+ * wall. One guard holds both anchors; with more, they alternate A, B, A, B.
  */
 const heldEnds = (run: CaptureRun, index: number, depth: number): Pixel[][] => {
   const wall = linePixels(run.wall ?? [])
   const ends = [wall.slice(0, depth), wall.slice(-depth).reverse()].filter((end) => end.length > 0)
   const guard = index - capturePainterCount(run)
-  return run.guards === 1 ? ends : ends.slice(guard, guard + 1)
+  return run.guards === 1 ? ends : ends.slice(guard % 2, (guard % 2) + 1)
 }
 
 /** A dashed box around each anchor a guard holds, wide enough for their zone on either side. */

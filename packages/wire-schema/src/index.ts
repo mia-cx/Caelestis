@@ -6,7 +6,6 @@ import {
   isRegionDocument,
   isRegionItem,
   isRegionShape,
-  MAX_CAPTURE_GUARDS,
   MAX_CAPTURE_LINE_PIXELS,
   MAX_CAPTURE_MEMBERS,
   MAX_CAPTURE_PAINTERS,
@@ -219,7 +218,7 @@ const captureLine = (pixels: number) =>
   )
 const CaptureLine = captureLine(MAX_CAPTURE_LINE_PIXELS)
 const CaptureWall = captureLine(MAX_CAPTURE_WALL_PIXELS)
-const CaptureGuardZones = boundedArray(CaptureLine, MAX_CAPTURE_GUARDS)
+const CaptureGuardZones = boundedArray(CaptureLine, MAX_CAPTURE_PAINTERS)
 const Epoch = integerBetween(0, Number.MAX_SAFE_INTEGER)
 
 const TerritoryTeam = Schema.Literals([0, 1, 2, 3])
@@ -233,8 +232,9 @@ const CaptureStagger = integerBetween(MIN_CAPTURE_STAGGER_MS, MAX_CAPTURE_STAGGE
 
 const CaptureSettings = {
   painters: integerBetween(1, MAX_CAPTURE_PAINTERS),
-  guards: integerBetween(0, MAX_CAPTURE_GUARDS),
+  guards: integerBetween(0, MAX_CAPTURE_PAINTERS),
   staggerMs: CaptureStagger,
+  distribution: Schema.Literals(['even', 'reserve']),
 }
 
 export const CaptureRun = Schema.Struct({
@@ -259,7 +259,12 @@ export const CaptureRun = Schema.Struct({
 
 export const PresenceClientEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal('presence-heartbeat') }),
-  Schema.Struct({ type: Schema.Literal('capture-new'), ...CaptureSettings }),
+  Schema.Struct({
+    type: Schema.Literal('capture-new'),
+    painters: CaptureSettings.painters,
+    staggerMs: CaptureSettings.staggerMs,
+    distribution: Schema.optionalKey(CaptureSettings.distribution),
+  }),
   Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
   Schema.Struct({
@@ -267,6 +272,7 @@ export const PresenceClientEvent = Schema.Union([
     painters: Schema.optionalKey(CaptureSettings.painters),
     guards: Schema.optionalKey(CaptureSettings.guards),
     staggerMs: Schema.optionalKey(CaptureSettings.staggerMs),
+    distribution: Schema.optionalKey(CaptureSettings.distribution),
   }),
   Schema.Struct({
     type: Schema.Literal('capture-move'),

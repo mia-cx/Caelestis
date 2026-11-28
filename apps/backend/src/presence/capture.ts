@@ -5,9 +5,11 @@ import {
   type CaptureRun,
   captureCoordinatorIndex,
   captureEndsAt,
+  captureLegCount,
   capturePainterCount,
   captureReady,
   captureShortfall,
+  maxCaptureGuards,
   moveCaptureMember,
   type PainterIdentity,
   type Scope,
@@ -48,13 +50,15 @@ export const applyCaptureEvent = (
   if (event.type === 'capture-new') {
     const left = runner ? leaveCaptures(runs, actor.sessionId, now) : null
     if (left === null) return runs
-    const { painters, guards, staggerMs } = event
+    const { painters, staggerMs, distribution = 'even' } = event
     const opened: CaptureRun = {
       id: newId(),
       team: actor.team,
       coordinator: actor.painter.wplaceUserId,
       painters,
-      guards,
+      // At most half the lobby guards, and a lobby of one has none.
+      guards: 0,
+      distribution,
       members: [me],
       wall: null,
       guardZones: [],
@@ -115,13 +119,17 @@ const applyOwnEvent = (
   if (!runner || run.startsAt !== null) return run
   switch (event.type) {
     case 'capture-settings': {
-      const { painters = run.painters, guards = run.guards, staggerMs = run.staggerMs } = event
-      if (painters === run.painters && guards === run.guards)
-        return staggerMs === run.staggerMs ? run : { ...run, staggerMs }
-      // The locked wall was planned for the old settings: back to choosing. A new guard count
-      // moves the last painter's place, so the coordinator is pinned to it again.
-      const resized = unlocked({ ...run, painters, guards, staggerMs })
-      return withMembers(resized, resized.members)
+      const { painters = run.painters, staggerMs = run.staggerMs } = event
+      const { distribution = run.distribution } = event
+      // At most half the lobby guards.
+      const guards =
+        event.guards === undefined ? run.guards : Math.min(event.guards, maxCaptureGuards(run))
+      const next = { ...run, painters, guards, staggerMs, distribution }
+      // The locked wall was planned for the old size: back to choosing.
+      if (painters !== run.painters || guards !== run.guards) return unlocked(next)
+      // The same wall, cut into a different number of legs.
+      if (distribution !== run.distribution) return recut(next)
+      return staggerMs === run.staggerMs ? run : next
     }
     case 'capture-move': {
       const order = moveCaptureMember(run, event.member, event.by)
@@ -157,12 +165,14 @@ const memberOf = (run: CaptureRun, sessionId: string): boolean =>
 const undrafted = (member: CaptureMember): CaptureMember =>
   member.drafted === 0 ? member : { ...member, drafted: 0 }
 
-/** The lobby with its legs re-cut: nobody has drafted their new leg, and older reports are stale. */
-const recut = (run: CaptureRun, members = run.members): CaptureRun => ({
-  ...run,
-  members: members.map(undrafted),
-  cut: run.cut + 1,
-})
+/**
+ * The lobby with its legs re-cut: the coordinator pinned to the closing leg again, nobody has
+ * drafted their new leg, and older reports are stale.
+ */
+const recut = (run: CaptureRun): CaptureRun => {
+  const pinned = pinCoordinator(run)
+  return { ...pinned, members: pinned.members.map(undrafted), cut: run.cut + 1 }
+}
 
 const unlocked = (run: CaptureRun): CaptureRun => recut({ ...run, wall: null, guardZones: [] })
 
@@ -218,21 +228,22 @@ export const connectedCaptures = (
  * their new leg until they report it.
  */
 const withMembers = (run: CaptureRun, members: readonly CaptureMember[]): CaptureRun => {
-  const pinned = pinCoordinator({ ...run, members }).members
+  const next = pinCoordinator({ ...run, members })
   const same =
-    pinned.length === run.members.length &&
-    pinned.every((member, index) => member.sessionId === run.members[index]?.sessionId)
-  return same ? { ...run, members: pinned } : recut(run, pinned)
+    next.members.length === run.members.length &&
+    next.members.every((member, index) => member.sessionId === run.members[index]?.sessionId)
+  return same ? next : recut(next)
 }
 
 /**
- * The lobby with its coordinator, if they are a member, moved to the last painter's place, so
- * they always paint in the final step and close the wall. Everyone else keeps their order; a
- * coordinator who would be a guard paints instead, and the painter they displace guards.
+ * The lobby with its coordinator, if they are a member, moved to the last leg's place, so they
+ * always paint in the final step and close the wall. Everyone else keeps their order; a
+ * coordinator who would be a guard or a reserve paints instead, and the member they displace
+ * takes their role.
  */
 const pinCoordinator = (run: CaptureRun): CaptureRun => {
   const at = captureCoordinatorIndex(run)
-  const last = capturePainterCount(run) - 1
+  const last = captureLegCount(run) - 1
   const coordinator = run.members[at]
   if (coordinator === undefined || at === last) return run
   const others = run.members.filter((_, index) => index !== at)

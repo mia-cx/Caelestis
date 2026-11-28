@@ -92,6 +92,7 @@ const lobby = (
   coordinator: null,
   painters: 2,
   guards: 0,
+  distribution: 'even',
   startsAt: null,
   staggerMs: 500,
   cut: 0,
