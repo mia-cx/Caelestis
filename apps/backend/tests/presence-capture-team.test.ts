@@ -174,6 +174,7 @@ it('gives a painter back their place in a lobby when they reconnect on a new soc
           painter: { wplaceUserId: 1, displayName: 'Painter' },
           drafted: 4,
           joined: 0,
+          client: 'b'.repeat(64),
         },
       ],
       wall: [0, 0, 1, 0, 2, 0, 3, 0],
