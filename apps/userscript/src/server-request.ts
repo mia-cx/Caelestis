@@ -1,4 +1,5 @@
 import type { ReconciliationReason, SyncTransport } from '@caelestis/shared'
+import { anySignal } from './any-signal.js'
 import { userscriptClientHeaders } from './client-metrics.js'
 import { activeServerToken, bearer, serverConnectionSignal } from './server-connections.js'
 import {
@@ -67,7 +68,7 @@ export const serverRequest = <Read extends ServerRead>(
         : options.body === undefined
           ? {}
           : { body: options.body }),
-      signal: options.signal === undefined ? lifetime : AbortSignal.any([lifetime, options.signal]),
+      signal: options.signal === undefined ? lifetime : anySignal([lifetime, options.signal]),
     },
     {
       limits: options.limits,
