@@ -117,7 +117,8 @@ interface Connection {
   socket: WebSocket | null
   sessionId: string | null
   peers: Map<string, PresencePeer>
-  capture: CaptureRun | null
+  /** The capture lobbies of this painter's team, as the server last sent them. */
+  captures: readonly CaptureRun[]
   /** Whether the server lets this socket's credential write, as its ready event said. */
   canWrite: boolean
   clock: ClockSample | null
@@ -278,7 +279,7 @@ const effective = (connection: Connection): typeof local => ({
   // An event server takes none.
   quickClaims:
     getState().sharePresence && !isEventServer(connection.server.info) ? local.quickClaims : [],
-  // The team is no presence of its own: a hidden tab still needs its team's capture run.
+  // The team is no presence of its own: a hidden tab still needs its team's capture lobbies.
   team: local.team,
 })
 
@@ -412,8 +413,8 @@ const applyServerEvent = (connection: Connection, event: PresenceServerEvent): b
     case 'claims-renewed':
       renewClaims(server, event.ids, event.expiresAt)
       return true
-    case 'capture':
-      connection.capture = event.run
+    case 'capture-runs':
+      connection.captures = event.runs
       return false
     case 'clock': {
       // The server answered halfway through the round trip, as near as one trip can tell; the
@@ -444,7 +445,7 @@ const closeConnection = (connection: Connection): void => {
   const socket = connection.socket
   connection.socket = null
   connection.sessionId = null
-  connection.capture = null
+  connection.captures = []
   connection.clock = null
   revision++
   if (socket !== null && socket.readyState < WebSocket.CLOSING) {
@@ -564,7 +565,7 @@ const open = (connection: Connection): void => {
     if (connection.socket !== socket) return
     connection.socket = null
     connection.sessionId = null
-    connection.capture = null
+    connection.captures = []
     connection.clock = null
     endLiveClaims(server)
     clearTimers(connection)
@@ -597,7 +598,7 @@ const reconcile = (): void => {
       socket: null,
       sessionId: null,
       peers: new Map(),
-      capture: null,
+      captures: [],
       canWrite: false,
       clock: null,
       clockSyncAt: Number.NEGATIVE_INFINITY,
@@ -685,11 +686,12 @@ export const presenceView = (): PresenceView => {
   }
 }
 
-/** A server's capture run, as one connected socket sees it. */
+/** A server's capture lobbies, as one connected socket sees them. */
 export interface CaptureView {
   readonly server: ServerConnection
-  readonly run: CaptureRun | null
-  /** This tab's session on the server, which is how the run names it. */
+  /** The lobbies of this painter's team. */
+  readonly runs: readonly CaptureRun[]
+  /** This tab's session on the server, which is how lobbies name it. */
   readonly sessionId: string
   /** Server time minus `localClock()`, once a clock sync has answered. */
   readonly clockOffset: number | null
@@ -697,14 +699,14 @@ export interface CaptureView {
   readonly canWrite: boolean
 }
 
-/** Every open presence socket and the capture run it holds, if any. */
+/** Every open presence socket and the capture lobbies it holds. */
 export const captureViews = (): readonly CaptureView[] =>
   [...connections.values()].flatMap((connection) =>
     isOpen(connection) && connection.sessionId !== null
       ? [
           {
             server: connection.server,
-            run: connection.capture,
+            runs: connection.captures,
             sessionId: connection.sessionId,
             clockOffset: connection.clock?.offset ?? null,
             canWrite: connection.canWrite,
@@ -720,7 +722,7 @@ const connectionFor = (server: ServerConnection): Connection | undefined =>
 export const sendCapture = (server: ServerConnection, event: CaptureClientEvent): boolean => {
   const connection = connectionFor(server)
   if (connection === undefined || !isOpen(connection)) return false
-  // The server acts on the run of the team the session reported, so the team goes first.
+  // The server acts on the lobbies of the team the session reported, so the team goes first.
   const { team } = local
   if (team !== null && connection.sent.team !== team) {
     connection.sent.team = team

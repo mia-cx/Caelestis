@@ -101,10 +101,14 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
       events,
       send,
       close: () => socket.close(),
-      /** The run as this socket last heard it. */
-      run(): CaptureRun | null | undefined {
-        const last = events.filter((e) => e.type === 'capture').at(-1)
-        return last?.type === 'capture' ? last.run : undefined
+      /** The team's lobbies as this socket last heard them. */
+      runs(): readonly CaptureRun[] {
+        const last = events.filter((e) => e.type === 'capture-runs').at(-1)
+        return last?.type === 'capture-runs' ? last.runs : []
+      },
+      /** The lobby this socket is a member of, as it last heard it. */
+      run(): CaptureRun | undefined {
+        return this.runs().find((run) => run.members.some((m) => m.sessionId === event.sessionId))
       },
       /** The peers this socket was last told it sees. */
       peers(): string[] {
@@ -133,162 +137,138 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
 const GREEN = 2
 const ORANGE = 1
 
-const line = (y: number) => [636_000, y, 636_001, y]
+const SETTINGS = { painters: 3, guards: 0, staggerMs: 500 }
+/** A straight wall of `pixels` in the arena, from anchor A to anchor B. */
+const wall = (pixels: number) =>
+  Array.from({ length: pixels }, (_, x) => [636_000 + x, 1_028_000]).flat()
+const settle = () => new Promise((resolve) => setTimeout(resolve, 300))
 
-it('runs no capture runs on a server that is not an event server', async () => {
+it('runs no capture lobbies on a server that is not an event server', async () => {
   const server = await start({ eventServer: false })
   const info = await (
     await fetch(`${server.base}/server`, { headers: { authorization: `Bearer ${ADMIN}` } })
   ).json()
   expect(info).not.toHaveProperty('capture')
   const admin = await server.admin(GREEN)
-  admin.send({ type: 'capture-open', painters: 1, guards: 0 })
+  admin.send({ type: 'capture-new', ...SETTINGS })
   admin.send({ type: 'clock', sent: 1 })
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await settle()
   expect(
-    admin.events.filter((event) => event.type === 'capture' || event.type === 'clock'),
+    admin.events.filter((event) => event.type === 'capture-runs' || event.type === 'clock'),
   ).toEqual([])
 })
 
-it('keeps a run saved as an event server from clients once it is not one', async () => {
+it('keeps lobbies saved as an event server from clients once it is not one', async () => {
   const before = await start()
   const admin = await before.admin(GREEN)
-  admin.send({ type: 'capture-open', painters: 1, guards: 0 })
-  await vi.waitFor(() => expect(admin.run()).not.toBeNull())
-  admin.close()
+  admin.send({ type: 'capture-new', ...SETTINGS })
+  await vi.waitFor(() => expect(admin.run()).toBeDefined())
   await before.stop()
 
   const after = await start({ eventServer: false, directory: before.directory })
   const painter = await after.painter()
-  await new Promise((resolve) => setTimeout(resolve, 300))
-  expect(painter.events.filter((event) => event.type === 'capture')).toEqual([])
+  await settle()
+  expect(painter.events.filter((event) => event.type === 'capture-runs')).toEqual([])
 })
 
-it('runs a capture from open to start, in the order the administrator sets', async () => {
+it('ignores the single-run events of userscripts from before lobbies', async () => {
   const server = await start()
   const admin = await server.admin(GREEN)
-  const first = await server.painter(GREEN)
-  const second = await server.painter(GREEN)
+  const painter = await server.painter(GREEN)
+  const send = (message: object) => admin.send(message as PresenceClientEvent)
+  send({ type: 'capture-open', painters: 1, guards: 0, staggerMs: 500 })
+  send({ type: 'capture-plan', lines: [[636_000, 1_028_000]] })
+  await settle()
+  expect(painter.runs()).toEqual([])
+  // The socket survives the old events, and a lobby opened after them still reaches everyone.
+  admin.send({ type: 'capture-new', ...SETTINGS })
+  await vi.waitFor(() => expect(painter.runs()).toHaveLength(1))
+})
 
-  first.send({ type: 'capture-open', painters: 1, guards: 1 })
-  admin.send({ type: 'capture-open', painters: 1, guards: 1 })
-  await vi.waitFor(() => expect(first.run()).toMatchObject({ team: GREEN, painters: 1, guards: 1 }))
-
-  // Orange runs its own capture in the same room: it never hears Green's, and joining joins its own.
+it('lists several lobbies per team, each kept from the other teams', async () => {
+  const server = await start()
+  const first = await server.runner(GREEN)
+  const second = await server.admin(GREEN)
+  const painter = await server.painter(GREEN)
   const orange = await server.admin(ORANGE)
-  orange.send({ type: 'capture-open', painters: 2, guards: 0 })
-  await vi.waitFor(() => expect(orange.run()).toMatchObject({ team: ORANGE, painters: 2 }))
-  const id = first.run()?.id ?? ''
-  // A join names the run it chose, so Green's id joins nothing on Orange's run.
-  orange.send({ type: 'capture-join', run: id })
-  orange.send({ type: 'capture-join', run: orange.run()?.id ?? '' })
-  first.send({ type: 'capture-join', run: id })
-  second.send({ type: 'capture-join', run: id })
-  // Opening again does not replace a run in progress.
-  admin.send({ type: 'capture-open', painters: 3, guards: 0 })
-  await vi.waitFor(() => expect(admin.run()?.members).toHaveLength(2))
-  await vi.waitFor(() => expect(orange.run()?.members).toHaveLength(1))
-  expect(admin.run()).toMatchObject({ id, painters: 1 })
-  expect(admin.run()?.members.map((m) => m.sessionId)).not.toContain(orange.sessionId)
-  expect(orange.events.some((e) => e.type === 'capture' && e.run?.team === GREEN)).toBe(false)
-  admin.send({ type: 'capture-order', order: [second.sessionId, first.sessionId] })
-  admin.send({ type: 'capture-plan', lines: [line(1_028_000), line(1_028_001)] })
-  second.send({ type: 'capture-drafted', drafted: 2 })
+
+  // A reporter can't open one.
+  painter.send({ type: 'capture-new', ...SETTINGS })
+  first.send({ type: 'capture-new', ...SETTINGS })
+  second.send({ type: 'capture-new', ...SETTINGS, painters: 5 })
+  orange.send({ type: 'capture-new', ...SETTINGS })
+  await vi.waitFor(() => expect(painter.runs()).toHaveLength(2))
+  await vi.waitFor(() => expect(orange.runs()).toHaveLength(1))
+  expect(painter.runs().map((run) => [run.team, run.painters])).toEqual([
+    [GREEN, 3],
+    [GREEN, 5],
+  ])
+  // Green's id joins nothing for Orange.
+  const [green] = painter.runs()
+  orange.send({ type: 'capture-join', run: green?.id ?? '' })
+  await settle()
+  expect(painter.runs()[0]?.members).toHaveLength(1)
+  expect(
+    orange.events.some((e) => e.type === 'capture-runs' && e.runs.some((r) => r.team === GREEN)),
+  ).toBe(false)
+
+  // The last member leaving closes the lobby.
+  second.send({ type: 'capture-leave' })
+  await vi.waitFor(() => expect(painter.runs()).toHaveLength(1))
+})
+
+it('runs a lobby from opening to the countdown, cutting the wall for whoever is in it', async () => {
+  const server = await start()
+  const runner = await server.runner(GREEN)
+  const painters = [await server.painter(GREEN), await server.painter(GREEN)]
+  const late = await server.painter(GREEN)
+
+  runner.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
+  await vi.waitFor(() => expect(runner.run()).toBeDefined())
+  const id = runner.run()?.id ?? ''
+  for (const painter of painters) painter.send({ type: 'capture-join', run: id })
+  // More members than the Painters setting is fine; the opener moves to the closing place.
   await vi.waitFor(() =>
-    expect(first.run()?.members.map((m) => [m.sessionId, m.drafted])).toEqual([
-      [second.sessionId, 2],
-      [first.sessionId, 0],
+    expect(runner.run()?.members.map((m) => m.sessionId)).toEqual([
+      painters[0]?.sessionId,
+      painters[1]?.sessionId,
+      runner.sessionId,
     ]),
   )
 
-  const before = Date.now()
-  first.send({ type: 'capture-go' })
-  admin.send({ type: 'capture-go' })
-  await vi.waitFor(() => expect(second.run()?.startsAt).not.toBeNull())
-  const startsAt = second.run()?.startsAt ?? 0
-  expect(startsAt - before).toBeGreaterThanOrEqual(CAPTURE_LEAD_MS - 1_000)
+  // A 180-pixel wall is three full legs; with three members it locks in.
+  runner.send({ type: 'capture-lock', wall: wall(181), guardZones: [] })
+  await settle()
+  expect(runner.run()?.wall).toBeNull()
+  runner.send({ type: 'capture-lock', wall: wall(180), guardZones: [] })
+  await vi.waitFor(() => expect(painters[0]?.run()?.wall).toHaveLength(360))
 
-  // A late joiner hears the started run, and cannot join it.
-  const late = await server.painter(GREEN)
-  await vi.waitFor(() => expect(late.run()?.startsAt).toBe(startsAt))
-  late.send({ type: 'capture-join', run: id })
-  // The first painter's socket drops during the countdown; nobody moves into their slot.
-  second.close()
-  await new Promise((resolve) => setTimeout(resolve, 500))
-  expect(admin.run()?.members.map((m) => m.sessionId)).toEqual([second.sessionId, first.sessionId])
-  admin.send({ type: 'capture-order', order: [first.sessionId, second.sessionId] })
-  await new Promise((resolve) => setTimeout(resolve, 300))
-  expect(admin.run()?.members[0]?.sessionId).toBe(second.sessionId)
-
-  admin.send({ type: 'capture-close' })
-  await vi.waitFor(() => expect(first.run()).toBeNull())
-})
-
-it('lets an event runner run a capture that a reporter cannot open', async () => {
-  const server = await start()
-  const painter = await server.painter(GREEN)
-  const runner = await server.runner(GREEN)
-
-  painter.send({ type: 'capture-open', painters: 1, guards: 0 })
-  await new Promise((resolve) => setTimeout(resolve, 300))
-  expect(painter.run() ?? null).toBeNull()
-
-  runner.send({ type: 'capture-open', painters: 1, guards: 0 })
-  await vi.waitFor(() => expect(painter.run()).toMatchObject({ team: GREEN, painters: 1 }))
-  painter.send({ type: 'capture-join', run: painter.run()?.id ?? '' })
-  await vi.waitFor(() => expect(painter.run()?.members).toHaveLength(1))
-  runner.send({ type: 'capture-plan', lines: [line(1_028_000)] })
-  await vi.waitFor(() => expect(painter.run()?.lines).toHaveLength(1))
-  painter.send({ type: 'capture-drafted', drafted: 2 })
-  await vi.waitFor(() => expect(painter.run()?.members[0]?.drafted).toBe(2))
-  painter.send({ type: 'capture-close' })
+  for (const session of [painters[0], runner])
+    session?.send({ type: 'capture-drafted', drafted: 60 })
+  await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([60, 0, 60]))
   runner.send({ type: 'capture-go' })
-  await vi.waitFor(() => expect(painter.run()?.startsAt).not.toBeNull())
-  runner.send({ type: 'capture-close' })
-  await vi.waitFor(() => expect(painter.run()).toBeNull())
-})
-
-it('starts once every painter has drafted, with the coordinator closing at their stagger', async () => {
-  const server = await start()
-  const runner = await server.runner(GREEN)
-  const first = await server.painter(GREEN)
-  const second = await server.painter(GREEN)
-  const guard = await server.painter(GREEN)
-
-  runner.send({ type: 'capture-open', painters: 3, guards: 1, staggerMs: 750 })
-  await vi.waitFor(() => expect(runner.run()).toMatchObject({ painters: 3, staggerMs: 750 }))
-  const id = runner.run()?.id ?? ''
-  // The coordinator joins first, yet ends up painting the last painter's line.
-  for (const session of [runner, first, second, guard]) {
-    session.send({ type: 'capture-join', run: id })
-    await vi.waitFor(() =>
-      expect(runner.run()?.members.map((m) => m.sessionId)).toContain(session.sessionId),
-    )
-  }
-  expect(runner.run()?.members.map((m) => m.sessionId)).toEqual([
-    first.sessionId,
-    second.sessionId,
-    runner.sessionId,
-    guard.sessionId,
-  ])
-  runner.send({ type: 'capture-plan', lines: [1, 2, 3, 4].map((at) => line(1_028_000 + at)) })
-  await vi.waitFor(() => expect(runner.run()?.lines).toHaveLength(4))
-
-  // The coordinator is one pixel short; the guard's draft never holds Go.
-  first.send({ type: 'capture-drafted', drafted: 2 })
-  second.send({ type: 'capture-drafted', drafted: 2 })
-  runner.send({ type: 'capture-drafted', drafted: 1 })
-  await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([2, 2, 1, 0]))
-  runner.send({ type: 'capture-go' })
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await settle()
   expect(runner.run()?.startsAt).toBeNull()
 
-  runner.send({ type: 'capture-drafted', drafted: 2 })
+  painters[1]?.send({ type: 'capture-drafted', drafted: 60 })
+  await vi.waitFor(() => expect(runner.run()?.members[1]?.drafted).toBe(60))
+  const before = Date.now()
   runner.send({ type: 'capture-go' })
-  await vi.waitFor(() => expect(guard.run()?.startsAt).not.toBeNull())
-  const run = guard.run()
-  if (run == null || run.startsAt === null) throw new Error('Expected a started run')
-  expect(captureSlot(run, 2)).toBe(run.startsAt + 750)
+  await vi.waitFor(() => expect(late.runs()[0]?.startsAt).not.toBeNull())
+  const run = late.runs()[0]
+  if (run === undefined || run.startsAt === null) throw new Error('Expected a started lobby')
+  expect(run.startsAt - before).toBeGreaterThanOrEqual(CAPTURE_LEAD_MS - 1_000)
+  // The pair goes first, the opener a stagger later on the closing leg.
+  expect(captureSlot(run, 2)).toBe(run.startsAt + 500)
+
+  // A late joiner can't join, and a member who drops keeps their slot.
+  late.send({ type: 'capture-join', run: id })
+  painters[0]?.close()
+  await settle()
+  expect(runner.run()?.members).toHaveLength(3)
+
+  runner.send({ type: 'capture-close' })
+  await vi.waitFor(() => expect(painters[1]?.runs()).toEqual([]))
 })
 
 it('answers clock requests with the server time', async () => {
@@ -334,8 +314,8 @@ it.each(['painter', 'runner'] as const)(
     const orangeAdmin = await server.admin(ORANGE)
     for (const session of [green, orange, greenAdmin, orangeAdmin])
       session.send({ type: 'presence-update', viewport })
-    greenAdmin.send({ type: 'capture-open', painters: 1, guards: 0 })
-    orangeAdmin.send({ type: 'capture-open', painters: 2, guards: 0 })
+    greenAdmin.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
+    orangeAdmin.send({ type: 'capture-new', ...SETTINGS, painters: 2 })
 
     await vi.waitFor(() => expect(green.peers()).toEqual([greenAdmin.sessionId]), {
       timeout: 5_000,
@@ -343,10 +323,12 @@ it.each(['painter', 'runner'] as const)(
     await vi.waitFor(() => expect(orange.peers()).toEqual([orangeAdmin.sessionId]), {
       timeout: 5_000,
     })
-    await vi.waitFor(() => expect(green.run()).toMatchObject({ team: GREEN, painters: 1 }))
-    await vi.waitFor(() => expect(orange.run()).toMatchObject({ team: ORANGE, painters: 2 }))
-    expect(green.events.some((e) => e.type === 'capture' && e.run?.team === ORANGE)).toBe(false)
-    expect(orange.events.some((e) => e.type === 'capture' && e.run?.team === GREEN)).toBe(false)
+    await vi.waitFor(() => expect(green.runs()).toMatchObject([{ team: GREEN, painters: 1 }]))
+    await vi.waitFor(() => expect(orange.runs()).toMatchObject([{ team: ORANGE, painters: 2 }]))
+    const heard = (session: typeof green, team: TerritoryTeam) =>
+      session.events.some((e) => e.type === 'capture-runs' && e.runs.some((r) => r.team === team))
+    expect(heard(green, ORANGE)).toBe(false)
+    expect(heard(orange, GREEN)).toBe(false)
   },
 )
 

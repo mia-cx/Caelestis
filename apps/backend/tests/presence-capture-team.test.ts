@@ -20,19 +20,19 @@ import { PresenceCoordinator } from '../src/presence/coordinator.js'
 const GREEN = 2
 const ORANGE = 1
 
-/** Storage whose read of Green's capture run waits until the test releases it. */
+/** Storage whose read of Green's capture lobbies waits until the test releases it. */
 class GatedStorage extends SqlCoordinatorStorage {
   release: () => void = () => {}
   private readonly gate = new Promise<void>((resolve) => {
     this.release = resolve
   })
   override async get<T>(key: string): Promise<T | undefined> {
-    if (key === `capture-run:${GREEN}`) await this.gate
+    if (key === `capture-runs:${GREEN}`) await this.gate
     return super.get<T>(key)
   }
 }
 
-it('sends the run of the team a session switched to, never a late read of the one it left', async () => {
+it('sends the lobbies of the team a session switched to, never a late read of the one it left', async () => {
   const store = openMemoryDatabase()
   const database = coordinatorDatabase(store.connection)
   await SqlCoordinatorStorage.initialize(database)
@@ -54,11 +54,12 @@ it('sends the run of the team a session switched to, never a late read of the on
     painters: 1,
     guards: 0,
     members: [],
-    lines: [],
+    wall: null,
+    guardZones: [],
     startsAt: null,
     staggerMs: 500,
   }
-  await storage.put(`capture-run:${GREEN}`, green)
+  await storage.put(`capture-runs:${GREEN}`, [green])
   const received: PresenceServerEvent[] = []
   const transport: LiveTransportSocket = {
     readyState: 1,
@@ -92,10 +93,11 @@ it('sends the run of the team a session switched to, never a late read of the on
     // Green's read stalls; the session then reports Orange, whose read answers at once.
     update(GREEN)
     update(ORANGE)
-    await vi.waitFor(() => expect(received.filter((e) => e.type === 'capture')).toHaveLength(1))
+    const lobbies = () => received.filter((e) => e.type === 'capture-runs')
+    await vi.waitFor(() => expect(lobbies()).toHaveLength(1))
     storage.release()
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(received.filter((e) => e.type === 'capture')).toEqual([{ type: 'capture', run: null }])
+    expect(lobbies()).toEqual([{ type: 'capture-runs', runs: [] }])
   } finally {
     await host.close()
     await store.close()

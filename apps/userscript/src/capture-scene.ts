@@ -2,6 +2,8 @@ import {
   type ArenaPixel,
   arenaToWorld,
   type CaptureRun,
+  captureLines,
+  capturePainterCount,
   type PresenceRect,
   type RegionShapePixels,
   simulateCapture,
@@ -163,14 +165,14 @@ export const caterpillarFrames = (path: readonly Pixel[], line: readonly Pixel[]
 }
 
 /**
- * The wall cells nearest each anchor a guard holds, anchor first: from where line A1 starts and
- * where line B1 starts. One guard holds both anchors; with two, the first holds A and the second B.
+ * The wall cells nearest each anchor a guard holds, anchor first: from either end of the locked
+ * wall. One guard holds both anchors; with two, the first holds A and the second B.
  */
 const heldEnds = (run: CaptureRun, index: number, depth: number): Pixel[][] => {
-  const a = linePixels(run.lines[0] ?? [])
-  const b = run.painters > 1 ? linePixels(run.lines[1] ?? []) : [...a].reverse()
-  const ends = [a.slice(0, depth), b.slice(0, depth)].filter((end) => end.length > 0)
-  return run.guards === 1 ? ends : ends.slice(index - run.painters, index - run.painters + 1)
+  const wall = linePixels(run.wall ?? [])
+  const ends = [wall.slice(0, depth), wall.slice(-depth).reverse()].filter((end) => end.length > 0)
+  const guard = index - capturePainterCount(run)
+  return run.guards === 1 ? ends : ends.slice(guard, guard + 1)
 }
 
 /** A dashed box around each anchor a guard holds, wide enough for their zone on either side. */
@@ -182,6 +184,6 @@ export const anchorRects = (run: CaptureRun, index: number, margin: number): Pre
 
 /** What a guard watches: their zone, and the wall's first cells from each anchor they hold. */
 export const anchorWatch = (run: CaptureRun, index: number, margin: number): Pixel[] => [
-  ...linePixels(run.lines[index] ?? []),
+  ...linePixels(captureLines(run)[index] ?? []),
   ...heldEnds(run, index, margin).flat(),
 ]

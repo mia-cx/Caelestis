@@ -114,6 +114,8 @@ export const territoryMapFromImage = (
  */
 export interface CapturePlan {
   readonly lines: readonly (readonly ArenaPixel[])[]
+  /** The wall's pixels still to paint, from anchor A to anchor B: what `pairLines` splits. */
+  readonly wall: readonly ArenaPixel[]
   /** Per guard, the team's own cells just past an anchor: free to draft, and what they repair. */
   readonly guardZones: readonly (readonly ArenaPixel[])[]
 }
@@ -648,15 +650,15 @@ export const chamferWall = (wall: readonly ArenaPixel[], size: number): ArenaPix
  * shared evenly, at most `charges` each, so a short wall still gives every painter a part. Always
  * `painters` lines; only a wall shorter than the group leaves some empty.
  */
-export const pairLines = (
-  wall: readonly ArenaPixel[],
+export const pairLines = <Pixel>(
+  wall: readonly Pixel[],
   painters: number,
   charges: number,
-): ArenaPixel[][] => {
+): Pixel[][] => {
   // Every painter takes the even share, and the first few one pixel more for the remainder.
   const base = Math.floor(wall.length / painters)
   const extra = wall.length % painters
-  const lines: ArenaPixel[][] = []
+  const lines: Pixel[][] = []
   let lo = 0
   let hi = wall.length
   for (let k = 0; k < painters; k++) {
@@ -782,6 +784,7 @@ export const borderBoxPlanner: CapturePlanner = ({
     }
     const zones = [zone(wall, 1), zone([...wall].reverse(), -1)]
     const guardZones = guards === 0 ? [] : guards === 1 ? [zones.flat()] : zones
-    return { lines: pairLines(unpainted(wall), painters, charges), guardZones }
+    const open = unpainted(wall)
+    return { lines: pairLines(open, painters, charges), wall: open, guardZones }
   })
 }

@@ -1,4 +1,4 @@
-import { decodeCaptureRun } from './capture-run.js'
+import { type CaptureRun, decodeCaptureRun } from './capture-run.js'
 import { isRecord, isSafeInteger } from './guards.js'
 import {
   isPresenceDraft,
@@ -114,10 +114,12 @@ export const decodePresenceServerEvent = (
     case 'claims-renewed':
       if (!isSafeInteger(event.expiresAt)) return null
       return { type: 'claims-renewed', expiresAt: event.expiresAt, ids: strings(event.ids) }
-    case 'capture': {
-      if (event.run === null) return { type: 'capture', run: null }
-      const run = decodeCaptureRun(event.run)
-      return run === null ? null : { type: 'capture', run }
+    case 'capture-runs': {
+      if (!Array.isArray(event.runs)) return null
+      const runs = event.runs.map(decodeCaptureRun)
+      return runs.every((run): run is CaptureRun => run !== null)
+        ? { type: 'capture-runs', runs }
+        : null
     }
     case 'clock':
       if (!isSafeInteger(event.sent) || !isSafeInteger(event.at)) return null

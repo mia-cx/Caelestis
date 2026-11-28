@@ -18,6 +18,7 @@ const bea = { ...ada, id: 'b', name: 'Bea', colour: 'blue', drafted: 12, me: tru
 const counting = {
   phase: 'countdown',
   admin: false,
+  lobbies: [],
   painters: 2,
   maxPainters: 8,
   guards: 0,
@@ -25,17 +26,18 @@ const counting = {
   staggerMs: 500,
   anchor: null,
   members: [ada, bea],
-  joined: true,
   role: 'painter',
-  canJoin: false,
   proposals: [],
-  proposing: false,
+  locked: true,
+  needs: 0,
   canStart: false,
   mySlotAt: null,
   myTurn: 2,
   turns: 2,
   startsAt: null,
 } satisfies CaptureRunModel
+
+const gathering = { ...counting, phase: 'gathering', admin: true } satisfies CaptureRunModel
 
 const mounted: object[] = []
 afterEach(async () => {
@@ -52,12 +54,18 @@ const render = (model: CaptureRunModel, intents: CaptureRunIntent[] = []) => {
   return target
 }
 
-describe('capture run countdown', () => {
+/** A button by its accessible name: its label, or its text for a text button. */
+const button = (card: HTMLElement, label: string) =>
+  [...card.querySelectorAll<HTMLButtonElement>('button')].find(
+    (element) => (element.getAttribute('aria-label') ?? element.textContent?.trim()) === label,
+  ) ?? null
+
+describe('capture lobby countdown', () => {
   it('announces only the marked seconds and clamps the clock at the slot', () => {
     const spoken = (inMs: number) =>
       render({ ...counting, mySlotAt: performance.now() + inMs }).querySelector('[role="status"]')
         ?.textContent
-    expect(spoken(30_000)).toContain('Capture run started')
+    expect(spoken(30_000)).toContain('Countdown started')
     expect(spoken(7_400)).toContain('Paint in 10 seconds')
     expect(spoken(4_200)).toContain('Paint in 5 seconds')
 
@@ -79,45 +87,107 @@ it('tells a guard whose anchor was cut to repaint, once their slot has passed', 
   expect(card.textContent).toContain('Repaint your line.')
 })
 
-it('steps the stagger by 50 ms within its bounds before a run opens', () => {
-  const intents: CaptureRunIntent[] = []
-  const button = (card: HTMLElement, label: string) =>
-    card.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
-  const card = render({ ...counting, phase: 'none', admin: true, staggerMs: 500 }, intents)
-  expect(card.textContent).toContain('500 ms')
-  button(card, 'Shorter stagger')?.click()
-  button(card, 'Longer stagger')?.click()
-  expect(intents).toEqual([
-    { type: 'set-stagger', staggerMs: 450 },
-    { type: 'set-stagger', staggerMs: 550 },
-  ])
-  const shortest = render({ ...counting, phase: 'none', admin: true, staggerMs: 100 })
-  expect(button(shortest, 'Shorter stagger')?.disabled).toBe(true)
+describe('the lobby list', () => {
+  const listing = {
+    ...counting,
+    phase: 'list',
+    members: [],
+    role: null,
+    lobbies: [
+      { id: 'one', name: 'Ada', members: 3, canJoin: true },
+      { id: 'two', name: 'Cy', members: 1, canJoin: false },
+    ],
+  } satisfies CaptureRunModel
+
+  it('joins a lobby from its row, and only a runner opens a new one', () => {
+    const intents: CaptureRunIntent[] = []
+    const card = render(listing, intents)
+    const rows = [...card.querySelectorAll('.lobbies li')]
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringContaining('3 painters'),
+      expect.stringContaining('1 painter'),
+    ])
+    rows[0]?.querySelector('button')?.click()
+    expect(intents).toEqual([{ type: 'join', id: 'one' }])
+    expect(rows[1]?.querySelector('button')?.disabled).toBe(true)
+    expect(button(card, 'New lobby')).toBeNull()
+
+    const runner = render({ ...listing, admin: true }, intents)
+    button(runner, 'New lobby')?.click()
+    expect(intents.at(-1)).toEqual({ type: 'open' })
+  })
 })
 
-it('moves a painter and a guard past the coordinator, who stays on the closing line', () => {
-  const intents: CaptureRunIntent[] = []
-  const card = render(
-    {
-      ...counting,
-      phase: 'gathering',
-      admin: true,
-      guards: 1,
-      members: [ada, { ...bea, closes: true }, { ...ada, id: 'g', name: 'Gil', guard: true }],
-    },
-    intents,
-  )
-  const rows = [...card.querySelectorAll('.members li')]
-  expect(rows[1]?.textContent).toContain('Closes wall')
-  const button = (label: string) =>
-    card.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
-  expect(button('Move Bea up')).toBeNull()
-  expect(button('Move Ada up')?.disabled).toBe(true)
-  button('Move Ada down')?.click()
-  button('Move Gil up')?.click()
-  expect(intents).toEqual([
-    { type: 'move', id: 'a', by: 1 },
-    { type: 'move', id: 'g', by: -1 },
-  ])
-  expect(button('Move Gil down')?.disabled).toBe(true)
+describe('a runner inside a lobby', () => {
+  it('steps the stagger by 50 ms within its bounds until the countdown', () => {
+    const intents: CaptureRunIntent[] = []
+    const card = render({ ...gathering, staggerMs: 500 }, intents)
+    expect(card.textContent).toContain('500 ms')
+    button(card, 'Shorter stagger')?.click()
+    button(card, 'Longer stagger')?.click()
+    expect(intents).toEqual([
+      { type: 'set-stagger', staggerMs: 450 },
+      { type: 'set-stagger', staggerMs: 550 },
+    ])
+    expect(button(render({ ...gathering, staggerMs: 100 }), 'Shorter stagger')?.disabled).toBe(true)
+    // A painter sees no settings, and nobody does once the countdown runs.
+    expect(button(render({ ...gathering, admin: false }), 'Longer stagger')).toBeNull()
+    expect(button(render({ ...counting, admin: true }), 'Longer stagger')).toBeNull()
+  })
+
+  it('locks in a proposal that fits, and says how many painters one that does not needs', () => {
+    const intents: CaptureRunIntent[] = []
+    const proposal = { label: 'Into purple', gained: 900, pixels: 120, needs: 0 }
+    const card = render(
+      {
+        ...gathering,
+        locked: false,
+        proposals: [
+          { ...proposal, id: 'fits' },
+          { ...proposal, id: 'long', label: 'Into blue', needs: 2 },
+        ],
+      },
+      intents,
+    )
+    const [fits, long] = [...card.querySelectorAll<HTMLButtonElement>('.plans button')]
+    expect(long?.disabled).toBe(true)
+    expect(card.textContent).toContain('Needs 2 more painters')
+    fits?.click()
+    expect(intents).toEqual([{ type: 'lock', id: 'fits' }])
+    // Nothing is locked in yet, so there is no countdown to start.
+    expect(button(card, 'Start countdown')).toBeNull()
+  })
+
+  it('cancels the locked shape, and starts the countdown only once every leg is drafted', () => {
+    const intents: CaptureRunIntent[] = []
+    const waiting = render(gathering, intents)
+    expect(button(waiting, 'Start countdown')?.disabled).toBe(true)
+    button(waiting, 'Cancel proposed shape')?.click()
+    const ready = render({ ...gathering, canStart: true }, intents)
+    button(ready, 'Start countdown')?.click()
+    expect(intents).toEqual([{ type: 'unlock' }, { type: 'go' }])
+  })
+
+  it('moves a painter and a guard past the coordinator, who stays on the closing leg', () => {
+    const intents: CaptureRunIntent[] = []
+    const card = render(
+      {
+        ...gathering,
+        guards: 1,
+        members: [ada, { ...bea, closes: true }, { ...ada, id: 'g', name: 'Gil', guard: true }],
+      },
+      intents,
+    )
+    const rows = [...card.querySelectorAll('.members li')]
+    expect(rows[1]?.textContent).toContain('Closes wall')
+    expect(button(card, 'Move Bea up')).toBeNull()
+    expect(button(card, 'Move Ada up')?.disabled).toBe(true)
+    button(card, 'Move Ada down')?.click()
+    button(card, 'Move Gil up')?.click()
+    expect(intents).toEqual([
+      { type: 'move', id: 'a', by: 1 },
+      { type: 'move', id: 'g', by: -1 },
+    ])
+    expect(button(card, 'Move Gil down')?.disabled).toBe(true)
+  })
 })
