@@ -62,6 +62,11 @@ export type CapturePhase =
 
 export interface CaptureRunModel {
   readonly phase: CapturePhase
+  /**
+   * The card shows only its bar: the header with its one-line summary, and the countdown or the
+   * anchor watch when one is running. The host keeps it across the element's removal.
+   */
+  readonly collapsed: boolean
   /** This painter runs the lobby they are in, as its host or an administrator. */
   readonly canRun: boolean
   /** This painter can open a lobby. */
@@ -114,6 +119,8 @@ export interface CaptureRunModel {
 }
 
 export type CaptureRunIntent =
+  /** Collapse the card to its bar, or expand it. */
+  | { readonly type: 'set-collapsed'; readonly collapsed: boolean }
   | { readonly type: 'set-painters'; readonly painters: number }
   | { readonly type: 'set-guards'; readonly guards: number }
   | { readonly type: 'set-stagger'; readonly staggerMs: number }
