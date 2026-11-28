@@ -393,12 +393,15 @@ const handlePanelIntent = (panel: PanelHost, intent: PanelIntent): void => {
       break
     case 'resize-preview':
       insetAllianceDrawer(intent.width)
+      // A wider panel can reach under the scoreboard, a narrower one out from under it.
+      clearWplaceTopOverlays(panel, intent.width)
       invalidateOverlayControlsEdge()
       redraw()
       break
     case 'resize-commit':
       setState({ panelWidth: intent.width })
       insetAllianceDrawer(intent.width)
+      clearWplaceTopOverlays(panel, intent.width)
       break
     case 'appearance':
       handleAppearanceIntent(
@@ -452,11 +455,14 @@ const WPLACE_TOP_OVERLAYS = '[class*="z-[1000]"]'
  * header stays reachable: on a phone the event scoreboard covers the panel's top. Without an
  * overlapping overlay the panel keeps its usual edge.
  */
-const clearWplaceTopOverlays = (panel: HTMLElement): void => {
+const clearWplaceTopOverlays = (
+  panel: HTMLElement,
+  width = panelWidthForViewport(getState().panelWidth),
+): void => {
   if (panelSessions.scope() === 'alliance') return
   // From the panel's placement rather than its box, which is still empty just after mounting.
   const right = window.innerWidth - CLEAR_OF_RAIL
-  const left = right - panelWidthForViewport(getState().panelWidth)
+  const left = right - width
   let top = EDGE
   for (const overlay of document.querySelectorAll(WPLACE_TOP_OVERLAYS)) {
     const box = overlay.getBoundingClientRect()
