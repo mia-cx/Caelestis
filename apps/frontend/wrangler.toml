@@ -14,6 +14,10 @@ custom_domain = true
 pattern = "caelest.is"
 custom_domain = true
 
+[[routes]]
+pattern = "www.caelest.is"
+custom_domain = true
+
 [[services]]
 binding = "CAELESTIS_BACKEND"
 service = "caelestis-backend"

@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseEnv } from 'node:util'
 import { API_VERSION_PATH } from '@caelestis/shared'
@@ -17,6 +18,32 @@ import {
 const deploymentVersion = /^[0-9a-f]{40}$/i.test(process.env.CAELESTIS_BUILD_ID ?? '')
   ? (process.env.CAELESTIS_BUILD_ID ?? '').slice(0, 12)
   : 'development'
+
+function cloudflareAdapter() {
+  const cloudflare = adapter()
+  return {
+    ...cloudflare,
+    async adapt(builder: Parameters<typeof cloudflare.adapt>[0]) {
+      await cloudflare.adapt(builder)
+      const entry = join(builder.getBuildDirectory('cloudflare'), '_worker.js')
+      // The adapter serves static assets before SvelteKit's handle runs.
+      renameSync(entry, join(builder.getBuildDirectory('cloudflare-tmp'), 'adapter-worker.js'))
+      writeFileSync(
+        entry,
+        `import worker from '../cloudflare-tmp/adapter-worker.js'
+import { redirectWww } from '../../src/lib/server/www-redirect.ts'
+
+export default {
+  ...worker,
+  fetch(request, ...args) {
+    return redirectWww(new URL(request.url)) ?? worker.fetch(request, ...args)
+  },
+}
+`,
+      )
+    },
+  }
+}
 
 export default defineConfig(({ command }) => {
   const node = process.env.CAELESTIS_TARGET === 'node'
@@ -68,7 +95,7 @@ export default defineConfig(({ command }) => {
             filename.split(/[/\\]/).includes('node_modules') ? undefined : true,
         },
 
-        adapter: node ? nodeAdapter({ out: 'build' }) : adapter(),
+        adapter: node ? nodeAdapter({ out: 'build' }) : cloudflareAdapter(),
         // The former dashboard host posts saved browser state to /moved (see dashboard-move.ts).
         csrf: { trustedOrigins: [FORMER_DASHBOARD_ORIGIN] },
       }),
