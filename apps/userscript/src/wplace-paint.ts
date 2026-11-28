@@ -21,7 +21,8 @@ import {
  * Wplace's paint state, and the actions that drive its paint drawer.
  *
  * The drawer existing *is* the signal that painting has started: Wplace's swatches are only in the
- * document while it is open. Both facts change without navigation (Svelte mounts and unmounts the
+ * document while it is open. The territory event's Paint panel has no swatches, so its own commit
+ * button counts as open too. Both facts change without navigation (Svelte mounts and unmounts the
  * drawer, and selecting a colour rewrites one class), so a MutationObserver watches for them. This
  * is the only module that tracks them; everything else reads `isPaintOpen` and `selectedColour`.
  */
@@ -125,14 +126,17 @@ export const performShadeSwapAction = (): boolean => {
 }
 
 /**
- * Submit the open world draft through the drawer's Paint button, for a capture run's slot. Never
- * an alliance editor's draft, which has nothing to do with the run. The caller checks the
- * `capture-paint` switch; Wplace flags the click as `UntrustedPaintSubmit`.
+ * Submit the open world draft for a capture run's slot, through the drawer's Paint button or the
+ * territory event panel's own. Never an alliance editor's draft, which has nothing to do with the
+ * run. The caller checks the `capture-paint` switch; Wplace flags the click as
+ * `UntrustedPaintSubmit`.
  */
 export const submitWorldPaintDraft = (): boolean => {
   if (activeAllianceDialog() !== null) return false
   const drawer = paintDrawer(document)
-  return clickEnabled(drawer === null ? null : paintDrawerCommitButton(drawer))
+  return clickEnabled(
+    drawer === null ? arenaCommitButton(document, 'paint') : paintDrawerCommitButton(drawer),
+  )
 }
 
 /** Discard the current native Wplace draft, leaving unrelated Escape handling alone when closed. */
@@ -146,7 +150,9 @@ const sameElements = (left: readonly Element[], right: readonly Element[]): bool
 
 const read = (): void => {
   const next = currentPaintSwatches()
-  const nextOpen = next.length > 0
+  // The territory event's Paint panel drafts like the drawer but has no palette; its commit
+  // button beside Cancel is what shows it open.
+  const nextOpen = next.length > 0 || arenaCommitButton(document, 'paint') !== null
   const nextSelected = readSelectedColour(next)
   const remounted = !sameElements(swatches, next)
   const changed = nextOpen !== open || nextSelected !== selected
