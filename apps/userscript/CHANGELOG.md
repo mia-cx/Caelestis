@@ -1,5 +1,13 @@
 # @caelestis/userscript
 
+## 1.8.4
+
+### Patch Changes
+
+- 1374965: Capture lobby painters can press Ready, and a host can turn on Wait for Ready so Start countdown waits for everyone.
+- 1374965: Start countdown unlocks once every pixel of the capture wall is drafted, whoever drafted it.
+- d0f0114: A Dangerous setting adds an Erase button to the territory event's Paint panel, so phone painters can follow the caterpillar guide.
+
 ## 1.8.3
 
 ### Patch Changes
