@@ -23,6 +23,7 @@ import {
   rectCentreDistance,
   rectsIntersect,
   sameRect,
+  satisfiesScope,
   type TerritoryTeam,
   uuidV7,
 } from '@caelestis/shared'
@@ -183,7 +184,7 @@ export class PresenceCoordinator<Client> {
     private readonly routeRevocation: (tokenHash: string) => Promise<void>,
     /**
      * Whether this is an event server: it runs capture lobbies per event team, shares viewports and
-     * drafts within each team only, and takes no quick claims.
+     * drafts within each team only (admins see every team), and takes no quick claims.
      */
     private readonly eventServer = false,
   ) {}
@@ -289,6 +290,7 @@ export class PresenceCoordinator<Client> {
       ...(attachment.publisherId === undefined ? {} : { publisherId: attachment.publisherId }),
       painter: attachment.painter,
       viewport: attachment.viewport,
+      ...(attachment.team === undefined ? {} : { team: attachment.team }),
       ...(attachment.quickClaims?.length
         ? { quickClaims: attachment.quickClaims.map(([x, y, w, h]) => ({ x, y, w, h })) }
         : {}),
@@ -306,7 +308,7 @@ export class PresenceCoordinator<Client> {
   /**
    * The peers each subscriber may see, as one grid per visibility group: the whole room, or on an
    * event server one grid per event team, so selection never walks another team's sessions.
-   * Sessions without a team on an event server join no grid and see nobody.
+   * Sessions without a team on an event server join no grid and see nobody, unless they are admins.
    */
   private peerGrids(open: readonly LiveSession[]): Map<TerritoryTeam | undefined, PeerGrid> {
     const groups = new Map<TerritoryTeam | undefined, PresencePeer[]>()
@@ -528,6 +530,16 @@ export class PresenceCoordinator<Client> {
         const online = open.length
         // Built on demand: a heartbeat-only tick selects nobody.
         let grids: Map<TerritoryTeam | undefined, PeerGrid> | undefined
+        // On an event server admins see every team, from one grid built when the first needs it.
+        let everyTeam: PeerGrid | undefined
+        const gridFor = (subscriber: Attachment) => {
+          grids ??= this.peerGrids(open)
+          if (!this.eventServer) return grids.get(undefined)
+          if (!satisfiesScope(subscriber.credentialScope, 'admin'))
+            return grids.get(subscriber.team)
+          everyTeam ??= new PeerGrid([...grids.values()].flatMap((grid) => grid.peers))
+          return everyTeam
+        }
         // Each peer is encoded once per tick, however many subscribers its delta reaches.
         const encoded = new Map<string, string>()
         const encode = (peer: PresencePeer) => {
@@ -545,8 +557,7 @@ export class PresenceCoordinator<Client> {
           // Heartbeats only refresh liveness. Recovery, membership changes and dirty peer state
           // still recompute every recipient so moving viewports can discover previously unseen peers.
           if (previous !== undefined && dirty.size === 0 && local.onlineSent === online) continue
-          grids ??= this.peerGrids(open)
-          const peers = grids.get(this.eventServer ? subscriber.team : undefined)
+          const peers = gridFor(subscriber)
           const started = performance.now()
           const relevant = peers === undefined ? [] : this.relevant(subscriber, peers)
           this.timings.record('presence', 'select', performance.now() - started)

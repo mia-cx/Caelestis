@@ -1,4 +1,11 @@
-import type { PresencePeer, PresenceRect, RegionClaim } from '@caelestis/shared'
+import {
+  type PresencePeer,
+  type PresenceRect,
+  type RegionClaim,
+  TERRITORY_TEAMS,
+  type TerritoryTeam,
+  WPLACE_PALETTE,
+} from '@caelestis/shared'
 import type { ClaimRowModel, PainterRowModel, PresenceSummaryModel } from '@caelestis/ui/elements'
 import { isClaimModeActive } from '../claim-editor.js'
 import { claimRouter } from '../claim-routing.js'
@@ -30,6 +37,12 @@ const painterLocation = (view: PresenceView, sessionId: string): PresenceRect | 
 const rank = (peer: PresencePeer): number =>
   peer.draft !== null ? 0 : peer.viewport !== null ? 1 : 2
 
+/** A peer's event team as the drawer row shows it: its Wplace colour and that colour's name, such as Blue. */
+const teamRow = (team: TerritoryTeam | undefined) => {
+  const colour = team === undefined ? undefined : WPLACE_PALETTE[TERRITORY_TEAMS[team].colour]
+  return colour === undefined ? {} : { team: { name: colour.name, colour: colour.hex } }
+}
+
 /** The unique nearby sessions received across all connected servers, ordered for the drawer. */
 const painterRows = (view: PresenceView): PainterRowModel[] =>
   [...view.peers]
@@ -43,6 +56,7 @@ const painterRows = (view: PresenceView): PainterRowModel[] =>
       name: peer.painter.displayName,
       userId: peer.painter.wplaceUserId,
       colour: presenceCss(peer.painter.wplaceUserId),
+      ...teamRow(peer.team),
       activity:
         peer.draft !== null
           ? `painting ${peer.draft.pixels.toLocaleString()} px`

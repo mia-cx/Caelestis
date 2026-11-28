@@ -34,7 +34,12 @@ const isPresencePeer = (value: unknown): value is PresencePeer => {
     isWorkIdentity(peer.painter) &&
     (peer.viewport === null || isPresenceRect(peer.viewport)) &&
     (peer.draft === null || isPresenceDraft(peer.draft)) &&
-    (peer.quickClaims === undefined || isQuickClaimList(peer.quickClaims))
+    (peer.quickClaims === undefined || isQuickClaimList(peer.quickClaims)) &&
+    (peer.team === undefined ||
+      peer.team === 0 ||
+      peer.team === 1 ||
+      peer.team === 2 ||
+      peer.team === 3)
   )
 }
 

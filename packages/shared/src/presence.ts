@@ -111,6 +111,8 @@ export interface PresencePeer {
   readonly draft: PresenceDraft | null
   /** The peer's quick claims for its current paint session; absent when it has none. */
   readonly quickClaims?: readonly PresenceRect[]
+  /** On an event server, the event team the peer last reported; absent elsewhere. */
+  readonly team?: TerritoryTeam
 }
 
 /**

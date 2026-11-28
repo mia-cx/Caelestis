@@ -32,7 +32,7 @@ export class PeerGrid {
   private readonly buckets = new Map<number, PresencePeer[]>()
   private readonly wide: PresencePeer[] = []
 
-  constructor(private readonly peers: readonly PresencePeer[]) {
+  constructor(readonly peers: readonly PresencePeer[]) {
     for (const peer of peers) {
       const keys = new Set<number>()
       let wide = false

@@ -353,6 +353,7 @@ export const PresencePeer = Schema.Struct({
   viewport: Schema.NullOr(PresenceRect),
   draft: Schema.NullOr(PresenceDraft),
   quickClaims: Schema.optionalKey(QuickClaims),
+  team: Schema.optionalKey(TerritoryTeam),
 })
 
 const RegionLabel = Schema.String.check(Schema.isMaxLength(MAX_PRESENCE_REGION_LABEL))

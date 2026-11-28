@@ -202,6 +202,17 @@ describe('live protocol decoder contracts', () => {
     expect(decode(PresenceServerEvent, largeRenewal)).toEqual(largeRenewal)
     rejected(PresenceServerEvent, { ...claimsRenewed, ids: [''] })
 
+    const teamPeer = {
+      sessionId: '0123456789abcdef',
+      painter: { wplaceUserId: 1, displayName: 'Ada' },
+      viewport: null,
+      draft: null,
+      team: 1,
+    }
+    const peers = { type: 'presence-delta' as const, online: 1, upsert: [teamPeer], remove: [] }
+    expect(decode(PresenceServerEvent, peers)).toEqual(peers)
+    rejected(PresenceServerEvent, { ...peers, upsert: [{ ...teamPeer, team: 4 }] })
+
     const work = {
       id,
       season: 0,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assignShortcutBinding,
   decodePresenceDraftMask,
+  decodePresenceServerEvent,
   encodePresenceDraft,
   filterWork,
   flattenPath,
@@ -158,5 +159,22 @@ describe('coordination and geometry contracts', () => {
     expect(keyBindingMatches(recorded, changedLayout)).toBe(true)
     expect(keyBindingMatches(recorded, { ...changedLayout, command: false })).toBe(false)
     expect(keyBindingReleasedBy(recorded, { key: 'y', code: 'KeyZ' })).toBe(true)
+  })
+
+  it("keeps a peer's event team, accepts peers without one, and drops a peer with an unknown team", () => {
+    const peer = (sessionId: string, team?: unknown) => ({
+      sessionId,
+      painter: { wplaceUserId: 1, displayName: 'Ada' },
+      viewport: null,
+      draft: null,
+      ...(team === undefined ? {} : { team }),
+    })
+    const event = decodePresenceServerEvent({
+      type: 'presence-delta',
+      online: 3,
+      upsert: [peer('orange', 1), peer('teamless'), peer('unknown', 4)],
+      remove: [],
+    })
+    expect(event).toMatchObject({ upsert: [peer('orange', 1), peer('teamless')] })
   })
 })

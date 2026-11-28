@@ -644,6 +644,9 @@ const merged = (): NonNullable<typeof shared> => {
   )
     return shared
   const peers = new Map<string, PresencePeer>()
+  // A painter seen on an event server and a regular one keeps the team the newest event copy
+  // reported, whichever copy is newest overall.
+  const teams = new Map<string, { readonly team: TerritoryTeam; readonly order: number }>()
   const regions = new Map<string, RegionClaim>()
   for (const connection of connections.values()) {
     if (isOpen(connection))
@@ -653,12 +656,12 @@ const merged = (): NonNullable<typeof shared> => {
           peer.publisherId === undefined
             ? `${connection.server.url}:${peer.sessionId}`
             : `${peer.painter.wplaceUserId}:${peer.publisherId}`
+        const order = receivedOrder.get(peer) ?? 0
         const previous = peers.get(key)
-        if (
-          previous === undefined ||
-          (receivedOrder.get(peer) ?? 0) > (receivedOrder.get(previous) ?? 0)
-        )
+        if (previous === undefined || order > (receivedOrder.get(previous) ?? 0))
           peers.set(key, peer)
+        if (peer.team !== undefined && order >= (teams.get(key)?.order ?? -1))
+          teams.set(key, { team: peer.team, order })
       }
     for (const region of serverClaims(connection.server).regions) {
       const key = `${region.season}:${region.surface.kind}:${region.surface.allianceId}:${region.claimant.wplaceUserId}:${region.id}`
@@ -668,7 +671,10 @@ const merged = (): NonNullable<typeof shared> => {
   shared = {
     revision,
     open,
-    peers: [...peers].map(([key, peer]) => ({ ...peer, sessionId: key })),
+    peers: [...peers].map(([key, peer]) => {
+      const team = teams.get(key)?.team
+      return { ...peer, sessionId: key, ...(team === undefined ? {} : { team }) }
+    }),
     regions: [...regions.values()],
   }
   return shared
