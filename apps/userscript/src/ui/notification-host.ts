@@ -10,7 +10,7 @@ import type {
 } from '@caelestis/ui/elements'
 import { PANEL_ID } from '../chrome-ids.js'
 import { getState } from '../settings.js'
-import { CLEAR_OF_RAIL, EDGE, GAP } from './metrics.js'
+import { CLEAR_OF_RAIL, EDGE, GAP, TOAST_LAYER } from './metrics.js'
 import { applyWplaceTheme } from './theme.js'
 
 const NOTIFICATIONS_ID = 'caelestis-notifications'
@@ -176,6 +176,7 @@ const ensureRoot = (): CaelestisElement<'caelestis-notifications'> => {
   if (root !== null) resetDetachedState()
   root = document.createElement('caelestis-notifications')
   root.id = NOTIFICATIONS_ID
+  root.style.setProperty('--caelestis-toasts-layer', TOAST_LAYER)
   applyWplaceTheme(root)
   root.model = model()
   root.addEventListener('caelestis-notifications-intent', (event) => {

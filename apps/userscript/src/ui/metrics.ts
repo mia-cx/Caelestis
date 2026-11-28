@@ -29,5 +29,8 @@ export const PANEL_LAYER = '1002'
 /** The template studio and claim editor, which open from the panel, stack just above it. */
 export const EDITOR_LAYER = '1003'
 
+/** Toasts stack above every surface of ours, so their actions are never covered. */
+export const TOAST_LAYER = '1004'
+
 /** The context menu's corner radius, shared by every rectangular Caelestis control and surface. */
 export const SURFACE_RADIUS = 'calc(0.7rem + 1px)'

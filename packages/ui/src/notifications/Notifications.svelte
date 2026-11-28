@@ -190,7 +190,8 @@
     position: fixed;
     inset-inline-end: var(--caelestis-toasts-inset-end, 3.75rem);
     inset-block-end: 0.5rem;
-    z-index: 40;
+    /* The host can lift toasts above its own raised surfaces, so their actions stay reachable. */
+    z-index: var(--caelestis-toasts-layer, 40);
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
