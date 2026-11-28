@@ -25,6 +25,11 @@ import { BACKEND_ORIGIN, tileFromUrl } from './wplace-raster.js'
 const RTT_SAMPLES = 16
 /** How long after a Paint click its request may take to be sent and answered. */
 const PAINT_WAIT_MS = 10_000
+/**
+ * How long Wplace may still be preparing a click's paint request. It keeps Paint disabled
+ * meanwhile, so an older click that has sent nothing by the next click sent nothing at all.
+ */
+const PAINT_PREPARE_MS = 1_000
 /** How often latency goes to event servers, while there is something new to say. */
 const REPORT_MS = 5 * 60_000
 /** How long a round trip counts toward the estimate; an older one may predate a network change. */
@@ -72,44 +77,71 @@ export interface PaintTiming {
 /** A click's timing as `timeNextPaint` gives it: only what can become of a request it waits on. */
 type ClickTiming = PaintTiming & { readonly status: PaintRequestStatus | 'no-request' }
 type Settle = (status: ClickTiming['status'], at?: number) => void
-/** The click waiting for a paint request: `take` hands it the request sent at `sentAt`. */
-let watch: { readonly take: (sentAt: number) => Settle; readonly settle: Settle } | null = null
+/**
+ * A click waiting for its paint request: `take` hands it the request sent at `sentAt`, and whether
+ * that request may be another click's.
+ */
+interface Waiting {
+  readonly clickedAt: number
+  readonly take: (sentAt: number, shared: boolean) => Settle
+  readonly settle: Settle
+}
+/** The clicks still waiting for a paint request, oldest first. */
+let waiting: Waiting[] = []
 /** The timing of the latest click on the world draft's Paint button. */
 let lastClick: Promise<ClickTiming> | null = null
 
 /**
  * Time the paint request Wplace sends after a Paint click at `clickedAt` (a `localClock()` time):
- * the first `/paint` POST from then on, or none within ten seconds. A later click takes the next
- * request, so a click still waiting settles as `no-request` then.
+ * the first `/paint` POST from then on, or none within ten seconds. An earlier click still waiting
+ * past `PAINT_PREPARE_MS` sent nothing, and settles as `no-request`. One within it may still have
+ * its request coming, so the clicks waiting share the next one; with more than one, no click can
+ * claim it, and each reports it without a click-to-send time.
  */
 export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> => {
-  watch?.settle('no-request')
+  for (const older of waiting)
+    if (clickedAt - older.clickedAt > PAINT_PREPARE_MS) older.settle('no-request')
   return new Promise((resolve) => {
     let sentAt: number | null = null
+    let shared = false
     let settled = false
     const settle: Settle = (status, at) => {
       if (settled) return
       settled = true
-      if (watch === waiting) watch = null
+      waiting = waiting.filter((other) => other !== mine)
       clearTimeout(timer)
       resolve({
-        clickToSendMs: sentAt === null ? null : sentAt - clickedAt,
+        clickToSendMs: sentAt === null || shared ? null : sentAt - clickedAt,
         sendToResponseMs: sentAt === null || at === undefined ? null : at - sentAt,
         status,
       })
     }
-    const take = (at: number): Settle => {
-      watch = null
-      sentAt = at
-      return settle
+    const mine: Waiting = {
+      clickedAt,
+      take: (at, others) => {
+        sentAt = at
+        shared = others
+        return settle
+      },
+      settle,
     }
-    const waiting = { take, settle }
-    watch = waiting
+    waiting = [...waiting, mine]
     const timer = setTimeout(
       () => settle(sentAt === null ? 'no-request' : 'no-response'),
       PAINT_WAIT_MS,
     )
   })
+}
+
+/** Hand a paint request sent at `sentAt` to every click waiting, and how to settle them all. */
+const takeRequest = (sentAt: number): Settle | null => {
+  const takers = waiting
+  if (takers.length === 0) return null
+  waiting = []
+  const settles = takers.map(({ take }) => take(sentAt, takers.length > 1))
+  return (status, at) => {
+    for (const settle of settles) settle(status, at)
+  }
 }
 
 /**
@@ -124,7 +156,7 @@ export const timedPress = (press: () => boolean): Promise<ClickTiming> | null =>
 const timingRoute: RequestRoute = (request) => {
   if (request.url.origin !== BACKEND_ORIGIN || tileFromUrl(request.raw) !== null) return undefined
   const sentAt = localClock()
-  const paint = request.url.pathname === '/paint' && !request.isGet() ? watch?.take(sentAt) : null
+  const paint = request.url.pathname === '/paint' && !request.isGet() ? takeRequest(sentAt) : null
   return {
     response: (response) => {
       const at = localClock()
@@ -154,6 +186,8 @@ const report = (): void => {
   )
   if (servers.length === 0 || (measured === reported && paints.length === 0)) return
   const samples = freshRtts()
+  // Round trips can all have gone stale while no session could hear them: nothing left to say.
+  if (samples.length === 0 && paints.length === 0) return
   const event: LatencyReport = {
     type: 'latency-report',
     wplaceRttMs: wholeMs(wplaceRtt(samples)),

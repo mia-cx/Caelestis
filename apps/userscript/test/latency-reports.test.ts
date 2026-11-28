@@ -63,9 +63,10 @@ it("reports this tab's latency to Wplace to an event server, with each Paint cli
   document.querySelector('.btn-primary')?.addEventListener('click', () => {
     if (sends) setTimeout(() => void window.fetch(`${BACKEND}/paint`, { method: 'POST' }), 30)
   })
-  // A click Wplace sends nothing for doesn't take the next click's request.
+  // A click Wplace has sent nothing for by the next one, past the time it takes to prepare a
+  // request, doesn't take that click's request.
   document.querySelector<HTMLButtonElement>('.btn-primary')?.click()
-  await vi.advanceTimersByTimeAsync(500)
+  await vi.advanceTimersByTimeAsync(1_500)
   sends = true
   // A capture slot presses Paint the same way, and shares the click's timing.
   const { submitWorldPaintDraft } = await import('../src/wplace-paint.js')
@@ -90,4 +91,35 @@ it("reports this tab's latency to Wplace to an event server, with each Paint cli
   expect(reports(socket).slice(1)).toEqual([
     { type: 'latency-report', wplaceRttMs: 120, rttSamples: 1, paints: [] },
   ])
+})
+
+it('sends nothing once the round trips it held went stale while no session could hear them', async () => {
+  const { socket, dispose } = await connectPresence({ capture: 1, scope: 'report', canWrite: true })
+  teardown.push(dispose)
+  const answers: ((response: Response) => void)[] = []
+  const serverFetch = window.fetch
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+    URL.parse(input instanceof Request ? input.url : String(input), window.location.href)
+      ?.origin === BACKEND
+      ? new Promise<Response>((resolve) => answers.push(resolve))
+      : serverFetch(input, init)) as typeof fetch
+  teardown.push(() => {
+    window.fetch = serverFetch
+  })
+  const { installPageRequestObserver } = await import('../src/page-requests.js')
+  const requests = installPageRequestObserver(window)
+  teardown.push(() => requests?.restore())
+  const timing = await import('../src/capture-timing.js')
+  timing.observeWplaceTiming()
+  void window.fetch(`${BACKEND}/me`)
+  await vi.advanceTimersByTimeAsync(100)
+  answers.shift()?.(new Response(null, { status: 200 }))
+  // The session drops before the first report, and is back only once that round trip is stale.
+  socket.close()
+  await vi.advanceTimersByTimeAsync(11 * 60_000)
+  const back = FakeWebSocket.instances.at(-1)
+  if (back === undefined || back === socket) throw new Error('Expected a reconnect')
+  back.open(true)
+  await vi.advanceTimersByTimeAsync(5 * 60_000)
+  expect([...reports(socket), ...reports(back)]).toEqual([])
 })

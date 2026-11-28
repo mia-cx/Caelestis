@@ -104,3 +104,20 @@ it('records a click that Wplace sent no paint request for, or whose request fail
     status: 'failed',
   })
 })
+
+it('credits no click with a paint request that more than one click could have sent', async () => {
+  const wplace = await page()
+  // A manual click, then a capture slot's press while Wplace still prepares the first request.
+  const manual = wplace.timeNextPaint(now())
+  await wplace.wait(10)
+  const slot = wplace.timeNextPaint(now())
+  await wplace.wait(20)
+  const paint = wplace.request('/paint', { method: 'POST' })
+  await wplace.wait(50)
+  await wplace.answer(200)
+  await paint
+  // How the request went is known; which click sent it is not.
+  const shared = { clickToSendMs: null, sendToResponseMs: 50, status: 200 }
+  await expect(manual).resolves.toEqual(shared)
+  await expect(slot).resolves.toEqual(shared)
+})
