@@ -1,5 +1,11 @@
 # @caelestis/backend
 
+## 1.7.0
+
+### Minor Changes
+
+- d15b173: Anyone who can paint opens and hosts a capture lobby, the largest lobbies list first, and event-runner tokens are no longer offered.
+
 ## 1.6.0
 
 ### Minor Changes
