@@ -10,11 +10,18 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use anyhow::Context;
 use reqwest::header::{ETAG, IF_NONE_MATCH, RETRY_AFTER};
 use reqwest::{Client, Url};
 use wpa_contracts::{ETag, Fetcher, Lane, Outcome, TileId};
+
+/// Whole-request deadline: a tile that hasn't answered by here comes back as `Outcome::Err`
+/// rather than holding a lane open forever.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Connect deadline, well under the request timeout so a dead address fails fast.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Fetches tiles over HTTP, keeping one keep-alive client per source address.
 pub struct HttpFetcher {
@@ -46,6 +53,8 @@ impl HttpFetcher {
         let client = Client::builder()
             .local_address(source)
             .user_agent(&self.user_agent)
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
             .build()?;
         clients.insert(source, client.clone());
         Ok(client)

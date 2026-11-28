@@ -4,8 +4,26 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 
+[lib]
+name = "wpa_archive"
+path = "src/lib.rs"
+
 [[bin]]
 name = "wplace-archive"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
+futures = "0.3"
+tokio.workspace = true
+wpa-config = { path = "../../crates/config" }
+wpa-contracts.workspace = true
+wpa-fetch = { path = "../../crates/fetch" }
+wpa-lanes = { path = "../../crates/lanes" }
+wpa-schedule = { path = "../../crates/schedule" }
+wpa-store = { path = "../../crates/store" }
+wpa-temporal = { path = "../../crates/temporal" }
+
+[dev-dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tempfile = "3"

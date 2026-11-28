@@ -4,9 +4,9 @@ Activity-aware incremental snapshot/archive of the Wplace tile canvas. Polite
 by design: conditional GETs, respects `Retry-After`, caps its own rate, and
 prototypes against a local mock so no test traffic reaches production.
 
-> Status: **scaffold.** Crate boundaries and the `wpa-contracts` seam exist;
-> implementations are stubs. See each crate's module doc for its job and the
-> suggested delegate model.
+> Status: **implemented.** Every crate is built and tested; the `archived`
+> orchestrator wires them into a baseline sweep plus an activity-aware
+> incremental loop. Not yet deployed.
 
 ## Layout
 
