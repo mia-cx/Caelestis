@@ -267,4 +267,62 @@ it("counts a leg's pixels the team already holds on Wplace's map as drafted", as
     },
     { timeout: 10_000 },
   )
+
+  // The server takes the report, as it would.
+  const reported = lobby(wall, 0)
+  const [self, ...others] = reported.members
+  if (self === undefined) throw new Error('Expected this painter in the lobby')
+  reported.members = [{ ...self, drafted: 2 }, ...others]
+  socket.receive({ type: 'capture-runs', runs: [reported] })
+  // Wplace stops answering: tries back off, and the old read stops counting once it is stale.
+  let tries = 0
+  vi.stubGlobal('fetch', async (url: unknown) => {
+    if (String(url).endsWith('/territory/snapshot')) tries++
+    throw new TypeError('Failed to fetch')
+  })
+  await vi.advanceTimersByTimeAsync(31_000)
+  expect(tries).toBeLessThanOrEqual(8)
+  expect(sent(socket, 'capture-drafted').at(-1)).toMatchObject({ drafted: 0 })
 }, 20_000)
+
+it("doesn't press Paint at a slot when nothing is drafted on the leg", async () => {
+  const { socket } = await connect({ capture: 1 })
+  // The slot spins out its last milliseconds on the tab's monotonic clock, so that clock runs for
+  // real here; timers and the date stay fake.
+  vi.useRealTimers()
+  vi.useFakeTimers({
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
+  })
+  vi.setSystemTime(TERRITORY_EVENT.startsAt + 3_600_000)
+  const { setState } = await import('../src/settings.js')
+  setState({ simulatedInput: { 'capture-paint': true } })
+  // The territory event's Paint panel is open, its Paint button ready.
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    '<div><button>Cancel</button><button class="btn btn-primary">Paint (0:04)</button></div>',
+  )
+  let clicks = 0
+  document.querySelector('.btn-primary')?.addEventListener('click', () => clicks++)
+  const { installCaptureRuns } = await import('../src/capture-runs.js')
+  installCaptureRuns()
+  const now = performance.timeOrigin + performance.now()
+  const started = {
+    ...lobby([10, 10, 11, 10, 12, 10, 13, 10], 0),
+    startsAt: Math.round(now) + 600,
+  }
+  socket.receive({ type: 'capture-runs', runs: [started] })
+  // Answer each clock ping at once, so the slot can be scheduled on this tab's clock.
+  const answered = new Set<number>()
+  for (let step = 0; step < 20; step++) {
+    await vi.advanceTimersByTimeAsync(100)
+    await new Promise((resolve) => setImmediate(resolve))
+    for (const { sent: at } of sent(socket, 'clock')) {
+      if (answered.has(at)) continue
+      answered.add(at)
+      socket.receive({ type: 'clock', sent: at, at })
+    }
+  }
+  expect(clicks).toBe(0)
+  document.body.replaceChildren()
+  setState({ simulatedInput: {} })
+})

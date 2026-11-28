@@ -98,6 +98,8 @@ import { BACKEND_ORIGIN } from './wplace-raster.js'
 const ELEMENT_ID = 'caelestis-capture-run'
 /** How often Wplace refreshes its territory map; guards and planning read it no more often. */
 const SNAPSHOT_MS = 5_000
+/** How long a painter's read of the map counts toward their leg when it can't be read again. */
+const HELD_MAP_MS = 30_000
 /** How long after a guard's slot their anchor is first checked, so the start can land. */
 const WATCH_GRACE_MS = 3_000
 /** How often a member's drafted count is re-read and the countdown redrawn. */
@@ -205,7 +207,8 @@ const syncTeam = (): void => {
  * Wplace's territory map as a painter last read it, so a leg's pixels the team already holds count
  * as done: they are painted in its colour already, and Wplace has nothing left to draft there.
  */
-let heldMap: { readonly hash: number; readonly map: TerritoryMap } | null = null
+let heldMap: { readonly hash: number; readonly map: TerritoryMap; readonly at: number } | null =
+  null
 let heldLoading = false
 
 /** Read the map again once Wplace has refreshed it; called while a painter drafts their leg. */
@@ -214,9 +217,14 @@ const refreshHeldMap = (): void => {
   heldLoading = true
   void plannedSnapshot()
     .then(async (snapshot) => {
-      if (snapshot === null || heldMap?.hash === snapshot.hash) return
+      if (snapshot === null) return
+      if (heldMap?.hash === snapshot.hash) {
+        heldMap = { ...heldMap, at: snapshot.at }
+        return
+      }
       const image = await decodePng(snapshot.bytes.slice())
-      heldMap = { hash: snapshot.hash, map: territoryMapFromImage(image, PALETTE_RGB) }
+      const map = territoryMapFromImage(image, PALETTE_RGB)
+      heldMap = { hash: snapshot.hash, map, at: snapshot.at }
     })
     .catch(() => undefined)
     .finally(() => {
@@ -224,18 +232,23 @@ const refreshHeldMap = (): void => {
     })
 }
 
-/**
- * Whether a leg pixel is done for `team`: this tab has drafted it in a colour that claims for the
- * team, or the team already holds it on Wplace's map.
- */
-const donePixel = (team: TerritoryTeam, pixel: { x: number; y: number }): boolean => {
+/** Whether this tab has drafted a pixel in a colour that claims for `team`. */
+const draftedPixel = (team: TerritoryTeam, { x, y }: { x: number; y: number }): boolean => {
   const { colour, dark } = TERRITORY_TEAMS[team]
-  const { x, y } = pixel
   const tile = { x: Math.floor(x / TILE_SIZE), y: Math.floor(y / TILE_SIZE) }
   const offset = (y % TILE_SIZE) * TILE_SIZE + (x % TILE_SIZE)
   const drafted = comparisonDraftPixelAt(tile, offset)
-  if (drafted === colour || drafted === dark) return true
-  const map = heldMap?.map
+  return drafted === colour || drafted === dark
+}
+
+/**
+ * Whether a leg pixel is done for `team`: this tab has drafted it, or the team already holds it on
+ * Wplace's map.
+ */
+const donePixel = (team: TerritoryTeam, pixel: { x: number; y: number }): boolean => {
+  if (draftedPixel(team, pixel)) return true
+  // A map that could not be read again for a while may no longer be true: count nothing held.
+  const map = heldMap !== null && localClock() - heldMap.at < HELD_MAP_MS ? heldMap.map : undefined
   const local = map === undefined ? null : worldToArena(pixel)
   return map !== undefined && local !== null && map.owner[local.y * map.size + local.x] === team
 }
@@ -629,14 +642,17 @@ const plannedSnapshot = async (): Promise<typeof snapshotRead> => {
   const now = localClock()
   if (snapshotRead !== null && now - snapshotRead.at < SNAPSHOT_MS) return snapshotRead
   if (now - snapshotFailedAt < PLAN_RETRY_MS) return null
-  const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
-  if (!response.ok) {
+  try {
+    const response = await fetch(`${BACKEND_ORIGIN}/territory/snapshot`)
+    if (!response.ok) throw new Error(`territory snapshot ${response.status}`)
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    snapshotRead = { bytes, hash: hashBytes(bytes), at: now }
+    return snapshotRead
+  } catch {
+    // A refused request and an unreachable one wait the same before the next try.
     snapshotFailedAt = now
     return null
   }
-  const bytes = new Uint8Array(await response.arrayBuffer())
-  snapshotRead = { bytes, hash: hashBytes(bytes), at: now }
-  return snapshotRead
 }
 
 /** One pass: re-plan the run if the map or where it is centred changed since the last plan. */
@@ -842,7 +858,15 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
       void reportSlot(view, run.id, slot, Promise.resolve(missed), late, wplaceRtt())
       return
     }
+    // A leg the team already holds has nothing drafted: pressing Paint would only submit
+    // whatever else is in the draft.
+    const leg = captureLines(run)[index] ?? []
     const wplaceRttMs = wplaceRtt()
+    if (!linePixels(leg).some((pixel) => draftedPixel(run.team, pixel))) {
+      // Logged as a slot whose Paint was never pressed.
+      void reportSlot(view, run.id, slot, null, late, wplaceRttMs)
+      return
+    }
     // Watch from before the click, so even a request the click sends at once is caught.
     const paint = timeNextPaint(clickedAt)
     const submitted = submitWorldPaintDraft()
