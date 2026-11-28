@@ -3,6 +3,7 @@ import {
   type CaptureClientEvent,
   type CaptureMember,
   type CaptureRun,
+  type CaptureTimingReport,
   captureCoordinatorIndex,
   captureEndsAt,
   captureGuardCount,
@@ -10,6 +11,10 @@ import {
   capturePainterCount,
   captureReady,
   captureShortfall,
+  captureSlot,
+  captureStep,
+  isCaptureGuard,
+  isCaptureReserve,
   maxCaptureGuards,
   moveCaptureMember,
   type PainterIdentity,
@@ -28,7 +33,7 @@ export interface CaptureActor {
   readonly team: TerritoryTeam
 }
 
-type RunEvent = Exclude<CaptureClientEvent, { readonly type: 'clock' }>
+type RunEvent = Exclude<CaptureClientEvent, { readonly type: 'clock' | 'capture-timing' }>
 type OwnEvent = Exclude<RunEvent, { readonly type: 'capture-new' | 'capture-join' }>
 
 /**
@@ -297,4 +302,86 @@ const pinCoordinator = (run: CaptureRun): CaptureRun => {
   if (coordinator === undefined || at === last) return run
   const others = run.members.filter((_, index) => index !== at)
   return { ...run, members: [...others.slice(0, last), coordinator, ...others.slice(last)] }
+}
+
+/** The lobbies that started their countdown between `before` and `after`. */
+export const newlyStarted = (
+  before: readonly CaptureRun[],
+  after: readonly CaptureRun[],
+): readonly CaptureRun[] =>
+  after.filter(
+    (run) => run.startsAt !== null && before.find(({ id }) => id === run.id)?.startsAt === null,
+  )
+
+/**
+ * The log line for a lobby starting its countdown: its members in paint order with their step, so
+ * slot reports can be read against it. Guards paint at the first step; reserves have none.
+ */
+export const captureStartLog = (run: CaptureRun): object => ({
+  event: 'capture-countdown',
+  lobby: run.id,
+  team: run.team,
+  startsAt: run.startsAt,
+  staggerMs: run.staggerMs,
+  members: run.members.map(({ painter }, index) => ({
+    name: painter.displayName,
+    userId: painter.wplaceUserId,
+    role: isCaptureGuard(run, index)
+      ? 'guard'
+      : isCaptureReserve(run, index)
+        ? 'reserve'
+        : 'painter',
+    step: isCaptureReserve(run, index) ? null : captureStep(run, index),
+  })),
+})
+
+/** A member's slot in a started lobby, fixed when its countdown started. */
+export interface CaptureAssignment {
+  readonly lobby: string
+  readonly team: TerritoryTeam
+  readonly slotAt: number
+  readonly step: number
+}
+
+/** Each member's slot in a started lobby, by session; reserves have none. */
+export const captureAssignments = (run: CaptureRun): ReadonlyMap<string, CaptureAssignment> =>
+  new Map(
+    run.members.flatMap(({ sessionId }, index) => {
+      const slotAt = captureSlot(run, index)
+      return slotAt === null
+        ? []
+        : [[sessionId, { lobby: run.id, team: run.team, slotAt, step: captureStep(run, index) }]]
+    }),
+  )
+
+/**
+ * The log line for a member's slot report, or null unless it matches the slot the server assigned
+ * that session when the countdown started. A report that lands after its lobby closed, as when a
+ * runner closes it while a painter still waits on Wplace, is logged with `closed`.
+ */
+export const captureSlotLog = (
+  report: CaptureTimingReport,
+  assigned: CaptureAssignment | undefined,
+  painter: PainterIdentity,
+  closed: boolean,
+): object | null => {
+  if (assigned === undefined || assigned.lobby !== report.run || assigned.slotAt !== report.slotAt)
+    return null
+  return {
+    event: 'capture-slot',
+    lobby: assigned.lobby,
+    team: assigned.team,
+    name: painter.displayName,
+    userId: painter.wplaceUserId,
+    step: assigned.step,
+    ...(closed ? { closed: true } : {}),
+    slotAt: report.slotAt,
+    firedLateMs: report.firedLateMs,
+    clickToSendMs: report.clickToSendMs,
+    sendToResponseMs: report.sendToResponseMs,
+    status: report.status,
+    wplaceRttMs: report.wplaceRttMs,
+    clockOffsetMs: report.clockOffsetMs,
+    clockRttMs: report.clockRttMs,
+  }
 }

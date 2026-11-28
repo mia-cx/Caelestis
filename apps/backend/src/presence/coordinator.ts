@@ -1,5 +1,6 @@
 import {
   type CaptureRun,
+  captureEndsAt,
   decodePresenceDraftMask,
   MAX_PRESENCE_MASK_BITS,
   MAX_PRESENCE_MESSAGE_CODE_UNITS,
@@ -31,7 +32,16 @@ import type { AccessTokenStore } from '../auth/store.js'
 import { createLiveSessionFence, type LiveHost, type LiveSocket } from '../live/session.js'
 import type { IngestTimingSnapshot, IngestTimings } from '../metrics/ingest-timing.js'
 import { ownedRegionIds, type RegionOwner, type RegionStore } from '../work/region-store.js'
-import { applyCaptureEvent, connectedCaptures, leaveCaptures } from './capture.js'
+import {
+  applyCaptureEvent,
+  type CaptureAssignment,
+  captureAssignments,
+  captureSlotLog,
+  captureStartLog,
+  connectedCaptures,
+  leaveCaptures,
+  newlyStarted,
+} from './capture.js'
 import { presenceRectWithinSurface } from './geometry.js'
 import { PeerGrid } from './peer-grid.js'
 import type { PresenceConnection, PresenceRoomId } from './port.js'
@@ -103,6 +113,9 @@ const CLAIM_RENEW_INTERVAL_MS = 60 * 60 * 1_000
  * stored under `capture-run:<team>` before lobbies are never read.
  */
 const captureKey = (team: TerritoryTeam): string => `capture-runs:${team}`
+
+/** How long past a lobby's closing slot its members' slot reports are still checked and logged. */
+const ASSIGNED_SLOT_MS = 120_000
 /** The earliest claim expiry. The room's identity is stored beside it but read from the room. */
 interface RegionExpiry extends PresenceRoomId {
   readonly at: number | null
@@ -147,6 +160,15 @@ export class PresenceCoordinator<Client> {
   private stopped = false
   /** Per team, lobby changes one at a time, each reading the lobbies the previous one stored. */
   private readonly captureQueues = new Map<TerritoryTeam, Promise<readonly CaptureRun[]>>()
+  /**
+   * Each member's slot in recently started lobbies, by `lobby:session:slot`, so a slot report is
+   * checked against the slot it was given even after its lobby closed or started its next round.
+   * Kept in memory only, until a while past each lobby's closing slot.
+   */
+  private readonly assignedSlots = new Map<
+    string,
+    { readonly slot: CaptureAssignment; readonly until: number }
+  >()
 
   constructor(
     private readonly state: PresenceHost<Client>,
@@ -211,6 +233,10 @@ export class PresenceCoordinator<Client> {
       if (updated === runs) return runs
       if (updated.length === 0) await this.state.storage.delete(captureKey(team))
       else await this.state.storage.put(captureKey(team), updated)
+      for (const run of newlyStarted(runs, updated)) {
+        console.info(JSON.stringify(captureStartLog(run)))
+        this.assignSlots(run)
+      }
       const payload = JSON.stringify({
         type: 'capture-runs',
         runs: updated,
@@ -227,6 +253,16 @@ export class PresenceCoordinator<Client> {
       next.catch(() => previous),
     )
     this.state.waitUntil(next)
+  }
+
+  /** Remember a lobby's slots as its countdown starts, dropping those whose time has passed. */
+  private assignSlots(run: CaptureRun): void {
+    const now = Date.now()
+    for (const [key, { until }] of this.assignedSlots)
+      if (until < now) this.assignedSlots.delete(key)
+    const until = (captureEndsAt(run) ?? now) + ASSIGNED_SLOT_MS
+    for (const [sessionId, slot] of captureAssignments(run))
+      this.assignedSlots.set(`${run.id}:${sessionId}:${slot.slotAt}`, { slot, until })
   }
 
   stop(): void {
@@ -696,6 +732,20 @@ export class PresenceCoordinator<Client> {
       return
     }
     if (attachment.credentialScope === 'read') return
+    if (event.type === 'capture-timing') {
+      // Logged for reading slot timing afterwards; the lobby never holds it. Only a slot the server
+      // gave this session, and not yet past its grace period, is logged.
+      const held = this.assignedSlots.get(`${event.run}:${attachment.sessionId}:${event.slotAt}`)
+      if (held === undefined || held.until < Date.now()) return
+      const assigned = held.slot
+      // The lobby lives with the team it started on, whatever team the painter reports now.
+      void this.captureRuns(assigned.team).then((runs) => {
+        const closed = !runs.some(({ id }) => id === event.run)
+        const line = captureSlotLog(event, assigned, attachment.painter, closed)
+        if (line !== null) console.info(JSON.stringify(line))
+      })
+      return
+    }
     if (event.type !== 'presence-update') {
       const { team } = attachment
       if (team === undefined) return

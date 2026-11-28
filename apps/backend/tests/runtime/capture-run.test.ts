@@ -434,3 +434,166 @@ it('keeps claims made before the switch to event mode out of it, and does not re
   const after = await start({ eventServer: false, directory: before.directory })
   expect((await regions(after)).regions).toEqual([claimed])
 })
+
+it('logs a countdown as it starts, and each slot report from a member of it', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const lines = (event: string) =>
+    info.mock.calls
+      .map(([line]) => {
+        try {
+          return JSON.parse(String(line)) as { event?: unknown }
+        } catch {
+          return null
+        }
+      })
+      .filter((line) => line?.event === event)
+  const server = await start()
+  const runner = await server.runner(GREEN)
+  runner.send({ type: 'capture-new', ...SETTINGS, painters: 1 })
+  await vi.waitFor(() => expect(runner.run()).toBeDefined())
+  runner.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
+  await vi.waitFor(() => expect(runner.run()?.wall).toHaveLength(120))
+  const lobby = runner.run()
+  runner.send({ type: 'capture-drafted', run: lobby?.id ?? '', drafted: 60, cut: lobby?.cut ?? 0 })
+  await vi.waitFor(() => expect(runner.run()?.members[0]?.drafted).toBe(60))
+  runner.send({ type: 'capture-go' })
+  await vi.waitFor(() => expect(runner.run()?.startsAt).not.toBeNull())
+  const run = runner.run()
+  if (run === undefined || run.startsAt === null) throw new Error('Expected a started lobby')
+  await vi.waitFor(() =>
+    expect(lines('capture-countdown')).toEqual([
+      {
+        event: 'capture-countdown',
+        lobby: run.id,
+        team: GREEN,
+        startsAt: run.startsAt,
+        staggerMs: SETTINGS.staggerMs,
+        members: [{ name: 'Painter 1', userId: 1, role: 'painter', step: 0 }],
+      },
+    ]),
+  )
+
+  const report = {
+    type: 'capture-timing',
+    run: run.id,
+    slotAt: run.startsAt,
+    firedLateMs: 2,
+    clickToSendMs: 41,
+    sendToResponseMs: 180,
+    status: 200,
+    wplaceRttMs: 95,
+    clockOffsetMs: -12,
+    clockRttMs: 30,
+  } as const
+  // Malformed, then for a slot that is not this member's: neither is logged, nor closes the socket.
+  runner.send({ ...report, firedLateMs: -1 })
+  runner.send({ ...report, slotAt: run.startsAt + SETTINGS.staggerMs })
+  runner.send(report)
+  await vi.waitFor(() => expect(lines('capture-slot')).toHaveLength(1))
+  expect(lines('capture-slot')[0]).toEqual({
+    event: 'capture-slot',
+    lobby: run.id,
+    team: GREEN,
+    name: 'Painter 1',
+    userId: 1,
+    step: 0,
+    slotAt: run.startsAt,
+    firedLateMs: 2,
+    clickToSendMs: 41,
+    sendToResponseMs: 180,
+    status: 200,
+    wplaceRttMs: 95,
+    clockOffsetMs: -12,
+    clockRttMs: 30,
+  })
+
+  // A runner closes the lobby while a report is still on its way; it is logged, marked closed.
+  // First wait out the presence rate limit's one-second window.
+  await new Promise((resolve) => setTimeout(resolve, 1_100))
+  runner.send({ type: 'capture-close' })
+  await vi.waitFor(() => expect(runner.runs()).toEqual([]))
+  // Reports for a slot it was never given, in that lobby or one that never existed, are not.
+  runner.send({ ...report, slotAt: run.startsAt + SETTINGS.staggerMs })
+  runner.send({ ...report, run: uuidV7() })
+  runner.send({ ...report, status: 'missed', clickToSendMs: null, sendToResponseMs: null })
+  await vi.waitFor(() => expect(lines('capture-slot')).toHaveLength(2))
+  expect(lines('capture-slot')[1]).toMatchObject({
+    lobby: run.id,
+    step: 0,
+    closed: true,
+    status: 'missed',
+  })
+})
+
+it('logs a slot report from a finished round, through a team switch, until it expires', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const slotLines = () =>
+    info.mock.calls
+      .map(([line]) => JSON.parse(String(line)) as { event?: string; slotAt?: number })
+      .filter((line) => line.event === 'capture-slot')
+  const server = await start()
+  const runner = await server.runner(GREEN)
+  const painter = await server.painter(GREEN)
+  /** Lock a 60-pixel wall, both members draft their 30-pixel legs, and the countdown starts. */
+  const round = async () => {
+    runner.send({ type: 'capture-lock', wall: wall(60), guardZones: [] })
+    await vi.waitFor(() => expect(runner.run()?.wall).toHaveLength(120))
+    const { id = '', cut = 0 } = runner.run() ?? {}
+    for (const session of [runner, painter])
+      session.send({ type: 'capture-drafted', run: id, drafted: 30, cut })
+    await vi.waitFor(() => expect(runner.run()?.members.map((m) => m.drafted)).toEqual([30, 30]))
+    runner.send({ type: 'capture-go' })
+    await vi.waitFor(() => expect(painter.run()?.startsAt).not.toBeNull())
+    return painter.run()?.startsAt ?? 0
+  }
+  const lobby = () => runner.run()?.id ?? ''
+  const report = (run: string, slotAt: number) =>
+    painter.send({
+      type: 'capture-timing',
+      run,
+      slotAt,
+      firedLateMs: 1,
+      clickToSendMs: null,
+      sendToResponseMs: null,
+      status: 'no-response',
+      wplaceRttMs: null,
+      clockOffsetMs: 0,
+      clockRttMs: 10,
+    })
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 1_100))
+
+  runner.send({ type: 'capture-new', ...SETTINGS, painters: 2 })
+  await vi.waitFor(() => expect(runner.run()).toBeDefined())
+  painter.send({ type: 'capture-join', run: lobby() })
+  await vi.waitFor(() => expect(runner.run()?.members).toHaveLength(2))
+  const first = await round()
+  const id = lobby()
+  await pause()
+  // The first round finishes and the next one starts before the painter's report arrives.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(first + 60_000)
+  runner.send({ type: 'capture-unlock' })
+  await settle()
+  vi.useRealTimers()
+  await vi.waitFor(() => expect(runner.run()?.startsAt).toBeNull())
+  const second = await round()
+  await pause()
+  report(id, first)
+  await vi.waitFor(() => expect(slotLines().map(({ slotAt }) => slotAt)).toEqual([first]))
+  // Reporting another team now, the painter's report still finds its lobby open on Green.
+  painter.send({ type: 'presence-update', team: ORANGE })
+  report(id, second)
+  await vi.waitFor(() => expect(slotLines()).toHaveLength(2))
+  expect(slotLines()[1]).not.toHaveProperty('closed')
+  await pause()
+  // Two minutes past the closing slot, a report is no longer logged.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  try {
+    vi.setSystemTime(second + 180_000)
+    report(id, second)
+    await settle()
+  } finally {
+    vi.useRealTimers()
+  }
+  expect(slotLines()).toHaveLength(2)
+}, 30_000)

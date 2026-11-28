@@ -10,7 +10,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { applyCaptureEvent, connectedCaptures, leaveCaptures } from '../src/presence/capture.js'
 
-type Event = Exclude<CaptureClientEvent, { readonly type: 'clock' }>
+type Event = Exclude<CaptureClientEvent, { readonly type: 'clock' | 'capture-timing' }>
 
 const COORDINATOR = 1
 const SETTINGS = { painters: 3, staggerMs: 500 }

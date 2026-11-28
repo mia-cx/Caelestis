@@ -157,6 +157,48 @@ export type CaptureClientEvent =
   | { readonly type: 'capture-go' }
   | { readonly type: 'capture-close' }
   | { readonly type: 'clock'; readonly sent: number }
+  | CaptureTimingReport
+
+/** How a member's slot went in lobby `run`, sent once for the server's log. */
+export interface CaptureTimingReport extends CaptureSlotTiming {
+  readonly type: 'capture-timing'
+  readonly run: string
+}
+
+/**
+ * What became of the paint request at a slot: Wplace's HTTP status, or `missed` (the tab woke too
+ * late to click), `unsubmitted` (Paint was not ready), `no-request` (Wplace sent none in time),
+ * `no-response` (it never answered in time) or `failed` (the request errored).
+ */
+export type CapturePaintStatus =
+  | number
+  | 'missed'
+  | 'unsubmitted'
+  | 'no-request'
+  | 'no-response'
+  | 'failed'
+
+/** The longest duration a slot report carries; clients clamp longer ones to it. */
+export const MAX_CAPTURE_TIMING_MS = 60_000
+
+/**
+ * One member's slot, timed by their client in whole milliseconds. The click lands `firedLateMs`
+ * after `slotAt`; Wplace sends its paint request `clickToSendMs` after the click and answers it
+ * `sendToResponseMs` later, both null when that never happened. The clock fields are the sync the
+ * slot was scheduled with, and `wplaceRttMs` the tab's recent round trip to Wplace.
+ */
+export interface CaptureSlotTiming {
+  /** The slot, on the server's clock. */
+  readonly slotAt: number
+  readonly firedLateMs: number
+  readonly clickToSendMs: number | null
+  readonly sendToResponseMs: number | null
+  readonly status: CapturePaintStatus
+  readonly wplaceRttMs: number | null
+  /** Server time minus the tab's clock. */
+  readonly clockOffsetMs: number
+  readonly clockRttMs: number
+}
 
 export type CaptureServerEvent =
   /** Every lobby of the session's team, whenever one of them changes. */
