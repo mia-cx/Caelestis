@@ -16,6 +16,7 @@ import {
   captureShortfall,
   captureSlot,
   captureStep,
+  isCaptureCoverage,
   isCaptureGuard,
   isCaptureReserve,
   MAX_CAPTURE_MEMBERS,
@@ -38,12 +39,19 @@ export interface CaptureActor {
   readonly team: TerritoryTeam
   /** The hash of the session's browser client id: which places it may take over. */
   readonly client: string
+  /** The session's tab has a Ready button, as it said with its team (`captureReady`). */
+  readonly readies?: boolean
 }
 
-/** A connected session as reconnection sees it: whose it is, and from which browser. */
+/**
+ * A connected session as reconnection sees it: whose it is, from which browser, and whether its
+ * tab has a Ready button. Tabs of one browser can run different versions, so that is the
+ * session's own.
+ */
 export interface CaptureSeatOwner {
   readonly painter: WplaceUserId
   readonly client: string
+  readonly readies?: boolean
 }
 
 type RunEvent = Exclude<
@@ -57,7 +65,7 @@ type OwnEvent = Exclude<RunEvent, { readonly type: 'capture-new' | 'capture-join
 /**
  * A team's lobbies after one event, or the same array when the event changes nothing or is not
  * allowed. A session is a member of one lobby at most. Any painter who can write opens, joins and
- * leaves lobbies; members report how much of their leg they have drafted. The lobby's host, and an
+ * leaves lobbies; members report what they have drafted and press Ready. The lobby's host, and an
  * administrator in it, run it: edit the settings, order members, give the closing leg, lock in a
  * wall, start and close. Nobody joins a lobby whose countdown has started, and nobody leaves one
  * before its closing leg is painted.
@@ -69,18 +77,21 @@ export const applyCaptureEvent = (
   now: number,
   newId: () => string,
 ): readonly CaptureRun[] => {
+  // A tab with a Ready button said so with its team, so Wait for Ready waits for it from the start.
+  const readies = actor.readies === true
   const me = (joined: number): CaptureMember => ({
     sessionId: actor.sessionId,
     painter: actor.painter,
     drafted: 0,
     joined,
     client: actor.client,
+    ...(readies ? { ready: false } : {}),
   })
   if (event.type === 'capture-new') {
     const left = leaveCaptures(runs, actor.sessionId, now)
     if (left === null) return runs
     const { painters, staggerMs, guards = 0, leadMs = CAPTURE_LEAD_MS } = event
-    const { distribution = 'even' } = event
+    const { distribution = 'even', waitForReady = false } = event
     const opened: CaptureRun = {
       id: newId(),
       team: actor.team,
@@ -91,6 +102,7 @@ export const applyCaptureEvent = (
       // The guards chosen: as painters join, up to half the lobby guard.
       guards,
       distribution,
+      ...(waitForReady ? { waitForReady } : {}),
       members: [me(0)],
       wall: null,
       guardZones: [],
@@ -117,7 +129,9 @@ export const applyCaptureEvent = (
     const left = leaveCaptures(runs, actor.sessionId, now)
     if (left === null) return runs
     if (place !== -1)
-      return left.map((run) => (run.id === target.id ? reseated(run, place, actor.sessionId) : run))
+      return left.map((run) =>
+        run.id === target.id ? reseated(run, place, actor.sessionId, readies) : run,
+      )
     const joined = Math.max(0, ...everyone.map((member) => (member.joined ?? 0) + 1))
     return left.map((run) => (run === target ? joinedBy(run, me(joined)) : run))
   }
@@ -148,17 +162,33 @@ const applyOwnEvent = (
       const member = run.members.findIndex((entry) => entry.sessionId === sessionId)
       const current = run.members[member]
       // A report measured in another lobby, or before the last re-cut, is about a leg this member
-      // no longer has.
+      // no longer has; a coverage that doesn't fit the wall says nothing about it.
+      if (current === undefined || event.run !== run.id || event.cut !== run.cut) return run
+      const { drafted } = event
+      const covered = isCaptureCoverage(run, event.covered) ? event.covered : current.covered
+      if (current.drafted === drafted && current.covered === covered) return run
+      const members = run.members.slice()
+      members[member] = { ...current, drafted, ...(covered === undefined ? {} : { covered }) }
+      return { ...run, members }
+    }
+    case 'capture-ready': {
+      // Anyone in the lobby, so a painter waiting for a lock-in can say their tab has the button.
+      const everyone = captureEveryone(run)
+      const place = everyone.findIndex((entry) => entry.sessionId === sessionId)
+      const current = everyone[place]
       if (
         current === undefined ||
         event.run !== run.id ||
         event.cut !== run.cut ||
-        current.drafted === event.drafted
+        run.startsAt !== null ||
+        current.ready === event.ready
       )
         return run
-      const members = run.members.slice()
-      members[member] = { ...current, drafted: event.drafted }
-      return { ...run, members }
+      const seat = { ...current, ready: event.ready }
+      const spot = place - run.members.length
+      return spot < 0
+        ? { ...run, members: run.members.with(place, seat) }
+        : { ...run, waiting: (run.waiting ?? []).with(spot, seat) }
     }
     case 'capture-close':
       return hosting ? null : run
@@ -172,15 +202,29 @@ const applyOwnEvent = (
     case 'capture-settings': {
       const { painters = run.painters, staggerMs = run.staggerMs } = event
       const { distribution = run.distribution, leadMs = captureLead(run) } = event
+      const { waitForReady: _, ...rest } = run
+      const waitForReady = event.waitForReady ?? run.waitForReady === true
       // At most half the lobby guards.
       const guards =
         event.guards === undefined ? run.guards : Math.min(event.guards, maxCaptureGuards(run))
-      const next = { ...run, painters, guards, staggerMs, leadMs, distribution }
+      const next: CaptureRun = {
+        ...rest,
+        painters,
+        guards,
+        staggerMs,
+        leadMs,
+        distribution,
+        ...(waitForReady ? { waitForReady } : {}),
+      }
       // The locked wall was planned for the old size: back to choosing.
       if (painters !== run.painters || guards !== run.guards) return unlocked(next)
       // The same wall, cut into a different number of legs.
       if (distribution !== run.distribution) return recut(next)
-      return staggerMs === run.staggerMs && leadMs === captureLead(run) ? run : next
+      const same =
+        staggerMs === run.staggerMs &&
+        leadMs === captureLead(run) &&
+        waitForReady === (run.waitForReady === true)
+      return same ? run : next
     }
     case 'capture-move': {
       const order = moveCaptureMember(run, event.member, event.by)
@@ -227,8 +271,8 @@ const applyOwnEvent = (
     case 'capture-unlock':
       return run.wall === null ? run : unlocked(run)
     case 'capture-go':
-      // Members report their own drafted counts, so this holds honest clients to their legs; a
-      // client that lies about its draft can still start short.
+      // Members report what they drafted, so this holds honest clients to the wall; a client that
+      // lies about its draft can still start short.
       return captureReady(run) ? { ...run, startsAt: now + captureLead(run) } : run
   }
 }
@@ -251,12 +295,23 @@ const placeOf = (run: CaptureRun, painter: WplaceUserId): number =>
 /**
  * The lobby with the member at `place` in `captureEveryone` on a new session of theirs, in it
  * again if they had left the place, and hosting if the old session did.
+ *
+ * Whether Wait for Ready waits for the place is the new session's own `readies`, never the old
+ * one's, with Ready released: tabs of one browser can run different versions. Before the
+ * countdown, what the old session drafted was that tab's too, so the new one starts with nothing
+ * drafted and reports its own. Once the countdown starts, the place keeps its draft, leg and slot,
+ * and the next round's Wait for Ready still goes by the tab now holding it.
  */
-const reseated = (run: CaptureRun, place: number, sessionId: string): CaptureRun => {
+const reseated = (
+  run: CaptureRun,
+  place: number,
+  sessionId: string,
+  readies: boolean,
+): CaptureRun => {
   const member = captureEveryone(run)[place]
   if (member === undefined) return run
-  const { left: _, ...back } = member
-  const seat = { ...back, sessionId }
+  const { left: _, ready: __, ...back } = run.startsAt === null ? undrafted(member) : member
+  const seat = { ...back, sessionId, ...(readies ? { ready: false } : {}) }
   const host = run.host === member.sessionId ? { host: sessionId } : {}
   const spot = place - run.members.length
   return spot < 0
@@ -301,7 +356,7 @@ const withoutMembers = (run: CaptureRun, gone: (member: CaptureMember) => boolea
       run.members.filter((member) => !gone(member)),
     )
   const members = run.members.map((member) =>
-    gone(member) ? { ...member, drafted: 0, left: true as const } : member,
+    gone(member) ? { ...undrafted(member), left: true as const } : member,
   )
   const waiting = (run.waiting ?? []).filter((member) => !gone(member))
   // With every place empty the lock-in holds nobody: back to choosing, with those waiting seated,
@@ -311,12 +366,19 @@ const withoutMembers = (run: CaptureRun, gone: (member: CaptureMember) => boolea
   return hosted(withWaiting({ ...run, members }, waiting))
 }
 
-const undrafted = (member: CaptureMember): CaptureMember =>
-  member.drafted === 0 ? member : { ...member, drafted: 0 }
+/**
+ * A member with nothing drafted and not Ready, as on a new leg. A tab with a Ready button stays
+ * one: `ready` goes back to false rather than away.
+ */
+const undrafted = ({ covered: _, ...member }: CaptureMember): CaptureMember => ({
+  ...member,
+  drafted: 0,
+  ...(member.ready === undefined ? {} : { ready: false }),
+})
 
 /**
  * The lobby with its legs re-cut: the coordinator pinned to the closing leg again, nobody has
- * drafted their new leg, and older reports are stale.
+ * drafted their new leg or is Ready for it, and older reports are stale.
  */
 const recut = (run: CaptureRun): CaptureRun => {
   const pinned = pinCoordinator(run)
@@ -403,7 +465,7 @@ export const reseatCaptures = (
       if (left === true || client === undefined || connected.has(sessionId) || !session) return run
       spare.delete(key)
       changed = true
-      return reseated(run, place, session)
+      return reseated(run, place, session, connected.get(session)?.readies === true)
     }, before),
   )
   return changed ? back : runs

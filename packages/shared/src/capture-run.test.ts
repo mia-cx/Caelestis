@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { packBits } from './bitmask.js'
 import {
   CAPTURE_LEAD_MS,
   type CaptureRun,
@@ -6,10 +7,11 @@ import {
   captureGuardCount,
   captureLead,
   captureLines,
-  capturePaintersDrafted,
+  captureLinesDrafted,
   captureReady,
   captureShortfall,
   captureSlot,
+  captureWallDrafted,
   DEFAULT_CAPTURE_SETTINGS,
   decodeCaptureRun,
   isCaptureReserve,
@@ -112,16 +114,98 @@ it('counts the painters a wall still needs so no leg exceeds 60 pixels', () => {
   expect(captureShortfall(300, 2)).toBe(3)
 })
 
-it('holds the start until every painter has drafted their leg, whatever the guards have', () => {
-  // Two painters with 20-pixel legs, and a guard.
-  expect(capturePaintersDrafted(lobby(40, [20, 19, 2]))).toBe(false)
-  expect(capturePaintersDrafted(lobby(40, [20, 20, 0]))).toBe(true)
+/** `covered` for a wall of `pixels`, with the wall pixels from `from` up to `to` drafted. */
+const covering = (pixels: number, from: number, to: number) =>
+  packBits(Uint8Array.from({ length: pixels }, (_, at) => (at >= from && at < to ? 1 : 0)))
+
+/** The lobby with member `index` reporting `covered`. */
+const reporting = (run: CaptureRun, index: number, covered: string): CaptureRun => ({
+  ...run,
+  members: run.members.with(index, { ...(run.members[index] ?? member(0)), covered }),
 })
 
-it("doesn't hold the start for reserves", () => {
-  // One 40-pixel leg, drafted, and two reserves who have drafted nothing.
-  const run: CaptureRun = { ...lobby(40, [40, 0, 0], 0), distribution: 'reserve' }
-  expect(capturePaintersDrafted(run)).toBe(true)
+describe('the wall drafted', () => {
+  it('holds the start until every painter’s leg is drafted, whatever the guards have', () => {
+    // Two painters with 20-pixel legs, and a guard; tabs that only report their own leg.
+    expect(captureWallDrafted(lobby(40, [20, 19, 2]))).toBe(false)
+    expect(captureWallDrafted(lobby(40, [20, 20, 0]))).toBe(true)
+  })
+
+  it('counts a leg drafted by someone other than its painter', () => {
+    // The first painter drafts the whole wall; the second has drafted nothing of their own leg.
+    const run = reporting(lobby(40, [20, 0], 0), 0, covering(40, 0, 40))
+    expect(captureLinesDrafted(run)).toEqual([20, 20])
+    expect(captureReady(run)).toBe(true)
+  })
+
+  it('counts a pixel two painters drafted once, and the rest of the wall still holds the start', () => {
+    // Both draft the first 30 pixels, overlapping on 10..30; nobody has the last 10.
+    const both = reporting(
+      reporting(lobby(40, [20, 10], 0), 0, covering(40, 0, 30)),
+      1,
+      covering(40, 10, 30),
+    )
+    expect(captureLinesDrafted(both)).toEqual([20, 10])
+    expect(captureReady(both)).toBe(false)
+  })
+
+  it('counts a guard zone as its guard drafted it, since nobody else paints it', () => {
+    // Two 20-pixel legs, and a guard who drafted both pixels of their zone.
+    expect(captureLinesDrafted(lobby(40, [20, 20, 2]))).toEqual([20, 20, 2])
+  })
+
+  it('credits a tab that only counts its own leg once it covers all of it', () => {
+    // The second painter's tab predates `covered`: 19 of 20 says nothing of which pixels.
+    const partly = reporting(lobby(40, [20, 19], 0), 0, covering(40, 0, 20))
+    expect(captureReady(partly)).toBe(false)
+    const fully = reporting(lobby(40, [20, 20], 0), 0, covering(40, 0, 20))
+    expect(captureReady(fully)).toBe(true)
+  })
+
+  it('counts nothing a reserve drafts, since a reserve never presses Paint', () => {
+    // One 40-pixel leg and a reserve; only the reserve has drafted, all of it.
+    const run: CaptureRun = { ...lobby(40, [0, 0], 0), distribution: 'reserve' }
+    expect(captureReady(reporting(run, 1, covering(40, 0, 40)))).toBe(false)
+    expect(captureReady({ ...run, members: [member(1, 40), member(2)] })).toBe(true)
+  })
+
+  it('ignores a coverage that doesn’t fit the wall', () => {
+    expect(captureWallDrafted(reporting(lobby(40, [0, 0], 0), 0, covering(48, 0, 48)))).toBe(false)
+  })
+})
+
+describe('Wait for Ready', () => {
+  /** A drafted lobby of two painters and a guard, with their Ready as given. */
+  const drafted = (ready: readonly (boolean | undefined)[]): CaptureRun => {
+    const run = lobby(40, [20, 20, 0])
+    return {
+      ...run,
+      waitForReady: true,
+      members: run.members.map((entry, index) => {
+        const pressed = ready[index]
+        return pressed === undefined ? entry : { ...entry, ready: pressed }
+      }),
+    }
+  }
+
+  it('holds the start until everyone who paints at a slot is Ready, the guard too', () => {
+    expect(captureReady(drafted([true, true, false]))).toBe(false)
+    expect(captureReady(drafted([true, true, true]))).toBe(true)
+    // Off, nobody's Ready holds it.
+    const { waitForReady: _, ...off } = drafted([false, false, false])
+    expect(captureReady(off)).toBe(true)
+  })
+
+  it('never waits for a tab with no Ready button, or a reserve', () => {
+    expect(captureReady(drafted([true, undefined, true]))).toBe(true)
+    const reserved: CaptureRun = {
+      ...lobby(40, [40, 0], 0),
+      distribution: 'reserve',
+      waitForReady: true,
+    }
+    const members = reserved.members.map((entry, index) => ({ ...entry, ready: index === 0 }))
+    expect(captureReady({ ...reserved, members })).toBe(true)
+  })
 })
 
 it('holds the start for a leg or guard zone left empty, but not for a reserve’s place', () => {
@@ -175,6 +259,18 @@ it('decodes who waits for the next lock-in, up to the most members a lobby holds
   expect(decodeCaptureRun({ ...run, waiting: crowd })).toBeNull()
 })
 
+it('decodes what members drafted of the wall, their Ready, and Wait for Ready', () => {
+  const base = lobby(40, [0, 0])
+  const run: CaptureRun = {
+    ...base,
+    waitForReady: true,
+    members: [{ ...member(1), covered: covering(40, 0, 20), ready: true }, member(2)],
+  }
+  expect(decodeCaptureRun(JSON.parse(JSON.stringify(run)))).toEqual(run)
+  expect(decodeCaptureRun({ ...run, waitForReady: false })).toBeNull()
+  expect(decodeCaptureRun({ ...base, members: [{ ...member(1), ready: 'yes' }] })).toBeNull()
+})
+
 describe('normaliseCaptureSettings', () => {
   it('counts down 10 s by default, from 3 s to 30 s in whole seconds', () => {
     expect(normaliseCaptureSettings(undefined)).toEqual(DEFAULT_CAPTURE_SETTINGS)
@@ -193,6 +289,7 @@ describe('normaliseCaptureSettings', () => {
         staggerMs: 520,
         leadMs: 5_000,
         distribution: 'reserve',
+        waitForReady: 'yes',
       }),
     ).toEqual({
       painters: MAX_CAPTURE_PAINTERS,
@@ -200,6 +297,8 @@ describe('normaliseCaptureSettings', () => {
       staggerMs: 500,
       leadMs: 5_000,
       distribution: 'reserve',
+      waitForReady: false,
     })
+    expect(normaliseCaptureSettings({ waitForReady: true }).waitForReady).toBe(true)
   })
 })

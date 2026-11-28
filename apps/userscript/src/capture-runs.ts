@@ -4,13 +4,16 @@ import {
   type CaptureSettings,
   type CaptureTimingReport,
   captureCoordinatorIndex,
+  captureCoverage,
   captureEndsAt,
   captureEveryone,
   captureGuardCount,
   captureHostIndex,
   captureLead,
   captureLines,
+  captureLinesDrafted,
   capturePainterCount,
+  capturePaints,
   captureReady,
   captureShortfall,
   captureSlot,
@@ -28,6 +31,7 @@ import {
   maxCaptureGuards,
   normaliseCaptureSettings,
   PALETTE_RGB,
+  packBits,
   type RegionShapePixels,
   TERRITORY_ARENA,
   TERRITORY_TEAMS,
@@ -138,6 +142,8 @@ let armedSlot: string | null = null
 let disarm: () => void = () => {}
 /** When this tab last reported its drafted count, so drafting never floods the socket. */
 let draftedSentAt = Number.NEGATIVE_INFINITY
+/** The place, as server, lobby, session and cut, this tab last said has a Ready button. */
+let readySaid: string | null = null
 let teamTriedAt = Number.NEGATIVE_INFINITY
 let joinedRun: string | null = null
 
@@ -268,15 +274,37 @@ const donePixel = (team: TerritoryTeam, pixel: { x: number; y: number }): boolea
 const draftedOn = (team: TerritoryTeam, line: readonly number[]): number =>
   linePixels(line).filter((pixel) => donePixel(team, pixel)).length
 
-/** This painter's own line, split into what they have drafted and what is left to draft. */
+/** The wall's pixels that are done for `team`, as the packed bits a draft report carries. */
+const coveredOn = (team: TerritoryTeam, wall: readonly number[]): string =>
+  packBits(Uint8Array.from(linePixels(wall), (pixel) => (donePixel(team, pixel) ? 1 : 0)))
+
+const lobbyCovered = new WeakMap<CaptureRun, ReadonlySet<string>>()
+
+/** The wall's pixels, as `x,y`, that the lobby counts as drafted by anyone. */
+const coveredPixels = (run: CaptureRun): ReadonlySet<string> => {
+  const known = lobbyCovered.get(run)
+  if (known !== undefined) return known
+  const coverage = captureCoverage(run)
+  const pixels = linePixels(run.wall ?? []).filter((_, at) => coverage[at] !== 0)
+  const covered = new Set(pixels.map(({ x, y }) => `${x},${y}`))
+  lobbyCovered.set(run, covered)
+  return covered
+}
+
+/**
+ * This painter's own line, split into what is drafted, by this tab or by anyone the lobby counts,
+ * and what is left to draft.
+ */
 const mineCache = new Map<string, readonly CaptureItem[]>()
 const mineItems = (
-  team: TerritoryTeam,
+  run: CaptureRun,
   line: readonly number[],
   colour: Rgb,
 ): readonly CaptureItem[] => {
+  const { team } = run
   const pixels = linePixels(line)
-  const done = pixels.map((pixel) => donePixel(team, pixel))
+  const covered = coveredPixels(run)
+  const done = pixels.map((pixel) => covered.has(`${pixel.x},${pixel.y}`) || donePixel(team, pixel))
   const key = `${team}|${line.join(',')}|${done.map(Number).join('')}`
   const cached = mineCache.get(key)
   if (cached !== undefined) return cached
@@ -343,12 +371,14 @@ const loadPlanView = (run: CaptureRun, mine: number): void => {
     })
 }
 
-const kindOf = (run: CaptureRun, index: number, mine: number): CaptureItemKind => {
-  if (index === mine) return 'mine'
-  const member = run.members[index]
+/** Whether every pixel of member `index`'s line is drafted; see `captureLinesDrafted`. */
+const lineDrafted = (run: CaptureRun, index: number): boolean => {
   const length = (captureLines(run)[index]?.length ?? 0) / 2
-  return member !== undefined && length > 0 && member.drafted >= length ? 'ready' : 'pending'
+  return length > 0 && (captureLinesDrafted(run)[index] ?? 0) >= length
 }
+
+const kindOf = (run: CaptureRun, index: number, mine: number): CaptureItemKind =>
+  index === mine ? 'mine' : lineDrafted(run, index) ? 'ready' : 'pending'
 
 const reducedMotion = (): boolean =>
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -358,8 +388,7 @@ const demoPlaying = (view: Shown): boolean => {
   const run = view.run
   const mine = memberIndex(view)
   if (run === null || run.startsAt !== null || mine < 0 || planView === null) return false
-  const length = (captureLines(run)[mine]?.length ?? 0) / 2
-  return planView.demo.length > 0 && (run.members[mine]?.drafted ?? 0) < length
+  return planView.demo.length > 0 && !lineDrafted(run, mine)
 }
 
 const itemsCache = new WeakMap<
@@ -466,7 +495,7 @@ export const captureItems = (): readonly CaptureItem[] => {
   if (run.wall === null) return candidates
   const mine = memberIndex(view)
   const lines = captureLines(run)
-  const key = `${planView?.key ?? ''}|${run.members.map(({ drafted }) => drafted).join(',')}`
+  const key = `${planView?.key ?? ''}|${captureLinesDrafted(run).join(',')}`
   let held = itemsCache.get(run)
   if (held?.key !== key) {
     const items: CaptureItem[] = []
@@ -486,7 +515,7 @@ export const captureItems = (): readonly CaptureItem[] => {
     itemsCache.set(run, held)
   }
   const myLine = mine < 0 ? undefined : lines[mine]
-  const own = myLine === undefined ? NO_ITEMS : mineItems(run.team, myLine, colour)
+  const own = myLine === undefined ? NO_ITEMS : mineItems(run, myLine, colour)
   const plan = planView
   // Under reduced motion the guide holds still on the whole route instead of crawling.
   const step =
@@ -885,11 +914,14 @@ const armSlot = (view: Shown, run: CaptureRun, index: number): void => {
       void reportSlot(view, run.id, slot, Promise.resolve(missed), late, wplaceRtt())
       return
     }
-    // A leg the team already holds has nothing drafted: pressing Paint would only submit
-    // whatever else is in the draft.
-    const leg = captureLines(run)[index] ?? []
+    // Any painter may draft any part of the wall, so Paint goes when this tab has drafted any of
+    // it or of its own line. With none, pressing Paint would only submit whatever else is in the
+    // draft.
+    const lines = [run.wall ?? [], captureLines(run)[index] ?? []]
     const wplaceRttMs = wplaceRtt()
-    if (!linePixels(leg).some((pixel) => draftedPixel(run.team, pixel, true))) {
+    if (
+      !lines.some((line) => linePixels(line).some((pixel) => draftedPixel(run.team, pixel, true)))
+    ) {
       const skipped = {
         clickToSendMs: null,
         sendToResponseMs: null,
@@ -942,6 +974,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   const host = run === null ? -1 : captureHostIndex(run)
   const saved = savedLobbySettings()
   const status = message ?? vacancyMessage(run, canRun)
+  const linesDrafted = run === null ? [] : captureLinesDrafted(run)
   return {
     phase,
     collapsed: cardCollapsed(),
@@ -954,6 +987,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
     staggerMs: run?.staggerMs ?? saved.staggerMs,
     leadMs: run === null ? saved.leadMs : captureLead(run),
     distribution: run?.distribution ?? saved.distribution,
+    waitForReady: run === null ? saved.waitForReady : run.waitForReady === true,
     anchor:
       run !== null && run.startsAt !== null && mine >= 0 && isCaptureGuard(run, mine)
         ? anchor
@@ -962,11 +996,21 @@ const model = (view: Shown | null): CaptureRunModel | null => {
     members: (run === null ? [] : captureEveryone(run)).map((member, index) => {
       // Past the places, those waiting for the next lock-in: no leg, role or slot yet.
       const placed = run !== null && index < run.members.length
+      // Only someone who paints at a slot has a Ready to give, and only until the countdown.
+      const readies = placed && run.startsAt === null && capturePaints(run, index)
       return {
         id: member.sessionId,
         name: member.painter.displayName,
         colour: presenceCss(member.painter.wplaceUserId),
-        drafted: member.drafted,
+        // A leg's by anyone: the lobby counts each pixel of the wall once, whoever drafted it.
+        drafted: placed ? (linesDrafted[index] ?? 0) : 0,
+        ready: !readies
+          ? null
+          : member.ready === undefined
+            ? 'no-button'
+            : member.ready
+              ? 'ready'
+              : 'unready',
         length: (lines[index]?.length ?? 0) / 2,
         me: member.sessionId === view.sessionId,
         guard: placed && isCaptureGuard(run, index),
@@ -1060,6 +1104,18 @@ const handleIntent = (intent: CaptureRunIntent): void => {
       break
     case 'set-lead':
       changeSettings(view, { leadMs: intent.leadMs })
+      break
+    case 'set-wait-for-ready':
+      changeSettings(view, { waitForReady: intent.waitForReady })
+      break
+    case 'set-ready':
+      if (run !== null)
+        sendCapture(server, {
+          type: 'capture-ready',
+          run: run.id,
+          cut: run.cut,
+          ready: intent.ready,
+        })
       break
     case 'open': {
       // The lobby is for this painter's team.
@@ -1236,15 +1292,33 @@ const tick = (): void => {
       syncCaptureClock(view.server)
     }
     const line = captureLines(run)[mine]
+    // The socket says this tab has a Ready button with its team (`captureReady`), so every place
+    // it takes has one. A place it holds without that, as one a lobby gave out before the server
+    // knew of Ready, says it once per place and cut until the lobby
+    // has it, and before any draft report, so a report can never complete the wall while the lobby
+    // still takes this tab for one without the button. A server that predates Ready ignores it,
+    // and the button stays hidden.
+    const placed = captureEveryone(run).find(({ sessionId }) => sessionId === view.sessionId)
+    const place = `${view.server.url}:${run.id}:${view.sessionId}:${run.cut}`
+    if (placed?.ready === undefined && run.startsAt === null && readySaid !== place) {
+      readySaid = place
+      sendCapture(view.server, { type: 'capture-ready', run: run.id, cut: run.cut, ready: false })
+    }
     // Report whatever the lobby does not already say, including after the server resets it for a
     // re-cut leg; the report interval keeps a report still in flight from repeating often.
-    // Pixels the team already holds count too, so the map is kept fresh while drafting.
+    // Pixels the team already holds count too, so the map is kept fresh while drafting. The
+    // count of this painter's own leg is what tabs before `covered` read.
     if (line !== undefined && run.startsAt === null) refreshHeldMap()
-    const drafted = line === undefined ? 0 : draftedOn(run.team, line)
-    const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
-    if (mine >= 0 && drafted !== run.members[mine]?.drafted && run.startsAt === null && due) {
-      draftedSentAt = localClock()
-      sendCapture(view.server, { type: 'capture-drafted', run: run.id, drafted, cut: run.cut })
+    const own = run.members[mine]
+    if (own !== undefined && run.wall !== null && run.startsAt === null) {
+      const drafted = line === undefined ? 0 : draftedOn(run.team, line)
+      const covered = coveredOn(run.team, run.wall)
+      const due = localClock() - draftedSentAt >= DRAFTED_REPORT_MS
+      if ((drafted !== own.drafted || covered !== own.covered) && due) {
+        draftedSentAt = localClock()
+        const { id, cut } = run
+        sendCapture(view.server, { type: 'capture-drafted', run: id, drafted, covered, cut })
+      }
     }
     // Only a member with pixels to place is armed; an empty leg has nothing to submit.
     if (run.startsAt !== null && (line?.length ?? 0) > 0) armSlot(view, run, mine)

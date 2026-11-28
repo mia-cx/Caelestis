@@ -7,6 +7,7 @@ import {
   isRegionDocument,
   isRegionItem,
   isRegionShape,
+  MAX_CAPTURE_COVERAGE_LENGTH,
   MAX_CAPTURE_LEAD_MS,
   MAX_CAPTURE_LINE_PIXELS,
   MAX_CAPTURE_MEMBERS,
@@ -255,10 +256,18 @@ const CaptureLead = integerBetween(MIN_CAPTURE_LEAD_MS, MAX_CAPTURE_LEAD_MS).che
   ),
 )
 
+/** A member's drafted pixels of the wall, as packed bits; the lobby checks it fits the wall. */
+const CaptureCoverage = boundedString(MAX_CAPTURE_COVERAGE_LENGTH).check(
+  Schema.isPattern(/^[A-Za-z0-9+/]*={0,2}$/),
+)
+
 const CaptureMember = Schema.Struct({
   sessionId: PresenceSessionId,
   painter: PresenceIdentity,
   drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+  // Missing from tabs that predate them; tabs that predate them pass both through unread.
+  covered: Schema.optionalKey(CaptureCoverage),
+  ready: Schema.optionalKey(Schema.Boolean),
   joined: Schema.optionalKey(integerBetween(0, Number.MAX_SAFE_INTEGER)),
   left: Schema.optionalKey(Schema.Literal(true)),
   // Kept by the server, which strips it before sending.
@@ -273,6 +282,8 @@ export const CaptureRun = Schema.Struct({
   // Missing on a lobby stored by backend 1.6.0, which its opener hosts.
   host: Schema.optionalKey(PresenceSessionId),
   ...CaptureSettings,
+  // Missing while off; tabs that predate it drop the key.
+  waitForReady: Schema.optionalKey(Schema.Literal(true)),
   members: boundedArray(CaptureMember, MAX_CAPTURE_MEMBERS),
   // Joined after the lock-in. Missing while nobody waits; clients before it drop the key, so
   // `members` alone cuts their legs the same as the server's.
@@ -302,6 +313,7 @@ export const PresenceClientEvent = Schema.Union([
     guards: Schema.optionalKey(CaptureSettings.guards),
     leadMs: Schema.optionalKey(CaptureLead),
     distribution: Schema.optionalKey(CaptureSettings.distribution),
+    waitForReady: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({ type: Schema.Literal('capture-join'), run: Identifier }),
   Schema.Struct({ type: Schema.Literal('capture-leave') }),
@@ -312,6 +324,7 @@ export const PresenceClientEvent = Schema.Union([
     staggerMs: Schema.optionalKey(CaptureSettings.staggerMs),
     leadMs: Schema.optionalKey(CaptureLead),
     distribution: Schema.optionalKey(CaptureSettings.distribution),
+    waitForReady: Schema.optionalKey(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal('capture-move'),
@@ -329,7 +342,15 @@ export const PresenceClientEvent = Schema.Union([
     type: Schema.Literal('capture-drafted'),
     run: Identifier,
     drafted: integerBetween(0, MAX_CAPTURE_LINE_PIXELS),
+    // Missing from tabs that predate it; a server that predates it drops the key.
+    covered: Schema.optionalKey(CaptureCoverage),
     cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
+  }),
+  Schema.Struct({
+    type: Schema.Literal('capture-ready'),
+    run: Identifier,
+    cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
+    ready: Schema.Boolean,
   }),
   Schema.Struct({ type: Schema.Literal('capture-go') }),
   Schema.Struct({ type: Schema.Literal('capture-close') }),
@@ -368,6 +389,9 @@ export const PresenceClientEvent = Schema.Union([
     draft: Schema.optionalKey(Schema.NullOr(PresenceDraft)),
     quickClaims: Schema.optionalKey(QuickClaims),
     team: Schema.optionalKey(TerritoryTeam),
+    // Sent with the team by a tab whose capture lobby card has a Ready button, so Wait for Ready
+    // waits for a place this session holds. A server that predates it drops the key.
+    captureReady: Schema.optionalKey(Schema.Literal(true)),
   }),
 ])
 

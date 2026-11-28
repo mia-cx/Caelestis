@@ -86,12 +86,14 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
   let nextPainter = 1
   /**
    * A session, which reports `team` as its event team first when given one: a new painter in a new
-   * browser, unless `as` names the painter and browser.
+   * browser, unless `as` names the painter and browser. With `captureReady`, its tab says with the
+   * team that it has a Ready button, as current tabs do.
    */
   const connect = async (
     token: string,
     team?: TerritoryTeam,
     as = { painterId: nextPainter++, clientId: uuidV7() },
+    captureReady = false,
   ) => {
     const { painterId, clientId } = as
     const query = new URLSearchParams({
@@ -114,7 +116,8 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     const event = JSON.parse(String((await ready)[0])) as PresenceServerEvent
     if (event.type !== 'presence-ready') throw new Error('Expected presence-ready')
     const send = (message: PresenceClientEvent) => socket.send(JSON.stringify(message))
-    if (team !== undefined) send({ type: 'presence-update', team })
+    if (team !== undefined)
+      send({ type: 'presence-update', team, ...(captureReady ? { captureReady: true } : {}) })
     return {
       sessionId: event.sessionId,
       painterId,
@@ -157,13 +160,15 @@ const start = async ({ eventServer = true, directory = '' } = {}) => {
     stop,
     painterToken,
     admin: (team?: TerritoryTeam) => connect(ADMIN, team),
-    painter: (team?: TerritoryTeam) => connect(painterToken, team),
+    painter: (team?: TerritoryTeam, captureReady = false) =>
+      connect(painterToken, team, undefined, captureReady),
     /** The same painter on another socket: from the same browser, or from `clientId`'s. */
     again: (
       session: { painterId: number; clientId: string },
       team?: TerritoryTeam,
       clientId = session.clientId,
-    ) => connect(painterToken, team, { painterId: session.painterId, clientId }),
+      captureReady = false,
+    ) => connect(painterToken, team, { painterId: session.painterId, clientId }, captureReady),
     /** A session holding an event-runner token kept from backend 1.6.0. */
     legacyRunner: (team?: TerritoryTeam) => connect(runnerToken, team),
     reader: async (team?: TerritoryTeam) => connect(await mint('read'), team),
@@ -799,4 +804,24 @@ it('hands a place to the same browser rejoining, and logs slot reports from both
   host.send(report)
   tab.send(report)
   await vi.waitFor(() => expect(slots()).toHaveLength(2))
+})
+
+it('waits for Ready from whichever tab holds a place, as that tab says with its team', async () => {
+  const server = await start()
+  const host = await server.painter(GREEN, true)
+  host.send({ type: 'capture-new', ...SETTINGS, waitForReady: true })
+  await vi.waitFor(() => expect(host.run()?.members[0]?.ready).toBe(false))
+  // A 1.8.2 tab says nothing of Ready: Wait for Ready never waits for it.
+  const old = await server.painter(GREEN)
+  old.send({ type: 'capture-join', run: host.run()?.id ?? '' })
+  await vi.waitFor(() => expect(old.run()?.members).toHaveLength(2))
+  const seat = () =>
+    host.run()?.members.find(({ painter }) => painter.wplaceUserId === old.painterId)
+  expect(seat()?.ready).toBeUndefined()
+  // A current tab of the same browser is open as it disconnects, and takes the place over: now
+  // the lobby waits for it.
+  const newer = await server.again(old, GREEN, old.clientId, true)
+  await settle()
+  old.close()
+  await vi.waitFor(() => expect(seat()).toMatchObject({ sessionId: newer.sessionId, ready: false }))
 })

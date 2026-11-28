@@ -1,3 +1,4 @@
+import { isPackedBits, unpackBits } from './bitmask.js'
 import { isRecord, isSafeInteger } from './guards.js'
 import { MAX_PRESENCE_SUBSCRIBERS } from './presence.js'
 import type { PainterIdentity } from './telemetry.js'
@@ -40,6 +41,8 @@ export const MAX_CAPTURE_LINE_AREA = 1 << 18
 export const MAX_CAPTURE_LINE_PIXELS = 60
 /** Pixels in a locked wall: the most a full plan paints. */
 export const MAX_CAPTURE_WALL_PIXELS = MAX_CAPTURE_PAINTERS * MAX_CAPTURE_LINE_PIXELS
+/** The longest `covered` a member reports: a bit for each pixel of the largest wall, in base64. */
+export const MAX_CAPTURE_COVERAGE_LENGTH = Math.ceil(Math.ceil(MAX_CAPTURE_WALL_PIXELS / 8) / 3) * 4
 /** Members in one lobby: everyone a room can hold. */
 export const MAX_CAPTURE_MEMBERS = MAX_PRESENCE_SUBSCRIBERS
 /** Default time between consecutive steps, long enough for the previous paint to land. */
@@ -68,8 +71,19 @@ export type CaptureDistribution = 'even' | 'reserve'
 export interface CaptureMember {
   readonly sessionId: string
   readonly painter: PainterIdentity
-  /** How many of their leg's pixels they have drafted. */
+  /** How many of their own leg's pixels they have drafted, or the team already holds. */
   readonly drafted: number
+  /**
+   * The wall's pixels their tab has drafted or the team already holds, as `packBits` over the
+   * wall's pixels in order, so a pixel anyone drafts counts once. Missing from a tab that predates
+   * it, and until they report on the current cut.
+   */
+  readonly covered?: string
+  /**
+   * Whether they pressed Ready since the last re-cut. Missing from a tab with no Ready button,
+   * which Wait for Ready never waits for.
+   */
+  readonly ready?: boolean
   /**
    * Their place in the order members joined, from 0 for the opener; the longest-standing member
    * takes over as host. Missing on a member stored by backend 1.6.0, who counts as 0.
@@ -114,6 +128,11 @@ export interface CaptureRun {
   readonly guards: number
   readonly distribution: CaptureDistribution
   /**
+   * Set when Start countdown also waits for everyone who paints at a slot to press Ready; missing
+   * when it doesn't.
+   */
+  readonly waitForReady?: true
+  /**
    * In paint order, guards last: everyone while the host is still choosing, and once a wall is
    * locked in, the places the lock-in gave out, including any left empty since.
    */
@@ -152,6 +171,8 @@ export interface CaptureSettings {
   readonly staggerMs: number
   readonly leadMs: number
   readonly distribution: CaptureDistribution
+  /** Start countdown also waits for everyone who paints at a slot to press Ready. */
+  readonly waitForReady: boolean
 }
 
 /** The settings a painter's first lobby opens with. */
@@ -161,6 +182,7 @@ export const DEFAULT_CAPTURE_SETTINGS: CaptureSettings = {
   staggerMs: CAPTURE_STAGGER_MS,
   leadMs: CAPTURE_LEAD_MS,
   distribution: 'even',
+  waitForReady: false,
 }
 
 /** A whole number of `step`s from `min` to `max`, or `fallback` when `value` is not a number. */
@@ -191,6 +213,7 @@ export const normaliseCaptureSettings = (stored: unknown): CaptureSettings => {
       fallback.leadMs,
     ),
     distribution: value.distribution === 'reserve' ? 'reserve' : 'even',
+    waitForReady: value.waitForReady === true,
   }
 }
 
@@ -211,6 +234,7 @@ export type CaptureClientEvent =
       readonly guards?: number
       readonly leadMs?: number
       readonly distribution?: CaptureDistribution
+      readonly waitForReady?: boolean
     }
   | { readonly type: 'capture-join'; readonly run: string }
   | { readonly type: 'capture-leave' }
@@ -222,6 +246,7 @@ export type CaptureClientEvent =
       readonly staggerMs?: number
       readonly leadMs?: number
       readonly distribution?: CaptureDistribution
+      readonly waitForReady?: boolean
     }
   /** Move a member one place earlier (-1) or later (1); see `moveCaptureMember`. */
   | { readonly type: 'capture-move'; readonly member: string; readonly by: -1 | 1 }
@@ -234,11 +259,24 @@ export type CaptureClientEvent =
       readonly guardZones: readonly (readonly number[])[]
     }
   | { readonly type: 'capture-unlock' }
+  /** What this member has drafted on cut `cut` of lobby `run`; see `CaptureMember`. */
   | {
       readonly type: 'capture-drafted'
       readonly run: string
       readonly drafted: number
+      readonly covered?: string
       readonly cut: number
+    }
+  /**
+   * Press or release Ready on cut `cut` of lobby `run`. A tab with a Ready button says so on its
+   * socket (`captureReady` in `presence-update`); it also sends `ready: false` for a place a
+   * server gave out before it knew of Ready, so the lobby knows it can wait for that tab.
+   */
+  | {
+      readonly type: 'capture-ready'
+      readonly run: string
+      readonly cut: number
+      readonly ready: boolean
     }
   | { readonly type: 'capture-go' }
   | { readonly type: 'capture-close' }
@@ -383,6 +421,19 @@ export const captureEndsAt = (run: CaptureRun): number | null =>
 export const captureShortfall = (pixels: number, painters: number): number =>
   Math.max(0, Math.ceil(pixels / MAX_CAPTURE_LINE_PIXELS) - painters)
 
+const derivedLegs = new WeakMap<CaptureRun, readonly (readonly number[])[]>()
+
+/** Each leg as the indices of its pixels in the wall, cut with `pairLines`; see `captureLines`. */
+const captureLegs = (run: CaptureRun): readonly (readonly number[])[] => {
+  const known = derivedLegs.get(run)
+  if (known !== undefined) return known
+  const pixels = Array.from({ length: (run.wall?.length ?? 0) / 2 }, (_, at) => at)
+  const legs =
+    run.wall === null ? [] : pairLines(pixels, captureLegCount(run), MAX_CAPTURE_LINE_PIXELS)
+  derivedLegs.set(run, legs)
+  return legs
+}
+
 const derivedLines = new WeakMap<CaptureRun, readonly (readonly number[])[]>()
 
 /**
@@ -397,12 +448,10 @@ export const captureLines = (run: CaptureRun): readonly (readonly number[])[] =>
   const { wall } = run
   let lines: (readonly number[])[] = []
   if (wall !== null) {
-    const pixels = Array.from({ length: wall.length / 2 }, (_, at) => at)
-    const legCount = captureLegCount(run)
-    const legs = pairLines(pixels, legCount, MAX_CAPTURE_LINE_PIXELS).map((leg) =>
+    const legs = captureLegs(run).map((leg) =>
       leg.flatMap((at) => [wall[2 * at] as number, wall[2 * at + 1] as number]),
     )
-    const reserves = Array.from({ length: capturePainterCount(run) - legCount }, () => [])
+    const reserves = Array.from({ length: capturePainterCount(run) - legs.length }, () => [])
     const zones = Array.from(
       { length: captureGuardCount(run) },
       (_, guard) => run.guardZones[guard] ?? [],
@@ -434,13 +483,72 @@ export const moveCaptureMember = (run: CaptureRun, id: string, by: -1 | 1): stri
   return order
 }
 
-/** Whether every member with a leg has drafted all of it; guards and reserves don't count. */
-export const capturePaintersDrafted = (run: CaptureRun): boolean => {
-  const lines = captureLines(run)
-  return run.members
-    .slice(0, captureLegCount(run))
-    .every((member, index) => member.drafted >= (lines[index]?.length ?? 0) / 2)
+/**
+ * Whether member `index` presses Paint at a slot: they still hold a place whose leg or guard zone
+ * has pixels. Only their drafts reach the wall, so only theirs count toward it.
+ */
+export const capturePaints = (run: CaptureRun, index: number): boolean =>
+  run.members[index]?.left !== true && (captureLines(run)[index]?.length ?? 0) > 0
+
+const derivedCoverage = new WeakMap<CaptureRun, Uint8Array>()
+
+/**
+ * Which of the wall's pixels someone who paints at a slot has drafted, or the team already holds:
+ * one byte per pixel, in wall order. A member's `covered` counts pixel by pixel, so a pixel drafted
+ * twice counts once. A tab that predates `covered` only reports a count of its own leg, which can't
+ * say which pixels it means, so that leg counts once the count covers all of it.
+ */
+export const captureCoverage = (run: CaptureRun): Uint8Array => {
+  const known = derivedCoverage.get(run)
+  if (known !== undefined) return known
+  const pixels = (run.wall?.length ?? 0) / 2
+  const coverage = new Uint8Array(pixels)
+  const legs = captureLegs(run)
+  run.members.forEach((member, index) => {
+    if (!capturePaints(run, index)) return
+    const reported = member.covered === undefined ? null : unpackBits(member.covered, pixels)
+    reported?.forEach((bit, at) => {
+      if (bit !== 0) coverage[at] = 1
+    })
+    const leg = legs[index]
+    if (leg !== undefined && member.drafted >= leg.length) for (const at of leg) coverage[at] = 1
+  })
+  derivedCoverage.set(run, coverage)
+  return coverage
 }
+
+/**
+ * How many pixels of each member's line are drafted, in member order: of a leg, by anyone; of a
+ * guard zone, which only its guard paints, by its guard as they report it.
+ */
+export const captureLinesDrafted = (run: CaptureRun): readonly number[] => {
+  const coverage = captureCoverage(run)
+  const legs = captureLegs(run)
+  return run.members.map((member, index) => {
+    const leg = legs[index]
+    if (leg === undefined) return member.drafted
+    return leg.reduce((count, at) => count + (coverage[at] ?? 0), 0)
+  })
+}
+
+/** Whether every pixel of the locked wall is drafted, by whoever, or already the team's. */
+export const captureWallDrafted = (run: CaptureRun): boolean =>
+  run.wall !== null && captureCoverage(run).every((bit) => bit !== 0)
+
+/**
+ * Whether Start countdown waits for member `index` to press Ready: Wait for Ready is on, they paint
+ * at a slot, and their tab has a Ready button.
+ */
+export const captureAwaitsReady = (run: CaptureRun, index: number): boolean =>
+  run.waitForReady === true && capturePaints(run, index) && run.members[index]?.ready !== undefined
+
+/** Whether everyone Start countdown waits for has pressed Ready; true while Wait for Ready is off. */
+export const captureMembersReady = (run: CaptureRun): boolean =>
+  run.members.every((member, index) => member.ready === true || !captureAwaitsReady(run, index))
+
+/** Whether `covered` is a coverage of the lobby's locked wall: a bit for each of its pixels. */
+export const isCaptureCoverage = (run: CaptureRun, covered: unknown): covered is string =>
+  run.wall !== null && isPackedBits(covered, run.wall.length / 2)
 
 /**
  * Whether someone left a leg or guard zone the lock-in gave them, before the countdown. Nobody else
@@ -453,14 +561,16 @@ export const captureVacant = (run: CaptureRun): boolean =>
 
 /**
  * Whether the countdown may start: a wall is locked in, its legs fit the painting members, nobody
- * has left theirs, and everyone with a leg has drafted it.
+ * has left theirs, someone who paints at a slot has drafted every pixel of it, and with Wait for
+ * Ready on, everyone it waits for has pressed Ready.
  */
 export const captureReady = (run: CaptureRun): boolean =>
   run.startsAt === null &&
   run.wall !== null &&
   captureShortfall(run.wall.length / 2, capturePainterCount(run)) === 0 &&
   !captureVacant(run) &&
-  capturePaintersDrafted(run)
+  captureWallDrafted(run) &&
+  captureMembersReady(run)
 
 /**
  * The host's index in `captureEveryone`, or -1 when nobody eligible is in the lobby: the recorded
@@ -533,7 +643,11 @@ const isMember = (value: unknown): value is CaptureMember =>
   isWorkIdentity(value.painter) &&
   isSafeInteger(value.drafted) &&
   (value.joined === undefined || isSafeInteger(value.joined)) &&
-  (value.left === undefined || value.left === true)
+  (value.left === undefined || value.left === true) &&
+  // Only bounded here: `captureCoverage` ignores one that doesn't fit the wall.
+  (value.covered === undefined ||
+    (typeof value.covered === 'string' && value.covered.length <= MAX_CAPTURE_COVERAGE_LENGTH)) &&
+  (value.ready === undefined || typeof value.ready === 'boolean')
 
 /** A lobby from a server, which is untrusted input. Null when malformed. */
 export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
@@ -555,6 +669,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     leadMs,
     cut,
     waiting,
+    waitForReady,
   } = value
   if (
     typeof id !== 'string' ||
@@ -576,6 +691,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !isSafeInteger(staggerMs) ||
     !(leadMs === undefined || isSafeInteger(leadMs)) ||
     !isSafeInteger(cut) ||
+    !(waitForReady === undefined || waitForReady === true) ||
     !(
       waiting === undefined ||
       (Array.isArray(waiting) &&
@@ -593,6 +709,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     painters,
     guards,
     distribution,
+    ...(waitForReady === undefined ? {} : { waitForReady }),
     members,
     wall,
     guardZones,
