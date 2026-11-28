@@ -11,8 +11,10 @@ import { isWorkIdentity } from './work.js'
  *
  * Lobbies live in a presence room, any number per event team. Any painter who can write opens one
  * and joins it as its host; painters join from the team's lobby list. The host, or an administrator
- * in the lobby, locks in a wall, and the wall is cut into one leg per painting member, so every member, server and client, derives the same legs
- * from the lobby with `captureLines`. Painters go in pairs from the wall's two anchors: painter `i`
+ * in the lobby, locks in a wall, and the wall is cut into one leg per painting member, so every
+ * member, server and client, derives the same legs from the lobby with `captureLines`. Only Lock in
+ * hands out legs: a painter who joins afterwards waits without one until the next lock-in, and one
+ * who leaves before the countdown leaves their place empty. Painters go in pairs from the wall's two anchors: painter `i`
  * (from 0) paints leg `i` at `startsAt + floor(i / 2) * staggerMs`, on the server's clock, which
  * each client estimates with `clock` round trips. The lobby's coordinator always paints in the last
  * step while a member, so the closing leg, and the captured area, is theirs: the painter who opened
@@ -73,8 +75,9 @@ export interface CaptureMember {
    */
   readonly joined?: number
   /**
-   * Set when they left after the closing leg was painted. They keep their place, so everyone
-   * else keeps the leg, slot and guard role the countdown started with.
+   * Set when they left a place they hold: after the closing leg was painted, or after the lock-in
+   * gave them a part. They keep the place, so everyone else keeps the leg, slot and guard role it
+   * gave them. Before the countdown, they take it back by joining again from the same browser.
    */
   readonly left?: true
   /**
@@ -109,8 +112,14 @@ export interface CaptureRun {
   /** Anchor guards live planning gives zones to, and the most members who guard. */
   readonly guards: number
   readonly distribution: CaptureDistribution
-  /** In paint order, guards last. */
+  /** In paint order, guards last, then any who joined after the lock-in. */
   readonly members: readonly CaptureMember[]
+  /**
+   * How many members, from the first, the lock-in gave a leg, a reserve place or a guard zone;
+   * `captureAssigned` reads it. Set while a wall is locked in; missing while choosing, and on a
+   * lobby locked before the server recorded it, where it is every member.
+   */
+  readonly assigned?: number
   /**
    * The locked-in wall: its pixels to paint from anchor A to anchor B, as flat world coordinates
    * `[x0, y0, x1, y1, …]`. Null while the host is still choosing.
@@ -312,17 +321,23 @@ export type CaptureServerEvent =
   /** Answers a client's `clock`: `at` is the server's time when it answered. */
   | { readonly type: 'clock'; readonly sent: number; readonly at: number }
 
+/**
+ * The members the wall is cut for, from the first: those the lock-in assigned, including any who
+ * have left since, or every member while the host is still choosing.
+ */
+export const captureAssigned = (run: CaptureRun): number => run.assigned ?? run.members.length
+
 /** The most anchor guards a lobby of this size sets: half of it, rounded down. */
 export const maxCaptureGuards = (run: CaptureRun): number =>
-  Math.min(MAX_CAPTURE_PAINTERS, Math.floor(run.members.length / 2))
+  Math.min(MAX_CAPTURE_PAINTERS, Math.floor(captureAssigned(run) / 2))
 
 /** Members who guard: up to `guards`, and never more than half the lobby. */
 export const captureGuardCount = (run: CaptureRun): number =>
   Math.min(run.guards, maxCaptureGuards(run))
 
-/** Members who paint the wall or stand by as reserves: everyone but the guards. */
+/** Members who paint the wall or stand by as reserves: everyone assigned but the guards. */
 export const capturePainterCount = (run: CaptureRun): number =>
-  run.members.length - captureGuardCount(run)
+  captureAssigned(run) - captureGuardCount(run)
 
 /**
  * Legs the wall is cut into, one for each of the first painting members: all of them, or with
@@ -337,9 +352,12 @@ export const captureLegCount = (run: CaptureRun): number => {
 
 /** Whether member `index` is an anchor guard rather than a wall painter. */
 export const isCaptureGuard = (run: CaptureRun, index: number): boolean =>
-  index >= capturePainterCount(run)
+  index >= capturePainterCount(run) && index < captureAssigned(run)
 
-/** Whether member `index` is a reserve: a painting member past the legs, with nothing to paint. */
+/**
+ * Whether member `index` is a reserve, with nothing to paint: a painting member past the legs, or
+ * one who joined after the lock-in.
+ */
 export const isCaptureReserve = (run: CaptureRun, index: number): boolean =>
   index >= captureLegCount(run) && !isCaptureGuard(run, index)
 
@@ -370,7 +388,7 @@ export const captureShortfall = (pixels: number, painters: number): number =>
 const derivedLines = new WeakMap<CaptureRun, readonly (readonly number[])[]>()
 
 /**
- * Each member's line, in member order: the locked wall cut into `captureLegCount` legs with
+ * Each assigned member's line, in member order: the locked wall cut into `captureLegCount` legs with
  * `pairLines`, an empty line for each reserve, then each guard's zone. Empty until a wall is
  * locked in. A wall too long for the painters leaves its middle uncut; `captureShortfall` says how
  * many more it needs.
@@ -421,13 +439,23 @@ export const capturePaintersDrafted = (run: CaptureRun): boolean => {
 }
 
 /**
- * Whether the countdown may start: a wall is locked in, its legs fit the painting members, and
- * everyone with a leg has drafted it.
+ * Whether someone left a leg or guard zone the lock-in gave them, before the countdown. Nobody else
+ * takes it over: the host locks in again to cut the wall for who is left.
+ */
+export const captureVacant = (run: CaptureRun): boolean =>
+  run.startsAt === null &&
+  run.wall !== null &&
+  run.members.some((member, index) => member.left === true && !isCaptureReserve(run, index))
+
+/**
+ * Whether the countdown may start: a wall is locked in, its legs fit the painting members, nobody
+ * has left theirs, and everyone with a leg has drafted it.
  */
 export const captureReady = (run: CaptureRun): boolean =>
   run.startsAt === null &&
   run.wall !== null &&
   captureShortfall(run.wall.length / 2, capturePainterCount(run)) === 0 &&
+  !captureVacant(run) &&
   capturePaintersDrafted(run)
 
 /**
@@ -521,6 +549,7 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     staggerMs,
     leadMs,
     cut,
+    assigned,
   } = value
   if (
     typeof id !== 'string' ||
@@ -541,7 +570,11 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     !(startsAt === null || isSafeInteger(startsAt)) ||
     !isSafeInteger(staggerMs) ||
     !(leadMs === undefined || isSafeInteger(leadMs)) ||
-    !isSafeInteger(cut)
+    !isSafeInteger(cut) ||
+    !(
+      assigned === undefined ||
+      (isSafeInteger(assigned) && assigned >= 0 && assigned <= members.length)
+    )
   )
     return null
   return {
@@ -560,5 +593,6 @@ export const decodeCaptureRun = (value: unknown): CaptureRun | null => {
     staggerMs,
     ...(leadMs === undefined ? {} : { leadMs }),
     cut,
+    ...(assigned === undefined ? {} : { assigned }),
   }
 }

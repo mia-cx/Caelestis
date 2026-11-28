@@ -7,6 +7,7 @@ import {
   captureLead,
   captureLines,
   capturePaintersDrafted,
+  captureReady,
   captureShortfall,
   captureSlot,
   DEFAULT_CAPTURE_SETTINGS,
@@ -120,6 +121,29 @@ it("doesn't hold the start for reserves", () => {
   // One 40-pixel leg, drafted, and two reserves who have drafted nothing.
   const run: CaptureRun = { ...lobby(40, [40, 0, 0], 0), distribution: 'reserve' }
   expect(capturePaintersDrafted(run)).toBe(true)
+})
+
+it('cuts the wall for the members the lock-in assigned, and gives later joiners nothing', () => {
+  // Locked for two painters and a guard; painter 4 joined after.
+  const run: CaptureRun = { ...lobby(40, [20, 20, 2, 0]), assigned: 3 }
+  expect(captureLines(run).map((line) => line.length / 2)).toEqual([20, 20, 2])
+  expect(captureGuardCount(run)).toBe(1)
+  expect(isCaptureReserve(run, 3)).toBe(true)
+  expect(captureSlot({ ...run, startsAt: 10_000 }, 3)).toBeNull()
+  expect(captureReady(run)).toBe(true)
+})
+
+it('holds the start for a leg or guard zone left empty, but not for a reserve’s place', () => {
+  const left = (run: CaptureRun, index: number): CaptureRun => ({
+    ...run,
+    members: run.members.map((entry, at) => (at === index ? { ...entry, left: true } : entry)),
+  })
+  const painted = lobby(40, [20, 20, 2])
+  expect(captureReady(left(painted, 0))).toBe(false)
+  expect(captureReady(left(painted, 2))).toBe(false)
+  // One 40-pixel leg in reserve, and a reserve who left.
+  const reserved: CaptureRun = { ...lobby(40, [40, 0], 0), distribution: 'reserve' }
+  expect(captureReady(left(reserved, 1))).toBe(true)
 })
 
 it('lets at most half the lobby guard, rounded down', () => {

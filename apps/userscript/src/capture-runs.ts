@@ -15,6 +15,7 @@ import {
   captureSlot,
   captureStep,
   captureSteps,
+  captureVacant,
   DEFAULT_CAPTURE_SETTINGS,
   decodePng,
   GUARD_MARGIN,
@@ -938,6 +939,7 @@ const model = (view: Shown | null): CaptureRunModel | null => {
   const closer = run === null ? -1 : captureCoordinatorIndex(run)
   const host = run === null ? -1 : captureHostIndex(run)
   const saved = savedLobbySettings()
+  const status = message ?? vacancyMessage(run, canRun)
   return {
     phase,
     collapsed: cardCollapsed(),
@@ -995,8 +997,16 @@ const model = (view: Shown | null): CaptureRunModel | null => {
         : null,
     turns: run === null ? 0 : captureSteps(run),
     startsAt: phase === 'countdown' && startAt !== null ? startAt - performance.timeOrigin : null,
-    ...(message === undefined ? {} : { message }),
+    ...(status === undefined ? {} : { message: status }),
   }
+}
+
+/** Why the countdown can't start yet, when someone left a part the lock-in gave them. */
+const vacancyMessage = (run: CaptureRun | null, canRun: boolean): string | undefined => {
+  if (run === null || !captureVacant(run)) return undefined
+  return canRun
+    ? 'Someone left. Cancel the proposed shape and lock in again.'
+    : 'Someone left. Waiting for the host to lock in again.'
 }
 
 /**
@@ -1011,7 +1021,8 @@ const lobbiesOf = (views: readonly Shown[]): CaptureRunModel['lobbies'] =>
         .map((run) => ({
           id: run.id,
           name: run.members[captureHostIndex(run)]?.painter.displayName ?? 'Lobby',
-          members: run.members.length,
+          // Not counting places left empty since the lock-in.
+          members: run.members.filter(({ left }) => left !== true).length,
           canJoin: view.canWrite,
         })),
     )

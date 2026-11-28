@@ -281,6 +281,8 @@ export const CaptureRun = Schema.Struct({
   // Missing on a lobby stored before runners could set it.
   leadMs: Schema.optionalKey(CaptureLead),
   cut: integerBetween(0, Number.MAX_SAFE_INTEGER),
+  // Missing while choosing, and on a lobby locked before the server recorded it.
+  assigned: Schema.optionalKey(integerBetween(0, MAX_CAPTURE_MEMBERS)),
 })
 
 export const PresenceClientEvent = Schema.Union([

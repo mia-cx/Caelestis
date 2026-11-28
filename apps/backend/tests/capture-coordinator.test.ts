@@ -6,6 +6,8 @@ import {
   captureGuardCount,
   captureHostIndex,
   captureLines,
+  captureSlot,
+  captureVacant,
   isCaptureGuard,
   isCaptureReserve,
   type Scope,
@@ -374,7 +376,55 @@ describe('locking in a wall', () => {
     expect(apply(runs, lock(20))).toBe(runs)
   })
 
-  it('goes back to choosing when a departure leaves fewer guards than the wall was planned for', () => {
+  it('keeps every leg, role and draft when a painter joins after the lock-in', () => {
+    // Two painters and the coordinator share 120 pixels; painter 4 guards.
+    let runs = draftAll(apply(opened([2, 3, 4], { guards: 1 }), lock(120, [[0, 1]])))
+    const before = only(runs)
+    runs = apply(runs, { type: 'capture-join', run: before.id }, actor(5))
+    // Painter 5 waits like a reserve, with no leg or slot, until the next lock-in.
+    expect(order(runs)).toEqual([2, 3, 1, 4, 5])
+    expect(legs(runs)).toEqual([40, 40, 40, 1])
+    expect(drafted(runs)).toEqual([40, 40, 40, 1, 0])
+    expect(only(runs).cut).toBe(before.cut)
+    expect(isCaptureGuard(only(runs), 3)).toBe(true)
+    expect(isCaptureReserve(only(runs), 4)).toBe(true)
+    const started = only(apply(runs, { type: 'capture-go' }))
+    expect(captureSlot(started, 4)).toBeNull()
+    // Locking in again cuts the wall for all five.
+    runs = apply(apply(runs, { type: 'capture-unlock' }), lock(120, [[0, 1]]))
+    expect(legs(runs)).toEqual([30, 30, 30, 30, 1])
+  })
+
+  it('leaves a departed painter’s leg empty until the host locks in again', () => {
+    let runs = draftAll(apply(opened([2, 3]), lock(120)))
+    const before = only(runs)
+    runs = leaveCaptures(runs, 's2', 0) ?? []
+    // Nobody else's leg or draft changes, and the countdown waits.
+    expect(order(runs)).toEqual([2, 3, 1])
+    expect(legs(runs)).toEqual([40, 40, 40])
+    expect(drafted(runs)).toEqual([0, 40, 40])
+    expect(only(runs).cut).toBe(before.cut)
+    expect(captureVacant(only(runs))).toBe(true)
+    expect(apply(runs, { type: 'capture-go' })).toBe(runs)
+    // Cancel proposed shape, then Lock in: the two left share the wall.
+    runs = apply(apply(runs, { type: 'capture-unlock' }), lock(120))
+    expect(order(runs)).toEqual([3, 1])
+    expect(legs(runs)).toEqual([60, 60])
+  })
+
+  it('gives a disconnected painter their empty place back when they join again', () => {
+    let runs = draftAll(apply(opened([2, 3]), lock(120)))
+    runs = connectedCaptures(runs, online([1, 3]))
+    expect(captureVacant(only(runs))).toBe(true)
+    // From another browser, the place is not theirs.
+    expect(apply(runs, { type: 'capture-join', run: only(runs).id }, impostor(2))).toBe(runs)
+    runs = apply(runs, { type: 'capture-join', run: only(runs).id }, again(2))
+    expect(only(runs).members.map(({ sessionId }) => sessionId)).toEqual(['s2b', 's3', 's1'])
+    expect(captureVacant(only(runs))).toBe(false)
+    expect(legs(runs)).toEqual([40, 40, 40])
+  })
+
+  it('holds a departed guard’s zone empty, and plans for the guards left after', () => {
     // Four members and two guards; one leaves, so half the lobby is one guard.
     let runs = apply(
       opened([2, 3, 4], { guards: 2 }),
@@ -383,8 +433,9 @@ describe('locking in a wall', () => {
         [1, 1],
       ]),
     )
-    expect(only(runs).wall).not.toBeNull()
     runs = leaveCaptures(runs, 's4', 0) ?? []
+    expect(captureVacant(only(runs))).toBe(true)
+    runs = apply(runs, { type: 'capture-unlock' })
     expect(only(runs)).toMatchObject({ wall: null, guardZones: [], guards: 2 })
     // A wall planned for the one guard the lobby has now locks in.
     expect(only(apply(runs, lock(40, [[0, 1]]))).wall).toEqual(wall(40))
@@ -395,23 +446,16 @@ describe('locking in a wall', () => {
     expect(apply(runs, lock(20), actor(2))).toBe(runs)
   })
 
-  it('re-cuts the same wall and resets drafted when the roster or order changes', () => {
+  it('re-cuts the same wall for everyone in the lobby when the host reorders it', () => {
+    // Painter 4 joins after the lock-in and waits; painter 3 leaves their leg empty.
     let runs = draftAll(apply(opened([2, 3]), lock(120)))
-    expect(legs(runs)).toEqual([40, 40, 40])
-    expect(drafted(runs)).toEqual([40, 40, 40])
-
     runs = apply(runs, { type: 'capture-join', run: only(runs).id }, actor(4))
-    expect(legs(runs)).toEqual([30, 30, 30, 30])
-    expect(drafted(runs)).toEqual([0, 0, 0, 0])
-
-    runs = draftAll(runs)
-    runs = apply(runs, { type: 'capture-move', member: 's2', by: 1 })
-    expect(order(runs)).toEqual([3, 2, 4, 1])
-    expect(drafted(runs)).toEqual([0, 0, 0, 0])
-
-    // Painter 4 leaves: three painters share the wall again.
-    runs = leaveCaptures(runs, 's4', 0) ?? []
+    runs = leaveCaptures(runs, 's3', 0) ?? []
+    runs = apply(runs, { type: 'capture-move', member: 's4', by: -1 })
+    expect(order(runs)).toEqual([2, 4, 1])
     expect(legs(runs)).toEqual([40, 40, 40])
+    expect(drafted(runs)).toEqual([0, 0, 0])
+    expect(captureVacant(only(runs))).toBe(false)
   })
 
   it('ignores a draft report measured before the last re-cut', () => {
@@ -499,12 +543,9 @@ describe('the closing leg', () => {
   })
 
   it('swaps with whoever holds the closing leg once the closer has left', () => {
-    // Two legs, two reserves and a guard; the opener, closing, leaves.
-    let runs = apply(
-      opened([2, 3, 4, 5], { distribution: 'reserve', guards: 1 }),
-      lock(120, [[0, 1]]),
-    )
-    runs = leaveCaptures(runs, 's1', 0) ?? []
+    // The opener, closing, leaves; then two legs, a reserve and a guard lock in.
+    let runs = leaveCaptures(opened([2, 3, 4, 5], { distribution: 'reserve', guards: 1 }), 's1', 0)
+    runs = apply(runs ?? [], lock(120, [[0, 1]]), actor(2))
     expect(order(runs)).toEqual([2, 3, 4, 5])
     expect(roles(runs)).toEqual(['leg', 'leg', 'reserve', 'guard'])
     // The guard takes the closing leg from painter 3, who guards; reserve 4 stays in reserve.
