@@ -1,5 +1,17 @@
 # @caelestis/userscript
 
+## 1.5.0
+
+### Minor Changes
+
+- 838ba63: A capture run's stagger now goes down to 100 ms, as tight as painters clicking by hand can time it.
+- 64109a8: B opens and commits the territory event's Paint, and the new Shift+B shortcut does the same for Swap shade.
+
+### Patch Changes
+
+- d11e626: Other painters' drafts carry dark stripes, so a draft in the same hue as the ground beneath it, such as a team's colour on its own territory, stays easy to see.
+- 990bd25: Event servers let any token connect from any team again, routing each session by the team it reports, so one shared token works for painters on every team.
+
 ## 1.4.0
 
 ### Minor Changes
