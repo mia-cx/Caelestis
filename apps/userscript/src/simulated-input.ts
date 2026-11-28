@@ -38,12 +38,19 @@ const forwarded = new WeakSet<Event>()
 /** Whether Caelestis dispatched this event, rather than the painter or the browser. */
 export const isForwardedEvent = (event: Event): boolean => forwarded.has(event)
 
-/** Pause or resume native Space painting, as Wplace's paint hold hears it on `document`. */
-export const forwardPaintKey = (type: 'keydown' | 'keyup'): void => {
-  const event = new KeyboardEvent(type, { code: 'Space', key: ' ', bubbles: true })
+/** Dispatch a key on `document`, where Wplace's paint panels listen for their keys. */
+const forwardKey = (type: 'keydown' | 'keyup', init: KeyboardEventInit): void => {
+  const event = new KeyboardEvent(type, { ...init, bubbles: true })
   forwarded.add(event)
   document.dispatchEvent(event)
 }
+
+/** Pause or resume native Space painting, as Wplace's paint hold hears it on `document`. */
+export const forwardPaintKey = (type: 'keydown' | 'keyup'): void =>
+  forwardKey(type, { code: 'Space', key: ' ' })
+
+/** Toggle Wplace's eraser with its default `paint.eraser` key. */
+export const forwardEraserKey = (): void => forwardKey('keydown', { code: 'KeyE', key: 'e' })
 
 type ClientPosition = { readonly clientX: number; readonly clientY: number }
 

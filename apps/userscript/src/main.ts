@@ -7,6 +7,7 @@ import { installTransfers } from './application/transfer.js'
 import { installClaims } from './claims.js'
 import { installDebugApi, loadDebugSetting, warn } from './debug.js'
 import { installDraftPixels } from './draft-pixels.js'
+import { installEventErase } from './event-erase.js'
 import { installEventTeam } from './event-team.js'
 import { installAllianceOverlayLayer } from './gl/artboard-layer.js'
 import { installOverlayLayers } from './gl/overlay-layers.js'
@@ -127,6 +128,7 @@ export const installFeatures = (): void => {
   // Middle-click picking, answered from the template when the template is what you can see.
   step('colour picker', installColourPicker)
   step('shift paint', installShiftPaint)
+  step('event erase', installEventErase)
   step('keyboard shortcuts', () => installKeyboardShortcuts())
   step('presence', installPresenceFeatures)
   step('claims', installClaims)

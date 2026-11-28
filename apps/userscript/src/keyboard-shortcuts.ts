@@ -15,7 +15,7 @@ import { setOverlayPeekActive } from './overlay-peek.js'
 import { cycleFocusedColour, navigateFocusedSelectedColour } from './palette-navigation.js'
 import { getState, onlySelectedColourFor, setOnlySelectedColourFor, setState } from './settings.js'
 import { activeShortcutBindings, currentShortcutPlatform, shortcutFor } from './shortcuts.js'
-import { simulatedInputAllowed } from './simulated-input.js'
+import { isForwardedEvent, simulatedInputAllowed } from './simulated-input.js'
 import { ownsGroup } from './templates/catalog.js'
 import { isMoving } from './templates/move.js'
 import { focusedTemplate } from './templates/nearest.js'
@@ -245,6 +245,8 @@ export const installKeyboardShortcuts = (
     if (document.hidden) endPeek()
   }
   const onKeydown = (event: KeyboardEvent): void => {
+    // Keys Caelestis presses are meant for Wplace, not for a shortcut bound to the same key.
+    if (isForwardedEvent(event)) return
     // Placement owns its confirm/cancel keys. This listener runs in capture so Wplace's alliance
     // modal cannot swallow shortcuts before they reach the shared key map.
     if (isMoving() && (event.key === 'Escape' || event.key === 'Enter')) return
