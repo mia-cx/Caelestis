@@ -5,9 +5,11 @@ import { paintPaletteIndexOf, paintPaletteSwatches } from './wplace-dom.js'
 import { useWplaceCatalog } from './wplace-messages.js'
 import {
   cancelPaintDraft,
+  isPaintOpen,
   performPaintAction,
   performShadeSwapAction,
   undoPaintDraft,
+  watchPaintSelection,
 } from './wplace-paint.js'
 
 vi.mock('./alliance-editor-dom.js', () => ({
@@ -94,4 +96,15 @@ it("finds the territory event's controls by their translated labels", () => {
   expect(performPaintAction()).toBe(false)
   expect(performShadeSwapAction()).toBe(true)
   expect(committed).toEqual(['Teinte (0:04)'])
+})
+
+it("counts the territory event's open Paint panel as painting, so its drafts are recorded", () => {
+  useWplaceCatalog(() => ({ ...FRENCH, cancel: 'Abandonner' }))
+  document.body.innerHTML = `
+    <div class="grid grid-cols-2">
+      <button>Abandonner</button>
+      <button class="btn btn-primary"><span>Peindre</span> (0:04)</button>
+    </div>`
+  watchPaintSelection()
+  expect(isPaintOpen()).toBe(true)
 })
