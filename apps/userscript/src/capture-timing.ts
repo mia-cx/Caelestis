@@ -1,6 +1,7 @@
 import {
   type CapturePaintStatus,
   isEventServer,
+  isRecord,
   LATENCY_REPORT_GAP_MS,
   type LatencyReport,
   MAX_CAPTURE_TIMING_MS,
@@ -10,6 +11,11 @@ import {
 } from '@caelestis/shared'
 import { observePageRequests, type RequestRoute } from './page-requests.js'
 import { captureViews, localClock, sendCapture } from './presence-client.js'
+import {
+  observeTerritorySocket,
+  type TerritoryMessage,
+  type TerritorySocketObserver,
+} from './territory-socket.js'
 import { worldPaintCommitButton } from './wplace-paint.js'
 import { BACKEND_ORIGIN, tileFromUrl } from './wplace-raster.js'
 
@@ -17,8 +23,10 @@ import { BACKEND_ORIGIN, tileFromUrl } from './wplace-raster.js'
  * Timing of Wplace's own requests, for reading how capture slots land and how painters' latency to
  * Wplace spreads. Every request Wplace sends to its backend is a round-trip sample, from when it
  * leaves the page to when its response headers arrive; tiles are left out, because the browser
- * often answers them from its cache. Each Paint click on the world draft is timed to its paint
- * request, and every writable event-server session hears both now and then as a `latency-report`.
+ * often answers them from its cache. So is every request on the territory event's socket, from its
+ * frame to its ack. Each Paint click on the world draft is timed to its paint request, a `/paint`
+ * POST or a territory `paint` frame, and every writable event-server session hears both now and
+ * then as a `latency-report`.
  */
 
 /** Round trips kept for the estimate, newest last. */
@@ -86,9 +94,9 @@ let lastClick: Promise<ClickTiming> | null = null
 
 /**
  * Time the paint request Wplace sends after a Paint click at `clickedAt` (a `localClock()` time):
- * the first `/paint` POST from then on, or none within ten seconds. Wplace prepares a request for
- * as long as it takes, closing the panel or not, so an earlier click still waiting may yet send
- * one: the clicks waiting share the next request. With more than one, no click can claim it, and
+ * the first `/paint` POST or territory `paint` frame from then on, or none within ten seconds.
+ * Wplace prepares a request for as long as it takes, closing the panel or not, so an earlier click
+ * still waiting may yet send one: the clicks waiting share the next request. With more than one, no click can claim it, and
  * each reports it without a click-to-send time.
  */
 export const timeNextPaint = (clickedAt: number): Promise<ClickTiming> =>
@@ -141,6 +149,13 @@ export const timedPress = (press: () => boolean): Promise<ClickTiming> | null =>
   return press() ? lastClick : null
 }
 
+/** Keep the round trip of a request sent at `sentAt` and answered at `at`. */
+const measure = (sentAt: number, at: number): void => {
+  rtts.push({ at, ms: at - sentAt })
+  if (rtts.length > RTT_SAMPLES) rtts.shift()
+  measured++
+}
+
 const timingRoute: RequestRoute = (request) => {
   if (request.url.origin !== BACKEND_ORIGIN || tileFromUrl(request.raw) !== null) return undefined
   const sentAt = localClock()
@@ -148,14 +163,76 @@ const timingRoute: RequestRoute = (request) => {
   return {
     response: (response) => {
       const at = localClock()
-      rtts.push({ at, ms: at - sentAt })
-      if (rtts.length > RTT_SAMPLES) rtts.shift()
-      measured++
+      measure(sentAt, at)
       paint?.(response.status, at)
       return response
     },
     failed: () => paint?.('failed'),
   }
+}
+
+/**
+ * How a territory paint's ack reads as a request status, as `/paint` would answer it: accepted is
+ * 200, rate-limited 429, and any other refusal 403. Existing event servers decode only these.
+ */
+const TERRITORY_ACCEPTED = 200
+const TERRITORY_RATE_LIMITED = 429
+const TERRITORY_REFUSED = 403
+/** Territory requests kept waiting for their ack; Wplace gives up on one after ten seconds. */
+const TERRITORY_UNANSWERED = 16
+
+type TerritoryRequest = { readonly sentAt: number; readonly paint: Settle | null }
+
+/**
+ * Territory socket requests sent, by socket and then id, until their ack arrives. A replaced
+ * socket can close after its successor sent a paint, so each socket settles only its own.
+ */
+const territoryRequests = new Map<WebSocket, Map<unknown, TerritoryRequest>>()
+
+/**
+ * What became of a territory paint, from its ack: refused when the server answered with an error,
+ * or with a refusal Wplace reports (any reason but `own`, pixels the team already holds).
+ */
+const territoryStatus = (ack: TerritoryMessage): PaintRequestStatus => {
+  if (ack.error === 'rate-limited') return TERRITORY_RATE_LIMITED
+  if (ack.error) return TERRITORY_REFUSED
+  const reason = isRecord(ack.result) ? ack.result.reason : undefined
+  return !reason || reason === 'own' ? TERRITORY_ACCEPTED : TERRITORY_REFUSED
+}
+
+/**
+ * The territory event's Paint panel sends no `/paint` request: its draft goes over the territory
+ * socket as `{ t: 'paint', id }`, and the server's `{ t: 'ack', id }` answers it. Every request on
+ * the socket is a round trip; a paint is also timed for the Paint click waiting for it.
+ */
+const territoryTiming: TerritorySocketObserver = {
+  sent: (message, socket) => {
+    if (message.id === undefined) return
+    const sentAt = localClock()
+    const requests = territoryRequests.get(socket) ?? new Map<unknown, TerritoryRequest>()
+    territoryRequests.set(socket, requests)
+    requests.set(message.id, {
+      sentAt,
+      paint: message.t === 'paint' ? takeRequest(sentAt) : null,
+    })
+    for (const id of requests.keys()) {
+      if (requests.size <= TERRITORY_UNANSWERED) break
+      requests.delete(id)
+    }
+  },
+  received: (message, socket) => {
+    const requests = territoryRequests.get(socket)
+    const request = message.t === 'ack' ? requests?.get(message.id) : undefined
+    if (request === undefined) return
+    requests?.delete(message.id)
+    const at = localClock()
+    measure(request.sentAt, at)
+    request.paint?.(territoryStatus(message), at)
+  },
+  closed: (socket) => {
+    for (const { paint } of territoryRequests.get(socket)?.values() ?? []) paint?.('failed')
+    territoryRequests.delete(socket)
+  },
 }
 
 const scheduleReport = (delay: number): void => {
@@ -212,6 +289,7 @@ const onClick = (event: Event): void => {
 /** Time Wplace's backend requests and Paint clicks, and report them to event servers. */
 export const observeWplaceTiming = (): void => {
   observePageRequests(timingRoute)
+  observeTerritorySocket(territoryTiming)
   // Capture phase, so the click is timed before Wplace's own handler sends anything.
   window.addEventListener('click', onClick, true)
   scheduleReport(REPORT_MS)

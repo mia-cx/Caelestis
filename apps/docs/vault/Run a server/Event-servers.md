@@ -31,7 +31,7 @@ Match lines by `lobby` and `step`:
 - `capture-countdown` gives the planned order. `startsAt` is the first slot on the server's clock. `staggerMs` separates successive steps. Members on the same step paint together; reserves have no step.
 - `capture-slot` records one browser's automatic slot attempt, not every manual click. Compare `slotAt` with `firedLateMs` (how late the tab fired), `clickToSendMs` (click to Wplace request) and `sendToResponseMs` (request to response). `wplaceRttMs` measures the tab's recent round trip to Wplace; `clockRttMs` and `clockOffsetMs` describe its clock sync with your server.
 
-`status` is Wplace's HTTP status if it replied. Otherwise look for `missed` (the tab woke too late), `nothing-drafted`, `unsubmitted` (Paint wasn't ready), `no-request`, `no-response` or `failed`. A null request timing means that part wasn't observed.
+`status` is Wplace's HTTP status if it replied. The territory event paints over Wplace's territory socket instead: its reply reads as `/paint` would answer: `200` accepted, `429` rate-limited and `403` any other refusal. The timings run from the paint message to its reply. Otherwise look for `missed` (the tab woke too late), `nothing-drafted`, `unsubmitted` (Paint wasn't ready), `no-request`, `no-response` or `failed`. A null request timing means that part wasn't observed.
 
 ## Read painters' latency to Wplace
 
